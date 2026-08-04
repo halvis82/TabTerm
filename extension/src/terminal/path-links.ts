@@ -25,7 +25,15 @@ export interface PathLinkOptions {
   resolve: (candidates: string[]) => void;
   lookup: (candidate: string) => ResolvedPath | undefined;
   activate: (resolved: ResolvedPath, event: MouseEvent) => void;
-  describe: (resolved: ResolvedPath) => string;
+  openUrl: (url: string) => void;
+  /**
+   * Links are inert unless a modifier is held.
+   *
+   * A terminal is a place where you select text constantly, and paths appear in almost every
+   * line of output. Making them permanently clickable turns ordinary selection into a minefield
+   * of accidental opens. Requiring Command matches how editors handle the same problem.
+   */
+  modifierHeld: () => boolean;
 }
 
 interface Candidate {
@@ -53,17 +61,41 @@ export function findCandidates(text: string): Candidate[] {
   return out;
 }
 
+/** Bare URLs, handled here too so that links and paths behave identically. */
+const URL_TOKEN = /\bhttps?:\/\/[^\s<>"'`)\]}]+/g;
+
+export function findUrls(text: string): Candidate[] {
+  const out: Candidate[] = [];
+  URL_TOKEN.lastIndex = 0;
+  for (let m = URL_TOKEN.exec(text); m !== null; m = URL_TOKEN.exec(text)) {
+    const token = m[0].replace(TRAILING, '');
+    if (token.length < 8) continue;
+    out.push({ text: token, start: m.index, end: m.index + token.length });
+  }
+  return out;
+}
+
 export function createPathLinkProvider(term: Terminal, opts: PathLinkOptions): ILinkProvider {
   return {
     provideLinks(bufferLineNumber, callback) {
+      // Nothing is a link unless the modifier is down.
+      if (!opts.modifierHeld()) {
+        callback(undefined);
+        return;
+      }
+
       const line = readWrappedLine(term, bufferLineNumber);
       if (!line) {
         callback(undefined);
         return;
       }
 
-      const candidates = findCandidates(line.text);
-      if (candidates.length === 0) {
+      const urls = findUrls(line.text);
+      const candidates = findCandidates(line.text).filter(
+        // A path inside a URL is part of the URL, not a separate file reference.
+        (c) => !urls.some((u) => c.start >= u.start && c.end <= u.end),
+      );
+      if (candidates.length === 0 && urls.length === 0) {
         callback(undefined);
         return;
       }
@@ -76,24 +108,34 @@ export function createPathLinkProvider(term: Terminal, opts: PathLinkOptions): I
       if (unknown.length > 0) opts.resolve(unknown);
 
       const links: ILink[] = [];
+
+      const rangeFor = (c: Candidate) => {
+        const startCol = line.offsetToColumn(c.start);
+        const endCol = line.offsetToColumn(c.end - 1);
+        if (startCol === null || endCol === null) return null;
+        return {
+          start: { x: startCol.x + 1, y: startCol.y },
+          end: { x: endCol.x + 1, y: endCol.y },
+        };
+      };
+
+      for (const u of urls) {
+        const range = rangeFor(u);
+        if (!range) continue;
+        links.push({ text: u.text, range, activate: () => opts.openUrl(u.text) });
+      }
+
       for (const c of candidates) {
         const resolved = opts.lookup(c.text);
         if (!resolved?.exists) continue;
 
-        const startCol = line.offsetToColumn(c.start);
-        const endCol = line.offsetToColumn(c.end - 1);
-        if (startCol === null || endCol === null) continue;
+        const range = rangeFor(c);
+        if (!range) continue;
 
         links.push({
           text: c.text,
-          range: {
-            start: { x: startCol.x + 1, y: startCol.y },
-            end: { x: endCol.x + 1, y: endCol.y },
-          },
+          range,
           activate: (event) => opts.activate(resolved, event),
-          hover: () => {
-            /* tooltip handled by the page */
-          },
         });
       }
       callback(links.length > 0 ? links : undefined);

@@ -45,9 +45,21 @@
   #status[data-tone='error'] {
     background: #e0776b;
   }
+  /* An explicit display value overrides the `hidden` attribute, so without these rules this
+     overlay covered a perfectly healthy terminal permanently. */
+  #recovery[hidden],
+  #status[hidden] {
+    display: none;
+  }
+  /* Links only activate while Command is held, so the terminal stays a terminal. */
+  body.cmd-held .xterm-screen {
+    cursor: pointer;
+  }
   #recovery {
     position: absolute;
     inset: 0;
+    z-index: 10;
+    background: #12131a;
     display: grid;
     place-content: center;
     gap: 14px;

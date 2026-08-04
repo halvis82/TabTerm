@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findCandidates } from './path-links.js';
+import { findCandidates, findUrls } from './path-links.js';
 
 const texts = (s: string) => findCandidates(s).map((c) => c.text);
 
@@ -50,5 +50,27 @@ describe('path candidate detection', () => {
 
   it('survives a line of pure punctuation without throwing', () => {
     expect(() => findCandidates('////::::....~~~~')).not.toThrow();
+  });
+});
+
+describe('URL detection', () => {
+  it('finds a bare URL', () => {
+    expect(findUrls('see https://example.com/docs for more').map((u) => u.text)).toContain(
+      'https://example.com/docs',
+    );
+  });
+
+  it('strips trailing punctuation from a URL', () => {
+    expect(findUrls('(https://example.com/x).').map((u) => u.text)).toContain(
+      'https://example.com/x',
+    );
+  });
+
+  it('ignores non-http schemes entirely', () => {
+    expect(findUrls('javascript:alert(1) data:text/html,x file:///etc/passwd')).toHaveLength(0);
+  });
+
+  it('does not treat a path as a URL', () => {
+    expect(findUrls('/Users/me/Projects')).toHaveLength(0);
   });
 });

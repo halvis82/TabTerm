@@ -46,6 +46,34 @@ const pathCache = new Map<string, ResolvedPath>();
 const pathsInFlight = new Set<string>();
 let currentCwd = '';
 
+/**
+ * Whether Command is held.
+ *
+ * Links are inert without it. A terminal is a place where you select text constantly and paths
+ * appear in nearly every line, so permanently clickable text turns ordinary selection into a
+ * minefield of accidental opens.
+ */
+let cmdHeld = false;
+
+function setCmdHeld(held: boolean): void {
+  if (held === cmdHeld) return;
+  cmdHeld = held;
+  document.body.classList.toggle('cmd-held', held);
+  // xterm re-queries link providers on the next pointer move, so nudge it.
+  controller?.refreshLinks();
+}
+
+function installModifierTracking(): void {
+  window.addEventListener('keydown', (e) => setCmdHeld(e.metaKey), { capture: true });
+  window.addEventListener('keyup', (e) => setCmdHeld(e.metaKey), { capture: true });
+  window.addEventListener('mousemove', (e) => setCmdHeld(e.metaKey));
+  // Releasing Command outside the page never produces a keyup here.
+  window.addEventListener('blur', () => setCmdHeld(false));
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') setCmdHeld(false);
+  });
+}
+
 function isCwdIndependent(candidate: string): boolean {
   return candidate.startsWith('/') || candidate.startsWith('~');
 }
@@ -119,12 +147,6 @@ function buildTerminal(): XtermController {
     onResize: (cols, rows) => {
       if (sessionId) client?.send({ t: 'resize', sessionId, cols, rows });
     },
-    onLinkClick: (uri) => {
-      // Scheme allowlist. Everything else stays inert text. See docs/05-security.md §4.
-      if (/^https?:\/\//i.test(uri) || /^mailto:/i.test(uri)) {
-        void chrome.tabs.create({ url: uri });
-      }
-    },
   });
 
   // Printed file and directory paths become clickable once the daemon confirms they exist.
@@ -149,7 +171,11 @@ function buildTerminal(): XtermController {
         setStatus(`Opening ${resolved.absolute}`, 'ok');
         setTimeout(() => setStatus('', 'hidden'), 1600);
       },
-      describe: (resolved) => resolved.absolute,
+      openUrl: (url) => {
+        // Scheme allowlist. Anything else stays inert text. See docs/05-security.md §4.
+        if (/^https?:\/\//i.test(url)) void chrome.tabs.create({ url });
+      },
+      modifierHeld: () => cmdHeld,
     }),
   );
   return c;
@@ -252,6 +278,7 @@ async function start(): Promise<void> {
 
   controller = buildTerminal();
   installTestHook();
+  installModifierTracking();
   setFavicon('disconnected');
   refreshTitle();
 

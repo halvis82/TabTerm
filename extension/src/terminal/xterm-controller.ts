@@ -1,14 +1,12 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
-import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { ILinkProvider } from '@xterm/xterm';
 
 export interface ControllerOptions {
   container: HTMLElement;
   onData: (data: string) => void;
   onResize: (cols: number, rows: number) => void;
-  onLinkClick: (url: string) => void;
 }
 
 /**
@@ -48,13 +46,6 @@ export class XtermController {
 
     this.#fit = new FitAddon();
     this.term.loadAddon(this.#fit);
-
-    // Scheme allowlist happens in the handler. Never javascript:, data:, or file:.
-    this.term.loadAddon(
-      new WebLinksAddon((_event, uri) => {
-        opts.onLinkClick(uri);
-      }),
-    );
 
     this.term.open(opts.container);
     this.#tryWebgl();
