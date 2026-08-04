@@ -1,7 +1,8 @@
 import { DaemonClient, type ConnectionStatus } from '../transport/daemon-client.js';
 import { getToken } from '../transport/token.js';
 import { XtermController } from './xterm-controller.js';
-import type { ServerMessage } from '@tabterm/shared';
+import type { ServerMessage, TitleFields } from '@tabterm/shared';
+import { applyFavicon, composeTitle, drawFavicon, type FaviconState } from './titles.js';
 
 /**
  * A terminal tab.
@@ -24,6 +25,33 @@ let controller: XtermController | null = null;
 let streamId = 0;
 let sessionId = requestedSession ?? '';
 let attached = false;
+let titleFields: TitleFields = {};
+let faviconState: FaviconState = 'disconnected';
+let animPhase = 0;
+let animTimer: number | undefined;
+
+function refreshTitle(status?: string): void {
+  document.title = composeTitle(titleFields, status);
+}
+
+/**
+ * Animation runs only while the tab is visible. A hidden tab has rAF paused and setInterval
+ * throttled, so a self-driven spinner would simply stop. State changes still apply when hidden,
+ * because they are pushed. See docs/10-limitations.md tier 1.1.
+ */
+function setFavicon(state: FaviconState): void {
+  faviconState = state;
+  clearInterval(animTimer);
+  animTimer = undefined;
+  applyFavicon(drawFavicon(state, animPhase));
+
+  if (state === 'running' && document.visibilityState === 'visible') {
+    animTimer = window.setInterval(() => {
+      animPhase++;
+      applyFavicon(drawFavicon('running', animPhase));
+    }, 200);
+  }
+}
 
 function setStatus(text: string, tone: 'ok' | 'warn' | 'error' | 'hidden'): void {
   statusEl.textContent = text;
@@ -42,6 +70,7 @@ function statusFor(s: ConnectionStatus): void {
       return;
     case 'retrying':
       setStatus('tabtermd is not responding. Retrying', 'error');
+      setFavicon('disconnected');
       return;
     case 'closed':
       setStatus('Disconnected', 'error');
@@ -77,6 +106,20 @@ function onControl(msg: ServerMessage): void {
      Deliberately partial. Later phases add title, cwd, command timing, and agent state
      messages; anything unhandled is ignored so a newer daemon does not break an older page. */
   switch (msg.t) {
+    case 'cwd': {
+      titleFields = { ...titleFields, cwd: msg.cwd, ...(msg.gitRoot ? { repo: msg.gitRoot } : {}) };
+      refreshTitle();
+      return;
+    }
+    case 'title': {
+      titleFields = msg.fields;
+      refreshTitle();
+      return;
+    }
+    case 'process-state': {
+      setFavicon(msg.state === 'running' ? 'running' : msg.state === 'failed' ? 'failed' : 'idle');
+      return;
+    }
     case 'auth-ok': {
       const { cols, rows } = controller?.fit() ?? { cols: 80, rows: 24 };
       if (sessionId) {
@@ -102,11 +145,15 @@ function onControl(msg: ServerMessage): void {
       controller?.reset();
       controller?.write(new TextEncoder().encode(msg.snapshot.screen), () => {});
       attached = true;
+      setFavicon('idle');
+      refreshTitle();
       controller?.focus();
       return;
     }
     case 'session-exited': {
       setStatus(`Process exited (${String(msg.exitCode)})`, 'warn');
+      setFavicon(msg.exitCode === 0 ? 'idle' : 'failed');
+      refreshTitle(`exited ${String(msg.exitCode)}`);
       return;
     }
     case 'error': {
@@ -131,6 +178,8 @@ async function start(): Promise<void> {
 
   controller = buildTerminal();
   installTestHook();
+  setFavicon('disconnected');
+  refreshTitle();
 
   client = new DaemonClient({
     port: DEFAULT_PORT,
@@ -160,7 +209,13 @@ async function start(): Promise<void> {
   });
 
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') controller?.focus();
+    if (document.visibilityState === 'visible') {
+      controller?.focus();
+      setFavicon(faviconState); // resumes animation if it was suppressed while hidden
+    } else {
+      clearInterval(animTimer);
+      animTimer = undefined;
+    }
   });
 }
 

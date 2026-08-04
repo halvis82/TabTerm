@@ -44,6 +44,10 @@ cat > "$HOSTS/com.tabterm.host.json" <<JSON
 JSON
 echo "  native messaging host at $LIBEXEC, registered for $EXT_ID"
 
+mkdir -p "$HOME/.local/share/tabterm"
+cp "$REPO/shell/tabterm-integration.zsh" "$HOME/.local/share/tabterm/"
+echo "  shell integration staged (not sourced automatically)"
+
 npm --prefix "$REPO" run build >/dev/null
 echo "  built daemon and extension"
 
@@ -68,9 +72,24 @@ mkdir -p "$HOME/Library/LaunchAgents"
 sed -e "s|__NODE__|$NODE|g" -e "s|__LIBEXEC__|$LIBEXEC|g" \
     -e "s|__STATE__|$STATE|g" -e "s|__HOME__|$HOME|g" \
     "$REPO/launchd/com.tabterm.daemon.plist.template" > "$PLIST"
+# bootout is asynchronous. Bootstrapping immediately after can race and silently fail, so
+# wait for the service to actually disappear before loading the new definition.
 launchctl bootout "gui/$(id -u)/com.tabterm.daemon" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$PLIST"
-echo "  LaunchAgent installed and started"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  launchctl print "gui/$(id -u)/com.tabterm.daemon" >/dev/null 2>&1 || break
+  sleep 0.5
+done
+if launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null; then
+  echo "  LaunchAgent installed and started"
+else
+  echo "  WARNING: launchctl bootstrap failed. Run it by hand:"
+  echo "    launchctl bootstrap gui/$(id -u) $PLIST"
+fi
+
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if nc -z 127.0.0.1 7377 2>/dev/null; then echo "  daemon is listening on 127.0.0.1:7377"; break; fi
+  sleep 0.5
+done
 
 cat <<NEXT
 
@@ -82,7 +101,10 @@ Next, once:
 
 The daemon now starts at login. It is running already.
 
+Optional, adds directory-aware tab titles and command timing:
+  echo '[ -f ~/.local/share/tabterm/tabterm-integration.zsh ] && source ~/.local/share/tabterm/tabterm-integration.zsh' >> ~/.zshrc
+
 Not done automatically, on purpose:
-  - shell integration is not added to your .zshrc
+  - your .zshrc is not edited
 
 NEXT

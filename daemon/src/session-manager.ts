@@ -4,6 +4,7 @@ import type { SessionState, TitleFields } from '@tabterm/shared';
 import type { Config } from './config.js';
 import { debug, info, warn } from './log.js';
 import { killPty, spawnPty, type PtyHandle } from './pty-manager.js';
+import { OscScanner } from './osc.js';
 import { assertTransition } from './session-state.js';
 import { VtState } from './vt-state.js';
 
@@ -33,11 +34,18 @@ export interface Session {
   vt: VtState;
   clients: Map<string, AttachedClient>;
   reapTimer?: NodeJS.Timeout;
+  /** Set while a command is running, so the title can show it rather than the shell. */
+  commandRunning: boolean;
+  lastExitCode?: number;
 }
 
 export interface SessionEvents {
   onExit: (session: Session) => void;
   onStateChange: (session: Session) => void;
+  /** Fired when the shell reports a new directory via OSC 7. */
+  onCwd?: (session: Session) => void;
+  /** Fired when the composed title fields change. */
+  onTitle?: (session: Session) => void;
 }
 
 export class SessionManager {
@@ -85,13 +93,37 @@ export class SessionManager {
       handle,
       vt,
       clients: new Map(),
+      commandRunning: false,
     };
     if (opts.command) session.command = opts.command;
+
+    // Shell integration reports meaning the daemon cannot infer from bytes alone.
+    const osc = new OscScanner({
+      onCwd: (cwd) => {
+        if (cwd === session.cwd) return;
+        session.cwd = cwd;
+        session.titleFields = { ...session.titleFields, cwd };
+        this.#events.onCwd?.(session);
+        this.#events.onTitle?.(session);
+      },
+      onCommandStart: () => {
+        session.commandRunning = true;
+      },
+      onCommandEnd: (exitCode) => {
+        session.commandRunning = false;
+        session.lastExitCode = exitCode;
+        this.#events.onTitle?.(session);
+      },
+      onPromptStart: () => {
+        session.commandRunning = false;
+      },
+    });
 
     // The daemon always drains. This listener is never removed while the session lives.
     handle.pty.onData((chunk) => {
       const buf = Buffer.from(chunk, 'utf8');
       vt.write(buf);
+      osc.feed(chunk);
       for (const client of session.clients.values()) client.onOutput(buf);
     });
 

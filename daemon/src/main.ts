@@ -43,6 +43,12 @@ async function main(): Promise<void> {
       ...(s.signal !== undefined ? { signal: String(s.signal) } : {}),
     });
   };
+  events.onCwd = (s) => {
+    server.notifySession(s, { t: 'cwd', sessionId: s.id, cwd: s.cwd });
+  };
+  events.onTitle = (s) => {
+    server.notifySession(s, { t: 'title', sessionId: s.id, fields: s.titleFields });
+  };
   events.onStateChange = (s) => {
     server.broadcast({
       t: 'process-state',
