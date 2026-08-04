@@ -136,13 +136,24 @@ recoverable. The **Kitty graphics protocol is not supported**. Tools targeting i
 
 Get these wrong early and the fix is a rewrite, not a patch.
 
-### 2.1 macOS TCC identity
-Processes spawned by the daemon inherit the **daemon's** privacy identity, not Terminal.app's.
-`ls ~/Desktop` may fail. Full Disk Access granted to iTerm does not transfer. Prompts are attributed
-to the daemon binary, and a bare `node` daemon means grants can be invalidated by a Node upgrade.
+### 2.1 macOS TCC identity, and the hang
+Measured. Processes spawned by the daemon inherit the **daemon's** privacy identity, not
+Terminal.app's. Full Disk Access held by Terminal and iTerm does nothing for the daemon.
 
-**Fix:** ship the daemon in a signed app bundle with a stable identifier so TCC has a durable
-identity. Retrofitting forces every grant to be redone.
+**A bare `node` daemon is identified by absolute path.** The TCC database records the client as
+`/opt/homebrew/Cellar/node@20/20.19.5/bin/node`, which contains the Node patch version. Upgrading
+Node changes that path and **silently invalidates every grant**. Terminal and iTerm are recorded by
+bundle identifier, which survives updates. That difference is the entire argument for shipping a
+signed app bundle.
+
+**The failure mode is a hang, not a denial.** Reading an ungranted directory does not return
+`Operation not permitted`. macOS raises a blocking consent prompt and the call waits indefinitely.
+In a terminal that presents as a **frozen session with no error and no output**, while a system
+dialog sits somewhere the user may never look. This is the worst possible failure shape for a
+terminal emulator and it must be handled explicitly, not left to chance.
+
+**Fix:** ship the daemon in a signed app bundle with a stable identifier, and pre-warm consent at
+install time rather than letting the first `ls ~/Downloads` hang. Retrofitting forces every grant to be redone.
 
 ### 2.2 MV3 service worker lifetime
 Terminates at ~30 s idle. It cannot hold the connection that must always exist, and it is the only
