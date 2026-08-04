@@ -1,7 +1,8 @@
 import { DaemonClient, type ConnectionStatus } from '../transport/daemon-client.js';
 import { getToken } from '../transport/token.js';
 import { XtermController } from './xterm-controller.js';
-import type { ServerMessage, TitleFields } from '@tabterm/shared';
+import type { ResolvedPath, ServerMessage, TitleFields } from '@tabterm/shared';
+import { createPathLinkProvider, findCandidates } from './path-links.js';
 import { applyFavicon, composeTitle, drawFavicon, type FaviconState } from './titles.js';
 
 /**
@@ -29,6 +30,33 @@ let titleFields: TitleFields = {};
 let faviconState: FaviconState = 'disconnected';
 let animPhase = 0;
 let animTimer: number | undefined;
+
+/**
+ * Resolved paths.
+ *
+ * Cached because the same text is re-examined on every hover and every redraw. Negative
+ * results are cached too, so a line full of prose stops being asked about.
+ *
+ * A RELATIVE path means something different in every directory, so its key includes the
+ * working directory it was resolved against. Without that, `src/main.ts` in one project would
+ * answer for `src/main.ts` in the next one. Absolute and home-relative paths are keyed on
+ * their own, since they do not depend on where the shell happens to be.
+ */
+const pathCache = new Map<string, ResolvedPath>();
+const pathsInFlight = new Set<string>();
+let currentCwd = '';
+
+function isCwdIndependent(candidate: string): boolean {
+  return candidate.startsWith('/') || candidate.startsWith('~');
+}
+
+function cacheKey(candidate: string): string {
+  return isCwdIndependent(candidate) ? candidate : `${currentCwd}\u0000${candidate}`;
+}
+
+function lookupPath(candidate: string): ResolvedPath | undefined {
+  return pathCache.get(cacheKey(candidate));
+}
 
 function refreshTitle(status?: string): void {
   document.title = composeTitle(titleFields, status);
@@ -98,6 +126,32 @@ function buildTerminal(): XtermController {
       }
     },
   });
+
+  // Printed file and directory paths become clickable once the daemon confirms they exist.
+  c.registerLinkProvider(
+    createPathLinkProvider(c.term, {
+      resolve: (candidates) => {
+        const fresh = candidates.filter((x) => !pathsInFlight.has(cacheKey(x)));
+        if (fresh.length === 0 || !sessionId) return;
+        for (const x of fresh) pathsInFlight.add(cacheKey(x));
+        client?.send({ t: 'resolve-paths', sessionId, candidates: fresh });
+      },
+      lookup: lookupPath,
+      activate: (resolved) => {
+        if (!sessionId) return;
+        // A directory reveals in Finder. A file opens in whatever macOS uses for it.
+        client?.send({
+          t: 'open-path',
+          sessionId,
+          path: resolved.candidate,
+          how: resolved.isDirectory ? 'reveal-in-finder' : 'default-app',
+        });
+        setStatus(`Opening ${resolved.absolute}`, 'ok');
+        setTimeout(() => setStatus('', 'hidden'), 1600);
+      },
+      describe: (resolved) => resolved.absolute,
+    }),
+  );
   return c;
 }
 
@@ -106,9 +160,29 @@ function onControl(msg: ServerMessage): void {
      Deliberately partial. Later phases add title, cwd, command timing, and agent state
      messages; anything unhandled is ignored so a newer daemon does not break an older page. */
   switch (msg.t) {
+    case 'paths-resolved': {
+      // Key on the directory the DAEMON resolved against, not on what we thought it was.
+      // The daemon asks the OS, so it is authoritative even with no shell integration.
+      const keyFor = (candidate: string) =>
+        isCwdIndependent(candidate) ? candidate : `${msg.cwd}\u0000${candidate}`;
+      if (msg.cwd && msg.cwd !== currentCwd) {
+        currentCwd = msg.cwd;
+        pathsInFlight.clear();
+      }
+      for (const r of msg.results) {
+        pathCache.set(keyFor(r.candidate), r);
+        pathsInFlight.delete(keyFor(r.candidate));
+      }
+      // A path becomes clickable once the daemon has confirmed it, so refresh what is drawn.
+      controller?.refreshLinks();
+      return;
+    }
     case 'cwd': {
+      currentCwd = msg.cwd;
       titleFields = { ...titleFields, cwd: msg.cwd, ...(msg.gitRoot ? { repo: msg.gitRoot } : {}) };
       refreshTitle();
+      // A relative path that did not exist in the old directory may exist in this one.
+      controller?.refreshLinks();
       return;
     }
     case 'title': {
@@ -232,6 +306,9 @@ declare global {
       readScreen: () => string;
       sessionId: () => string;
       attached: () => boolean;
+      /** Path candidates found on the visible screen, and what the daemon said about them. */
+      probePaths: () => string[];
+      resolvedPaths: () => ResolvedPath[];
     };
   }
 }
@@ -250,6 +327,21 @@ function installTestHook(): void {
     },
     sessionId: () => sessionId,
     attached: () => attached,
+    probePaths: () => {
+      const screen = window.__tabterm?.readScreen() ?? '';
+      const found = [
+        ...new Set(screen.split('\n').flatMap((l) => findCandidates(l).map((c) => c.text))),
+      ];
+      const unknown = found.filter(
+        (x) => !pathCache.has(cacheKey(x)) && !pathsInFlight.has(cacheKey(x)),
+      );
+      if (unknown.length > 0 && sessionId) {
+        for (const x of unknown) pathsInFlight.add(cacheKey(x));
+        client?.send({ t: 'resolve-paths', sessionId, candidates: unknown });
+      }
+      return found;
+    },
+    resolvedPaths: () => [...pathCache.values()],
   };
 }
 

@@ -18,6 +18,8 @@ import { authDelayMs, recordFailure, recordSuccess, verifyToken } from './auth.j
 import type { Config } from './config.js';
 import { FlowController } from './flow-control.js';
 import { debug, info, warn } from './log.js';
+import { openPath, resolvePaths } from './paths.js';
+import { processCwd } from './process-cwd.js';
 import type { Session, SessionManager } from './session-manager.js';
 
 interface Client {
@@ -267,6 +269,42 @@ export class DaemonServer {
         return;
       }
 
+      case 'resolve-paths': {
+        const session = this.#sessions.get(msg.sessionId);
+        if (!session) return;
+        void (async () => {
+          const cwd = await this.#liveCwd(session);
+          const results = await resolvePaths(msg.candidates, cwd);
+          send(
+            client.socket,
+            controlFrame({ t: 'paths-resolved', sessionId: session.id, results, cwd }),
+          );
+        })().catch(() => {
+          /* resolution is best effort; a failure just leaves paths unclickable */
+        });
+        return;
+      }
+
+      case 'open-path': {
+        // Re-resolve rather than trusting the path the frontend sends back. The frontend is
+        // ours, but this keeps the trust boundary at the daemon where it belongs.
+        const session = this.#sessions.get(msg.sessionId);
+        if (!session) return;
+        void this.#liveCwd(session)
+          .then((cwd) => resolvePaths([msg.path], cwd))
+          .then(async ([resolved]) => {
+            if (!resolved?.exists) {
+              sendError(client.socket, 'path-not-found', 'no such path');
+              return;
+            }
+            await openPath(resolved.absolute, msg.how);
+          })
+          .catch(() => {
+            sendError(client.socket, 'path-not-found', 'could not open path');
+          });
+        return;
+      }
+
       case 'list-sessions': {
         for (const s of this.#sessions.all) {
           send(
@@ -286,6 +324,21 @@ export class DaemonServer {
       default:
         debug('control.unhandled', { t: (msg as { t: string }).t });
     }
+  }
+
+  /**
+   * Where the session actually is right now.
+   *
+   * OSC 7 is instant but requires the user to have sourced the shell integration. The OS
+   * always knows, so it is the fallback, which makes path resolution work with no shell setup.
+   */
+  async #liveCwd(session: Session): Promise<string> {
+    const fromOs = await processCwd(session.pid);
+    if (fromOs) {
+      session.cwd = fromOs;
+      return fromOs;
+    }
+    return session.cwd;
   }
 
   #bind(client: Client, session: Session): number {

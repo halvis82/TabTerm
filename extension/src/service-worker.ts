@@ -73,6 +73,7 @@ async function openTerminal(): Promise<void> {
     }
   }
   void ensureOffscreen();
+  void reportShortcuts();
 }
 
 chrome.runtime.onMessage.addListener((msg: { t?: string }, _sender, sendResponse) => {
@@ -83,11 +84,34 @@ chrome.runtime.onMessage.addListener((msg: { t?: string }, _sender, sendResponse
   return true; // keep the channel open for the async reply
 });
 
-chrome.runtime.onInstalled.addListener(() => void ensureOffscreen());
+chrome.runtime.onInstalled.addListener(() => {
+  void ensureOffscreen();
+  void reportShortcuts();
+});
 chrome.runtime.onStartup.addListener(() => void ensureOffscreen());
 chrome.commands.onCommand.addListener((command) => {
-  if (command === 'new-terminal') void openTerminal();
+  if (command === 'new-terminal' || command === 'new-terminal-alt') void openTerminal();
 });
+
+/**
+ * Report which shortcut, if any, Chrome actually bound.
+ *
+ * Manifest acceptance is not assignment: Chrome silently declines keys it reserves, and the
+ * reserved set is not documented. Without this the failure is invisible, which is exactly how
+ * it presented the first time. See docs/10-limitations.md tier 1.8.
+ */
+async function reportShortcuts(): Promise<void> {
+  const commands = await chrome.commands.getAll();
+  const bound = commands.filter((c) => c.shortcut);
+  await chrome.storage.local.set({
+    'tabterm.shortcuts': commands.map((c) => ({ name: c.name, shortcut: c.shortcut ?? '' })),
+  });
+  if (bound.length === 0) {
+    console.warn(
+      'TabTerm: Chrome bound no keyboard shortcut. Set one at chrome://extensions/shortcuts',
+    );
+  }
+}
 chrome.action.onClicked.addListener(() => void openTerminal());
 
 void ensureOffscreen();

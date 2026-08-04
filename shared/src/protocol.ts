@@ -220,9 +220,24 @@ export type ClientMessage =
       direction: 'horizontal' | 'vertical';
     }
   | { t: 'detach-pane'; workspaceId: string; paneId: string }
+  | { t: 'resolve-paths'; sessionId: string; candidates: readonly string[] }
+  | { t: 'open-path'; sessionId: string; path: string; how: OpenHow }
   | { t: 'list-sessions' }
   | { t: 'list-workspaces' }
   | { t: 'subscribe'; topics: readonly string[] };
+
+/** What to do with a resolved path. Each maps to a specific structured spawn, never a shell string. */
+export type OpenHow = 'default-app' | 'reveal-in-finder';
+
+export interface ResolvedPath {
+  /** Exactly the text that appeared in the terminal, so the frontend can match it back. */
+  candidate: string;
+  absolute: string;
+  exists: boolean;
+  isDirectory: boolean;
+  line?: number;
+  column?: number;
+}
 
 export type ServerErrorCode =
   | 'auth-required'
@@ -268,6 +283,7 @@ export type ServerMessage =
   | { t: 'session-expired'; sessionId: string }
   | { t: 'workspace-updated'; workspaceId: string; layout: unknown }
   | { t: 'server-detected'; sessionId: string; port: number }
+  | { t: 'paths-resolved'; sessionId: string; cwd: string; results: readonly ResolvedPath[] }
   | { t: 'error'; code: ServerErrorCode; message: string; context?: string };
 
 export type ControlMessage = ClientMessage | ServerMessage;

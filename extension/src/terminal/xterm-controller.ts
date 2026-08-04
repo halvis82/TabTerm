@@ -2,6 +2,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import type { ILinkProvider } from '@xterm/xterm';
 
 export interface ControllerOptions {
   container: HTMLElement;
@@ -65,6 +66,15 @@ export class XtermController {
   /** Write PTY bytes, and report back only once xterm has actually parsed them. */
   write(data: Uint8Array, onParsed: (bytes: number) => void): void {
     this.term.write(data, () => onParsed(data.byteLength));
+  }
+
+  registerLinkProvider(provider: ILinkProvider): void {
+    this.term.registerLinkProvider(provider);
+  }
+
+  /** Force xterm to re-run link providers, after the daemon confirms new paths. */
+  refreshLinks(): void {
+    this.term.refresh(0, this.term.rows - 1);
   }
 
   reset(): void {

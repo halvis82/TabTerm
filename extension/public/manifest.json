@@ -17,9 +17,20 @@
   "commands": {
     "new-terminal": {
       "suggested_key": {
-        "mac": "Command+Shift+E"
+        "mac": "Command+Shift+O"
       },
       "description": "Open a new terminal tab"
+    },
+    "new-terminal-alt": {
+      "suggested_key": {
+        "mac": "Alt+Shift+T"
+      },
+      "description": "Open a new terminal tab (alternate binding)"
+    },
+    "_execute_action": {
+      "suggested_key": {
+        "mac": "MacCtrl+Shift+T"
+      }
     }
   }
 }
