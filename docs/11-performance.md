@@ -39,7 +39,7 @@ Measured on arm64 with Node 20 unless marked otherwise. Any change that moves a 
 | Attach to first paint, single pane | To be set | the attach and restore work |
 | Attach to first paint, 3-pane workspace | To be set | the workspace restore work |
 | 8 simultaneous restores, total stall | To be set | the startup restore work |
-| Sustained PTY to rendered throughput | To be set | the throughput spike |
+| Sustained PTY through the VT parser | — | **50 MB/s** measured |
 | History search, 100k rows, indexed | To be set | the history search work |
 | Detach pane to reattached tab | Perceptually instant | the pane detach work |
 | Prompt latency added by shell integration | Not measurable | the OSC 7 work |
@@ -65,11 +65,26 @@ terminal with no explanation. So:
 
 Full protocol in `02-protocol.md` §5.
 
-| Parameter | Initial | Final source |
+| Parameter | Value | Basis |
 |---|---|---|
-| Credit window per stream | 256 KiB | the throughput spike |
-| Coalescing interval | 6 ms | the throughput spike |
-| Max chunk | 64 KiB | the throughput spike |
+| Credit window per stream | 256 KiB | Four chunks in flight |
+| Coalescing interval | 6 ms | Perceived latency, not bandwidth |
+| Max chunk | 64 KiB | Peak parse rate, diminishing returns beyond |
+
+**Measured, and it changes the reasoning.** The VT state machine is the bottleneck, not the socket:
+
+| Stage | Throughput |
+|---|---|
+| Raw PTY read | 248 MB/s |
+| PTY read + VT state machine | **50 MB/s** |
+| Loopback WebSocket, 64 KiB binary frames | 1,783 MB/s |
+
+The transport has roughly **35 times the headroom** of the parser. So the credit window is not there
+to protect the socket. It protects the frontend renderer, which is the slowest consumer in the chain.
+Coalescing buys 1.7x by cutting per-call overhead (66 MB/s at 256 B chunks, 110 MB/s at 64 KiB), which
+is worth having but is not the main event.
+
+Practical consequence: `cat` of a 500 MB file costs about 10 seconds of pure daemon parse.
 
 Terminal bytes go in binary WebSocket frames. Never base64, which would inflate high-throughput
 output by a third for nothing.

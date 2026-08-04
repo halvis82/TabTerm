@@ -107,13 +107,15 @@ fires after the data is actually parsed, not merely queued.
 **Coalescing.** Output is accumulated for `COALESCE_MS` and flushed as one frame, capped at
 `MAX_CHUNK`. This turns `cat bigfile` from tens of thousands of tiny frames into a manageable stream.
 
-| Parameter | Initial value | Set by |
-|---|---|---|
-| `WINDOW` | 256 KiB | the throughput spike measurement |
-| `COALESCE_MS` | 6 ms | the throughput spike measurement |
-| `MAX_CHUNK` | 64 KiB | the throughput spike measurement |
+| Parameter | Value |
+|---|---|
+| `WINDOW` | 256 KiB |
+| `COALESCE_MS` | 6 ms |
+| `MAX_CHUNK` | 64 KiB |
 
-These are placeholders until the throughput spike produces real numbers. Do not treat them as tuned.
+Measured: the loopback socket sustains 1,783 MB/s while the VT parser sustains 50 MB/s. The socket
+is not the constraint. The window exists to protect the frontend renderer, and `MAX_CHUNK` is set at
+the point where parse throughput stops improving. See `11-performance.md`.
 
 **The critical rule:** when a client's window is exhausted, the daemon stops *sending* to that
 client. It never stops *reading* the PTY. Output continues into the VT state machine and scrollback.

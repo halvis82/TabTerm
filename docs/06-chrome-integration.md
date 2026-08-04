@@ -58,9 +58,12 @@ document. Never from a terminal page.
 
 ### Opening
 
-`Cmd+Opt+T` via `chrome.commands`, with a fallback binding chosen in the keyboard reachability spike if Chrome rejects the
-combination. Extension commands are routed by Chrome and are not subject to the page-level
-interception limits in §6.
+Via `chrome.commands`. **`Command+Alt` combinations are rejected outright** by manifest validation
+on macOS, so the originally planned `Cmd+Option+T` is not available. See `10-limitations.md` tier 1.8.
+Accepted patterns include `Command+Shift+<key>`, `Alt+Shift+<key>`, and `MacCtrl+Shift+<key>`, and at
+most **four** commands may carry a suggested key. All are rebindable at `chrome://extensions/shortcuts`.
+
+Extension commands are routed by Chrome and are not subject to the page-level interception limits in §6.
 
 New tabs open at `currentIndex + 1` and inherit the current tab's group when one exists.
 
@@ -148,11 +151,13 @@ approval > failure > waiting > running > idle
 | Hidden | **Discrete state icons only.** No animation |
 | Discarded | Frozen at discard time. Nothing we can do |
 
-Hidden-tab timers are throttled to roughly once per minute and `requestAnimationFrame` is paused
-entirely, so a `setInterval` spinner does not animate in a background tab. Driving frames from
-daemon WebSocket pushes does work, because message delivery is not timer-throttled, but it wakes a
-renderer several times a second per hidden tab and directly fights the memory and CPU goals in
-`11-performance.md`. We do not do it.
+Measured on Chrome 150: in a hidden tab `requestAnimationFrame` is fully paused and
+`setInterval(1000)` drops to 0.53/s, so a self-driven spinner cannot animate. But **WebSocket
+delivery to a hidden tab is completely unthrottled** (60 of 60 at 10 Hz), title and favicon writes
+still apply, and a hidden tab repainted its favicon 25 out of 25 times at 5 fps under push.
+
+So push-driven animation in a background tab is possible. We decline it because it wakes a renderer
+several times a second per hidden tab for little benefit, not because it fails.
 
 **Consequence:** the favicon is not a reliable status channel for a tab you are not looking at.
 Anything that must reach the user while the tab is hidden or discarded goes through a notification
@@ -230,13 +235,18 @@ Focus the window, focus or open the tab, focus the correct pane. The target is c
 
 From the WebGL context spike.
 
-Chrome caps concurrent WebGL contexts per process. Exceeding it drops the oldest context silently.
-With one xterm.js WebGL renderer per tab plus per pane, many terminal tabs will hit it.
+Measured on Chrome 150: the cap is **exactly 16 contexts per page**, and the 17th evicts the oldest.
+But it is per page, not global. Twenty separate tabs each holding a context showed **zero loss**,
+which is the shape TabTerm actually renders in.
+
+Only a single tab holding 17 or more simultaneously rendering panes can hit the cap, which no
+realistic layout reaches. Handle `webglcontextlost` as correctness insurance rather than an expected
+steady state.
 
 | Pane state | Renderer |
 |---|---|
 | Visible and focused | WebGL |
-| Visible, unfocused | WebGL while under the context budget, canvas beyond it |
+| Visible, unfocused | WebGL, falling back to canvas past 16 panes in one tab |
 | Hidden pane in a visible tab | Suspended, no renderer |
 | Tab hidden | Suspended after a configured delay, state retained, redraw from daemon snapshot on reactivation |
 
@@ -259,14 +269,18 @@ canvas, it never breaks the pane.
     "clipboardRead", "commands"
   ],
   "commands": {
-    "new-terminal":      { "suggested_key": { "mac": "Command+Alt+T" } },
-    "open-agent":       { "suggested_key": { "mac": "Command+Alt+C" } },
-    "command-palette":   { "suggested_key": { "mac": "Command+Alt+P" } },
-    "history-search":    { "suggested_key": { "mac": "Command+Alt+R" } }
+    "new-terminal":    { "suggested_key": { "mac": "Command+Shift+E" } },
+    "open-agent":      { "suggested_key": { "mac": "Command+Shift+J" } },
+    "command-palette": { "suggested_key": { "mac": "Command+Shift+K" } },
+    "history-search":  { "suggested_key": { "mac": "Command+Shift+Y" } }
   }
 }
 ```
 
 Every permission is justified line by line in `05-security.md` §8. No `<all_urls>`. No broad content
-scripts. Suggested keys are subject to the keyboard reachability spike confirming Chrome accepts them; all are user-rebindable
-at `chrome://extensions/shortcuts`.
+scripts.
+
+`Command+Alt` combinations are rejected by Chrome on macOS, and only **four** commands may carry a
+suggested key, so these four are the entire budget. Everything else reaches the command palette.
+All four are user-rebindable at `chrome://extensions/shortcuts`, and whether Chrome actually binds a
+given key at runtime still needs one manual confirmation.

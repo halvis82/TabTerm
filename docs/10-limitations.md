@@ -68,15 +68,19 @@ for a normal paste.
 
 The feature survives, but not in its obvious form.
 
-### 1.1 Animated favicons in background tabs
-Chrome throttles hidden-tab timers to roughly once per minute and pauses `requestAnimationFrame`
-entirely. A `setInterval` favicon spinner **does not animate in a hidden tab**, which is precisely
-the case the feature existed for.
+### 1.1 Self-driven animation in background tabs
+Measured on Chrome 150: in a hidden tab `requestAnimationFrame` is **fully paused, 0 frames**, and
+`setInterval(1000)` drops to 0.53/s and degrades further. A self-driven favicon spinner cannot
+animate in a background tab.
 
-WebSocket message delivery is *not* timer-throttled, so daemon-pushed frames do work, at the cost of
-waking a renderer several times a second per hidden tab. That fights the goals in `11-performance.md`.
+What *does* work, also measured: **WebSocket delivery to a hidden tab is completely unthrottled**
+(60 of 60 messages at 10 Hz, identical to a visible tab), and title and favicon writes still apply.
+A hidden tab repainted its favicon 25 out of 25 times at 5 fps when the frames were pushed.
 
-**Decision:** animate only when visible, discrete state icons when hidden. `06-chrome-integration.md` §5.
+So this is a **cost tradeoff, not a capability limit**. A background tab can show live animated
+status if the daemon drives it. We choose not to, because it wakes a renderer several times a second
+per hidden tab for little benefit. **Decision:** animate when visible, push discrete state changes
+when hidden. `06-chrome-integration.md` §5.
 
 ### 1.2 Tab discarding freezes status entirely
 Chrome discards background tabs under memory pressure. The renderer is destroyed. The tab keeps its
@@ -108,6 +112,19 @@ No arbitrary hex. Workspace template `color` fields are validated against the en
 A pinned Chrome tab renders **only the favicon**. Rich dynamic titles are invisible for exactly the
 sessions most likely to be pinned. Combined with 1.1, a pinned background session communicates
 through one static 16 px icon.
+
+### 1.8 chrome.commands rejects Command+Alt, and caps suggested keys at four
+Measured on Chrome 150. `Command+Alt+<key>` is rejected by manifest validation in either modifier
+order, so the originally planned `Cmd+Option+T`, `Cmd+Option+C`, `Cmd+Option+P`, and `Cmd+Option+R`
+cannot be extension shortcuts at all.
+
+Accepted patterns: `Command+Shift+<key>`, `Alt+Shift+<key>`, `MacCtrl+Shift+<key>`, `Command+<key>`,
+`Alt+<key>`, `MacCtrl+<key>`, `Command+MacCtrl+<key>`.
+
+**At most four commands may carry a suggested key.** Everything else reaches the command palette.
+
+Manifest acceptance is not runtime binding: Chrome silently declines keys it reserves for itself.
+That distinction still needs one manual check with a normally installed extension.
 
 ### 1.7 Kitty graphics protocol
 xterm.js supports Sixel and the iTerm2 inline-image protocol via addon, so images are partly
@@ -215,14 +232,14 @@ Each has a Phase 0 spike. Nothing load-bearing may rely on an unverified assumpt
 | # | Assumption | Spike |
 |---|---|---|
 | 1 | Offscreen document idle lifetime in current Chrome | the service worker lifetime spike |
-| 2 | `chrome.commands` accepts `Command+Alt+T` and `Command+Alt+C` | the keyboard reachability spike |
-| 3 | Concurrent WebGL context ceiling with N tabs and panes | the WebGL context spike |
-| 4 | Hidden-tab favicon updates via WebSocket push are not coalesced away | the background-tab status spike |
-| 5 | node-pty prebuild availability for darwin-arm64 on Node 20 | the node-pty spike |
+| ~~2~~ | ~~`chrome.commands` accepts `Command+Alt`~~ | ❌ **Resolved: REJECTED.** See tier 1.8 |
+| ~~3~~ | ~~Concurrent WebGL context ceiling~~ | ✅ Resolved: 16 per page, no limit across tabs up to 20 |
+| ~~4~~ | ~~Hidden-tab favicon updates via push~~ | ✅ Resolved: fully unthrottled, 25/25 repaints at 5 fps |
+| ~~5~~ | ~~node-pty prebuild availability~~ | ✅ Resolved: prebuild ships and is used |
 | 6 | Whether Chrome discards a tab holding an open WebSocket | the background-tab status spike |
 | 7 | Whether a signed app bundle yields an upgrade-surviving TCC grant | the TCC spike |
-| 8 | Round-trip fidelity of the chosen headless emulator | the VT fidelity spike |
-| 9 | Sustained throughput ceiling PTY to rendered output | the throughput spike |
+| ~~8~~ | ~~Round-trip fidelity of the headless emulator~~ | ✅ Resolved: 7/7 fixtures exact |
+| ~~9~~ | ~~Sustained throughput ceiling~~ | ✅ Resolved: 50 MB/s, bounded by the VT parser |
 
 ---
 
