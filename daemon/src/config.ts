@@ -1,0 +1,71 @@
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
+/**
+ * Filesystem layout. See docs/01-architecture.md.
+ *
+ * The token file is the only security boundary on the local socket, so its mode is enforced
+ * at startup rather than assumed.
+ */
+export const paths = {
+  config: join(homedir(), '.config', 'tabterm'),
+  state: join(homedir(), '.local', 'state', 'tabterm'),
+  get configFile() {
+    return join(this.config, 'config.json');
+  },
+  get tokenFile() {
+    return join(this.state, 'token');
+  },
+  get database() {
+    return join(this.state, 'tabterm.sqlite');
+  },
+  get scrollback() {
+    return join(this.state, 'scrollback');
+  },
+  get logs() {
+    return join(this.state, 'logs');
+  },
+  get lockFile() {
+    return join(this.state, 'daemon.lock');
+  },
+} as const;
+
+export interface Config {
+  port: number;
+  /** Scrollback lines retained per session. Measured cost is 3.6 MB per session at 10000. */
+  scrollbackLines: number;
+  /** Detached grace periods, seconds. Workspaces are pinned and never reaped, see ADR-0012. */
+  reapIdleShellSeconds: number;
+  reapAgentOrEditorSeconds: number;
+  reapDefaultSeconds: number;
+  shell: string;
+  /** Coalescing and flow control. The socket is not the bottleneck, the VT parser is. */
+  coalesceMs: number;
+  maxChunkBytes: number;
+  creditWindowBytes: number;
+  logLevel: 'debug' | 'info' | 'warn' | 'error';
+}
+
+export const DEFAULTS: Config = {
+  port: 7377,
+  scrollbackLines: 10_000,
+  reapIdleShellSeconds: 180,
+  reapAgentOrEditorSeconds: 600,
+  reapDefaultSeconds: 300,
+  shell: process.env['SHELL'] ?? '/bin/zsh',
+  coalesceMs: 6,
+  maxChunkBytes: 64 * 1024,
+  creditWindowBytes: 256 * 1024,
+  logLevel: 'info',
+};
+
+export async function loadConfig(): Promise<Config> {
+  const { readFile } = await import('node:fs/promises');
+  try {
+    const raw = await readFile(paths.configFile, 'utf8');
+    const parsed = JSON.parse(raw) as Partial<Config>;
+    return { ...DEFAULTS, ...parsed };
+  } catch {
+    return { ...DEFAULTS };
+  }
+}

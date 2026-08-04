@@ -5,5 +5,8 @@ export default defineConfig({
     include: ['{shared,daemon,extension}/src/**/*.test.ts'],
     environment: 'node',
     reporters: 'default',
+    // Integration tests drive real PTYs and real sockets, which is slower than unit work.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
   },
 });
