@@ -1,0 +1,27 @@
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Dependencies
+node_modules/
+
+# Runtime state (never in the repo)
+state/
+logs/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Secrets (never in the repo, ever)
+*.pem
+*.key
+extension-key.*
+token
+
+# Local personal plugins
+plugins/*
+!plugins/.gitkeep
+
+# macOS
+.DS_Store

@@ -1,0 +1,183 @@
+# 02 — Wire Protocol
+
+Transport: WebSocket over `127.0.0.1`. Two roles, `control` and `data`. See `01-architecture.md`
+for why they are separate.
+
+Protocol version is an integer. The daemon accepts exactly the versions it knows and closes with a
+readable error otherwise. Never negotiate silently to a degraded mode.
+
+---
+
+## 1. Framing
+
+The first byte of every WebSocket frame is the frame type.
+
+| Byte | Type | Payload |
+|---|---|---|
+| `0x00` | Control | UTF-8 JSON |
+| `0x01` | Output | `u32 streamId` (BE) + raw PTY bytes |
+| `0x02` | Input | `u32 streamId` (BE) + raw bytes to write to the PTY |
+| `0x03` | Ack | `u32 streamId` + `u32 bytesConsumed` |
+
+Terminal bytes are never JSON-encoded or base64-encoded. Base64 would inflate high-throughput
+output by a third for no benefit, and JSON escaping of arbitrary bytes is a correctness trap.
+
+`streamId` is scoped to the connection, assigned by the daemon at attach time. It is not the
+session ID. A page with three panes uses one connection and three stream IDs.
+
+---
+
+## 2. Authentication handshake
+
+```
+client → daemon   0x00 {"t":"auth","v":1,"role":"data","token":"<hex>","clientId":"<uuid>"}
+daemon → client   0x00 {"t":"auth-ok","serverVersion":"...","sessionCount":n}
+```
+
+Rules, all enforced:
+
+1. The auth frame must arrive within **2000 ms** of connection open, or the daemon closes with 1008.
+2. No other frame is processed before `auth-ok`. Anything else closes the connection immediately.
+3. Token comparison is constant-time.
+4. On failure the daemon closes with 1008 and applies increasing backoff per source.
+5. `clientId` is a stable per-Chrome-profile UUID. It identifies a *client*, not a session, and is
+   how mirrored views and multi-profile attachment are tracked.
+6. Origin is checked and logged, but **is not a security boundary**. Any local process can forge it.
+   See `05-security.md`.
+
+---
+
+## 3. Control messages, client to daemon
+
+| Message | Fields | Notes |
+|---|---|---|
+| `auth` | `v`, `role`, `token`, `clientId` | Must be first |
+| `create-session` | `cwd?`, `command?`, `env?`, `cols`, `rows`, `projectId?` | `command` is `string[]` argv, never a shell string |
+| `attach` | `sessionId` or `workspaceId`, `cols`, `rows` | Returns snapshot |
+| `detach` | `sessionId` | Explicit. Connection close implies detach for all its streams |
+| `resize` | `sessionId`, `cols`, `rows` | Daemon applies min across attached clients |
+| `request-scrollback` | `sessionId`, `beforeSeq`, `maxLines` | Paged, never wholesale |
+| `kill-session` | `sessionId`, `signal?` | Escalates per `04-session-lifecycle.md` |
+| `set-pin` | `sessionId` or `workspaceId`, `pinned` | Pinned is never reaped |
+| `set-persistence` | `sessionId`, `policyId` | |
+| `create-workspace` | `layout`, `chromeTabId?`, `chromeGroupId?` | |
+| `update-layout` | `workspaceId`, `layout` | Transactional, validated |
+| `merge-session` | `sessionId`, `workspaceId`, `targetPaneId`, `direction` | |
+| `detach-pane` | `workspaceId`, `paneId` | Returns a URL for the new tab |
+| `list-sessions` / `list-workspaces` / `list-projects` | filters | |
+| `search-history` | `query`, `scope`, `page`, `pageSize` | Paged, always |
+| `save-item` / `delete-item` | | Notes and saved commands |
+| `open-workspace-template` | `templateId`, `overrides?` | |
+| `subscribe` | `topics[]` | Control connection only |
+
+---
+
+## 4. Control messages, daemon to client
+
+| Message | Fields | Trigger |
+|---|---|---|
+| `auth-ok` / `auth-fail` | | Handshake |
+| `session-created` | `sessionId`, `streamId`, `pid` | |
+| `snapshot` | `sessionId`, `streamId`, `seq`, `cols`, `rows`, `screen`, `scrollback`, `cursor`, `altScreen`, `attrs` | Attach response. See §6 |
+| `cwd` | `sessionId`, `cwd`, `gitRoot?` | OSC 7 |
+| `title` | `sessionId`, `fields{}` | Structured fields, frontend formats. Never a raw string |
+| `process-state` | `sessionId`, `state`, `foreground?` | |
+| `command-start` | `sessionId`, `commandId`, `command`, `cwd`, `startedAt` | OSC 133 |
+| `command-end` | `sessionId`, `commandId`, `exitCode`, `completedAt`, `interrupted` | OSC 133 |
+| `agent-state` | `sessionId`, `state`, `detail?` | Hook bridge, see `09-agent-integration.md` |
+| `session-exited` | `sessionId`, `exitCode`, `signal?` | |
+| `session-detached` | `sessionId`, `remainingClients` | |
+| `session-expiring` | `sessionId`, `expiresAt`, `reason` | Grace warning |
+| `session-expired` | `sessionId` | |
+| `workspace-updated` | `workspaceId`, `layout` | Another client changed it |
+| `server-detected` | `sessionId`, `port`, `proto` | |
+| `notify` | `priority`, `title`, `body`, `target{}` | Control connection only |
+| `error` | `code`, `message`, `context?` | Never a bare string |
+
+---
+
+## 5. Flow control
+
+Terminal output is the only high-volume traffic and the only thing that can kill a tab.
+
+**Credit window per stream.** The daemon may have at most `WINDOW` bytes outstanding and unacked
+per stream. The client sends `0x03 Ack` with `bytesConsumed` from the xterm.js write callback, which
+fires after the data is actually parsed, not merely queued.
+
+**Coalescing.** Output is accumulated for `COALESCE_MS` and flushed as one frame, capped at
+`MAX_CHUNK`. This turns `cat bigfile` from tens of thousands of tiny frames into a manageable stream.
+
+| Parameter | Initial value | Set by |
+|---|---|---|
+| `WINDOW` | 256 KiB | the throughput spike measurement |
+| `COALESCE_MS` | 6 ms | the throughput spike measurement |
+| `MAX_CHUNK` | 64 KiB | the throughput spike measurement |
+
+These are placeholders until the throughput spike produces real numbers. Do not treat them as tuned.
+
+**The critical rule:** when a client's window is exhausted, the daemon stops *sending* to that
+client. It never stops *reading* the PTY. Output continues into the VT state machine and scrollback.
+When the client catches up, the daemon does not replay the backlog byte by byte. If the client fell
+behind by more than one window, the daemon drops the intermediate stream and sends a fresh snapshot
+instead. Terminals are idempotent on redraw; nobody needs to watch a 500 MB `cat` scroll past in
+real time.
+
+**Detached sessions** have no window and no sending. Draining and VT feeding continue unchanged.
+
+---
+
+## 6. The snapshot
+
+The single most important message in the protocol. It answers "what does this screen look like right
+now" so a fresh renderer can become identical to the one that was destroyed.
+
+It must carry, at minimum:
+
+- Grid dimensions
+- Every cell: codepoint(s), foreground, background, and attribute flags (bold, dim, italic,
+  underline and style, inverse, invisible, strikethrough)
+- Cursor position, visibility, and shape
+- Saved cursor state
+- Alternate screen flag, and if active, the primary screen's preserved content
+- Scroll region top and bottom
+- Active character set and any pending mode state
+- Bracketed paste, application cursor, and mouse reporting modes
+- Scrollback, up to the requested cap
+- The sequence number the live stream resumes from
+
+Anything the chosen emulator library cannot round-trip is recorded in `07-terminal-fidelity.md` as a
+known fidelity gap. the VT fidelity spike exists to find those before they surprise us.
+
+Snapshot encoding is chosen in the VT fidelity spike against measured size and cost at 1k, 10k, and 50k scrollback
+lines. It is not JSON if JSON proves too slow.
+
+---
+
+## 7. Ordering and idempotence
+
+- Output frames for a given stream are strictly ordered. Control frames are ordered relative to each
+  other but not relative to output, except that a `snapshot` establishes a sequence point.
+- Every state-changing control message is idempotent. Re-sending `attach` after a reconnect is safe
+  and returns a fresh snapshot.
+- The daemon never sends a delta the client could have missed. On reconnect it re-sends current
+  state. This is why the control connection can drop without consequence.
+
+---
+
+## 8. Errors
+
+Every error carries a machine-readable `code`. The frontend never parses `message`.
+
+| Code | Meaning |
+|---|---|
+| `auth-required` | Frame received before `auth-ok` |
+| `auth-failed` | Bad token |
+| `version-unsupported` | Protocol version not accepted |
+| `session-not-found` | Unknown or already reaped |
+| `session-expired` | Known but reaped. Frontend shows the recovery page |
+| `session-attached-elsewhere` | Merged into a workspace. See `04-session-lifecycle.md` §merge |
+| `workspace-invalid-layout` | Rejected layout tree |
+| `path-not-found` | Path action target does not exist |
+| `not-trusted` | Project config requires an explicit trust grant |
+| `rate-limited` | Auth backoff active |
+| `internal` | Bug. Logged with context, never leaks a stack to the page |
