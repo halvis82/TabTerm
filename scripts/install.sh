@@ -47,17 +47,42 @@ echo "  native messaging host at $LIBEXEC, registered for $EXT_ID"
 npm --prefix "$REPO" run build >/dev/null
 echo "  built daemon and extension"
 
+# The daemon runs from ~/.local/libexec too, for the same TCC reason as the native host:
+# a LaunchAgent cannot reliably execute code living under ~/Documents.
+# Named .mjs so Node treats it as ESM without needing a package.json alongside. The bundle
+# uses import.meta, which a .js file outside a "type": "module" package would reject.
+cp "$REPO/daemon/dist/main.js" "$LIBEXEC/daemon.mjs"
+# node-pty is a native module and cannot be bundled, so it ships beside the daemon.
+mkdir -p "$LIBEXEC/node_modules"
+for mod in node-pty; do
+  rm -rf "$LIBEXEC/node_modules/$mod"
+  cp -R "$REPO/node_modules/$mod" "$LIBEXEC/node_modules/$mod"
+done
+# Preserve the spawn-helper executable bit through the copy. Without it every PTY spawn fails
+# with a bare "posix_spawnp failed" that names no file.
+find "$LIBEXEC/node_modules/node-pty/prebuilds" -name spawn-helper -exec chmod 755 {} \;
+echo "  daemon staged at $LIBEXEC"
+
+PLIST="$HOME/Library/LaunchAgents/com.tabterm.daemon.plist"
+mkdir -p "$HOME/Library/LaunchAgents"
+sed -e "s|__NODE__|$NODE|g" -e "s|__LIBEXEC__|$LIBEXEC|g" \
+    -e "s|__STATE__|$STATE|g" -e "s|__HOME__|$HOME|g" \
+    "$REPO/launchd/com.tabterm.daemon.plist.template" > "$PLIST"
+launchctl bootout "gui/$(id -u)/com.tabterm.daemon" 2>/dev/null || true
+launchctl bootstrap "gui/$(id -u)" "$PLIST"
+echo "  LaunchAgent installed and started"
+
 cat <<NEXT
 
 Next, once:
   1. Chrome, chrome://extensions, enable Developer mode
   2. Load unpacked, choose:
        $REPO/extension/dist
-  3. Start the daemon:
-       node $REPO/daemon/dist/main.js
-  4. Open a terminal with Command+Shift+E, or click the toolbar icon
+  3. Open a terminal with Command+Shift+E, or click the toolbar icon
+
+The daemon now starts at login. It is running already.
 
 Not done automatically, on purpose:
   - shell integration is not added to your .zshrc
-  - no LaunchAgent is installed yet
+
 NEXT
