@@ -98,7 +98,7 @@ Token bootstrap only (`05-security.md` §3).
   "name": "com.tabterm.host",
   "path": "/Applications/TabTerm.app/Contents/MacOS/tabterm-host",
   "type": "stdio",
-  "allowed_origins": ["chrome-extension://<permanent-id>/"]
+  "allowed_origins": ["chrome-extension://mcchodnlokiofihbecdeicicfhmgpadb/"]
 }
 ```
 

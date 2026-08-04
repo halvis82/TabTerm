@@ -6,21 +6,24 @@ Everything here is constrained by what Chrome actually permits. Read `10-limitat
 
 ## 1. Extension identity
 
-The extension ID is **permanent** and minted in extension identity minting before any session URL exists.
+The extension ID is **permanent**. It was minted before any session URL existed, and it is:
 
-```json
-{ "key": "<base64 public key>" }
 ```
+mcchodnlokiofihbecdeicicfhmgpadb
+```
+
+It is derived by Chrome from the `"key"` field in `manifest.json`, which holds the base64 DER
+public key of a keypair generated once. The private half is never in this repository.
 
 Without an explicit `key`, an unpacked extension's ID derives from its load path. Change the path or
 reinstall from elsewhere and the ID changes, which kills **every stable session URL in Chrome's
-history and recently-closed stack**. Unrecoverable after the fact. This is why extension identity minting is in Phase 0.
+history and recently-closed stack**. Unrecoverable after the fact. This is why the key is fixed before anything else.
 
 The ID also appears in the native messaging host manifest's `allowed_origins`, which is what makes
 the host authenticate the extension.
 
 Distribution is either an unlisted Web Store listing or a macOS managed-policy forcelist. Both give
-a stable ID and auto-enable at Chrome start. Decision recorded in extension identity minting.
+a stable ID and auto-enable at Chrome start.
 
 ---
 
@@ -64,7 +67,7 @@ New tabs open at `currentIndex + 1` and inherit the current tab's group when one
 ### Stable URL
 
 ```
-chrome-extension://<id>/terminal.html?workspace=<workspace-id>
+chrome-extension://mcchodnlokiofihbecdeicicfhmgpadb/terminal.html?workspace=<workspace-id>
 ```
 
 Always a workspace ID, never a session ID, because a standalone terminal **is** a one-pane
@@ -248,7 +251,7 @@ canvas, it never breaks the pane.
 {
   "manifest_version": 3,
   "name": "TabTerm",
-  "key": "<minted in extension identity minting>",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...",
   "background": { "service_worker": "service-worker.js", "type": "module" },
   "permissions": [
     "tabs", "tabGroups", "offscreen", "storage",

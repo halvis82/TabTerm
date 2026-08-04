@@ -4,7 +4,11 @@
   "version": "0.0.0",
   "description": "Local terminal sessions that behave like native Chrome tabs",
   "minimum_chrome_version": "120",
-  "background": { "service_worker": "service-worker.js", "type": "module" },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyxfAz3pZMpsSd9clTVPbGWqyNzHcKeHRLDKH1E5hWVEBpSKcYmyV+H+UJ3GB+QSzpuTSlOGlFUxjipsRiEFIY1hpKwu1q1xZ9VEA7ysqitTnxIakZHBfHta4wdcCC+lkPx0N9qfaLDfGoul9k0U1ifeZXr30SqHA9DFErc1j2uIhKivLt9Wb/HfiT4+E+ftZBj3aFZ6NfG7AImH1iCnpmvc7ENqyWiAuBMjYCj44KzhOEC+wm8JSqjbuBcydmHytikwfwgdNyrJ64UDz7jWVak/J2V04izTV0EBJmRC41Lh+4TeibnPgFZ8VLYR5wRCN3wZo1PzqSRwv9jtlKg86QQIDAQAB",
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
   "permissions": ["offscreen", "storage"],
   "icons": {}
 }

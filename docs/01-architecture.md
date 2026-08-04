@@ -76,7 +76,7 @@ Memory is bounded by evicting old scrollback, never by backpressure toward the s
 
 ```
 Cmd+Shift+T
-  → Chrome restores chrome-extension://<id>/terminal.html?workspace=<id>
+  → Chrome restores chrome-extension://mcchodnlokiofihbecdeicicfhmgpadb/terminal.html?workspace=<id>
   → page loads, does NOT connect yet
   → first visibilitychange to visible
   → data connection opens, authenticates
