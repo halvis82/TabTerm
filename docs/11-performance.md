@@ -11,27 +11,31 @@ It is not automatically true of the system.
 |---|---|---|
 | PTY + zsh | Very small | |
 | **TabTerm daemon, base** | Small | |
-| **Daemon VT state, per session** | ⚠️ **Tens of MB** | Easy to underestimate. A headless emulator holding 10k lines is not cheap |
+| **Daemon VT state, per session** | **3.6 MB** at the 10k default | Measured across 12 live emulators. 0.5 MB at 1k, 1.9 MB at 5k, 17.7 MB at 50k |
 | xterm.js frontend, per pane | Modest, roughly 20 to 50 MB | Which is why hidden-pane suspension is mandatory, not optional |
 | Chrome renderer, per tab | Modest, irreducible | |
 | agent CLI | Potentially large | Not ours |
 | Language servers, build systems | Potentially very large | Not ours |
 
-The corrected picture: **twelve live sessions is a real cost on both sides**, not a rounding error.
-Every budget below follows from that.
+The measured picture: twelve live sessions cost about **44 MB of daemon memory** at the default
+scrollback cap. That is modest. The renderer side dominates, which is why hidden-pane suspension
+matters more than daemon frugality.
 
 ---
 
 ## 2. Budgets
 
-Placeholders until measured. Any change that moves a number by more than 10 percent must justify
-it in the change description.
+Measured on arm64 with Node 20 unless marked otherwise. Any change that moves a number by more than
+10 percent must justify it in the change description.
 
-| Metric | Target | Set by |
+| Metric | Target | Measured |
 |---|---|---|
-| Daemon RSS, 12 live sessions, balanced mode | To be set | the VT fidelity spike, the memory mode work |
-| Daemon RSS, 12 live sessions, low mode | To be set | the memory mode work |
-| Snapshot serialize, 10k scrollback | To be set | the VT fidelity spike |
+| Daemon VT state, 12 sessions, balanced (10k) | under 60 MB | **43.7 MB** ✅ |
+| Daemon VT state, 12 sessions, low (5k) | under 30 MB | **22.6 MB** ✅ |
+| Daemon VT state, 12 sessions, full (50k) | under 250 MB | **212 MB** ⚠️ high by design |
+| Snapshot serialize, 10k scrollback | under 50 ms | **32 ms median** ✅ |
+| Snapshot serialize, 50k scrollback | under 200 ms | **168 ms** ⚠️ argues against 50k as a default |
+| Snapshot size, 10k scrollback | — | 793 KB |
 | Attach to first paint, single pane | To be set | the attach and restore work |
 | Attach to first paint, 3-pane workspace | To be set | the workspace restore work |
 | 8 simultaneous restores, total stall | To be set | the startup restore work |

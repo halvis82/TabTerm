@@ -69,8 +69,13 @@ of this document by the VT fidelity spike.
 - Resident memory per session at 1k, 10k, and 50k scrollback lines
 - Serialization time and size at those caps
 
-A daemon holding server-side VT state is not lightweight. `11-performance.md` carries the real
-numbers.
+Measured: **3.6 MB per session** at the 10,000-line default cap, and 32 ms to serialize.
+`11-performance.md` carries the full table.
+
+The implementation is `@xterm/headless` with `@xterm/addon-serialize`, verified against seven
+recorded PTY fixtures including three captured inside the alternate screen. All seven round-trip
+cell for cell, and the preserved primary buffer survives a snapshot taken while a full-screen
+application is running, so reattaching mid-edit does not destroy shell history.
 
 ---
 

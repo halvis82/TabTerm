@@ -18,7 +18,7 @@ renders in the page.
   requirement, milestone M4.
 - Using one emulator implementation makes daemon-versus-renderer parsing mismatches impossible by
   construction. That bug class is close to undebuggable.
-- Per-session memory is tens of MB, not negligible. `11-performance.md` carries the numbers.
+- Per-session memory is 3.6 MB at the 10,000-line default, measured. `11-performance.md` has the table.
 - The daemon must always drain the PTY, since the emulator must stay current even when detached.
 - the VT fidelity spike validates round-trip fidelity against recorded fixtures before production code depends on it.
 
