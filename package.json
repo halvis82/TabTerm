@@ -1,0 +1,42 @@
+{
+  "name": "tabterm",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A macOS terminal system where local PTY sessions behave like native Chrome tabs",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "workspaces": [
+    "shared",
+    "daemon",
+    "extension"
+  ],
+  "scripts": {
+    "build": "npm run build:daemon && npm run build:extension",
+    "build:daemon": "node scripts/build-daemon.mjs",
+    "build:extension": "node scripts/build-extension.mjs",
+    "typecheck": "tsc --build --force",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify": "npm run typecheck && npm run lint && npm run format:check && npm run test",
+    "clean": "rm -rf */dist */dist-types *.tsbuildinfo */*.tsbuildinfo"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.9.0",
+    "@types/chrome": "^0.0.270",
+    "@types/node": "^20.14.0",
+    "esbuild": "^0.25.0",
+    "eslint": "^9.9.0",
+    "globals": "^17.9.0",
+    "prettier": "^3.3.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^3.2.0"
+  }
+}
