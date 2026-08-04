@@ -9,7 +9,13 @@
  * never a partially populated object and never a throw from deep inside a parser.
  */
 
-import type { AgentState, ProcessState, SessionSnapshot, TitleFields } from './model.js';
+import type {
+  AgentState,
+  LayoutNode,
+  ProcessState,
+  SessionSnapshot,
+  TitleFields,
+} from './model.js';
 
 export const PROTOCOL_VERSION = 1;
 
@@ -210,8 +216,21 @@ export type ClientMessage =
   | { t: 'request-scrollback'; sessionId: string; beforeSeq: number; maxLines: number }
   | { t: 'kill-session'; sessionId: string }
   | { t: 'set-pin'; sessionId?: string; workspaceId?: string; pinned: boolean }
-  | { t: 'create-workspace'; layout: unknown; chromeTabId?: number; chromeGroupId?: number }
-  | { t: 'update-layout'; workspaceId: string; layout: unknown }
+  | { t: 'attach-workspace'; workspaceId: string; cols: number; rows: number }
+  | {
+      t: 'split-pane';
+      workspaceId: string;
+      paneId: string;
+      direction: 'horizontal' | 'vertical';
+      cwd?: string;
+      command?: readonly string[];
+      cols: number;
+      rows: number;
+    }
+  | { t: 'close-pane'; workspaceId: string; paneId: string }
+  | { t: 'set-ratio'; workspaceId: string; paneId: string; ratio: number }
+  | { t: 'swap-panes'; workspaceId: string; a: string; b: string }
+  | { t: 'resize-pane'; workspaceId: string; paneId: string; cols: number; rows: number }
   | {
       t: 'merge-session';
       sessionId: string;
@@ -228,6 +247,13 @@ export type ClientMessage =
 
 /** What to do with a resolved path. Each maps to a specific structured spawn, never a shell string. */
 export type OpenHow = 'default-app' | 'reveal-in-finder';
+
+/** A pane, paired with the stream that carries its terminal output. */
+export interface WorkspacePane {
+  paneId: string;
+  sessionId: string;
+  streamId: number;
+}
 
 export interface ResolvedPath {
   /** Exactly the text that appeared in the terminal, so the frontend can match it back. */
@@ -255,7 +281,7 @@ export type ServerErrorCode =
 export type ServerMessage =
   | { t: 'auth-ok'; serverVersion: string; sessionCount: number }
   | { t: 'auth-fail'; code: ServerErrorCode }
-  | { t: 'session-created'; sessionId: string; streamId: number; pid: number }
+  | { t: 'session-created'; sessionId: string; streamId: number; pid: number; workspaceId: string }
   | { t: 'snapshot'; snapshot: SessionSnapshot }
   | { t: 'cwd'; sessionId: string; cwd: string; gitRoot?: string }
   | { t: 'title'; sessionId: string; fields: TitleFields }
@@ -281,7 +307,14 @@ export type ServerMessage =
   | { t: 'session-detached'; sessionId: string; remainingClients: number }
   | { t: 'session-expiring'; sessionId: string; expiresAt: number; reason: string }
   | { t: 'session-expired'; sessionId: string }
-  | { t: 'workspace-updated'; workspaceId: string; layout: unknown }
+  | { t: 'workspace-updated'; workspaceId: string; layout: LayoutNode }
+  | {
+      t: 'workspace-attached';
+      workspaceId: string;
+      layout: LayoutNode;
+      /** One entry per pane, in the order the frontend should restore them. */
+      panes: readonly WorkspacePane[];
+    }
   | { t: 'server-detected'; sessionId: string; port: number }
   | { t: 'paths-resolved'; sessionId: string; cwd: string; results: readonly ResolvedPath[] }
   | { t: 'error'; code: ServerErrorCode; message: string; context?: string };

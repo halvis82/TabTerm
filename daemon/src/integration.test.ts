@@ -13,19 +13,22 @@ import { initLog } from './log.js';
 import { DaemonServer } from './server.js';
 import { SessionManager } from './session-manager.js';
 import { initAuth } from './auth.js';
+import { WorkspaceStore } from './workspace-store.js';
 
 const PORT = 7999;
 const config: Config = { ...DEFAULTS, port: PORT, scrollbackLines: 2000, reapIdleShellSeconds: 1 };
 
 let server: DaemonServer;
 let sessions: SessionManager;
+let workspaces: WorkspaceStore;
 let token: string;
 
 beforeAll(async () => {
   initLog('error');
   token = initAuth();
   sessions = new SessionManager(config, { onExit: () => {}, onStateChange: () => {} });
-  server = new DaemonServer(config, sessions);
+  workspaces = new WorkspaceStore();
+  server = new DaemonServer(config, sessions, workspaces);
   await server.listen();
 });
 

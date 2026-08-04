@@ -14,6 +14,64 @@
     background: #12131a;
     overflow: hidden;
   }
+  /* --- split layout ---------------------------------------------------- */
+  .split-node {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+  }
+  .split-horizontal {
+    flex-direction: row;
+  }
+  .split-vertical {
+    flex-direction: column;
+  }
+  .split-node.maximized > .pane {
+    flex: 1 1 100%;
+  }
+
+  .pane {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    flex: 1 1 0;
+    border: 1px solid transparent;
+    border-radius: 4px;
+  }
+  /* The focused pane is the one receiving keystrokes, so it has to be obvious at a glance. */
+  .pane.focused {
+    border-color: #4a5573;
+  }
+  .pane-terminal {
+    position: absolute;
+    inset: 0;
+    padding: 4px 6px;
+  }
+
+  .divider {
+    flex: 0 0 6px;
+    background: #1c1e28;
+    position: relative;
+  }
+  .divider::after {
+    content: '';
+    position: absolute;
+    inset: -3px;
+  }
+  .divider-horizontal {
+    cursor: col-resize;
+  }
+  .divider-vertical {
+    cursor: row-resize;
+  }
+  .divider:hover,
+  .divider.dragging {
+    background: #5b6a92;
+  }
+
   #terminal {
     position: absolute;
     inset: 0;

@@ -6,6 +6,7 @@ import { acquireLock } from './lockfile.js';
 import { error, info, initLog } from './log.js';
 import { DaemonServer } from './server.js';
 import { SessionManager, type SessionEvents } from './session-manager.js';
+import { WorkspaceStore } from './workspace-store.js';
 
 /**
  * The daemon owns every PTY. No terminal process is ever tied to a Chrome page's lifetime,
@@ -33,9 +34,19 @@ async function main(): Promise<void> {
   // after both exist. SessionManager holds this object by reference.
   const events: SessionEvents = { onExit: () => {}, onStateChange: () => {} };
   const sessions = new SessionManager(config, events);
-  const server = new DaemonServer(config, sessions);
+  const workspaces = new WorkspaceStore();
+  const server = new DaemonServer(config, sessions, workspaces);
 
   events.onExit = (s) => {
+    // A pane whose process ended stops being a pane. The layout closes over it.
+    const surviving = workspaces.forgetSession(s.id);
+    if (surviving) {
+      server.broadcast({
+        t: 'workspace-updated',
+        workspaceId: surviving.id,
+        layout: surviving.layout,
+      });
+    }
     server.notifySession(s, {
       t: 'session-exited',
       sessionId: s.id,

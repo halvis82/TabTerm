@@ -2,6 +2,7 @@ import { createServer, type Server } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
   AUTH_TIMEOUT_MS,
+  panes,
   CLOSE_POLICY_VIOLATION,
   PROTOCOL_VERSION,
   VERSION,
@@ -20,6 +21,7 @@ import { FlowController } from './flow-control.js';
 import { debug, info, warn } from './log.js';
 import { openPath, resolvePaths } from './paths.js';
 import { processCwd } from './process-cwd.js';
+import type { WorkspaceStore } from './workspace-store.js';
 import type { Session, SessionManager } from './session-manager.js';
 
 interface Client {
@@ -39,11 +41,13 @@ export class DaemonServer {
   readonly #wss: WebSocketServer;
   readonly #config: Config;
   readonly #sessions: SessionManager;
+  readonly #workspaces: WorkspaceStore;
   readonly #clients = new Set<Client>();
 
-  constructor(config: Config, sessions: SessionManager) {
+  constructor(config: Config, sessions: SessionManager, workspaces: WorkspaceStore) {
     this.#config = config;
     this.#sessions = sessions;
+    this.#workspaces = workspaces;
     this.#http = createServer((_req, res) => {
       res.writeHead(426);
       res.end('websocket only');
@@ -213,6 +217,9 @@ export class DaemonServer {
           ...(msg.cwd ? { cwd: msg.cwd } : {}),
           ...(msg.command ? { command: msg.command } : {}),
         });
+        // Every session lives in a workspace, even a lone one. That is what makes splitting
+        // and detaching operations on one model rather than special cases.
+        const { workspace } = this.#workspaces.create(session.id);
         const streamId = this.#bind(client, session);
         send(
           client.socket,
@@ -221,9 +228,91 @@ export class DaemonServer {
             sessionId: session.id,
             streamId,
             pid: session.pid,
+            workspaceId: workspace.id,
           }),
         );
         this.#attach(client, session, streamId, msg.cols, msg.rows);
+        return;
+      }
+
+      case 'attach-workspace': {
+        const workspace = this.#workspaces.get(msg.workspaceId);
+        if (!workspace) {
+          sendError(client.socket, 'session-expired', 'no such workspace');
+          return;
+        }
+        this.#attachWorkspace(client, msg.workspaceId, msg.cols, msg.rows);
+        return;
+      }
+
+      case 'split-pane': {
+        const workspace = this.#workspaces.get(msg.workspaceId);
+        if (!workspace) {
+          sendError(client.socket, 'session-expired', 'no such workspace');
+          return;
+        }
+        // A new pane inherits the directory of the pane it was split from, which is almost
+        // always what someone wants when they open a second terminal beside their work.
+        const sourceSessionId = this.#workspaces
+          .sessionIds(workspace)
+          .find((id) => this.#workspaces.paneFor(workspace, id) === msg.paneId);
+        const source = sourceSessionId ? this.#sessions.get(sourceSessionId) : undefined;
+
+        void (async () => {
+          const cwd = msg.cwd ?? (source ? await this.#liveCwd(source) : undefined);
+          const session = this.#sessions.create({
+            cols: msg.cols,
+            rows: msg.rows,
+            ...(cwd ? { cwd } : {}),
+            ...(msg.command ? { command: msg.command } : {}),
+          });
+          this.#workspaces.split(msg.workspaceId, msg.paneId, msg.direction, session.id);
+          this.#attachWorkspace(client, msg.workspaceId, msg.cols, msg.rows);
+          this.#broadcastLayout(msg.workspaceId);
+        })().catch((e: unknown) => {
+          warn('workspace.split.failed', { error: String(e) });
+          sendError(client.socket, 'internal', 'could not split');
+        });
+        return;
+      }
+
+      case 'close-pane': {
+        const workspace = this.#workspaces.get(msg.workspaceId);
+        if (!workspace) return;
+        const sessionId = this.#workspaces
+          .sessionIds(workspace)
+          .find((id) => this.#workspaces.paneFor(workspace, id) === msg.paneId);
+        this.#workspaces.closePane(msg.workspaceId, msg.paneId);
+        if (sessionId) {
+          const session = this.#sessions.get(sessionId);
+          if (session) void this.#sessions.kill(session);
+        }
+        this.#broadcastLayout(msg.workspaceId);
+        return;
+      }
+
+      case 'set-ratio': {
+        if (!this.#workspaces.get(msg.workspaceId)) return;
+        this.#workspaces.setRatio(msg.workspaceId, msg.paneId, msg.ratio);
+        this.#broadcastLayout(msg.workspaceId, client);
+        return;
+      }
+
+      case 'swap-panes': {
+        if (!this.#workspaces.get(msg.workspaceId)) return;
+        this.#workspaces.swap(msg.workspaceId, msg.a, msg.b);
+        this.#broadcastLayout(msg.workspaceId);
+        return;
+      }
+
+      case 'resize-pane': {
+        const workspace = this.#workspaces.get(msg.workspaceId);
+        if (!workspace) return;
+        const sessionId = this.#workspaces
+          .sessionIds(workspace)
+          .find((id) => this.#workspaces.paneFor(workspace, id) === msg.paneId);
+        const session = sessionId ? this.#sessions.get(sessionId) : undefined;
+        if (session) this.#sessions.resize(session, client.id, msg.cols, msg.rows);
         return;
       }
 
@@ -339,6 +428,69 @@ export class DaemonServer {
       return fromOs;
     }
     return session.cwd;
+  }
+
+  /**
+   * Attach every pane of a workspace at once.
+   *
+   * This is what makes a multi-pane tab restore: the client gets the layout plus a snapshot
+   * per pane, so it can rebuild the whole thing rather than reconnecting one terminal.
+   */
+  #attachWorkspace(client: Client, workspaceId: string, cols: number, rows: number): void {
+    const workspace = this.#workspaces.get(workspaceId);
+    if (!workspace) return;
+
+    const entries: { paneId: string; sessionId: string; streamId: number }[] = [];
+    const toAttach: { sessionId: string; streamId: number }[] = [];
+
+    for (const { paneId, sessionId } of panes(workspace.layout)) {
+      const session = this.#sessions.get(sessionId);
+      if (!session) continue;
+
+      // Only attach panes this client is not already rendering. Re-attaching an existing pane
+      // would resend its snapshot, which resets the renderer and can discard output that
+      // arrived mid-flight. Splitting one pane must not disturb its neighbors.
+      const existing = client.streams.get(sessionId);
+      if (existing !== undefined) {
+        entries.push({ paneId, sessionId, streamId: existing });
+        continue;
+      }
+
+      const streamId = this.#bind(client, session);
+      entries.push({ paneId, sessionId, streamId });
+      toAttach.push({ sessionId, streamId });
+    }
+
+    send(
+      client.socket,
+      controlFrame({
+        t: 'workspace-attached',
+        workspaceId,
+        layout: workspace.layout,
+        panes: entries,
+      }),
+    );
+
+    // Sizes are per pane, so the client sends real ones once it has laid the panes out.
+    for (const entry of toAttach) {
+      const session = this.#sessions.get(entry.sessionId);
+      if (session) this.#attach(client, session, entry.streamId, cols, rows);
+    }
+  }
+
+  #broadcastLayout(workspaceId: string, except?: Client): void {
+    const workspace = this.#workspaces.get(workspaceId);
+    if (!workspace) return;
+    for (const c of this.#clients) {
+      if (c === except || !c.authed) continue;
+      const holdsIt = this.#workspaces.sessionIds(workspace).some((id) => c.streams.has(id));
+      if (holdsIt) {
+        send(
+          c.socket,
+          controlFrame({ t: 'workspace-updated', workspaceId, layout: workspace.layout }),
+        );
+      }
+    }
   }
 
   #bind(client: Client, session: Session): number {
