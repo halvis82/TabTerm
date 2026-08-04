@@ -12,6 +12,8 @@ export interface OscEvents {
   onPromptStart: () => void;
   onCommandStart: () => void;
   onCommandEnd: (exitCode: number) => void;
+  /** The command line itself, which OSC 133 does not carry. TabTerm's own sequence. */
+  onCommandText?: (command: string) => void;
 }
 
 const MAX_OSC_PAYLOAD = 4096;
@@ -64,6 +66,17 @@ export class OscScanner {
     if (payload.startsWith('7;')) {
       const cwd = parseFileUrl(payload.slice(2));
       if (cwd) this.#events.onCwd(cwd);
+      return;
+    }
+
+    if (payload.startsWith('1338;')) {
+      const raw = payload.slice(5);
+      if (raw.length > MAX_OSC_PAYLOAD) return;
+      try {
+        this.#events.onCommandText?.(decodeURIComponent(raw));
+      } catch {
+        /* malformed encoding is simply not a command we know about */
+      }
       return;
     }
 

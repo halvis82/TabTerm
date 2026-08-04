@@ -14,6 +14,7 @@ import { DaemonServer } from './server.js';
 import { SessionManager } from './session-manager.js';
 import { initAuth } from './auth.js';
 import { WorkspaceStore } from './workspace-store.js';
+import { LauncherData } from './launcher-data.js';
 
 const PORT = 7999;
 const config: Config = { ...DEFAULTS, port: PORT, scrollbackLines: 2000, reapIdleShellSeconds: 1 };
@@ -28,7 +29,7 @@ beforeAll(async () => {
   token = initAuth();
   sessions = new SessionManager(config, { onExit: () => {}, onStateChange: () => {} });
   workspaces = new WorkspaceStore();
-  server = new DaemonServer(config, sessions, workspaces);
+  server = new DaemonServer(config, sessions, workspaces, new LauncherData());
   await server.listen();
 });
 

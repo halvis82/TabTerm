@@ -92,3 +92,45 @@ describe('OSC scanner', () => {
     expect(events.onCwd).toHaveBeenCalledWith('/after/garbage');
   });
 });
+
+describe('command text reporting', () => {
+  it('decodes a percent-encoded command line', () => {
+    const events = {
+      onCwd: vi.fn(),
+      onPromptStart: vi.fn(),
+      onCommandStart: vi.fn(),
+      onCommandEnd: vi.fn(),
+      onCommandText: vi.fn(),
+    };
+    const scanner = new OscScanner(events);
+    scanner.feed(`\x1b]1338;git%20status%20--short${ST}`);
+    expect(events.onCommandText).toHaveBeenCalledWith('git status --short');
+  });
+
+  it('survives a payload that would otherwise break the sequence', () => {
+    const events = {
+      onCwd: vi.fn(),
+      onPromptStart: vi.fn(),
+      onCommandStart: vi.fn(),
+      onCommandEnd: vi.fn(),
+      onCommandText: vi.fn(),
+    };
+    const scanner = new OscScanner(events);
+    // A semicolon and a quote, encoded, must arrive intact rather than truncating.
+    scanner.feed(`\x1b]1338;echo%20%22a%3Bb%22${ST}`);
+    expect(events.onCommandText).toHaveBeenCalledWith('echo "a;b"');
+  });
+
+  it('ignores a malformed encoding rather than throwing', () => {
+    const events = {
+      onCwd: vi.fn(),
+      onPromptStart: vi.fn(),
+      onCommandStart: vi.fn(),
+      onCommandEnd: vi.fn(),
+      onCommandText: vi.fn(),
+    };
+    const scanner = new OscScanner(events);
+    expect(() => scanner.feed(`\x1b]1338;%ZZ${ST}`)).not.toThrow();
+    expect(events.onCommandText).not.toHaveBeenCalled();
+  });
+});

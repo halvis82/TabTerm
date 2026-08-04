@@ -36,6 +36,8 @@ export interface Session {
   reapTimer?: NodeJS.Timeout;
   /** Set while a command is running, so the title can show it rather than the shell. */
   commandRunning: boolean;
+  commandStartedAt?: number;
+  pendingCommand?: string;
   lastExitCode?: number;
 }
 
@@ -46,6 +48,8 @@ export interface SessionEvents {
   onCwd?: (session: Session) => void;
   /** Fired when the composed title fields change. */
   onTitle?: (session: Session) => void;
+  /** Fired when a shell command finishes, with what it was and how it went. */
+  onCommand?: (session: Session, command: string, exitCode: number, durationMs: number) => void;
 }
 
 export class SessionManager {
@@ -108,11 +112,24 @@ export class SessionManager {
       },
       onCommandStart: () => {
         session.commandRunning = true;
+        session.commandStartedAt = Date.now();
+      },
+      onCommandText: (command) => {
+        session.pendingCommand = command;
       },
       onCommandEnd: (exitCode) => {
+        const startedAt = session.commandStartedAt;
         session.commandRunning = false;
         session.lastExitCode = exitCode;
+        delete session.commandStartedAt;
         this.#events.onTitle?.(session);
+        // The command text comes from the shell integration. Without it sourced there is
+        // simply nothing to record, and history stays empty rather than guessing.
+        const text = session.pendingCommand;
+        delete session.pendingCommand;
+        if (text) {
+          this.#events.onCommand?.(session, text, exitCode, startedAt ? Date.now() - startedAt : 0);
+        }
       },
       onPromptStart: () => {
         session.commandRunning = false;

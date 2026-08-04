@@ -11,8 +11,11 @@
 
 import type {
   AgentState,
+  CommandEntry,
+  LauncherState,
   LayoutNode,
   ProcessState,
+  SavedItem,
   SessionSnapshot,
   TitleFields,
 } from './model.js';
@@ -241,6 +244,24 @@ export type ClientMessage =
   | { t: 'detach-pane'; workspaceId: string; paneId: string }
   | { t: 'resolve-paths'; sessionId: string; candidates: readonly string[] }
   | { t: 'open-path'; sessionId: string; path: string; how: OpenHow }
+  | { t: 'list-launcher' }
+  | { t: 'list-history'; query?: string; limit?: number }
+  | { t: 'save-item'; title: string; body: string; tags?: readonly string[] }
+  | { t: 'delete-saved'; id: string }
+  | { t: 'use-saved'; id: string }
+  | { t: 'clear-history' }
+  | { t: 'pin-dir'; path: string; pinned: boolean }
+  | { t: 'forget-dir'; path: string }
+  | {
+      /** Build a workspace of N panes in one directory, creating it if asked. */
+      t: 'create-layout';
+      path: string;
+      panes: number;
+      direction: 'horizontal' | 'vertical';
+      createIfMissing: boolean;
+      cols: number;
+      rows: number;
+    }
   | { t: 'list-sessions' }
   | { t: 'list-workspaces' }
   | { t: 'subscribe'; topics: readonly string[] };
@@ -317,6 +338,9 @@ export type ServerMessage =
     }
   | { t: 'server-detected'; sessionId: string; port: number }
   | { t: 'paths-resolved'; sessionId: string; cwd: string; results: readonly ResolvedPath[] }
+  | { t: 'launcher-state'; state: LauncherState }
+  | { t: 'history-page'; entries: readonly CommandEntry[] }
+  | { t: 'saved-updated'; saved: readonly SavedItem[] }
   | { t: 'error'; code: ServerErrorCode; message: string; context?: string };
 
 export type ControlMessage = ClientMessage | ServerMessage;

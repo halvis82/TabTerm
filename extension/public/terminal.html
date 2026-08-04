@@ -138,10 +138,249 @@
     margin: 0;
     color: #8b91a6;
   }
+
+  /* --- launcher and palette -------------------------------------------- */
+  #overlays {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 8;
+  }
+  #overlays > * {
+    pointer-events: auto;
+  }
+
+  .launcher {
+    position: absolute;
+    left: 50%;
+    top: 40px;
+    transform: translateX(-50%);
+    width: min(620px, calc(100% - 48px));
+    max-height: calc(100% - 90px);
+    overflow-y: auto;
+    background: #1a1c26;
+    border: 1px solid #2f3346;
+    border-radius: 10px;
+    padding: 18px 20px 16px;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+    font:
+      13px/1.55 -apple-system,
+      BlinkMacSystemFont,
+      sans-serif;
+    color: #d5d8e2;
+  }
+  .launcher-section {
+    margin-bottom: 18px;
+  }
+  .launcher-heading {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #868da3;
+    margin: 0 0 8px;
+    font-weight: 600;
+  }
+  .launcher-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .launcher-input {
+    width: 100%;
+    box-sizing: border-box;
+    background: #12131a;
+    border: 1px solid #333849;
+    border-radius: 6px;
+    color: #d5d8e2;
+    padding: 7px 10px;
+    font:
+      13px/1.4 ui-monospace,
+      SFMono-Regular,
+      Menlo,
+      monospace;
+  }
+  .launcher-input:focus {
+    outline: none;
+    border-color: #4a5573;
+  }
+  .launcher-buttons {
+    display: flex;
+    gap: 7px;
+    flex-wrap: wrap;
+  }
+  .launcher-chip {
+    background: #262a38;
+    border: 1px solid #343a4d;
+    color: #d5d8e2;
+    border-radius: 6px;
+    padding: 5px 11px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .launcher-chip:hover {
+    background: #2f3547;
+    border-color: #4a5573;
+  }
+  .launcher-note {
+    color: #6f758a;
+    font-size: 11px;
+    margin-top: 6px;
+  }
+
+  .launcher-row-wrap {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .launcher-row {
+    flex: 1;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    color: inherit;
+    text-align: left;
+    padding: 6px 8px;
+    cursor: pointer;
+    font: inherit;
+    min-width: 0;
+  }
+  .launcher-row:hover {
+    background: #262a38;
+  }
+  .launcher-strong {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .launcher-dim {
+    color: #6f758a;
+    font-size: 11.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .launcher-icon {
+    background: transparent;
+    border: 0;
+    color: #5f6579;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 4px 6px;
+    border-radius: 4px;
+  }
+  .launcher-icon:hover {
+    color: #d5d8e2;
+    background: #262a38;
+  }
+  .launcher-icon.on {
+    color: #e8c26a;
+  }
+  .launcher-hint {
+    color: #6f758a;
+    font-size: 11.5px;
+    border-top: 1px solid #262a38;
+    padding-top: 10px;
+  }
+
+  .palette {
+    position: absolute;
+    left: 50%;
+    top: 60px;
+    transform: translateX(-50%);
+    width: min(700px, calc(100% - 48px));
+    background: #1a1c26;
+    border: 1px solid #2f3346;
+    border-radius: 10px;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
+    font:
+      13px/1.5 -apple-system,
+      BlinkMacSystemFont,
+      sans-serif;
+    color: #d5d8e2;
+  }
+  .palette-input {
+    width: 100%;
+    box-sizing: border-box;
+    background: #12131a;
+    border: 0;
+    border-bottom: 1px solid #2f3346;
+    color: #d5d8e2;
+    padding: 11px 14px;
+    font:
+      13px/1.4 -apple-system,
+      BlinkMacSystemFont,
+      sans-serif;
+  }
+  .palette-input:focus {
+    outline: none;
+  }
+  .palette-list {
+    max-height: 320px;
+    overflow-y: auto;
+  }
+  .palette-row {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 7px 14px;
+    cursor: pointer;
+  }
+  .palette-row.selected {
+    background: #31384f;
+  }
+  .palette-row:hover {
+    background: #262a38;
+  }
+  .palette-command {
+    flex: 1;
+    font:
+      12.5px/1.4 ui-monospace,
+      SFMono-Regular,
+      Menlo,
+      monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .palette-row.failed .palette-command {
+    color: #e0776b;
+  }
+  .palette-row.is-saved .palette-command {
+    color: #8ae2a0;
+  }
+  .palette-meta {
+    color: #6f758a;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .palette-delete {
+    background: transparent;
+    border: 0;
+    color: #5f6579;
+    cursor: pointer;
+  }
+  .palette-delete:hover {
+    color: #e0776b;
+  }
+  .palette-empty {
+    padding: 18px 14px;
+    color: #6f758a;
+    font-size: 12px;
+  }
+  .palette-footer {
+    border-top: 1px solid #2f3346;
+    padding: 8px 14px;
+    color: #6f758a;
+    font-size: 11px;
+  }
 </style>
 <body>
   <div id="status" hidden></div>
   <div id="terminal"></div>
+  <div id="overlays"></div>
   <div id="recovery" hidden>
     <h1 id="recovery-reason">This terminal session expired.</h1>
     <p>The daemon no longer has this session. Nothing was run automatically.</p>

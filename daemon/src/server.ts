@@ -1,4 +1,7 @@
 import { createServer, type Server } from 'node:http';
+import { mkdir, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { isAbsolute, resolve as resolvePath } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
   AUTH_TIMEOUT_MS,
@@ -21,6 +24,7 @@ import { FlowController } from './flow-control.js';
 import { debug, info, warn } from './log.js';
 import { openPath, resolvePaths } from './paths.js';
 import { processCwd } from './process-cwd.js';
+import type { LauncherData } from './launcher-data.js';
 import type { WorkspaceStore } from './workspace-store.js';
 import type { Session, SessionManager } from './session-manager.js';
 
@@ -42,12 +46,19 @@ export class DaemonServer {
   readonly #config: Config;
   readonly #sessions: SessionManager;
   readonly #workspaces: WorkspaceStore;
+  readonly #launcher: LauncherData;
   readonly #clients = new Set<Client>();
 
-  constructor(config: Config, sessions: SessionManager, workspaces: WorkspaceStore) {
+  constructor(
+    config: Config,
+    sessions: SessionManager,
+    workspaces: WorkspaceStore,
+    launcher: LauncherData,
+  ) {
     this.#config = config;
     this.#sessions = sessions;
     this.#workspaces = workspaces;
+    this.#launcher = launcher;
     this.#http = createServer((_req, res) => {
       res.writeHead(426);
       res.end('websocket only');
@@ -394,6 +405,79 @@ export class DaemonServer {
         return;
       }
 
+      case 'list-launcher': {
+        send(
+          client.socket,
+          controlFrame({
+            t: 'launcher-state',
+            state: {
+              recentDirs: this.#launcher.recentDirs(),
+              saved: this.#launcher.saved(),
+              // No plugins exist yet, so the launcher renders no plugin section at all.
+              plugins: [],
+              home: homedir(),
+            },
+          }),
+        );
+        return;
+      }
+
+      case 'list-history': {
+        send(
+          client.socket,
+          controlFrame({
+            t: 'history-page',
+            entries: this.#launcher.history(msg.query ?? '', msg.limit ?? 200),
+          }),
+        );
+        return;
+      }
+
+      case 'save-item': {
+        this.#launcher.save({
+          title: msg.title,
+          body: msg.body,
+          ...(msg.tags ? { tags: msg.tags } : {}),
+        });
+        send(client.socket, controlFrame({ t: 'saved-updated', saved: this.#launcher.saved() }));
+        return;
+      }
+
+      case 'delete-saved': {
+        this.#launcher.deleteSaved(msg.id);
+        send(client.socket, controlFrame({ t: 'saved-updated', saved: this.#launcher.saved() }));
+        return;
+      }
+
+      case 'use-saved': {
+        this.#launcher.markUsed(msg.id);
+        return;
+      }
+
+      case 'clear-history': {
+        this.#launcher.clearHistory();
+        send(client.socket, controlFrame({ t: 'history-page', entries: [] }));
+        return;
+      }
+
+      case 'pin-dir': {
+        this.#launcher.pinDir(msg.path, msg.pinned);
+        return;
+      }
+
+      case 'forget-dir': {
+        this.#launcher.forgetDir(msg.path);
+        return;
+      }
+
+      case 'create-layout': {
+        void this.#createLayout(client, msg).catch((e: unknown) => {
+          warn('layout.create.failed', { error: String(e) });
+          sendError(client.socket, 'path-not-found', 'could not create that layout');
+        });
+        return;
+      }
+
       case 'list-sessions': {
         for (const s of this.#sessions.all) {
           send(
@@ -493,6 +577,68 @@ export class DaemonServer {
     }
   }
 
+  /**
+   * Build a workspace of N panes, all rooted in one directory.
+   *
+   * The path is expanded and resolved here rather than in the frontend, because the frontend
+   * cannot see the filesystem and a path typed by a human is untrusted input like any other.
+   */
+  async #createLayout(
+    client: Client,
+    msg: {
+      path: string;
+      panes: number;
+      direction: 'horizontal' | 'vertical';
+      createIfMissing: boolean;
+      cols: number;
+      rows: number;
+    },
+  ): Promise<void> {
+    const target = expandPath(msg.path);
+    if (!target) {
+      sendError(client.socket, 'path-not-found', 'not a usable path');
+      return;
+    }
+
+    let usable = false;
+    try {
+      usable = (await stat(target)).isDirectory();
+    } catch {
+      if (msg.createIfMissing) {
+        await mkdir(target, { recursive: true });
+        usable = true;
+      }
+    }
+    if (!usable) {
+      sendError(client.socket, 'path-not-found', 'no such directory');
+      return;
+    }
+
+    const count = Math.min(6, Math.max(1, Math.floor(msg.panes)));
+    const first = this.#sessions.create({ cwd: target, cols: msg.cols, rows: msg.rows });
+    const { workspace } = this.#workspaces.create(first.id);
+
+    let anchor = this.#workspaces.paneFor(workspace, first.id) as string;
+    for (let i = 1; i < count; i++) {
+      const session = this.#sessions.create({ cwd: target, cols: msg.cols, rows: msg.rows });
+      const result = this.#workspaces.split(workspace.id, anchor, msg.direction, session.id);
+      // Chain from the newest pane, so three panes come out evenly rather than nested one deep.
+      anchor = result.paneId;
+    }
+
+    this.#launcher.recordDir(target);
+    send(
+      client.socket,
+      controlFrame({
+        t: 'session-created',
+        sessionId: first.id,
+        streamId: 0,
+        pid: first.pid,
+        workspaceId: workspace.id,
+      }),
+    );
+  }
+
   #bind(client: Client, session: Session): number {
     const streamId = client.nextStream++;
     client.streams.set(session.id, streamId);
@@ -562,6 +708,17 @@ function send(socket: WebSocket, data: Uint8Array): void {
 
 function sendError(socket: WebSocket, code: ServerErrorCode, message: string): void {
   send(socket, controlFrame({ t: 'error', code, message }));
+}
+
+/** Expand ~ and resolve to an absolute path, or refuse. */
+function expandPath(input: string): string | null {
+  const trimmed = input.trim();
+  if (trimmed.length === 0 || trimmed.length > 4096 || trimmed.includes('\0')) return null;
+  let expanded = trimmed;
+  if (expanded === '~') expanded = homedir();
+  else if (expanded.startsWith('~/')) expanded = resolvePath(homedir(), expanded.slice(2));
+  const absolute = isAbsolute(expanded) ? expanded : resolvePath(homedir(), expanded);
+  return absolute.startsWith('/') ? absolute : null;
 }
 
 function toBuffer(raw: Buffer | ArrayBuffer | Buffer[]): Buffer {

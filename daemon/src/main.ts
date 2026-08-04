@@ -7,6 +7,7 @@ import { error, info, initLog } from './log.js';
 import { DaemonServer } from './server.js';
 import { SessionManager, type SessionEvents } from './session-manager.js';
 import { WorkspaceStore } from './workspace-store.js';
+import { LauncherData } from './launcher-data.js';
 
 /**
  * The daemon owns every PTY. No terminal process is ever tied to a Chrome page's lifetime,
@@ -35,7 +36,8 @@ async function main(): Promise<void> {
   const events: SessionEvents = { onExit: () => {}, onStateChange: () => {} };
   const sessions = new SessionManager(config, events);
   const workspaces = new WorkspaceStore();
-  const server = new DaemonServer(config, sessions, workspaces);
+  const launcher = new LauncherData();
+  const server = new DaemonServer(config, sessions, workspaces, launcher);
 
   events.onExit = (s) => {
     // A pane whose process ended stops being a pane. The layout closes over it.
@@ -55,7 +57,11 @@ async function main(): Promise<void> {
     });
   };
   events.onCwd = (s) => {
+    launcher.recordDir(s.cwd);
     server.notifySession(s, { t: 'cwd', sessionId: s.id, cwd: s.cwd });
+  };
+  events.onCommand = (s, command, exitCode, durationMs) => {
+    launcher.recordCommand({ command, cwd: s.cwd, exitCode, durationMs });
   };
   events.onTitle = (s) => {
     server.notifySession(s, { t: 'title', sessionId: s.id, fields: s.titleFields });
@@ -79,6 +85,7 @@ async function main(): Promise<void> {
     info('daemon.shutdown', { signal });
     void (async () => {
       await server.close();
+      launcher.flush();
       await sessions.shutdown();
       releaseLock();
       process.exit(0);

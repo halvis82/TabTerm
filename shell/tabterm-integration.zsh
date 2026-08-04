@@ -21,9 +21,25 @@ __tabterm_osc7() {
   printf '\e]7;file://%s%s\e\\' "${HOST}" "${PWD}"
 }
 
+# Percent-encode, so a command containing ; or an escape cannot break the sequence or inject
+# one. zsh does this without spawning a subprocess, which keeps the prompt path clean.
+__tabterm_encode() {
+  local out= i c
+  for (( i = 1; i <= ${#1}; i++ )); do
+    c=${1[i]}
+    case $c in
+      [A-Za-z0-9._~-]) out+=$c ;;
+      *) out+=$(printf '%%%02X' "'$c") ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
 __tabterm_preexec() {
   # OSC 133;C marks the start of command output.
   printf '\e]133;C\e\\'
+  # And our own sequence carries the command line itself, which OSC 133 does not include.
+  printf '\e]1338;%s\e\\' "$(__tabterm_encode "$1")"
 }
 
 __tabterm_precmd() {

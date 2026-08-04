@@ -159,28 +159,6 @@ export interface Project {
   workspaceTemplateIds: readonly string[];
 }
 
-export type SavedKind = 'command' | 'template' | 'note' | 'prompt' | 'workflow';
-
-export interface SavedItem {
-  id: string;
-  kind: SavedKind;
-  title: string;
-  body: string;
-  description?: string;
-  scope: 'global' | 'project';
-  projectId?: string;
-  cwd?: string;
-  tags: readonly string[];
-  /** Prompted for before the item runs. */
-  placeholders?: readonly string[];
-  /** Advisory only. Running always requires an explicit user action. */
-  safeToRunDirectly: boolean;
-  createdAt: number;
-  lastUsedAt?: number;
-  useCount: number;
-  pinned: boolean;
-}
-
 /** Serialized screen state, the payload that makes reattach exact. See docs/07-terminal-fidelity.md. */
 export interface SessionSnapshot {
   sessionId: string;
@@ -193,4 +171,50 @@ export interface SessionSnapshot {
   screen: string;
   scrollback: string;
   altScreen: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Launcher
+// ---------------------------------------------------------------------------
+
+export interface RecentDir {
+  path: string;
+  name: string;
+  lastUsedAt: number;
+  useCount: number;
+  pinned: boolean;
+}
+
+export interface CommandEntry {
+  id: string;
+  command: string;
+  cwd: string;
+  lastUsedAt: number;
+  useCount: number;
+  exitCode?: number;
+  durationMs?: number;
+}
+
+export interface SavedItem {
+  id: string;
+  title: string;
+  body: string;
+  tags: readonly string[];
+  createdAt: number;
+  lastUsedAt: number;
+  useCount: number;
+}
+
+/** A plugin the launcher can offer. None exist yet; the list is empty and renders nothing. */
+export interface LauncherPlugin {
+  id: string;
+  title: string;
+  description?: string;
+}
+
+export interface LauncherState {
+  recentDirs: readonly RecentDir[];
+  saved: readonly SavedItem[];
+  plugins: readonly LauncherPlugin[];
+  home: string;
 }
