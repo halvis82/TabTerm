@@ -173,8 +173,17 @@ deferred to the scrollback archive work.
 
 ### 2.10 LaunchAgent environment
 The daemon starts with a minimal `PATH`. Spawning `zsh -l` reconstructs the real environment through
-`/etc/zprofile`, `path_helper`, and user dotfiles. A non-login shell produces a missing toolchain that
-looks like a mysterious per-command bug.
+`/etc/zprofile`, `path_helper`, and user dotfiles.
+
+Measured: from `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, a login shell produced 26 entries against 14 for
+a non-login shell. Whether a non-login shell gets a usable `PATH` at all depends on where the user
+put their edits, since `.zshrc` runs for interactive non-login shells and `.zprofile` does not. A
+login shell is the only spawn that works regardless of dotfile layout.
+
+### 2.11 node-pty spawn-helper loses its executable bit
+The npm tarball extraction does not preserve the executable bit on node-pty's `spawn-helper` binary
+on macOS, so every PTY spawn fails with a bare `posix_spawnp failed` that names no file. Reproduces
+on every fresh install. Repaired by a postinstall step. See `13-packaging.md`.
 
 ---
 

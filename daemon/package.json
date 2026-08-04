@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@tabterm/shared": "*"
+    "@tabterm/shared": "*",
+    "node-pty": "^1.1.0"
   }
 }

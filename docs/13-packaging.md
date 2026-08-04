@@ -54,11 +54,32 @@ Notes:
 - **The daemon and Chrome race at login.** This is the normal path. Terminal pages back off and
   connect when the daemon appears, rather than showing an error. See `04-session-lifecycle.md` §5
 
+### The node-pty spawn-helper permission
+
+node-pty shells out to a small `spawn-helper` binary to set up the controlling terminal. The npm
+tarball extraction does not preserve its executable bit on macOS, so **every PTY spawn fails** with:
+
+```
+Error: posix_spawnp failed.
+```
+
+The message names no file, so it is easily misdiagnosed as an environment, cwd, or entitlement
+problem. It is none of those. `scripts/postinstall.mjs` restores the bit on every install, and the
+app bundle build must preserve it when copying `node_modules`.
+
+This reproduces on every fresh install. It is handled by the build, never by hand.
+
 ### The `PATH` trap
 
 A LaunchAgent starts with a minimal `PATH`. The daemon therefore always spawns `zsh -l`, a **login**
 shell, which reconstructs the real environment via `/etc/zprofile`, `path_helper`, and user dotfiles.
 
+Measured: from `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, a login shell produced 26 entries against 14
+for a non-login shell, and the 12 it added included `/usr/local/bin` and `/opt/homebrew/sbin`.
+
+Whether a non-login shell happens to get a usable `PATH` depends entirely on where the user put
+their edits: `.zshrc` runs for interactive non-login shells, `.zprofile` does not. That is exactly
+why it cannot be relied on. A login shell is the only spawn that works regardless of dotfile layout.
 A non-login shell produces a missing toolchain that presents as a mysterious per-command bug.
 `10-limitations.md` tier 2.10.
 
