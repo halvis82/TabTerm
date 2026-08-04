@@ -39,6 +39,11 @@ export interface Config {
   reapAgentOrEditorSeconds: number;
   reapDefaultSeconds: number;
   shell: string;
+  /**
+   * Foreground processes that get the longer detached grace period. An editor or an agent CLI
+   * holds state a shell does not, so losing one to a timer costs more.
+   */
+  longLivedPrograms: readonly string[];
   /** Coalescing and flow control. The socket is not the bottleneck, the VT parser is. */
   coalesceMs: number;
   maxChunkBytes: number;
@@ -53,6 +58,7 @@ export const DEFAULTS: Config = {
   reapAgentOrEditorSeconds: 600,
   reapDefaultSeconds: 300,
   shell: process.env['SHELL'] ?? '/bin/zsh',
+  longLivedPrograms: ['vim', 'nvim', 'emacs', 'ssh', 'claude', 'agent'],
   coalesceMs: 6,
   maxChunkBytes: 64 * 1024,
   creditWindowBytes: 256 * 1024,

@@ -228,7 +228,8 @@ export class SessionManager {
 
   #reapDelay(session: Session): number {
     const cmd = session.command?.[0] ?? '';
-    if (/(^|\/)(vim|nvim|emacs|ssh|claude|agent)$/.test(cmd)) {
+    const program = cmd.slice(cmd.lastIndexOf('/') + 1);
+    if (this.#config.longLivedPrograms.includes(program)) {
       return this.#config.reapAgentOrEditorSeconds;
     }
     if (!session.command) return this.#config.reapIdleShellSeconds;
