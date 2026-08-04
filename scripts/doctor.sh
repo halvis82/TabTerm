@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# tabterm doctor: check every link in the chain and say which one is broken.
+#
+# Reports per item so a failure points at one thing. Never prints the token, command text, or
+# terminal output. See docs/05-security.md §9.
+set -uo pipefail
+
+STATE="$HOME/.local/state/tabterm"
+LIBEXEC="$HOME/.local/libexec/tabterm"
+PLIST="$HOME/Library/LaunchAgents/com.tabterm.daemon.plist"
+HOST_MANIFEST="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.tabterm.host.json"
+EXT_ID="mcchodnlokiofihbecdeicicfhmgpadb"
+PORT=7377
+fails=0
+
+ok()   { printf '  \033[32mOK\033[0m    %s\n' "$1"; }
+warn() { printf '  \033[33mWARN\033[0m  %s\n' "$1"; }
+bad()  { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; fails=$((fails+1)); }
+
+echo "TabTerm doctor"
+echo
+
+# --- daemon ---------------------------------------------------------------
+if launchctl print "gui/$(id -u)/com.tabterm.daemon" >/dev/null 2>&1; then
+  ok "LaunchAgent is loaded"
+else
+  bad "LaunchAgent not loaded. Run: launchctl bootstrap gui/$(id -u) $PLIST"
+fi
+
+if nc -z 127.0.0.1 "$PORT" 2>/dev/null; then
+  ok "daemon is listening on 127.0.0.1:$PORT"
+else
+  bad "nothing listening on 127.0.0.1:$PORT. Check $STATE/logs/stderr.log"
+fi
+
+# Loopback only. A daemon reachable off-box would be a serious problem.
+if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | grep -q "127.0.0.1:$PORT"; then
+  ok "bound to loopback only"
+else
+  if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+    bad "listening on a non-loopback address. This should never happen"
+  fi
+fi
+
+# --- token ----------------------------------------------------------------
+if [ -f "$STATE/token" ]; then
+  mode=$(stat -f '%Lp' "$STATE/token")
+  if [ "$mode" = "600" ]; then
+    ok "token present, mode 600"
+  else
+    bad "token has mode $mode, expected 600. The daemon refuses to start like this"
+  fi
+else
+  bad "no token at $STATE/token. Run scripts/install.sh"
+fi
+
+# --- native messaging host ------------------------------------------------
+if [ -f "$HOST_MANIFEST" ]; then
+  if grep -q "$EXT_ID" "$HOST_MANIFEST"; then
+    ok "native messaging host registered for the expected extension id"
+  else
+    bad "host manifest exists but lists a different extension id"
+  fi
+  host_path=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['path'])" "$HOST_MANIFEST" 2>/dev/null)
+  if [ -x "$host_path" ]; then
+    ok "host binary is executable"
+  else
+    bad "host binary missing or not executable: $host_path"
+  fi
+  case "$host_path" in
+    "$HOME/Documents"/*|"$HOME/Desktop"/*|"$HOME/Downloads"/*)
+      bad "host lives in a TCC-protected folder. Chrome cannot execute it there" ;;
+    *) ok "host is outside TCC-protected folders" ;;
+  esac
+else
+  bad "no native messaging host manifest. Run scripts/install.sh"
+fi
+
+# --- staged binaries ------------------------------------------------------
+if [ -f "$LIBEXEC/daemon.mjs" ]; then
+  ok "daemon staged at $LIBEXEC"
+else
+  bad "daemon not staged. Run scripts/install.sh"
+fi
+
+helper=$(find "$LIBEXEC/node_modules/node-pty/prebuilds" -name spawn-helper 2>/dev/null | head -1)
+if [ -n "$helper" ]; then
+  if [ -x "$helper" ]; then
+    ok "node-pty spawn-helper is executable"
+  else
+    bad "spawn-helper is not executable. Every PTY spawn will fail with posix_spawnp failed"
+  fi
+else
+  warn "node-pty prebuilds not found beside the staged daemon"
+fi
+
+# --- shell integration ----------------------------------------------------
+if [ -f "$HOME/.local/share/tabterm/tabterm-integration.zsh" ]; then
+  if grep -q "tabterm-integration.zsh" "$HOME/.zshrc" 2>/dev/null; then
+    ok "shell integration installed and sourced from .zshrc"
+  else
+    warn "shell integration available but not sourced. Titles will not follow the directory"
+    echo "        echo '[ -f ~/.local/share/tabterm/tabterm-integration.zsh ] && source ~/.local/share/tabterm/tabterm-integration.zsh' >> ~/.zshrc"
+  fi
+else
+  warn "shell integration not staged. Run scripts/install.sh"
+fi
+
+# --- macOS privacy --------------------------------------------------------
+# An ungranted folder HANGS rather than failing, so probe with a timeout.
+probe_tcc() {
+  local dir="$1"
+  ( ls "$HOME/$dir" >/dev/null 2>&1 ) &
+  local pid=$!
+  local waited=0
+  while kill -0 $pid 2>/dev/null && [ $waited -lt 6 ]; do sleep 1; waited=$((waited+1)); done
+  if kill -0 $pid 2>/dev/null; then
+    kill -9 $pid 2>/dev/null
+    echo "hang"
+  else
+    wait $pid 2>/dev/null && echo "ok" || echo "denied"
+  fi
+}
+for dir in Desktop Documents Downloads; do
+  case "$(probe_tcc "$dir")" in
+    ok)     ok "this shell can read ~/$dir" ;;
+    denied) warn "~/$dir denied for this shell" ;;
+    hang)   bad "~/$dir HANGS on a consent prompt. A terminal doing this looks frozen" ;;
+  esac
+done
+
+# --- disk -----------------------------------------------------------------
+if [ -d "$STATE" ]; then
+  size=$(du -sh "$STATE" 2>/dev/null | cut -f1)
+  ok "state directory is $size"
+fi
+
+echo
+if [ "$fails" -eq 0 ]; then
+  echo "  Everything checks out. Open a terminal with Command+Shift+E."
+else
+  echo "  $fails problem(s) above."
+fi
+exit "$fails"

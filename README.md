@@ -59,13 +59,34 @@ scripts/       install, uninstall, dev, doctor
 docs/          Specification and decision records
 ```
 
+## Install
+
+```sh
+./scripts/install.sh
+```
+
+That generates the auth token, registers the native messaging host, stages the daemon, installs a
+LaunchAgent so it starts at login, and runs a health check. It never edits your `.zshrc` and never
+regenerates an existing token.
+
+One step is manual, because Chrome no longer honors `--load-extension`: open `chrome://extensions`,
+enable Developer mode, choose **Load unpacked**, and select `extension/dist`.
+
+Then `Command+Shift+E` opens a terminal.
+
+```sh
+./scripts/doctor.sh     # check every link in the chain
+./scripts/uninstall.sh  # reverse all of it
+```
+
 ## Requirements
 
 macOS, Chrome, Node 20 or later, zsh. Not cross-platform, and not planned to be.
 
 ## Status
 
-In development.
+Terminals work. A tab renders a real shell, survives being closed and reopened with its process
+intact, and titles follow the working directory. Splits and workspaces are not built yet.
 
 ## License
 
