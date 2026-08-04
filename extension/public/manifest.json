@@ -9,6 +9,17 @@
     "service_worker": "service-worker.js",
     "type": "module"
   },
-  "permissions": ["offscreen", "storage"],
-  "icons": {}
+  "permissions": ["offscreen", "storage", "tabs", "tabGroups", "nativeMessaging"],
+  "icons": {},
+  "action": {
+    "default_title": "New terminal"
+  },
+  "commands": {
+    "new-terminal": {
+      "suggested_key": {
+        "mac": "Command+Shift+E"
+      },
+      "description": "Open a new terminal tab"
+    }
+  }
 }

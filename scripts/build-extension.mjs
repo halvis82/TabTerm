@@ -3,7 +3,7 @@
 // Three separate entry points, because the extension has three connection classes with
 // different lifetimes. See docs/01-architecture.md and docs/06-chrome-integration.md.
 import { build } from 'esbuild';
-import { cp, mkdir, rm } from 'node:fs/promises';
+import { copyFile, cp, mkdir, rm } from 'node:fs/promises';
 
 const OUT = 'extension/dist';
 const watch = process.argv.includes('--watch');
@@ -16,6 +16,7 @@ const options = {
   },
   outdir: OUT,
   bundle: true,
+  loader: { '.css': 'text' },
   platform: 'browser',
   target: 'chrome120',
   format: 'esm',
@@ -36,3 +37,7 @@ if (watch) {
 }
 
 await cp('extension/public', OUT, { recursive: true });
+
+// xterm ships its stylesheet as a package asset. Copy rather than inline it, so the CSP
+// stays strict and the page loads it as a normal stylesheet.
+await copyFile('node_modules/@xterm/xterm/css/xterm.css', `${OUT}/xterm.css`);

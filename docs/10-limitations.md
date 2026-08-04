@@ -208,7 +208,18 @@ a non-login shell. Whether a non-login shell gets a usable `PATH` at all depends
 put their edits, since `.zshrc` runs for interactive non-login shells and `.zprofile` does not. A
 login shell is the only spawn that works regardless of dotfile layout.
 
-### 2.11 node-pty spawn-helper loses its executable bit
+### 2.11 Offscreen documents get only chrome.runtime
+Measured. An offscreen document has no `chrome.storage` and no `chrome.runtime.sendNativeMessage`,
+so it cannot obtain the daemon token by itself. It must ask the service worker, which has the full
+API surface. Only one offscreen document may exist, and concurrent creation attempts throw.
+See `06-chrome-integration.md` §2.
+
+### 2.12 Chrome cannot execute anything in a TCC-protected folder
+Chrome holds no grant for `~/Documents`, `~/Desktop`, or `~/Downloads`. A native messaging host
+placed there fails to launch with `Operation not permitted`, reported to the extension only as
+`Native host has exited`. Install helper binaries outside those folders.
+
+### 2.13 node-pty spawn-helper loses its executable bit
 The npm tarball extraction does not preserve the executable bit on node-pty's `spawn-helper` binary
 on macOS, so every PTY spawn fails with a bare `posix_spawnp failed` that names no file. Reproduces
 on every fresh install. Repaired by a postinstall step. See `13-packaging.md`.

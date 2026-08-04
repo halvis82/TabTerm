@@ -1,5 +1,80 @@
 <!doctype html>
 <meta charset="utf-8" />
 <title>Terminal</title>
-<div id="root"></div>
-<script type="module" src="terminal.js"></script>
+<link rel="stylesheet" href="xterm.css" />
+<link rel="icon" id="favicon" />
+<style>
+  :root {
+    color-scheme: dark;
+  }
+  html,
+  body {
+    margin: 0;
+    height: 100%;
+    background: #12131a;
+    overflow: hidden;
+  }
+  #terminal {
+    position: absolute;
+    inset: 0;
+    padding: 6px 8px;
+  }
+  .xterm-viewport::-webkit-scrollbar {
+    width: 9px;
+  }
+  .xterm-viewport::-webkit-scrollbar-thumb {
+    background: #333849;
+    border-radius: 5px;
+  }
+  #status {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    z-index: 5;
+    font:
+      12px/1.9 -apple-system,
+      BlinkMacSystemFont,
+      sans-serif;
+    text-align: center;
+    color: #12131a;
+  }
+  #status[data-tone='warn'] {
+    background: #e8c26a;
+  }
+  #status[data-tone='error'] {
+    background: #e0776b;
+  }
+  #recovery {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    gap: 14px;
+    font:
+      14px/1.6 -apple-system,
+      BlinkMacSystemFont,
+      sans-serif;
+    color: #d5d8e2;
+    text-align: center;
+    padding: 40px;
+  }
+  #recovery h1 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0;
+  }
+  #recovery p {
+    margin: 0;
+    color: #8b91a6;
+  }
+</style>
+<body>
+  <div id="status" hidden></div>
+  <div id="terminal"></div>
+  <div id="recovery" hidden>
+    <h1 id="recovery-reason">This terminal session expired.</h1>
+    <p>The daemon no longer has this session. Nothing was run automatically.</p>
+  </div>
+  <script type="module" src="terminal.js"></script>
+</body>

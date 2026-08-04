@@ -127,6 +127,16 @@ Token bootstrap only (`05-security.md` §3).
 way the WebSocket alone cannot. The host reads one 0600 file and returns one message. It spawns
 nothing and accepts no commands.
 
+**The host binary must not live under `~/Documents`, `~/Desktop`, or `~/Downloads`.** Chrome holds no
+TCC grant for those folders, so executing anything there fails with a bare `Operation not permitted`
+and Chrome surfaces it only as `Native host has exited`, which points nowhere near the real cause.
+The installer places it at `~/.local/libexec/tabterm/` for exactly this reason. This bit a real
+install: the repository lives under `~/Documents`, and nothing worked until the host moved out.
+
+**Development note.** With a custom `--user-data-dir`, Chrome reads native messaging host manifests
+from `<user-data-dir>/NativeMessagingHosts/`, not from the standard profile path. A test profile
+needs its own copy.
+
 ---
 
 ## 5. Install

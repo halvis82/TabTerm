@@ -41,6 +41,7 @@ remains in the strip with its title and favicon **frozen at discard time**. The 
 | Class | Host | Carries |
 |---|---|---|
 | **Control** | Offscreen document, one per profile | Session state, notification triggers, daemon-initiated tab actions |
+
 | **Data** | Terminal page, one per page | Terminal streams for every pane in that page |
 | **Dispatch** | Service worker | `chrome.commands`, context menus, action clicks. Wakes, forwards, dies |
 
@@ -51,6 +52,26 @@ that tab.
 
 Notifications and daemon-initiated tab creation therefore originate **only** from the offscreen
 document. Never from a terminal page.
+
+### What an offscreen document is actually given
+
+Measured on Chrome 150, and it constrains the design:
+
+| API | Offscreen document | Service worker | Extension page |
+|---|---|---|---|
+| `chrome.runtime` | ✅ | ✅ | ✅ |
+| `chrome.storage` | ❌ **undefined** | ✅ | ✅ |
+| `chrome.runtime.sendNativeMessage` | ❌ **undefined** | ✅ | ✅ |
+| `WebSocket` | ✅ | ✅ | ✅ |
+
+An offscreen document therefore **cannot fetch the daemon token itself**. It has no storage to
+cache it in and no native messaging to obtain it. It asks the service worker, which has the full
+surface, over `chrome.runtime` messaging. Sending that message also wakes the worker if it has
+already died, which it will have.
+
+Only **one** offscreen document may exist per extension, and `getContexts` can report zero while a
+creation is still in flight. Two callers racing both try to create and the second throws
+`Only a single offscreen document may be created`. Memoize the creation promise.
 
 ---
 
