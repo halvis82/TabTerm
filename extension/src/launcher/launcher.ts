@@ -1,5 +1,6 @@
 import type {
   LauncherState,
+  LocalServer,
   ProjectConfigInfo,
   RecentDir,
   ResumableAgentSession,
@@ -28,6 +29,9 @@ export interface LauncherOptions {
   onDecideProjectTrust: (info: ProjectConfigInfo, decision: 'trusted' | 'denied') => void;
   onOpenProject: (path: string) => void;
   onResumeAgent: (session: ResumableAgentSession) => void;
+  onOpenServer: (port: number) => void;
+  onAttachServer: (server: LocalServer) => void;
+  onStopServer: (server: LocalServer, restart: boolean) => void;
   onDismiss: () => void;
 }
 
@@ -40,6 +44,9 @@ export class Launcher {
   readonly #projects = new Map<string, ProjectConfigInfo>();
   #expanded: string | null = null;
   #resumable: readonly ResumableAgentSession[] = [];
+  #servers: readonly LocalServer[] = [];
+  /** Which server is asking for confirmation, and for what. */
+  #confirming: { sessionId: string; restart: boolean } | null = null;
 
   constructor(opts: LauncherOptions) {
     this.#opts = opts;
@@ -80,6 +87,8 @@ export class Launcher {
 
     // --- new layout in a directory ---------------------------------------
     sections.push(this.#layoutSection(state));
+    const servers = this.#serverSection(state.home);
+    if (servers) sections.push(servers);
     const resume = this.#resumeSection(state.home);
     if (resume) sections.push(resume);
 
@@ -176,6 +185,104 @@ export class Launcher {
     form.append(input, buttons);
     wrap.append(form, note);
     return wrap;
+  }
+
+  /** Local servers the daemon attributed to a session. */
+  setServers(servers: readonly LocalServer[]): void {
+    this.#servers = servers;
+    // A server that disappeared cannot still be waiting on a confirmation.
+    if (this.#confirming && !servers.some((s) => s.sessionId === this.#confirming?.sessionId)) {
+      this.#confirming = null;
+    }
+    if (!this.#dismissed) this.render();
+  }
+
+  /**
+   * Running servers, with what you would actually want to do about one.
+   *
+   * Stopping and restarting ask first. Everything else here is reversible; those two are not,
+   * and a misplaced click would take down something the user is in the middle of using.
+   */
+  #serverSection(home: string): HTMLElement | null {
+    if (this.#servers.length === 0) return null;
+
+    const rows = this.#servers.map((server) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'launcher-row-wrap';
+
+      const main = document.createElement('button');
+      main.className = 'launcher-row';
+      main.append(
+        strong(`localhost:${String(server.port)}`),
+        dim(`${server.command ? `${server.command} · ` : ''}${shorten(server.cwd, home)}`),
+      );
+      main.addEventListener('click', () => this.#opts.onOpenServer(server.port));
+      wrap.append(main);
+
+      const chip = (label: string, title: string, run: () => void) => {
+        const b = document.createElement('button');
+        b.className = 'launcher-chip';
+        b.textContent = label;
+        b.title = title;
+        b.addEventListener('click', (e) => {
+          e.stopPropagation();
+          run();
+        });
+        wrap.append(b);
+      };
+
+      chip('Terminal', 'Focus the tab running this server', () =>
+        this.#opts.onAttachServer(server),
+      );
+      chip('Stop', 'Interrupt this server', () => {
+        this.#confirming = { sessionId: server.sessionId, restart: false };
+        this.render();
+      });
+      chip('Restart', 'Interrupt it and run the same command again', () => {
+        this.#confirming = { sessionId: server.sessionId, restart: true };
+        this.render();
+      });
+
+      if (this.#confirming?.sessionId !== server.sessionId) return wrap;
+
+      const confirm = document.createElement('div');
+      confirm.className = 'launcher-project';
+      const text = document.createElement('div');
+      text.className = 'launcher-project-warn';
+      text.textContent = this.#confirming.restart
+        ? `Restart whatever is serving port ${String(server.port)}?`
+        : `Stop whatever is serving port ${String(server.port)}?`;
+      const note = document.createElement('div');
+      note.className = 'launcher-dim';
+      note.textContent = 'An interrupt is sent to the terminal, the same as pressing Ctrl+C in it.';
+
+      const buttons = document.createElement('div');
+      buttons.className = 'launcher-buttons';
+      const go = document.createElement('button');
+      go.className = 'launcher-chip primary';
+      go.textContent = this.#confirming.restart ? 'Restart it' : 'Stop it';
+      const restart = this.#confirming.restart;
+      go.addEventListener('click', () => {
+        this.#confirming = null;
+        this.#opts.onStopServer(server, restart);
+      });
+      const cancel = document.createElement('button');
+      cancel.className = 'launcher-chip';
+      cancel.textContent = 'Cancel';
+      cancel.addEventListener('click', () => {
+        this.#confirming = null;
+        this.render();
+      });
+      buttons.append(go, cancel);
+      confirm.append(text, note, buttons);
+
+      const group = document.createElement('div');
+      group.className = 'launcher-row-group';
+      group.append(wrap, confirm);
+      return group;
+    });
+
+    return section('Running servers', rows);
   }
 
   /** Agent sessions that could be picked back up. Shown, never resumed automatically. */

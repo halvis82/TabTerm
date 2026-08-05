@@ -461,6 +461,26 @@ function buildLauncher(): void {
       // and the file may have changed between the prompt and the click.
       client?.send({ t: 'inspect-project', cwd: info.path.replace(/\/[^/]+$/, '') });
     },
+    onOpenServer: (port) => {
+      void chrome.runtime.sendMessage({ t: 'tabterm:open-local', port });
+    },
+    onAttachServer: (server) => {
+      // Focus the tab that owns the workspace rather than opening a second view of it.
+      if (server.workspaceId && server.workspaceId === workspaceId) {
+        launcher?.dismiss();
+        return;
+      }
+      const url = chrome.runtime.getURL(
+        server.workspaceId ? `terminal.html?workspace=${server.workspaceId}` : 'terminal.html',
+      );
+      void chrome.tabs.create({ url, active: true });
+    },
+    onStopServer: (server, restart) => {
+      client?.send({ t: 'stop-server', sessionId: server.sessionId, restart });
+      // Ask again shortly, so the row disappears once it has actually stopped rather than
+      // sitting there claiming a server that is gone.
+      setTimeout(() => client?.send({ t: 'list-servers' }), 2500);
+    },
     onResumeAgent: (session) => {
       const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
       client?.send({
@@ -799,11 +819,19 @@ function onControl(msg: ServerMessage): void {
       palette?.setSaved(savedItems);
       // Asked for alongside launcher state, so the chips are there when the panel first draws.
       client?.send({ t: 'list-resumable', limit: 5 });
+      client?.send({ t: 'list-servers' });
       return;
     }
 
     case 'server-detected': {
       showServerOffer(msg.port);
+      // The dashboard, if it is on screen, should gain the row rather than wait to be reopened.
+      client?.send({ t: 'list-servers' });
+      return;
+    }
+
+    case 'server-list': {
+      launcher?.setServers(msg.servers);
       return;
     }
 

@@ -121,6 +121,27 @@ Any change introducing a timer must document why an event cannot serve instead. 
 knows when a process state changes, a prompt returns, a command exits, a session detaches, or an
 agent changes state. All of it is pushed.
 
+### Local server discovery
+
+`lsof` is expensive enough that a timer would be indefensible, so discovery runs on exactly two
+triggers, both events:
+
+- **A command starts.** One check is scheduled 2.5 seconds later: long enough for a dev server
+  to bind, short enough that the offer arrives while the user is still watching the output that
+  started it. Reported once per port, so restarting on the same port does not re-announce it.
+  This depends on the shell integration's command-start mark; without it there is no event to
+  hang the check on, the same way command history has none.
+- **Someone opens the dashboard.** One `lsof` across every live session. A dashboard nobody is
+  looking at costs nothing.
+
+A session detaching also checks, but only for the reap policy: a shell holding a listening
+socket must not be killed because a tab closed.
+
+Stopping a server sends an interrupt to its terminal, exactly what a person would type. Not a
+kill: the process shuts down the way it was written to, and nothing the shell owns is disturbed.
+Restarting sends the recorded start command again after the prompt returns. Both ask first,
+because both are irreversible and a misplaced click would take down something in use.
+
 ### Time-aware context
 
 The one place a timer is legitimate, and it is tightly bounded:
