@@ -24,10 +24,11 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify": "npm run check-node && npm run typecheck && npm run lint && npm run format:check && npm run test",
+    "verify": "npm run check-node && npm run check-text && npm run typecheck && npm run lint && npm run format:check && npm run test",
     "clean": "rm -rf */dist */dist-types *.tsbuildinfo */*.tsbuildinfo",
     "postinstall": "node scripts/postinstall.mjs",
-    "check-node": "node scripts/check-node.mjs"
+    "check-node": "node scripts/check-node.mjs",
+    "check-text": "node scripts/check-text.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.0",
