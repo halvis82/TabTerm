@@ -29,8 +29,35 @@ TabTerm.app/
 The LaunchAgent points at `Contents/MacOS/tabtermd`, never at a Homebrew `node`. TCC grants then
 attach to the bundle identifier and survive upgrades.
 
-**the TCC spike confirms this behaves as described before the app bundle work implements it.** If a signed bundle turns
-out not to give a stable grant, the plan changes.
+Built by `scripts/build-app-bundle.mjs`, which verifies the signed identifier is
+`com.tabterm.daemon` and fails if it is not, since a bundle signed under any other identifier
+would give TCC nothing to attach to.
+
+The launcher is a shell script rather than a copied `node`. Copying the runtime would double the
+bundle and pin a version the user upgrades independently; the identity TCC cares about comes
+from the bundle, and a child process inherits it either way. `TABTERM_NODE` overrides which node
+is used.
+
+`node-pty` travels inside `Contents/Resources/node_modules` because it is native and cannot be
+bundled, and its `spawn-helper` is re-chmodded to 755 on the way in. Without that bit every PTY
+spawn fails with a bare `posix_spawnp failed`, which is exactly how it presented the first time.
+
+**Signing.** With no `--sign` identity the bundle is signed ad-hoc, which is enough for TCC to
+have a stable identifier on the machine that built it and not enough to distribute. A Developer
+ID and notarization are required to ship, and both need an Apple Developer account:
+
+```
+node scripts/build-app-bundle.mjs --sign "Developer ID Application: NAME (TEAMID)"
+xcrun notarytool submit dist/TabTerm.app --keychain-profile <profile> --wait
+xcrun stapler staple dist/TabTerm.app
+```
+
+**A build-environment trap.** `codesign` refuses a bundle carrying "resource fork, Finder
+information, or similar detritus", and a tree under `~/Documents` picks those up on its own
+because that folder is iCloud-managed. The build strips extended attributes before signing.
+
+Verified: the bundle signs, launchd-style startup works, the daemon listens, an authenticated
+client connects, and a PTY spawns from inside the bundle.
 
 ---
 
@@ -107,11 +134,26 @@ Two acceptable channels, decided in extension identity minting:
 | **Unlisted Web Store listing** | Stable ID, auto-enable at Chrome start, clean update path | Review process. An extension that connects to loopback and runs shell commands is a nontrivial review |
 | **Managed-policy forcelist** | No review, auto-enable, fully local | Requires a managed preferences plist, more install machinery |
 
-Loading unpacked works for development and is what Phase 0 through 2 use, with the explicit `"key"`
-in place from day one so the ID never changes.
+Loading unpacked works for development, with the explicit `"key"` in place from day one so the
+ID never changes.
 
 **Update rule:** an extension update must never change the ID. Every stable URL in every user's
 Chrome history depends on it.
+
+This is enforced rather than remembered. `daemon/src/extension-id.ts` derives the ID Chrome
+would assign from the manifest's public key — SHA-256 of the DER key, first 16 bytes, each
+nibble in a 26-letter alphabet starting at `a` — and a test asserts the shipped key still
+produces `mcchodnlokiofihbecdeicicfhmgpadb`. `scripts/package-extension.mjs` refuses to build a
+package if it does not, and says which ID the key would have produced.
+
+```
+node scripts/package-extension.mjs            # dist/tabterm-extension-<version>.zip
+node scripts/package-extension.mjs --policy   # and the managed-preferences plist
+```
+
+The policy plist is written, never installed: applying it needs root and changes Chrome for
+every profile on the machine, which is not something a build script should do unasked. The
+commands to apply it are printed.
 
 ---
 
@@ -199,8 +241,31 @@ Same principle as install.
 | Disk usage of scrollback and logs | Runaway growth |
 | Session count and daemon RSS against budget | Memory regression |
 
-`tabterm doctor --bundle` produces a redacted diagnostic archive and lists exactly what it includes.
-Logs never contain command text, environment values, or terminal output by default.
+`scripts/doctor.sh` runs the checks. Several of them cannot be answered from outside the daemon,
+so `scripts/health-probe.mjs` connects the way the extension does and authenticates: a version
+mismatch, a stale token, and a wedged daemon all look identical to a port check, and only a real
+connection tells them apart. It reports the protocol answer, the live session count, and a
+SQLite `integrity_check` with the schema version.
+
+### The diagnostic bundle
+
+`node scripts/diagnostics.mjs` writes a redacted bundle to the Desktop.
+
+Redaction is the point rather than a nicety: a bundle nobody dares share is a bundle nobody
+sends. It removes tokens, credential-shaped strings, emails, long hex strings, the hostname, and
+the home directory, in that order — the broadest patterns run **last**, because the home
+directory appears inside paths the narrower rules also match and replacing it first would stop
+them firing.
+
+The rules live in `daemon/src/redact.ts` and are tested there. The script imports the built
+module rather than carrying its own copy, and **refuses to produce a bundle at all** if it
+cannot load it: a bundle that claims to be redacted while silently not being redacted is worse
+than no bundle. `--raw` skips redaction deliberately and says so in the output.
+
+The bundle contains doctor output, the health probe, environment versions, and a directory
+listing with sizes and modes. It contains **no scrollback, command text, or environment
+values**; logs never hold those to begin with, and this pass re-redacts anyway, because a
+diagnostic bundle is the one artifact that leaves the machine.
 
 ---
 
