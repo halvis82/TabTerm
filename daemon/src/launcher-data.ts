@@ -4,6 +4,7 @@ import { basename } from 'node:path';
 import type { CommandEntry, RecentDir, SavedItem } from '@tabterm/shared';
 import type { Database } from './database.js';
 import type { ProjectIndex } from './project-index.js';
+import { buildWhere, parseHistoryQuery, scopeFilter, type Scope } from './history-query.js';
 
 /**
  * What the launcher shows: where you have been, what you have run, and what you have kept.
@@ -16,6 +17,9 @@ import type { ProjectIndex } from './project-index.js';
 
 const MAX_RECENT_DIRS = 60;
 const MAX_HISTORY = 5000;
+
+/** How far to widen when a text search comes up short. Bounded, and still an indexed read. */
+const WIDEN_ROWS = 2000;
 
 /** Directories nobody wants offered back to them. */
 const BORING = new Set(['/', homedir(), '/tmp', '/private/tmp']);
@@ -43,6 +47,8 @@ export function isSensitive(command: string): boolean {
 export class LauncherData {
   readonly #db: Database;
   #projects: ProjectIndex | null = null;
+  /** What the last search actually applied, so the UI can show it rather than re-parse. */
+  lastApplied: string[] = [];
 
   constructor(db: Database) {
     this.#db = db;
@@ -182,6 +188,8 @@ export class LauncherData {
     cwd: string;
     exitCode?: number;
     durationMs?: number;
+    /** Recorded so a search can be scoped to the terminal the user is looking at. */
+    sessionId?: string;
   }): void {
     const command = entry.command.trim();
     if (command.length === 0 || command.length > 2000) return;
@@ -202,17 +210,27 @@ export class LauncherData {
       this.#db.handle
         .prepare(
           `UPDATE commands SET last_used_at = ?, use_count = use_count + 1,
-             exit_code = COALESCE(?, exit_code), duration_ms = COALESCE(?, duration_ms)
+             exit_code = COALESCE(?, exit_code), duration_ms = COALESCE(?, duration_ms),
+             -- The most recent session to run it, so "this session" reflects where you are now.
+             session_id = COALESCE(?, session_id),
+             git_root = COALESCE(?, git_root)
            WHERE id = ?`,
         )
-        .run(now, entry.exitCode ?? null, entry.durationMs ?? null, existing.id);
+        .run(
+          now,
+          entry.exitCode ?? null,
+          entry.durationMs ?? null,
+          entry.sessionId ?? null,
+          root,
+          existing.id,
+        );
       return;
     }
 
     this.#db.handle
       .prepare(
-        `INSERT INTO commands (id, command, cwd, last_used_at, use_count, exit_code, duration_ms, git_root)
-         VALUES (?, ?, ?, ?, 1, ?, ?, ?)`,
+        `INSERT INTO commands (id, command, cwd, last_used_at, use_count, exit_code, duration_ms, git_root, session_id)
+         VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)`,
       )
       .run(
         randomUUID(),
@@ -222,6 +240,7 @@ export class LauncherData {
         entry.exitCode ?? null,
         entry.durationMs ?? null,
         root,
+        entry.sessionId ?? null,
       );
 
     this.#db.handle
@@ -234,20 +253,77 @@ export class LauncherData {
   }
 
   /** Most recent first, optionally filtered. Deduplicated by command text. */
+  /**
+   * Search history.
+   *
+   * Filters run in SQL against indexed columns, and only the free-text part is matched in code.
+   * That split is what keeps this fast on a large history: the database narrows to a page-sized
+   * candidate set, and the fuzzy subsequence match, which no index can express, runs on that
+   * rather than on the whole table. See docs/11-performance.md.
+   *
+   * Never loads the table wholesale. `offset` pages through results; a page that comes back
+   * short of `limit` is the last one.
+   */
+  search(options: {
+    query?: string;
+    scope?: Scope;
+    context?: { gitRoot?: string; cwd?: string; sessionId?: string };
+    limit?: number;
+    offset?: number;
+    now?: number;
+  }): CommandEntry[] {
+    const limit = Math.min(200, Math.max(1, options.limit ?? 100));
+    const offset = Math.max(0, options.offset ?? 0);
+    const parsed = parseHistoryQuery(options.query ?? '', options.now ?? Date.now());
+
+    const filters = [...parsed.filters];
+    const scoped = scopeFilter(options.scope ?? 'global', options.context ?? {});
+    if (scoped) filters.push(scoped);
+
+    // A LIKE on the free text narrows in the database. It cannot express a subsequence match,
+    // so it is a pre-filter only when the text is a plain substring of something.
+    const text = parsed.text;
+    const like = text ? `%${text.replaceAll('%', '').replaceAll('_', '')}%` : null;
+
+    const where = buildWhere(filters);
+    this.lastApplied = filters.map((f) => f.label);
+    const rows = this.#queryCommands(where, like, limit, offset);
+    const direct = text ? rows.filter((e) => matches(e.command, text)) : rows;
+    if (!text || direct.length >= limit) return direct.slice(0, limit);
+
+    // The LIKE narrowing misses subsequence matches, so widen once over the same filters. Still
+    // bounded, and still indexed: this is a wider page, not a table scan.
+    const seen = new Set(direct.map((e) => e.command));
+    const out = [...direct];
+    for (const r of this.#queryCommands(where, null, WIDEN_ROWS, offset)) {
+      if (out.length >= limit) break;
+      if (seen.has(r.command) || !matches(r.command, text)) continue;
+      seen.add(r.command);
+      out.push(r);
+    }
+    return out.slice(0, limit);
+  }
+
+  /** Kept for the existing palette call, which searches globally with no filters. */
   history(query = '', limit = 200): CommandEntry[] {
-    // Narrow in SQL with an indexed LIKE first, then apply the fuzzy match in code. Doing the
-    // whole thing in code would mean reading every row; doing it all in SQL would lose
-    // subsequence matching, which is what makes `gco` find `git checkout`.
-    const like = query ? `%${query.replaceAll('%', '').replaceAll('_', '')}%` : '%';
+    return this.search({ query, limit });
+  }
+
+  #queryCommands(
+    where: { sql: string; params: (string | number)[] },
+    like: string | null,
+    limit: number,
+    offset: number,
+  ): CommandEntry[] {
     const rows = this.#db.handle
       .prepare(
-        `SELECT id, command, cwd, last_used_at, use_count, exit_code, duration_ms
+        `SELECT id, command, cwd, last_used_at, use_count, exit_code, duration_ms, git_root
          FROM commands
-         WHERE (? = '%' OR command LIKE ?)
+         WHERE ${where.sql} ${like === null ? '' : 'AND command LIKE ?'}
          ORDER BY last_used_at DESC
-         LIMIT ?`,
+         LIMIT ? OFFSET ?`,
       )
-      .all(like, like, Math.max(limit * 4, 400)) as {
+      .all(...where.params, ...(like === null ? [] : [like]), limit, offset) as {
       id: string;
       command: string;
       cwd: string;
@@ -255,9 +331,10 @@ export class LauncherData {
       use_count: number;
       exit_code: number | null;
       duration_ms: number | null;
+      git_root: string | null;
     }[];
 
-    const mapped = rows.map((r) => ({
+    return rows.map((r) => ({
       id: r.id,
       command: r.command,
       cwd: r.cwd,
@@ -265,35 +342,8 @@ export class LauncherData {
       useCount: r.use_count,
       ...(r.exit_code !== null ? { exitCode: r.exit_code } : {}),
       ...(r.duration_ms !== null ? { durationMs: r.duration_ms } : {}),
+      ...(r.git_root !== null ? { gitRoot: r.git_root } : {}),
     }));
-
-    const direct = mapped.filter((e) => matches(e.command, query));
-    if (direct.length >= limit || !query) return direct.slice(0, limit);
-
-    // The LIKE narrowing misses subsequence matches, so widen once if it came up short.
-    const wide = this.#db.handle
-      .prepare(
-        `SELECT id, command, cwd, last_used_at, use_count, exit_code, duration_ms
-         FROM commands ORDER BY last_used_at DESC LIMIT 2000`,
-      )
-      .all() as typeof rows;
-
-    const seen = new Set(direct.map((e) => e.command));
-    for (const r of wide) {
-      if (direct.length >= limit) break;
-      if (seen.has(r.command) || !matches(r.command, query)) continue;
-      seen.add(r.command);
-      direct.push({
-        id: r.id,
-        command: r.command,
-        cwd: r.cwd,
-        lastUsedAt: r.last_used_at,
-        useCount: r.use_count,
-        ...(r.exit_code !== null ? { exitCode: r.exit_code } : {}),
-        ...(r.duration_ms !== null ? { durationMs: r.duration_ms } : {}),
-      });
-    }
-    return direct.slice(0, limit);
   }
 
   clearHistory(): void {

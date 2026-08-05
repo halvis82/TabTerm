@@ -106,6 +106,17 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       CREATE INDEX idx_cmd_root ON commands(git_root, last_used_at DESC);
     `,
   },
+  {
+    version: 4,
+    sql: `
+      -- Scoping a search to one session, and to a remote host. Both are filters the query
+      -- language exposes, so both need a column and an index behind them.
+      ALTER TABLE commands ADD COLUMN session_id TEXT;
+      ALTER TABLE commands ADD COLUMN ssh_host   TEXT;
+      CREATE INDEX idx_cmd_session ON commands(session_id, last_used_at DESC);
+      CREATE INDEX idx_cmd_exit    ON commands(exit_code, last_used_at DESC);
+    `,
+  },
 ];
 
 export class Database {

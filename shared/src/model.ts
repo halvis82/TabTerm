@@ -195,6 +195,8 @@ export interface CommandEntry {
   useCount: number;
   exitCode?: number;
   durationMs?: number;
+  /** The repository it was run in, when it was run in one. */
+  gitRoot?: string;
 }
 
 export interface SavedItem {

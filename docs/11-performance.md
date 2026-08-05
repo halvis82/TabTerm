@@ -40,7 +40,7 @@ Measured on arm64 with Node 20 unless marked otherwise. Any change that moves a 
 | Attach to first paint, 3-pane workspace | To be set | the workspace restore work |
 | 8 simultaneous restores, total stall | under 8 s | **33 ms** measured ✅ |
 | Sustained PTY through the VT parser | — | **50 MB/s** measured |
-| History search, 100k rows, indexed | To be set | the history search work |
+| History search, 100k rows, indexed | **< 50 ms** filtered, **< 150 ms** with fuzzy text | measured: 0.1 ms unfiltered page, 4.6 ms `project:` + `exit:`, 5.1 ms with text, 0.4 ms at offset 5000 |
 | Detach pane to reattached tab | Perceptually instant | the pane detach work |
 | Prompt latency added by shell integration | Not measurable | the OSC 7 work |
 

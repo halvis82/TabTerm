@@ -1,5 +1,4 @@
 import type {
-  CommandEntry,
   LayoutNode,
   MergeableSession,
   ResolvedPath,
@@ -17,7 +16,7 @@ import { PaneStatus } from './pane-status.js';
 import { describeTime, isLongRunning, type TimeState } from './elapsed.js';
 import { applyFavicon, composeTitle, drawFavicon, type FaviconState } from './titles.js';
 import { Launcher } from '../launcher/launcher.js';
-import { Palette, type PaletteRow } from '../launcher/palette.js';
+import { Palette } from '../launcher/palette.js';
 
 /**
  * A terminal tab, which is really a workspace of one or more panes.
@@ -390,8 +389,21 @@ function buildLauncher(): void {
 
   palette = new Palette({
     root: overlay,
-    onQuery: (query) => client?.send({ t: 'list-history', query, limit: 100 }),
+    onQuery: (query, scope, offset) => {
+      const sessionId = focusedSessionId();
+      client?.send({
+        t: 'list-history',
+        query,
+        scope,
+        offset,
+        limit: 100,
+        ...(sessionId ? { sessionId } : {}),
+      });
+    },
     onPaste: (text) => sendToFocusedPane(text),
+    // A separate callback from paste, so running is never something the paste path can do.
+    onRun: (text) => sendToFocusedPane(`${text}\r`),
+    onOpenDir: (path) => sendToFocusedPane(`cd ${quote(path)}\r`),
     onCopy: (text) => void navigator.clipboard.writeText(text),
     onSave: (text) => client?.send({ t: 'save-item', title: text.slice(0, 60), body: text }),
     onDeleteSaved: (id) => client?.send({ t: 'delete-saved', id }),
@@ -415,19 +427,19 @@ function quote(path: string): string {
   return `'${path.replaceAll("'", `'\\''`)}'`;
 }
 
+/** The session behind the focused pane, which is what a scoped search resolves against. */
+function focusedSessionId(): string | undefined {
+  const paneId = splitView?.focused;
+  const pane = paneId ? panesHost?.get(paneId) : undefined;
+  return pane?.sessionId;
+}
+
 function sendToFocusedPane(text: string): void {
   const paneId = splitView?.focused;
   const pane = paneId ? panesHost?.get(paneId) : undefined;
   if (!pane) return;
   client?.write(pane.streamId, new TextEncoder().encode(text));
   launcher?.dismiss();
-}
-
-function paletteRows(history: readonly CommandEntry[]): PaletteRow[] {
-  return [
-    ...savedItems.map((item) => ({ kind: 'saved' as const, item })),
-    ...history.map((entry) => ({ kind: 'history' as const, entry })),
-  ];
 }
 
 function applyLayout(next: LayoutNode): void {
@@ -680,6 +692,7 @@ function onControl(msg: ServerMessage): void {
     case 'launcher-state': {
       launcher?.setState(msg.state);
       savedItems = [...msg.state.saved];
+      palette?.setSaved(savedItems);
       return;
     }
 
@@ -689,12 +702,13 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'history-page': {
-      palette?.setRows(paletteRows(msg.entries));
+      palette?.setHistoryPage(msg);
       return;
     }
 
     case 'saved-updated': {
       savedItems = [...msg.saved];
+      palette?.setSaved(savedItems);
       client?.send({ t: 'list-history', query: '', limit: 100 });
       return;
     }
