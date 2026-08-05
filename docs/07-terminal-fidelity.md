@@ -140,10 +140,43 @@ in `06-chrome-integration.md` §6.
 
 ### Copy, paste, selection
 
-- Drag selects, double-click selects a word or path, triple-click selects a line, shift-click extends
-- `Cmd+C` copies without sending an interrupt. `Ctrl+C` still interrupts
-- `Cmd+V` pastes with bracketed paste
-- Right-click exposes copy, paste, open link, open path, split, and detach
+Routing lives in `extension/src/terminal/keymap.ts`, kept pure so the policy is testable without
+a renderer. The rule people actually care about on macOS:
+
+> **Control keys reach the shell. Command keys do not.**
+
+`Ctrl+C` must interrupt and `Cmd+C` must copy without interrupting anything. Getting that
+backwards in either direction is the difference between a terminal and a text box that looks
+like one, so both halves are asserted together in `keymap.test.ts` and again end to end in the
+headless run.
+
+| Key | Behavior |
+|---|---|
+| `Ctrl+`anything | Straight to the PTY, always |
+| `Cmd+C` | Copies the selection. With nothing selected it goes to Chrome rather than being swallowed |
+| `Cmd+V` | Pastes through xterm's `paste()`, so bracketed paste applies where the application asked for it |
+| `Cmd+A` | Selects the terminal buffer |
+| `Cmd+K` | Clears the terminal |
+| Everything else with `Cmd` | Chrome's. In a normal tab those never reach the page at all |
+| Anything else | To the PTY |
+
+`to-pty` is the default on purpose: a terminal that silently swallows keys is worse than one
+that passes through something the page might have wanted.
+
+Drag selects, double-click selects a word or path, triple-click selects a line, and shift-click
+extends, all from xterm. **Right-click selects the word under the cursor**, which is the macOS
+convention and means the menu's Copy is usually live immediately.
+
+The context menu is rendered in the page (`Copy`, `Paste`, `Select all`, `Clear`) rather than
+left to Chrome's, because Chrome's menu has no idea a canvas contains selected text and would
+offer nothing useful. Copy is shown unavailable rather than as a button that silently does
+nothing.
+
+Clipboard access uses the `clipboardRead` and `clipboardWrite` permissions. A denial is
+swallowed: there is nothing useful to do about it, and failing loudly would be worse.
+
+`Cmd+F` is claimed but does nothing yet. Chrome's own find cannot see a WebGL-rendered buffer,
+so leaving the key to a find bar that would silently match nothing is worse than holding it.
 
 Mouse reporting mode conflicts with browser selection. When an application has enabled mouse
 reporting, a modifier override allows selection anyway, matching normal terminal convention.
