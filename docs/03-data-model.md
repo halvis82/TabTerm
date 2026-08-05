@@ -471,7 +471,44 @@ Filling a template still only *stages* it. Running remains a separate, explicit 
 
 ---
 
-## 8. Retention
+## 8. Command output archive
+
+`daemon/src/output-archive.ts`. **Off by default, and the default is the point.** This stores
+what commands *printed*, which is the most sensitive thing the product can hold: a token echoed
+by a script, the contents of a file someone `cat`ed, an API response. Nobody should be opted
+into that.
+
+### What is captured
+
+Only **OSC 133-delimited command output** — the region between "a command started" and "it
+finished". Everything outside that boundary is dropped, which is what makes this a bounded
+archive of command results rather than a transcript of a terminal.
+
+**Alt-screen periods are skipped entirely.** `vim`, `less`, `htop` and every other full-screen
+program redraw constantly; archiving them would capture megabytes of screen repaints that mean
+nothing once the program exits. Enter and leave sequences (`1049`, `47`, `1047`) routinely
+arrive in different chunks, so a chunk is split at the boundary rather than classified whole. A
+command that was entirely full-screen stores nothing at all.
+
+**Output from a command history would refuse to store is never archived.** The same secret rules
+apply, and they matter more here: the output of an `export` is the value itself.
+
+A command that printed nothing stores nothing — the command is already in history, and a row
+here would only add disk.
+
+### Bounds, and why there are two
+
+256 KB per command, capped with a visible `[output truncated]` marker rather than silently.
+Retention is **both** an age window (14 days) and a total ceiling (256 MB), because either alone
+has a case it handles badly: age alone lets one noisy afternoon fill the disk, and size alone
+throws away a quiet week that fit comfortably. Usage is reported, not discovered.
+
+Turning the archive off drops anything mid-capture rather than writing it out on the next
+command end.
+
+---
+
+## 9. Retention
 
 | Data | Default retention | Mode: low | Mode: full |
 |---|---|---|---|

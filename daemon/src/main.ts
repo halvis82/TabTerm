@@ -12,6 +12,7 @@ import { Database } from './database.js';
 import { LauncherData } from './launcher-data.js';
 import { ProjectIndex } from './project-index.js';
 import { RestoreStore } from './restore-store.js';
+import { OutputArchive } from './output-archive.js';
 import { ProjectTrust } from './project-trust.js';
 
 /**
@@ -47,11 +48,22 @@ async function main(): Promise<void> {
   launcher.useProjectIndex(projects);
   const trust = new ProjectTrust(db);
   const restore = new RestoreStore(db);
+  // Off unless the config says otherwise. See docs/03-data-model.md.
+  const archive = new OutputArchive(db, config.archiveOutput);
   // Reap policy must know whether a session is a pane in a workspace, since workspaces are
   // pinned by default and their panes are never reaped on a timer. See ADR-0012.
   sessions.isInWorkspace = (sessionId) => workspaces.findBySession(sessionId) !== undefined;
 
-  const server = new DaemonServer(config, sessions, workspaces, launcher, trust, projects, restore);
+  const server = new DaemonServer(
+    config,
+    sessions,
+    workspaces,
+    launcher,
+    trust,
+    projects,
+    restore,
+    archive,
+  );
 
   events.onExit = (s) => {
     // A pane whose process failed is worth surfacing: the tab may be hidden, and a silent
@@ -65,6 +77,7 @@ async function main(): Promise<void> {
         where ? { workspaceId: where.id } : undefined,
       );
     }
+    archive.abandon(s.id);
     // A pane whose process ended stops being a pane, so a shell you typed `exit` into takes
     // its pane with it. A pane that was given a command is different: its output is the
     // reason it existed, and closing it the instant the command finishes would throw away
@@ -106,7 +119,9 @@ async function main(): Promise<void> {
     });
     server.notifySession(s, { t: 'cwd', sessionId: s.id, cwd: s.cwd });
   };
+  events.onOutput = (s, chunk) => archive.write(s.id, chunk);
   events.onCommandStarted = (s, command, startedAt) => {
+    archive.begin(s.id, command, s.cwd);
     server.notifySession(s, {
       t: 'command-start',
       sessionId: s.id,
@@ -117,6 +132,7 @@ async function main(): Promise<void> {
     });
   };
   events.onCommand = (s, command, exitCode, durationMs) => {
+    archive.end(s.id, exitCode);
     server.notifySession(s, {
       t: 'command-end',
       sessionId: s.id,
@@ -185,6 +201,15 @@ async function main(): Promise<void> {
   /** How long a workspace stays restorable. Long enough to survive a weekend away. */
   const RESTORE_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 
+  /**
+   * Archive retention: both a window and a ceiling.
+   *
+   * Either limit alone has a case it handles badly. Age alone lets one noisy afternoon fill the
+   * disk; size alone throws away a quiet week that fit comfortably.
+   */
+  const ARCHIVE_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
+  const ARCHIVE_MAX_BYTES = 256 * 1024 * 1024;
+
   let shuttingDown = false;
   const shutdown = (signal: string) => {
     if (shuttingDown) return;
@@ -197,6 +222,7 @@ async function main(): Promise<void> {
       try {
         server.snapshotAll();
         restore.prune(RESTORE_RETENTION_MS);
+        archive.prune({ olderThanMs: ARCHIVE_RETENTION_MS, maxTotalBytes: ARCHIVE_MAX_BYTES });
       } catch (e) {
         warn('restore.snapshot.failed', { error: String(e) });
       }

@@ -338,6 +338,11 @@ export type ClientMessage =
       rows: number;
     }
   | { t: 'forget-restorable'; workspaceId: string }
+  // Command output archive. Off by default; see docs/03-data-model.md.
+  | { t: 'get-archive-status' }
+  | { t: 'set-archive-enabled'; enabled: boolean }
+  | { t: 'search-output'; query?: string; command?: string; limit?: number }
+  | { t: 'clear-output-archive' }
   | { t: 'list-sessions' }
   | { t: 'list-workspaces' }
   | { t: 'subscribe'; topics: readonly string[] };
@@ -488,6 +493,13 @@ export type ServerMessage =
       faviconWhileHidden: boolean;
       scrollbackLines: number;
     }
+  | {
+      t: 'archive-status';
+      enabled: boolean;
+      rows: number;
+      bytes: number;
+    }
+  | { t: 'output-results'; results: readonly ArchivedOutputSummary[] }
   | { t: 'restorable-workspaces'; workspaces: readonly RestorableSummary[] }
   | { t: 'server-list'; servers: readonly LocalServer[] }
   | { t: 'resumable-sessions'; sessions: readonly ResumableAgentSession[] }
@@ -505,6 +517,18 @@ export interface RestorableSummary {
     /** True when the pane ran an explicit command rather than a shell. */
     hadCommand: boolean;
   }[];
+}
+
+/** One archived command's output, as offered to the UI. */
+export interface ArchivedOutputSummary {
+  id: number;
+  command: string;
+  cwd: string;
+  exitCode: number | null;
+  startedAt: number;
+  bytes: number;
+  /** Head of the output. The full text is fetched only when someone opens it. */
+  preview: string;
 }
 
 export interface LocalServer {

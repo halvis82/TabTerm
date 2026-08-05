@@ -37,6 +37,7 @@ import { listResumable } from './agent-sessions.js';
 import { listeningPorts } from './server-detect.js';
 import { applyMemoryMode, frontendSettings } from './memory-modes.js';
 import type { RestoreStore } from './restore-store.js';
+import type { OutputArchive } from './output-archive.js';
 import type { ProjectIndex } from './project-index.js';
 import type { WorkspaceStore } from './workspace-store.js';
 import type { Session, SessionManager } from './session-manager.js';
@@ -69,6 +70,7 @@ export class DaemonServer {
   readonly #trust: ProjectTrust;
   readonly #projects: ProjectIndex;
   readonly #restore: RestoreStore;
+  readonly #archive: OutputArchive;
   readonly #clients = new Set<Client>();
 
   constructor(
@@ -79,6 +81,7 @@ export class DaemonServer {
     trust: ProjectTrust,
     projects: ProjectIndex,
     restore: RestoreStore,
+    archive: OutputArchive,
   ) {
     this.#config = config;
     this.#sessions = sessions;
@@ -87,6 +90,7 @@ export class DaemonServer {
     this.#trust = trust;
     this.#projects = projects;
     this.#restore = restore;
+    this.#archive = archive;
     this.#http = createServer((_req, res) => {
       res.writeHead(426);
       res.end('websocket only');
@@ -962,6 +966,48 @@ export class DaemonServer {
           warn('restore.failed', { error: String(e) });
           sendError(client.socket, 'internal', 'could not restore that workspace');
         }
+        return;
+      }
+
+      case 'get-archive-status':
+      case 'set-archive-enabled': {
+        if (msg.t === 'set-archive-enabled') this.#archive.setEnabled(msg.enabled);
+        const usage = this.#archive.usage();
+        this.broadcast({
+          t: 'archive-status',
+          enabled: this.#archive.enabled,
+          rows: usage.rows,
+          bytes: usage.bytes,
+        });
+        return;
+      }
+
+      case 'search-output': {
+        const results = this.#archive
+          .search({
+            ...(msg.query ? { query: msg.query } : {}),
+            ...(msg.command ? { command: msg.command } : {}),
+            limit: msg.limit ?? 25,
+          })
+          .map((r) => ({
+            id: r.id,
+            command: r.command,
+            cwd: r.cwd,
+            exitCode: r.exitCode,
+            startedAt: r.startedAt,
+            bytes: r.bytes,
+            // A preview, not the whole thing. Sending megabytes of output to render a result
+            // list would be the wrong trade every time.
+            preview: r.output.slice(0, 400),
+          }));
+        send(client.socket, controlFrame({ t: 'output-results', results }));
+        return;
+      }
+
+      case 'clear-output-archive': {
+        this.#archive.clear();
+        const usage = this.#archive.usage();
+        this.broadcast({ t: 'archive-status', enabled: this.#archive.enabled, ...usage });
         return;
       }
 

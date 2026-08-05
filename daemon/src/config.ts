@@ -62,6 +62,11 @@ export interface Config {
    * A config file may still override any individual field; the mode supplies the baseline.
    */
   memoryMode: 'low' | 'balanced' | 'full';
+  /**
+   * Archive what commands print. **Off by default and deliberately so**: this is the most
+   * sensitive thing the product can hold. See daemon/src/output-archive.ts.
+   */
+  archiveOutput: boolean;
 }
 
 export const DEFAULTS: Config = {
@@ -81,6 +86,7 @@ export const DEFAULTS: Config = {
   guiEditor: 'code',
   logLevel: 'info',
   memoryMode: 'balanced',
+  archiveOutput: false,
 };
 
 export async function loadConfig(): Promise<Config> {
