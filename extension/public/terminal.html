@@ -126,6 +126,8 @@
   }
   /* An explicit display value overrides the `hidden` attribute, so without these rules this
      overlay covered a perfectly healthy terminal permanently. */
+  #server-offer[hidden],
+  #staged[hidden],
   #recovery[hidden],
   #status[hidden] {
     display: none;
@@ -133,6 +135,80 @@
   /* Links only activate while Command is held, so the terminal stays a terminal. */
   body.cmd-held .xterm-screen {
     cursor: pointer;
+  }
+  #server-offer {
+    position: absolute;
+    right: 16px;
+    bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border: 1px solid #333;
+    border-radius: 8px;
+    background: rgba(22, 24, 29, 0.97);
+    font-size: 12px;
+    z-index: 35;
+  }
+  #staged {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    align-content: center;
+    justify-items: center;
+    gap: 4px;
+    background: rgba(16, 18, 22, 0.97);
+    padding: 32px;
+    z-index: 40;
+  }
+  #staged h1 {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0 0 4px;
+  }
+  #staged-source {
+    color: #9aa0a6;
+    font-size: 12px;
+    margin: 0 0 12px;
+    max-width: 70ch;
+    overflow-wrap: anywhere;
+  }
+  #staged-text {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px;
+    background: #16181d;
+    border: 1px solid #333;
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin: 0;
+    max-width: 80ch;
+    max-height: 40vh;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .staged-note {
+    color: #e8b339;
+    font-size: 12px;
+    margin: 12px 0 0;
+  }
+  #staged-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+  }
+  .staged-button {
+    padding: 7px 16px;
+    border-radius: 6px;
+    border: 1px solid #333;
+    background: #1a1c20;
+    color: #e8e8e8;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .staged-button.primary {
+    background: #2b4d7a;
+    border-color: #3d6ba8;
   }
   #recovery {
     position: absolute;
@@ -553,6 +629,23 @@
     <p>Nothing was run automatically.</p>
     <div id="recovery-detail"></div>
     <div id="recovery-actions"></div>
+  </div>
+  <div id="server-offer" hidden>
+    <span id="server-text"></span>
+    <button id="server-open" class="staged-button primary"></button>
+    <button id="server-dismiss" class="staged-button">Dismiss</button>
+  </div>
+  <div id="staged" hidden>
+    <h1>Send this to the terminal?</h1>
+    <p id="staged-source"></p>
+    <pre id="staged-text"></pre>
+    <p class="staged-note">
+      It will be placed at the prompt, not run. Press Enter yourself once you have read it.
+    </p>
+    <div id="staged-actions">
+      <button id="staged-accept" class="staged-button primary">Place at the prompt</button>
+      <button id="staged-cancel" class="staged-button">Discard</button>
+    </div>
   </div>
   <script type="module" src="terminal.js"></script>
 </body>

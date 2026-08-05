@@ -10,6 +10,14 @@ import { listeningPorts } from './server-detect.js';
 import { assertTransition } from './session-state.js';
 import { VtState } from './vt-state.js';
 
+/**
+ * How long after a command starts to look for a listening socket.
+ *
+ * Long enough for a dev server to bind, short enough that the offer arrives while the user is
+ * still watching the output that started it.
+ */
+const SERVER_CHECK_MS = 2500;
+
 export interface AttachedClient {
   clientId: string;
   cols: number;
@@ -43,6 +51,7 @@ export interface Session {
   vt: VtState;
   clients: Map<string, AttachedClient>;
   reapTimer?: NodeJS.Timeout;
+  serverCheckTimer?: NodeJS.Timeout;
   /** Set while a command is running, so the title can show it rather than the shell. */
   commandRunning: boolean;
   commandStartedAt?: number;
@@ -61,6 +70,8 @@ export interface SessionEvents {
   onCommandStarted?: (session: Session, command: string, startedAt: number) => void;
   /** Fired when a shell command finishes, with what it was and how it went. */
   onCommand?: (session: Session, command: string, exitCode: number, durationMs: number) => void;
+  /** A session started listening on a local port. Fired once per port, never polled. */
+  onServerDetected?: (session: Session, port: number) => void;
 }
 
 export class SessionManager {
@@ -132,6 +143,7 @@ export class SessionManager {
         // pane showing "running" without saying what is more alarming than useful.
         const startedAt = session.commandStartedAt ?? Date.now();
         this.#events.onCommandStarted?.(session, command, startedAt);
+        this.#checkForServer(session);
       },
       onCommandEnd: (exitCode) => {
         const startedAt = session.commandStartedAt;
@@ -287,6 +299,32 @@ export class SessionManager {
    * The decision and its reason are always logged. A session disappearing without an
    * explanation is indistinguishable from a bug. See docs/04-session-lifecycle.md §4.
    */
+  /**
+   * Look for a newly listening port shortly after a command starts.
+   *
+   * Event driven, not polled: a dev server binds within a second or two of being started, and
+   * checking on that one event costs a single `lsof` rather than a timer that runs forever.
+   * Reported once per port, so restarting a server on the same port does not re-announce it.
+   */
+  #checkForServer(session: Session): void {
+    if (session.serverCheckTimer) clearTimeout(session.serverCheckTimer);
+    const timer = setTimeout(() => {
+      delete session.serverCheckTimer;
+      void listeningPorts([session.pid])
+        .then((ports) => {
+          const port = ports.get(session.pid);
+          if (port === undefined || port === session.listeningPort) return;
+          session.listeningPort = port;
+          this.#events.onServerDetected?.(session, port);
+        })
+        .catch(() => {
+          /* best effort. A missing answer means no offer, which is the safe direction. */
+        });
+    }, SERVER_CHECK_MS);
+    timer.unref();
+    session.serverCheckTimer = timer;
+  }
+
   #scheduleReap(session: Session): void {
     const decision = decideReap(
       reapInputFor(session, {

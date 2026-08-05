@@ -116,8 +116,29 @@ custom schemes) is rendered as inert text. Opening always creates a Chrome tab t
 
 ### Webpage text sent to a terminal
 
-Browser-to-terminal actions always require an explicit context-menu
-invocation, always paste rather than execute, and always show what will be inserted.
+Context-menu actions (`extension/src/chrome/cross-actions.ts`) can send a selection, a link, or
+a repository URL to a terminal. **Nothing they produce is ever run.** The command is staged at a
+prompt and waits for the user to press Enter themselves.
+
+| Guard | Why |
+|---|---|
+| Newlines collapse to spaces | A shell treats a newline as "run this now", so a selection showing one command and hiding another after a line break would execute the second before anyone read it |
+| Other control characters removed | Showing the user the exact text *is* the mechanism; an escape sequence could make the display disagree with what would run |
+| Values shell-quoted | The staged line sits at a real prompt where Enter runs it, so it has to be correct as written |
+| Never a trailing newline | This is the entire difference between staging and running |
+| Clone offered only for known hosts | Otherwise any page could present itself as something to clone |
+| `http`/`https` links only | A terminal has no business acting on `file:` or `javascript:` on a page's say-so |
+| Capped at 4000 characters | A selection is not a file transfer |
+
+The confirmation overlay renders the text with `textContent` into a `pre`, never as markup, and
+says where it came from. Accepting removes the parameters from the URL, so a reload or a Chrome
+restore does not re-ask about something already answered.
+
+**Detected local servers are offered, not opened.** A process binding a port is not a request
+for a browser tab. The offer appears in the tab that started it and fades on its own; accepting
+focuses an existing tab for that port rather than opening a second one, because a dev server
+restarts constantly. Detection is triggered by the shell integration's command-start mark, so
+it requires the integration for the same reason command history does.
 
 ---
 
