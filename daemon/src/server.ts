@@ -406,19 +406,17 @@ export class DaemonServer {
       }
 
       case 'list-launcher': {
-        send(
-          client.socket,
-          controlFrame({
-            t: 'launcher-state',
-            state: {
-              recentDirs: this.#launcher.recentDirs(),
-              saved: this.#launcher.saved(),
-              // No plugins exist yet, so the launcher renders no plugin section at all.
-              plugins: [],
-              home: homedir(),
-            },
+        // Ask the OS where every live session actually is before answering. OSC 7 only reports
+        // for users who sourced the shell integration, and recent folders should work for
+        // everyone. This is event driven, triggered by opening a tab, not a poll.
+        void Promise.all(
+          this.#sessions.all.map(async (session) => {
+            const cwd = await this.#liveCwd(session);
+            this.#launcher.recordDir(cwd);
           }),
-        );
+        )
+          .then(() => this.#sendLauncherState(client))
+          .catch(() => this.#sendLauncherState(client));
         return;
       }
 
@@ -635,6 +633,22 @@ export class DaemonServer {
         streamId: 0,
         pid: first.pid,
         workspaceId: workspace.id,
+      }),
+    );
+  }
+
+  #sendLauncherState(client: Client): void {
+    send(
+      client.socket,
+      controlFrame({
+        t: 'launcher-state',
+        state: {
+          recentDirs: this.#launcher.recentDirs(),
+          saved: this.#launcher.saved(),
+          // No plugins exist yet, so the launcher renders no plugin section at all.
+          plugins: [],
+          home: homedir(),
+        },
       }),
     );
   }
