@@ -87,6 +87,25 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       );
     `,
   },
+  {
+    version: 3,
+    sql: `
+      -- Repository roots, so history and saved items can be scoped to a project rather than to
+      -- one exact directory. Discovered by climbing from directories already known, never by
+      -- scanning the disk.
+      CREATE TABLE projects (
+        root           TEXT PRIMARY KEY,
+        name           TEXT NOT NULL,
+        pinned         INTEGER NOT NULL DEFAULT 0,
+        last_opened_at INTEGER NOT NULL
+      );
+      CREATE INDEX idx_projects_recent ON projects(pinned DESC, last_opened_at DESC);
+
+      ALTER TABLE recent_dirs ADD COLUMN git_root TEXT;
+      ALTER TABLE commands    ADD COLUMN git_root TEXT;
+      CREATE INDEX idx_cmd_root ON commands(git_root, last_used_at DESC);
+    `,
+  },
 ];
 
 export class Database {
