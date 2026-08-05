@@ -82,7 +82,60 @@ Stated plainly so no feature quietly assumes otherwise.
 
 ---
 
-## 5. Installation
+## 5. Working without it
+
+**The integration is optional.** It is exact, instant, and free, and it requires editing a
+dotfile, which most people have not done. "Your history, command timing, server detection, and
+pane status do nothing until you edit `.zshrc`" is a bad answer to a question the operating
+system can already answer.
+
+`daemon/src/foreground.ts` and `daemon/src/command-tracker.ts` provide a fallback.
+
+### How it works
+
+A shell's foreground child is visible in `ps`, marked with `+` in its state field, **with its
+full argv**. So the command line comes back exactly, from the OS, rather than being
+reconstructed from keystrokes or scraped off the screen. Both of those alternatives are
+heuristics, and a heuristic that puts the *wrong* command in someone's history is worse than one
+that puts none there.
+
+It walks down from the shell rather than looking only at direct children, because a command is
+often a grandchild: `npm test` spawns node, `git log` spawns a pager.
+
+### Why there is a timer here, when the rest of the daemon has none
+
+`11-performance.md` requires any timer to justify why an event cannot serve instead:
+
+- **Starting is event-driven.** Nothing happens until the user presses Enter, which the daemon
+  already sees as input on its way to the PTY. One `ps` follows, once. Typing does not trigger
+  anything — that would be a process listing per keystroke.
+- **Finishing has no event.** A process exiting produces no output, no input, and no signal the
+  daemon can observe. So a check runs while a command is known to be in flight, and **only**
+  then. An idle shell — the overwhelmingly common state — has no timer at all.
+
+The interval is deliberately slack. Elapsed time is computed in the frontend from the start
+timestamp, so a late end costs a slightly late "finished", never a wrong duration.
+
+### It defers to the real thing
+
+The first OSC 133 mark from a session shuts the fallback down for that session permanently, and
+abandons anything it was mid-way through rather than completing it. Two sources of truth would
+double every history entry.
+
+### What the fallback cannot see
+
+| Blind spot | Consequence |
+|---|---|
+| **Shell builtins** | `cd`, `export`, `alias` spawn no process, so they produce no record. For `export` this is an improvement: the command whose text is most sensitive is the one that never appears |
+| **Exit codes** | The OS does not report one for a process that is already gone. Records are stored without an exit code rather than with a guessed one, because `exit:fail` has to mean something |
+| **Sub-second commands** | Something that finishes inside the start delay is never seen |
+
+With the integration installed, all three of those work. That is the reason to install it, and
+it is now the only reason.
+
+---
+
+## 6. Installation
 
 ```
 shell/tabterm-integration.zsh
@@ -111,7 +164,7 @@ present and working.
 
 ---
 
-## 6. Editor wrapper
+## 7. Editor wrapper
 
 Editor reuse needs a Neovim server socket to reuse an existing editor instead of spawning a new one per
 click. TabTerm controls the launch when it starts the editor, but not when the user types `nvim`
@@ -126,7 +179,7 @@ should be a choice.
 
 ---
 
-## 7. Session identity in the environment
+## 8. Session identity in the environment
 
 The daemon exports into each PTY:
 

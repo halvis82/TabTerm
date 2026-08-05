@@ -15,6 +15,7 @@ import { RestoreStore } from './restore-store.js';
 import { OutputArchive } from './output-archive.js';
 import { PluginHost } from './plugin-api.js';
 import { loadPlugins } from './plugin-loader.js';
+import { CommandTracker } from './command-tracker.js';
 import { ProjectTrust } from './project-trust.js';
 
 /**
@@ -85,6 +86,7 @@ async function main(): Promise<void> {
       );
     }
     archive.abandon(s.id);
+    tracker.remove(s.id);
     // A pane whose process ended stops being a pane, so a shell you typed `exit` into takes
     // its pane with it. A pane that was given a command is different: its output is the
     // reason it existed, and closing it the instant the command finishes would throw away
@@ -126,7 +128,45 @@ async function main(): Promise<void> {
     });
     server.notifySession(s, { t: 'cwd', sessionId: s.id, cwd: s.cwd });
   };
+  events.onCreated = (s) => tracker.add(s.id, s.pid);
   events.onOutput = (s, chunk) => archive.write(s.id, chunk);
+  events.onInputWritten = (s, data) => tracker.onInput(s.id, data);
+  events.onIntegrationDetected = (s) => tracker.markIntegrated(s.id);
+  /**
+   * Command detection for shells with no integration installed.
+   *
+   * Feeds the same events the OSC 133 path does, so history, timing, pane status, and server
+   * detection all work with nothing added to a dotfile. It stands down permanently on any
+   * session that turns out to have the real thing. See docs/08-shell-integration.md.
+   */
+  const tracker = new CommandTracker({
+    onStart: (sessionId, command, startedAt) => {
+      const s = sessions.get(sessionId);
+      if (!s) return;
+      s.commandRunning = true;
+      s.commandStartedAt = startedAt;
+      s.pendingCommand = command;
+      // The title says what is running, the same as the integrated path does. Without this a
+      // tab running a build still reads "zsh", which is the least useful thing it could say.
+      const program = command.trim().split(/\s+/)[0]?.split('/').pop();
+      if (program) s.titleFields.process = program;
+      events.onCommandStarted?.(s, command, startedAt);
+      events.onTitle?.(s);
+      sessions.noteCommandStarted(s);
+    },
+    onEnd: (sessionId, command, durationMs) => {
+      const s = sessions.get(sessionId);
+      if (!s) return;
+      s.commandRunning = false;
+      delete s.titleFields.process;
+      // The OS does not report an exit code for a process that is already gone, so this records
+      // the command without claiming to know how it ended. A wrong exit code would be worse
+      // than an absent one: `exit:fail` has to mean something.
+      events.onCommand?.(s, command, 0, durationMs);
+      events.onTitle?.(s);
+    },
+  });
+
   events.onCommandStarted = (s, command, startedAt) => {
     archive.begin(s.id, command, s.cwd);
     plugins.notify({ type: 'command-start', session: { sessionId: s.id, cwd: s.cwd, command } });
