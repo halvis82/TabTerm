@@ -123,8 +123,24 @@ Accepted patterns: `Command+Shift+<key>`, `Alt+Shift+<key>`, `MacCtrl+Shift+<key
 
 **At most four commands may carry a suggested key.** Everything else reaches the command palette.
 
-Manifest acceptance is not runtime binding: Chrome silently declines keys it reserves for itself.
-That distinction still needs one manual check with a normally installed extension.
+Manifest acceptance is not runtime binding: Chrome silently declines keys it reserves for itself,
+and there is no error when it does.
+
+**Measured, Chrome 150.** All three shipped commands are bound at runtime:
+
+| Command | Offered | Bound |
+|---|---|---|
+| `new-terminal` | `Command+Shift+O` | ⇧⌘O |
+| `new-terminal-alt` | `Alt+Shift+T` | ⌥⇧T |
+| `_execute_action` | `MacCtrl+Shift+T` | ⌃⇧T |
+
+Read back with `chrome.commands.getAll()` from an extension page, not from the service worker,
+which is usually asleep and not listed as a debuggable target. Anyone can rebind these at
+`chrome://extensions/shortcuts`.
+
+Note what this measurement also caught: the docs and the installer told people to press
+`Command+Shift+E`, which the manifest never offered. Reading the binding back is the only way to
+know what a user will actually press.
 
 ### 1.7 Kitty graphics protocol
 xterm.js supports Sixel and the iTerm2 inline-image protocol via addon, so images are partly

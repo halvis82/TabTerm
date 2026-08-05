@@ -183,7 +183,7 @@ fi
 
 echo
 if [ "$fails" -eq 0 ]; then
-  echo "  Everything checks out. Open a terminal with Command+Shift+E."
+  echo "  Everything checks out. Open a terminal with Command+Shift+O."
 else
   echo "  $fails problem(s) above."
 fi
