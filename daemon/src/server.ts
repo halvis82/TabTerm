@@ -35,6 +35,7 @@ import {
 import { trustAction, type ProjectTrust } from './project-trust.js';
 import { listResumable } from './agent-sessions.js';
 import { listeningPorts } from './server-detect.js';
+import { applyMemoryMode, frontendSettings } from './memory-modes.js';
 import type { ProjectIndex } from './project-index.js';
 import type { WorkspaceStore } from './workspace-store.js';
 import type { Session, SessionManager } from './session-manager.js';
@@ -911,6 +912,21 @@ export class DaemonServer {
           }
         }
         delete target.listeningPort;
+        return;
+      }
+
+      case 'get-memory-mode':
+      case 'set-memory-mode': {
+        if (msg.t === 'set-memory-mode') {
+          // Applied in place, to the live config object every subsystem already holds a
+          // reference to. Reap timers read it when they next fire and scrollback is read on
+          // the next write, so there is nothing to restart.
+          Object.assign(this.#config, applyMemoryMode(this.#config, msg.mode));
+          this.#sessions.applyScrollback(this.#config.scrollbackLines);
+          info('memory-mode.changed', { mode: msg.mode });
+        }
+        const mode = this.#config.memoryMode;
+        this.broadcast({ t: 'memory-mode', mode, ...frontendSettings(mode) });
         return;
       }
 

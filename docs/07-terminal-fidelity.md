@@ -69,7 +69,10 @@ of this document by the VT fidelity spike.
 - Resident memory per session at 1k, 10k, and 50k scrollback lines
 - Serialization time and size at those caps
 
-Measured: **3.6 MB per session** at the 10,000-line default cap, and 32 ms to serialize.
+Measured: **around 30 MB per session** of live emulator at the 10,000-line default cap, and 32 ms
+to serialize. The *serialized snapshot* is far smaller, 0.3 to 3.6 MB depending on how
+compressible the screen content is, and is not a proxy for the live cost. See
+`11-performance.md` §1.
 `11-performance.md` carries the full table.
 
 The implementation is `@xterm/headless` with `@xterm/addon-serialize`, verified against seven

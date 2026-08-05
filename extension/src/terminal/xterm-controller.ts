@@ -213,6 +213,35 @@ export class XtermController {
     this.term.focus();
   }
 
+  /**
+   * Release the WebGL context while nobody is looking at the pane.
+   *
+   * The buffer is untouched, so reattaching redraws from state that never went anywhere. This
+   * matters because contexts are capped per page and are the expensive part of a terminal that
+   * is only sitting there. See docs/11-performance.md.
+   */
+  releaseRenderer(): void {
+    if (!this.#webgl) return;
+    this.#webgl.dispose();
+    this.#webgl = null;
+  }
+
+  /** Reattach the renderer when the pane is looked at again. */
+  restoreRenderer(): void {
+    if (this.#webgl) return;
+    this.#tryWebgl();
+    this.term.refresh(0, this.term.rows - 1);
+  }
+
+  get rendererAttached(): boolean {
+    return this.#webgl !== null;
+  }
+
+  /** Change how much scrollback the renderer keeps, without disturbing what is on screen. */
+  setScrollback(lines: number): void {
+    this.term.options.scrollback = Math.max(0, Math.floor(lines));
+  }
+
   dispose(): void {
     this.#webgl?.dispose();
     this.term.dispose();

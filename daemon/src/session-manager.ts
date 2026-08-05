@@ -249,6 +249,17 @@ export class SessionManager {
     session.handle.pty.write(data.toString('utf8'));
   }
 
+  /**
+   * Apply a new scrollback cap to every live session.
+   *
+   * A memory mode that only affected sessions started after the change would not reduce memory
+   * on the machine it was chosen for.
+   */
+  applyScrollback(lines: number): void {
+    for (const session of this.all) session.vt.setScrollback(lines);
+    info('sessions.scrollback.applied', { lines, sessions: this.all.length });
+  }
+
   setPersistent(session: Session, persistent: boolean): void {
     session.persistent = persistent;
     if (persistent && session.reapTimer) {

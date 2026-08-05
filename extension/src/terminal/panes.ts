@@ -111,6 +111,23 @@ export class PaneHost {
     for (const pane of this.#panes.values()) pane.controller.refreshLinks();
   }
 
+  /** Release every renderer, for a tab that has been hidden long enough to stop paying for one. */
+  releaseRenderers(): void {
+    for (const pane of this.#panes.values()) pane.controller.releaseRenderer();
+  }
+
+  restoreRenderers(): void {
+    for (const pane of this.#panes.values()) pane.controller.restoreRenderer();
+  }
+
+  get renderersAttached(): number {
+    return [...this.#panes.values()].filter((p) => p.controller.rendererAttached).length;
+  }
+
+  setScrollback(lines: number): void {
+    for (const pane of this.#panes.values()) pane.controller.setScrollback(lines);
+  }
+
   /** Dispose panes that are no longer in the layout, so their renderers are released. */
   retain(paneIds: Iterable<string>): void {
     const keep = new Set(paneIds);
