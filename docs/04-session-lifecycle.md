@@ -282,8 +282,47 @@ paths are supported; which one happens depends on the user's Chrome setting, whi
 
 A process cannot survive a reboot. Nothing can change that.
 
-What is restored, by the reboot restore work, is context: layout tree, per-pane cwd, last command, project, a text
-snapshot of what was on screen, and any agent resume ID. Restore is offered, never automatic, and
-the UI states plainly that processes were restarted rather than resumed.
+What *is* restored is context: the layout tree, each pane's directory, its last command, its
+explicit argv if it had one, and a text snapshot of what was on its screen. Implemented in
+`daemon/src/restore-store.ts`.
 
-This is explicitly a deferred, ambitious feature. Nothing before M6 depends on it.
+### What is written down, and when
+
+Snapshots are taken **on layout change and on shutdown**, never on a timer. A workspace that has
+not changed does not need saving again, and a timer would write constantly for nothing. Shutdown
+is the important one: a machine restarting is the case this exists for, and it is the last moment
+the screens are still readable.
+
+Two rules that exist because of what they prevent:
+
+- **An empty screen never overwrites a captured one.** A pane whose session has already gone
+  reports nothing, and letting that erase the recording would destroy the only reason to offer a
+  restore.
+- **A pane that left the layout stops being restorable.** Otherwise a pane someone deliberately
+  closed would come back on every restart, which is the opposite of what closing it meant.
+
+### What restore actually does
+
+The layout is rebuilt as a chain of splits rather than by writing the old tree back, because the
+stored tree names session ids that no longer exist. The *shape* is preserved; the identities are
+not, which is the honest thing to do when the processes are gone.
+
+Each pane comes back as a fresh shell in the directory it was in, showing the screen it had, and
+then a line written into the terminal state itself:
+
+```
+[restored 2 hours ago. This is a new shell in ~/code/app, not the original process.]
+```
+
+That line is not decoration. The one thing this feature must never do is let someone believe
+their build is still running.
+
+**Replaying the last command is opt-in per restore, and even then it is typed, not run.** The
+command lands at the prompt and waits for Enter. Re-running whatever was last in a pane is
+occasionally exactly right and occasionally destructive, and the daemon cannot tell which.
+
+Restore is **offered, never automatic**, and a used record is deleted, so the same layout is not
+offered forever. Records are pruned after 14 days.
+
+Covered end to end by `daemon/src/reboot-restore.test.ts`, which shares one database across two
+daemon lifetimes and asserts the restored panes have the same directories and **different pids**.

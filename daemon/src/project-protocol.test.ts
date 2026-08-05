@@ -17,6 +17,7 @@ import { Database } from './database.js';
 import { LauncherData } from './launcher-data.js';
 import { initLog } from './log.js';
 import { ProjectIndex } from './project-index.js';
+import { RestoreStore } from './restore-store.js';
 import { ProjectTrust } from './project-trust.js';
 import { DaemonServer } from './server.js';
 import { SessionManager } from './session-manager.js';
@@ -51,6 +52,7 @@ beforeAll(async () => {
     new LauncherData(new Database(':memory:')),
     trust,
     new ProjectIndex(),
+    new RestoreStore(new Database(':memory:')),
   );
   await server.listen();
 });

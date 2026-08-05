@@ -464,6 +464,15 @@ function buildLauncher(): void {
       // and the file may have changed between the prompt and the click.
       client?.send({ t: 'inspect-project', cwd: info.path.replace(/\/[^/]+$/, '') });
     },
+    onRestore: (workspaceId, replayCommands) => {
+      const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
+      client?.send({ t: 'restore-workspace', workspaceId, replayCommands, ...size });
+      launcher?.dismiss();
+    },
+    onForgetRestorable: (workspaceId) => {
+      client?.send({ t: 'forget-restorable', workspaceId });
+      client?.send({ t: 'list-restorable' });
+    },
     onOpenServer: (port) => {
       void chrome.runtime.sendMessage({ t: 'tabterm:open-local', port });
     },
@@ -945,6 +954,7 @@ function onControl(msg: ServerMessage): void {
       client?.send({ t: 'list-resumable', limit: 5 });
       client?.send({ t: 'list-servers' });
       client?.send({ t: 'get-memory-mode' });
+      client?.send({ t: 'list-restorable' });
       return;
     }
 
@@ -961,6 +971,11 @@ function onControl(msg: ServerMessage): void {
       // A mode that only took effect on the next tab would not help the machine it was chosen
       // for, so it is applied to what is already open.
       if (document.visibilityState === 'hidden') scheduleRendererRelease();
+      return;
+    }
+
+    case 'restorable-workspaces': {
+      launcher?.setRestorable(msg.workspaces);
       return;
     }
 
