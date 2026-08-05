@@ -13,7 +13,7 @@ export interface PaneHostOptions {
   onResize: (paneId: string, cols: number, rows: number) => void;
   resolvePaths: (paneId: string, candidates: string[]) => void;
   lookupPath: (candidate: string) => ResolvedPath | undefined;
-  openPath: (paneId: string, resolved: ResolvedPath) => void;
+  openPath: (paneId: string, resolved: ResolvedPath, event: MouseEvent) => void;
   openUrl: (url: string) => void;
   modifierHeld: () => boolean;
 }
@@ -66,7 +66,7 @@ export class PaneHost {
       createPathLinkProvider(controller.term, {
         resolve: (candidates) => this.#opts.resolvePaths(paneId, candidates),
         lookup: this.#opts.lookupPath,
-        activate: (resolved) => this.#opts.openPath(paneId, resolved),
+        activate: (resolved, event) => this.#opts.openPath(paneId, resolved, event),
         openUrl: this.#opts.openUrl,
         modifierHeld: this.#opts.modifierHeld,
       }),

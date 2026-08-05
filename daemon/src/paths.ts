@@ -73,12 +73,67 @@ function toAbsolute(candidate: string, cwd: string): string | null {
 }
 
 /**
+ * The argv for opening a path a given way.
+ *
+ * Pure, so the exact command for every modifier can be asserted without spawning anything.
+ * Every value the user could have influenced arrives as its own argv element, never
+ * interpolated into a string, so a filename containing quotes, spaces, or a semicolon is inert.
+ * See docs/05-security.md §4.
+ */
+export function openCommand(
+  absolute: string,
+  how: OpenHow,
+  opts: {
+    editor: string;
+    guiEditor: string;
+    line?: number | undefined;
+    column?: number | undefined;
+  },
+): { file: string; args: string[] } | null {
+  switch (how) {
+    case 'reveal-in-finder':
+      return { file: '/usr/bin/open', args: ['-R', absolute] };
+
+    case 'default-app':
+      return { file: '/usr/bin/open', args: [absolute] };
+
+    case 'editor': {
+      // vim and its relatives take +N before the filename. The line is a number this code
+      // parsed, never text from the terminal, so it cannot carry anything else.
+      const args = opts.line !== undefined ? [`+${String(opts.line)}`, absolute] : [absolute];
+      return { file: opts.editor, args };
+    }
+
+    case 'gui-editor': {
+      // VS Code and its forks understand -g file:line:column.
+      const target =
+        opts.line !== undefined
+          ? `${absolute}:${String(opts.line)}${opts.column !== undefined ? `:${String(opts.column)}` : ''}`
+          : absolute;
+      return { file: opts.guiEditor, args: opts.line !== undefined ? ['-g', target] : [target] };
+    }
+
+    case 'new-terminal':
+      // Handled by the daemon spawning a session, not by running anything here.
+      return null;
+  }
+}
+
+/**
  * Open a path the user explicitly clicked.
  *
- * `open` receives the path as a distinct argv element. It is never interpolated into a shell
- * string, so a filename containing metacharacters, spaces, or newlines is inert.
+ * The path is always a distinct argv element, never interpolated into a shell string.
  */
-export async function openPath(absolute: string, how: OpenHow): Promise<void> {
+export async function openPath(
+  absolute: string,
+  how: OpenHow,
+  opts: {
+    editor: string;
+    guiEditor: string;
+    line?: number | undefined;
+    column?: number | undefined;
+  },
+): Promise<void> {
   // Re-verify at click time. The path was checked when it was made clickable, but the
   // filesystem may have changed since, and a stale claim must not become a spawn.
   try {
@@ -88,15 +143,16 @@ export async function openPath(absolute: string, how: OpenHow): Promise<void> {
     throw new Error('path-not-found');
   }
 
-  const args = how === 'reveal-in-finder' ? ['-R', absolute] : [absolute];
+  const command = openCommand(absolute, how, opts);
+  if (!command) return; // 'new-terminal' is handled by the daemon spawning a session.
 
   await new Promise<void>((res, rej) => {
-    execFile('/usr/bin/open', args, { timeout: 10_000 }, (err) => {
+    execFile(command.file, command.args, { timeout: 10_000 }, (err) => {
       if (err) {
         warn('path.open.failed', { how, error: err.message });
         rej(new Error('open-failed'));
       } else {
-        info('path.opened', { how, isDir: how === 'reveal-in-finder' });
+        info('path.opened', { how });
         res();
       }
     });

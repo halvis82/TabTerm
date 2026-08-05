@@ -541,7 +541,35 @@ export class DaemonServer {
               sendError(client.socket, 'path-not-found', 'no such path');
               return;
             }
-            await openPath(resolved.absolute, msg.how);
+
+            // Shift-click opens a terminal where the file lives, which is a session rather
+            // than a spawn, so the daemon does it rather than delegating to `open`.
+            if (msg.how === 'new-terminal') {
+              const dir = resolved.isDirectory
+                ? resolved.absolute
+                : resolved.absolute.slice(0, resolved.absolute.lastIndexOf('/')) || '/';
+              const spawned = this.#sessions.create({ cwd: dir, cols: 80, rows: 24 });
+              const { workspace } = this.#workspaces.create(spawned.id);
+              this.#launcher.recordDir(dir);
+              send(
+                client.socket,
+                controlFrame({
+                  t: 'session-created',
+                  sessionId: spawned.id,
+                  streamId: 0,
+                  pid: spawned.pid,
+                  workspaceId: workspace.id,
+                }),
+              );
+              return;
+            }
+
+            await openPath(resolved.absolute, msg.how, {
+              editor: this.#config.editor,
+              guiEditor: this.#config.guiEditor,
+              line: resolved.line,
+              column: resolved.column,
+            });
           })
           .catch(() => {
             sendError(client.socket, 'path-not-found', 'could not open path');

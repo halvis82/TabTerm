@@ -48,6 +48,10 @@ export interface Config {
   coalesceMs: number;
   maxChunkBytes: number;
   creditWindowBytes: number;
+  /** Terminal editor used for Option-click. Receives a line number when one was printed. */
+  editor: string;
+  /** GUI editor used for Command-click. */
+  guiEditor: string;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
 }
 
@@ -62,6 +66,8 @@ export const DEFAULTS: Config = {
   coalesceMs: 6,
   maxChunkBytes: 64 * 1024,
   creditWindowBytes: 256 * 1024,
+  editor: 'nvim',
+  guiEditor: 'code',
   logLevel: 'info',
 };
 

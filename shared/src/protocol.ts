@@ -255,6 +255,7 @@ export type ClientMessage =
   | { t: 'detach-pane'; workspaceId: string; paneId: string }
   | { t: 'resolve-paths'; sessionId: string; candidates: readonly string[] }
   | { t: 'open-path'; sessionId: string; path: string; how: OpenHow }
+  | { t: 'open-path-result'; ok: boolean }
   | { t: 'list-launcher' }
   | { t: 'recall-workspace'; workspaceId: string }
   | { t: 'list-history'; query?: string; limit?: number }
@@ -279,7 +280,13 @@ export type ClientMessage =
   | { t: 'subscribe'; topics: readonly string[] };
 
 /** What to do with a resolved path. Each maps to a specific structured spawn, never a shell string. */
-export type OpenHow = 'default-app' | 'reveal-in-finder';
+/**
+ * What to do with a path the user clicked.
+ *
+ * Each maps to one specific structured spawn. The frontend chooses by modifier; the daemon
+ * decides what that means, because only the daemon can see the filesystem.
+ */
+export type OpenHow = 'default-app' | 'reveal-in-finder' | 'editor' | 'gui-editor' | 'new-terminal';
 
 /** A pane, paired with the stream that carries its terminal output. */
 export interface WorkspacePane {
