@@ -14,6 +14,7 @@ import { PaneHost } from './panes.js';
 import { findCandidates } from './path-links.js';
 import { chooseOpenAction, describeOpen } from './open-action.js';
 import { PaneStatus } from './pane-status.js';
+import { describeTime, isLongRunning, type TimeState } from './elapsed.js';
 import { applyFavicon, composeTitle, drawFavicon, type FaviconState } from './titles.js';
 import { Launcher } from '../launcher/launcher.js';
 import { Palette, type PaletteRow } from '../launcher/palette.js';
@@ -52,6 +53,58 @@ let titleFields: TitleFields = {};
 let faviconState: FaviconState = 'disconnected';
 /** A tab has one favicon, so many panes reduce to the most urgent state among them. */
 const paneStatus = new PaneStatus();
+
+/**
+ * Per-pane timing, driven entirely by discrete events from the daemon.
+ *
+ * The label is recomputed locally at 1 Hz while visible and not at all while hidden, because a
+ * hidden tab throttles timers anyway and nobody is reading it. See docs/11-performance.md §6.
+ */
+const paneTime = new Map<string, TimeState>();
+let timeTimer: number | undefined;
+
+function timeStateFor(paneId: string): TimeState {
+  let state = paneTime.get(paneId);
+  if (!state) {
+    state = {};
+    paneTime.set(paneId, state);
+  }
+  return state;
+}
+
+function renderTimeLabels(): void {
+  for (const pane of panesHost?.all ?? []) {
+    const text = describeTime(timeStateFor(pane.paneId));
+    const wrapper = pane.element.parentElement;
+    if (!wrapper) continue;
+    let label = wrapper.querySelector('.pane-time');
+    if (!text) {
+      label?.remove();
+      continue;
+    }
+    if (!label) {
+      label = document.createElement('div');
+      label.className = 'pane-time';
+      wrapper.append(label);
+    }
+    label.textContent = text;
+  }
+}
+
+function startTimeTicking(): void {
+  clearInterval(timeTimer);
+  timeTimer = undefined;
+  renderTimeLabels();
+  if (document.visibilityState !== 'visible') return;
+  // Once per second is the fastest a human reads a duration, and no faster than the display
+  // can meaningfully change.
+  timeTimer = window.setInterval(renderTimeLabels, 1000);
+}
+
+function stopTimeTicking(): void {
+  clearInterval(timeTimer);
+  timeTimer = undefined;
+}
 let animPhase = 0;
 let animTimer: number | undefined;
 
@@ -362,6 +415,7 @@ function applyLayout(next: LayoutNode): void {
   panesHost?.retain(live);
   // A pane that no longer exists must stop influencing the tab's indicator.
   paneStatus.retain(live);
+  for (const id of [...paneTime.keys()]) if (!live.includes(id)) paneTime.delete(id);
   setFavicon(paneStatus.effective());
   refreshTitle();
 }
@@ -399,7 +453,10 @@ function installShortcuts(): void {
     'keydown',
     (e) => {
       if (e.key === 'Escape' && splitView?.maximized) {
-        splitView.toggleMaximize(null);
+        // Leaving focus mode must also release the keyboard lock, or Command+W stays captured
+        // for the whole browser.
+        if (splitView.inFocusMode) void splitView.exitFocusMode();
+        else splitView.toggleMaximize(null);
         e.preventDefault();
         return;
       }
@@ -435,6 +492,14 @@ function installShortcuts(): void {
           break;
         case 'enter':
           if (splitView?.focused) splitView.toggleMaximize(splitView.focused);
+          e.preventDefault();
+          break;
+        case 'f':
+          // Fullscreen focus mode, the only context where a page can receive Command+W.
+          if (splitView?.focused) {
+            if (splitView.inFocusMode) void splitView.exitFocusMode();
+            else void splitView.enterFocusMode(splitView.focused);
+          }
           e.preventDefault();
           break;
         default:
@@ -498,8 +563,13 @@ function onControl(msg: ServerMessage): void {
       }
       applyLayout(msg.layout);
       attached = true;
-      for (const p of msg.panes) paneStatus.set(p.paneId, 'idle');
+      for (const p of msg.panes) {
+        paneStatus.set(p.paneId, 'idle');
+        const state = timeStateFor(p.paneId);
+        state.sessionStartedAt ??= Date.now();
+      }
       setFavicon(paneStatus.effective());
+      startTimeTicking();
       client?.send({ t: 'list-launcher' });
       if (splitView?.focused) panesHost?.focus(splitView.focused);
       return;
@@ -588,6 +658,54 @@ function onControl(msg: ServerMessage): void {
     case 'title': {
       titleFields = msg.fields;
       refreshTitle();
+      return;
+    }
+
+    case 'command-start': {
+      const pane = panesHost?.all.find((p) => p.sessionId === msg.sessionId);
+      if (pane) {
+        const state = timeStateFor(pane.paneId);
+        state.commandStartedAt = msg.startedAt;
+        state.lastCommand = msg.command;
+        paneStatus.set(pane.paneId, 'running');
+        setFavicon(paneStatus.effective());
+        startTimeTicking();
+      }
+      return;
+    }
+
+    case 'command-end': {
+      const pane = panesHost?.all.find((p) => p.sessionId === msg.sessionId);
+      if (pane) {
+        const state = timeStateFor(pane.paneId);
+        const startedAt = state.commandStartedAt;
+        const longEnough = startedAt !== undefined && isLongRunning(startedAt);
+        if (startedAt !== undefined) state.lastDurationMs = msg.completedAt - startedAt;
+        else delete state.lastDurationMs;
+        state.lastFinishedAt = msg.completedAt;
+        state.lastExitCode = msg.exitCode;
+        delete state.commandStartedAt;
+
+        paneStatus.set(pane.paneId, msg.exitCode === 0 ? 'idle' : 'failed');
+        setFavicon(paneStatus.effective());
+        refreshTitle();
+        renderTimeLabels();
+
+        // Only a command that ran long enough for someone to have looked away is worth a
+        // status line. A fast one finished before they could miss it.
+        if (longEnough) {
+          const summary = describeTime({
+            ...(state.lastDurationMs !== undefined ? { lastDurationMs: state.lastDurationMs } : {}),
+            lastFinishedAt: msg.completedAt,
+            lastExitCode: msg.exitCode,
+          });
+          setStatus(
+            `${state.lastCommand ?? 'Command'} ${summary}`,
+            msg.exitCode === 0 ? 'ok' : 'warn',
+          );
+          setTimeout(() => setStatus('', 'hidden'), 4000);
+        }
+      }
       return;
     }
 
@@ -742,6 +860,11 @@ async function start(): Promise<void> {
   installTestHook();
   installModifierTracking();
   installShortcuts();
+  // Leaving fullscreen by any route, including the Escape the browser handles itself, must
+  // put the layout back and release the lock.
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && splitView?.maximized) void splitView.exitFocusMode();
+  });
   setFavicon('disconnected');
   refreshTitle();
 
@@ -762,9 +885,12 @@ async function start(): Promise<void> {
     if (document.visibilityState === 'visible') {
       if (splitView?.focused) panesHost?.focus(splitView.focused);
       setFavicon(faviconState);
+      startTimeTicking();
     } else {
       clearInterval(animTimer);
       animTimer = undefined;
+      // A hidden tab throttles timers anyway, and nobody is reading the label.
+      stopTimeTicking();
     }
   });
 }

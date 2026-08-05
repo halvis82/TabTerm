@@ -27,6 +27,7 @@ export class SplitView {
   #layout: LayoutNode | null = null;
   #focused: string | null = null;
   #maximized: string | null = null;
+  #keyboardLocked = false;
   readonly #wrappers = new Map<string, HTMLElement>();
   #resizeObserver: ResizeObserver;
 
@@ -84,6 +85,61 @@ export class SplitView {
     this.#maximized = this.#maximized === paneId ? null : paneId;
     if (this.#layout) this.render(this.#layout);
     if (this.#focused) this.focus(this.#focused);
+  }
+
+  /**
+   * Fullscreen focus mode, which is the only way a page can receive Command+W.
+   *
+   * `navigator.keyboard.lock()` captures browser and system shortcuts, but only while the page
+   * is in fullscreen. In a normal tab those keys never reach JavaScript at all, so this is the
+   * one context where a terminal can have the whole keyboard. See docs/10-limitations.md tier 0.4.
+   *
+   * The lock is always released on the way out, including on paths that are not a clean exit,
+   * because leaving it held would take Command+W away from the whole browser.
+   */
+  async enterFocusMode(paneId: string): Promise<boolean> {
+    try {
+      await this.#opts.root.requestFullscreen();
+    } catch {
+      return false;
+    }
+    this.#maximized = paneId;
+    if (this.#layout) this.render(this.#layout);
+    this.focus(paneId);
+
+    try {
+      await navigator.keyboard?.lock(['KeyW', 'KeyT', 'KeyN', 'KeyQ']);
+      this.#keyboardLocked = true;
+    } catch {
+      // Fullscreen still works without the lock; only the reserved keys stay with Chrome.
+      this.#keyboardLocked = false;
+    }
+    return true;
+  }
+
+  async exitFocusMode(): Promise<void> {
+    if (this.#keyboardLocked) {
+      try {
+        navigator.keyboard?.unlock();
+      } catch {
+        /* nothing useful to do, and the browser releases it on exit anyway */
+      }
+      this.#keyboardLocked = false;
+    }
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen();
+      } catch {
+        /* already gone */
+      }
+    }
+    this.#maximized = null;
+    if (this.#layout) this.render(this.#layout);
+    if (this.#focused) this.focus(this.#focused);
+  }
+
+  get inFocusMode(): boolean {
+    return document.fullscreenElement !== null && this.#maximized !== null;
   }
 
   #build(node: LayoutNode): HTMLElement {

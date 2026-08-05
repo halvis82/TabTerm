@@ -85,7 +85,25 @@ async function main(): Promise<void> {
     });
     server.notifySession(s, { t: 'cwd', sessionId: s.id, cwd: s.cwd });
   };
+  events.onCommandStarted = (s, command, startedAt) => {
+    server.notifySession(s, {
+      t: 'command-start',
+      sessionId: s.id,
+      commandId: String(startedAt),
+      command,
+      cwd: s.cwd,
+      startedAt,
+    });
+  };
   events.onCommand = (s, command, exitCode, durationMs) => {
+    server.notifySession(s, {
+      t: 'command-end',
+      sessionId: s.id,
+      commandId: String(Date.now()),
+      exitCode,
+      completedAt: Date.now(),
+      interrupted: exitCode === 130,
+    });
     launcher.recordCommand({ command, cwd: s.cwd, exitCode, durationMs });
     const ws = workspaces.findBySession(s.id);
     launcher.rememberSession({

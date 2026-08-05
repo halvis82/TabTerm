@@ -55,6 +55,8 @@ export interface SessionEvents {
   onCwd?: (session: Session) => void;
   /** Fired when the composed title fields change. */
   onTitle?: (session: Session) => void;
+  /** Fired when a shell command starts, so a pane can show it ticking. */
+  onCommandStarted?: (session: Session, command: string, startedAt: number) => void;
   /** Fired when a shell command finishes, with what it was and how it went. */
   onCommand?: (session: Session, command: string, exitCode: number, durationMs: number) => void;
 }
@@ -124,6 +126,10 @@ export class SessionManager {
       },
       onCommandText: (command) => {
         session.pendingCommand = command;
+        // The text arrives just after the start mark, so the start event waits for it: a
+        // pane showing "running" without saying what is more alarming than useful.
+        const startedAt = session.commandStartedAt ?? Date.now();
+        this.#events.onCommandStarted?.(session, command, startedAt);
       },
       onCommandEnd: (exitCode) => {
         const startedAt = session.commandStartedAt;

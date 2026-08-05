@@ -51,6 +51,27 @@
     padding: 4px 6px;
   }
 
+  /* A quiet corner label. It must never compete with the terminal for attention. */
+  .pane-time {
+    position: absolute;
+    right: 8px;
+    bottom: 4px;
+    font:
+      10.5px/1.4 ui-monospace,
+      SFMono-Regular,
+      Menlo,
+      monospace;
+    color: #5f6579;
+    background: rgba(18, 19, 26, 0.82);
+    padding: 1px 6px;
+    border-radius: 4px;
+    pointer-events: none;
+    opacity: 0.85;
+  }
+  .pane:not(.focused) .pane-time {
+    opacity: 0.5;
+  }
+
   .divider {
     flex: 0 0 6px;
     background: #1c1e28;
