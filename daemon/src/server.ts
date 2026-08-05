@@ -38,6 +38,7 @@ import { listeningPorts } from './server-detect.js';
 import { applyMemoryMode, frontendSettings } from './memory-modes.js';
 import type { RestoreStore } from './restore-store.js';
 import type { OutputArchive } from './output-archive.js';
+import type { PluginHost } from './plugin-api.js';
 import type { ProjectIndex } from './project-index.js';
 import type { WorkspaceStore } from './workspace-store.js';
 import type { Session, SessionManager } from './session-manager.js';
@@ -71,6 +72,7 @@ export class DaemonServer {
   readonly #projects: ProjectIndex;
   readonly #restore: RestoreStore;
   readonly #archive: OutputArchive;
+  readonly #plugins: PluginHost;
   readonly #clients = new Set<Client>();
 
   constructor(
@@ -82,6 +84,7 @@ export class DaemonServer {
     projects: ProjectIndex,
     restore: RestoreStore,
     archive: OutputArchive,
+    plugins: PluginHost,
   ) {
     this.#config = config;
     this.#sessions = sessions;
@@ -91,6 +94,7 @@ export class DaemonServer {
     this.#projects = projects;
     this.#restore = restore;
     this.#archive = archive;
+    this.#plugins = plugins;
     this.#http = createServer((_req, res) => {
       res.writeHead(426);
       res.end('websocket only');
@@ -1453,8 +1457,13 @@ export class DaemonServer {
         state: {
           recentDirs: this.#launcher.recentDirs(),
           saved: this.#launcher.saved(),
-          // No plugins exist yet, so the launcher renders no plugin section at all.
-          plugins: [],
+          // Whatever loaded from ~/.config/tabterm/plugins. With none installed this is empty
+          // and the launcher renders no plugin section at all.
+          plugins: this.#plugins.plugins.map((manifest) => ({
+            id: manifest.id,
+            title: manifest.name,
+            description: manifest.capabilities.join(', '),
+          })),
           home: homedir(),
         },
       }),

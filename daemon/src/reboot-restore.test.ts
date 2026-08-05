@@ -19,6 +19,7 @@ import { initLog } from './log.js';
 import { ProjectIndex } from './project-index.js';
 import { ProjectTrust } from './project-trust.js';
 import { OutputArchive } from './output-archive.js';
+import { PluginHost } from './plugin-api.js';
 import { RestoreStore } from './restore-store.js';
 import { DaemonServer } from './server.js';
 import { SessionManager } from './session-manager.js';
@@ -95,6 +96,7 @@ async function startDaemon(): Promise<Daemon> {
     new ProjectIndex(),
     new RestoreStore(db),
     new OutputArchive(db),
+    new PluginHost(),
   );
   await server.listen();
   return { server, sessions, workspaces };
