@@ -72,6 +72,8 @@ export interface SessionEvents {
   onCommand?: (session: Session, command: string, exitCode: number, durationMs: number) => void;
   /** A session started listening on a local port. Fired once per port, never polled. */
   onServerDetected?: (session: Session, port: number) => void;
+  /** Raw output, for the archive. Only called while something is capturing. */
+  onOutput?: (session: Session, chunk: string) => void;
 }
 
 export class SessionManager {
@@ -169,6 +171,7 @@ export class SessionManager {
       const buf = Buffer.from(chunk, 'utf8');
       vt.write(buf);
       osc.feed(chunk);
+      this.#events.onOutput?.(session, chunk);
       for (const client of session.clients.values()) client.onOutput(buf);
     });
 

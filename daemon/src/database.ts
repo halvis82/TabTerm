@@ -153,6 +153,27 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       CREATE INDEX idx_pane_ws ON pane_snapshots(workspace_id);
     `,
   },
+  {
+    version: 7,
+    sql: `
+      -- Archived command output. Off by default: this is the most sensitive thing the product
+      -- can hold. Only OSC 133-delimited regions land here, never a whole terminal.
+      -- See docs/03-data-model.md.
+      CREATE TABLE command_output (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        command    TEXT NOT NULL,
+        cwd        TEXT NOT NULL,
+        exit_code  INTEGER,
+        started_at INTEGER NOT NULL,
+        bytes      INTEGER NOT NULL,
+        truncated  INTEGER NOT NULL DEFAULT 0,
+        output     TEXT NOT NULL
+      );
+      CREATE INDEX idx_output_time    ON command_output(started_at DESC);
+      CREATE INDEX idx_output_command ON command_output(command, started_at DESC);
+    `,
+  },
 ];
 
 export class Database {
