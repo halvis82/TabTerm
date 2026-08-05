@@ -18,6 +18,7 @@ import { LauncherData } from './launcher-data.js';
 import { initLog } from './log.js';
 import { ProjectIndex } from './project-index.js';
 import { OutputArchive } from './output-archive.js';
+import { PluginHost } from './plugin-api.js';
 import { RestoreStore } from './restore-store.js';
 import { ProjectTrust } from './project-trust.js';
 import { DaemonServer } from './server.js';
@@ -55,6 +56,7 @@ beforeAll(async () => {
     new ProjectIndex(),
     new RestoreStore(new Database(':memory:')),
     new OutputArchive(new Database(':memory:')),
+    new PluginHost(),
   );
   await server.listen();
 });

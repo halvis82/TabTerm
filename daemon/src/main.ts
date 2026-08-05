@@ -13,6 +13,8 @@ import { LauncherData } from './launcher-data.js';
 import { ProjectIndex } from './project-index.js';
 import { RestoreStore } from './restore-store.js';
 import { OutputArchive } from './output-archive.js';
+import { PluginHost } from './plugin-api.js';
+import { loadPlugins } from './plugin-loader.js';
 import { ProjectTrust } from './project-trust.js';
 
 /**
@@ -50,6 +52,10 @@ async function main(): Promise<void> {
   const restore = new RestoreStore(db);
   // Off unless the config says otherwise. See docs/03-data-model.md.
   const archive = new OutputArchive(db, config.archiveOutput);
+  // Loaded from ~/.config/tabterm/plugins, which is trusted because you put files there
+  // deliberately. A project directory never is. See ADR-0013 and docs/05-security.md §5.
+  const plugins = new PluginHost();
+  await loadPlugins(plugins);
   // Reap policy must know whether a session is a pane in a workspace, since workspaces are
   // pinned by default and their panes are never reaped on a timer. See ADR-0012.
   sessions.isInWorkspace = (sessionId) => workspaces.findBySession(sessionId) !== undefined;
@@ -63,6 +69,7 @@ async function main(): Promise<void> {
     projects,
     restore,
     archive,
+    plugins,
   );
 
   events.onExit = (s) => {
@@ -122,6 +129,7 @@ async function main(): Promise<void> {
   events.onOutput = (s, chunk) => archive.write(s.id, chunk);
   events.onCommandStarted = (s, command, startedAt) => {
     archive.begin(s.id, command, s.cwd);
+    plugins.notify({ type: 'command-start', session: { sessionId: s.id, cwd: s.cwd, command } });
     server.notifySession(s, {
       t: 'command-start',
       sessionId: s.id,
@@ -133,6 +141,10 @@ async function main(): Promise<void> {
   };
   events.onCommand = (s, command, exitCode, durationMs) => {
     archive.end(s.id, exitCode);
+    plugins.notify({
+      type: 'command-end',
+      session: { sessionId: s.id, cwd: s.cwd, command, exitCode },
+    });
     server.notifySession(s, {
       t: 'command-end',
       sessionId: s.id,
