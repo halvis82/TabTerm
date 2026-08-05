@@ -13,6 +13,7 @@ import type { LauncherState, RecentDir } from '@tabterm/shared';
 
 export interface LauncherOptions {
   root: HTMLElement;
+  onLaunchAgent: (path: string) => void;
   onChooseDir: (path: string) => void;
   onCreateLayout: (path: string, panes: number, direction: 'horizontal' | 'vertical') => void;
   onPinDir: (path: string, pinned: boolean) => void;
@@ -126,6 +127,13 @@ export class Launcher {
     const buttons = document.createElement('div');
     buttons.className = 'launcher-buttons';
 
+    const agent = document.createElement('button');
+    agent.className = 'launcher-chip agent';
+    agent.textContent = 'Open agent here';
+    agent.addEventListener('click', () => {
+      this.#opts.onLaunchAgent(input.value.trim() || state.home);
+    });
+
     const presets: { label: string; panes: number; dir: 'horizontal' | 'vertical' }[] = [
       { label: 'Open', panes: 1, dir: 'horizontal' },
       { label: 'Split in 2', panes: 2, dir: 'horizontal' },
@@ -143,6 +151,7 @@ export class Launcher {
       });
       buttons.append(b);
     }
+    buttons.append(agent);
 
     const note = document.createElement('div');
     note.className = 'launcher-note';

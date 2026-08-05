@@ -256,6 +256,16 @@ export type ClientMessage =
   | { t: 'resolve-paths'; sessionId: string; candidates: readonly string[] }
   | { t: 'open-path'; sessionId: string; path: string; how: OpenHow }
   | { t: 'open-path-result'; ok: boolean }
+  | {
+      /** Launch an agent CLI, in a new tab or beside the current pane. */
+      t: 'launch-agent';
+      where: 'new-tab' | 'split';
+      workspaceId?: string;
+      paneId?: string;
+      cwd?: string;
+      cols: number;
+      rows: number;
+    }
   | { t: 'list-launcher' }
   | { t: 'recall-workspace'; workspaceId: string }
   | { t: 'list-history'; query?: string; limit?: number }

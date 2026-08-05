@@ -355,6 +355,11 @@ function buildLauncher(): void {
       });
       launcher?.dismiss();
     },
+    onLaunchAgent: (path) => {
+      const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
+      client?.send({ t: 'launch-agent', where: 'new-tab', cwd: path, ...size });
+      launcher?.dismiss();
+    },
     onPinDir: (path, pinned) => {
       client?.send({ t: 'pin-dir', path, pinned });
       client?.send({ t: 'list-launcher' });
@@ -440,6 +445,20 @@ function detachFocused(): void {
   client?.send({ t: 'detach-pane-to-tab', workspaceId, paneId });
 }
 
+/**
+ * Launch an agent CLI in the current directory.
+ *
+ * A new native tab is the default, because that is the premise of the product: an agent
+ * session is a Chrome tab like any other. A split is the secondary action.
+ * See docs/09-agent-integration.md §5.
+ */
+function launchAgent(where: 'new-tab' | 'split'): void {
+  const paneId = splitView?.focused;
+  if (!paneId || !workspaceId) return;
+  const size = panesHost?.fit(paneId) ?? { cols: 80, rows: 24 };
+  client?.send({ t: 'launch-agent', where, workspaceId, paneId, ...size });
+}
+
 function closeFocused(): void {
   const paneId = splitView?.focused;
   if (!paneId || !workspaceId) return;
@@ -494,6 +513,11 @@ function installShortcuts(): void {
           if (splitView?.focused) splitView.toggleMaximize(splitView.focused);
           e.preventDefault();
           break;
+        case 'a':
+          // Command+Shift+A opens an agent in a new tab, Option as well puts it in a split.
+          launchAgent(e.altKey ? 'split' : 'new-tab');
+          e.preventDefault();
+          break;
         case 'f':
           // Fullscreen focus mode, the only context where a page can receive Command+W.
           if (splitView?.focused) {
@@ -545,6 +569,12 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'session-created': {
+      // A session created for a different workspace means it was launched into a new tab.
+      if (attached && workspaceId && msg.workspaceId !== workspaceId) {
+        const url = chrome.runtime.getURL(`terminal.html?workspace=${msg.workspaceId}`);
+        void chrome.tabs.create({ url, active: true });
+        return;
+      }
       workspaceId = msg.workspaceId;
       // Put the workspace in the URL so Chrome's own restore returns to this exact layout.
       const url = new URL(location.href);
@@ -800,6 +830,7 @@ declare global {
       split: (direction: 'horizontal' | 'vertical') => void;
       closePane: () => void;
       detachPane: () => void;
+      launchAgent: (where: 'new-tab' | 'split') => void;
       mergeSession: (sessionId: string) => void;
       listMergeable: () => MergeableSession[];
       focus: (paneId: string) => void;
@@ -846,6 +877,7 @@ function installTestHook(): void {
         direction: 'horizontal',
       });
     },
+    launchAgent: (where) => launchAgent(where),
     listMergeable: () => {
       if (workspaceId) client?.send({ t: 'list-mergeable', workspaceId });
       return mergeable;

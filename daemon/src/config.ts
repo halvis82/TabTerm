@@ -51,6 +51,8 @@ export interface Config {
   /** Terminal editor used for Option-click. Receives a line number when one was printed. */
   /** Loopback port for agent CLI hook events. Separate from the socket, same token. */
   agentBridgePort: number;
+  /** Command used to launch an agent CLI. argv, never a shell string. */
+  agentCommand: readonly string[];
   editor: string;
   /** GUI editor used for Command-click. */
   guiEditor: string;
@@ -69,6 +71,7 @@ export const DEFAULTS: Config = {
   maxChunkBytes: 64 * 1024,
   creditWindowBytes: 256 * 1024,
   agentBridgePort: 7378,
+  agentCommand: ['claude'],
   editor: 'nvim',
   guiEditor: 'code',
   logLevel: 'info',

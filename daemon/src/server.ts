@@ -577,6 +577,55 @@ export class DaemonServer {
         return;
       }
 
+      case 'launch-agent': {
+        void (async () => {
+          // Inherit the directory of the pane it was launched from, which is nearly always
+          // the project someone wants the agent to look at.
+          let cwd = msg.cwd;
+          if (!cwd && msg.workspaceId && msg.paneId) {
+            const ws = this.#workspaces.get(msg.workspaceId);
+            const sessionId = ws
+              ? panes(ws.layout).find((p) => p.paneId === msg.paneId)?.sessionId
+              : undefined;
+            const from = sessionId ? this.#sessions.get(sessionId) : undefined;
+            if (from) cwd = await this.#liveCwd(from);
+          }
+
+          const session = this.#sessions.create({
+            cols: msg.cols,
+            rows: msg.rows,
+            command: this.#config.agentCommand,
+            ...(cwd ? { cwd } : {}),
+          });
+          if (cwd) this.#launcher.recordDir(cwd);
+
+          if (msg.where === 'split' && msg.workspaceId && msg.paneId) {
+            this.#workspaces.split(msg.workspaceId, msg.paneId, 'horizontal', session.id);
+            this.#attachWorkspace(client, msg.workspaceId, msg.cols, msg.rows);
+            this.#broadcastLayout(msg.workspaceId);
+            return;
+          }
+
+          // A new native tab is the default, because that is the whole premise: an agent
+          // session is a Chrome tab like any other. See docs/09-agent-integration.md §5.
+          const { workspace } = this.#workspaces.create(session.id);
+          send(
+            client.socket,
+            controlFrame({
+              t: 'session-created',
+              sessionId: session.id,
+              streamId: 0,
+              pid: session.pid,
+              workspaceId: workspace.id,
+            }),
+          );
+        })().catch((e: unknown) => {
+          warn('agent.launch.failed', { error: String(e) });
+          sendError(client.socket, 'internal', 'could not launch the agent');
+        });
+        return;
+      }
+
       case 'list-launcher': {
         // Ask the OS where every live session actually is before answering. OSC 7 only reports
         // for users who sourced the shell integration, and recent folders should work for
