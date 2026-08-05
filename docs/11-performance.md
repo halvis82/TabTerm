@@ -38,7 +38,7 @@ Measured on arm64 with Node 20 unless marked otherwise. Any change that moves a 
 | Snapshot size, 10k scrollback | — | 793 KB |
 | Attach to first paint, single pane | To be set | the attach and restore work |
 | Attach to first paint, 3-pane workspace | To be set | the workspace restore work |
-| 8 simultaneous restores, total stall | To be set | the startup restore work |
+| 8 simultaneous restores, total stall | under 8 s | **33 ms** measured ✅ |
 | Sustained PTY through the VT parser | — | **50 MB/s** measured |
 | History search, 100k rows, indexed | To be set | the history search work |
 | Detach pane to reattached tab | Perceptually instant | the pane detach work |

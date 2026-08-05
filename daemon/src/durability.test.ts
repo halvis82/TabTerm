@@ -265,3 +265,120 @@ describe('a merged-away tab, restored', () => {
     c.close();
   });
 });
+
+describe('two views of one session', () => {
+  it('mirrors rather than forking when a tab is duplicated', async () => {
+    // Duplicating a Chrome tab yields two tabs at the same URL, so two frontends land on one
+    // PTY. ADR-0011 chose mirroring: both stay live and see the same stream.
+    const first = await makeSession('mirror-1');
+    first.c.type('echo MIRROR-ORIGIN\r');
+    await sleep(900);
+
+    const second = await C.connect('mirror-2');
+    second.send({ t: 'attach', sessionId: first.sessionId, cols: 80, rows: 24 });
+    const snap = (await second.wait('snapshot')) as unknown as {
+      snapshot: { screen: string; streamId: number };
+    };
+    second.streamId = snap.snapshot.streamId;
+
+    expect(snap.snapshot.screen, 'the duplicate sees the original history').toContain(
+      'MIRROR-ORIGIN',
+    );
+    expect(sessions.get(first.sessionId)?.clients.size, 'both views attached').toBe(2);
+
+    // Typing in one view reaches the other, because it is one process.
+    second.type('echo FROM-THE-DUPLICATE\r');
+    await sleep(1200);
+    expect(first.c.output, 'output reaches the original too').toContain('FROM-THE-DUPLICATE');
+
+    first.c.close();
+    second.close();
+  });
+
+  it('applies the minimum size across attached views, per dimension', async () => {
+    const wide = await C.connect('size-wide');
+    wide.send({ t: 'create-session', cols: 200, rows: 60 });
+    const created = (await wide.wait('session-created')) as unknown as { sessionId: string };
+    await sleep(600);
+
+    const session = sessions.get(created.sessionId);
+    expect(session?.vt.cols).toBe(200);
+    expect(session?.vt.rows).toBe(60);
+
+    // A second, smaller view joins. Any larger client would render into columns the shell does
+    // not know exist, so the PTY takes the minimum of each dimension independently.
+    const narrow = await C.connect('size-narrow');
+    narrow.send({ t: 'attach', sessionId: created.sessionId, cols: 80, rows: 100 });
+    await narrow.wait('snapshot');
+    await sleep(600);
+
+    expect(session?.vt.cols, 'narrower client wins on columns').toBe(80);
+    expect(session?.vt.rows, 'shorter client wins on rows').toBe(60);
+
+    // When the constraining view leaves, the PTY may grow back.
+    narrow.close();
+    await sleep(900);
+    expect(session?.vt.cols).toBe(200);
+    expect(session?.vt.rows).toBe(60);
+    wide.close();
+  });
+
+  it('retains its last size when nobody is attached', async () => {
+    const c = await C.connect('size-solo');
+    c.send({ t: 'create-session', cols: 123, rows: 44 });
+    const created = (await c.wait('session-created')) as unknown as { sessionId: string };
+    await sleep(600);
+    const session = sessions.get(created.sessionId);
+
+    c.close();
+    await sleep(900);
+    // Not reset to a default: the size is whatever the last viewer left it at.
+    expect(session?.vt.cols).toBe(123);
+    expect(session?.vt.rows).toBe(44);
+  });
+});
+
+describe('startup herd', () => {
+  it('handles many tabs restoring at once without stalling', async () => {
+    // Chrome restores every tab simultaneously at startup, so the daemon meets N attaches in
+    // one burst, each wanting a full screen snapshot. See docs/04-session-lifecycle.md §5.
+    const COUNT = 8;
+    const made = await Promise.all(
+      Array.from({ length: COUNT }, (_, i) => makeSession(`herd-${String(i)}`)),
+    );
+    for (const m of made) {
+      m.c.type('for i in 1 2 3 4 5 6 7 8 9 10; do echo herd-line-$i; done\r');
+    }
+    await sleep(1500);
+    for (const m of made) m.c.close();
+    await sleep(800);
+
+    // Now the burst: everything reattaches at the same instant.
+    const started = Date.now();
+    const clients = await Promise.all(made.map((_, i) => C.connect(`herd-restore-${String(i)}`)));
+    await Promise.all(
+      clients.map(async (c, i) => {
+        c.send({ t: 'attach', sessionId: made[i]?.sessionId ?? '', cols: 120, rows: 40 });
+        await c.wait('snapshot', 20000);
+      }),
+    );
+    const elapsed = Date.now() - started;
+
+    // Every one of them got its screen back.
+    for (const c of clients) {
+      const snap = c.seen.find((m) => m.t === 'snapshot') as unknown as
+        { snapshot: { screen: string } } | undefined;
+      expect(snap?.snapshot.screen).toContain('herd-line-10');
+    }
+
+    // The budget is generous on purpose: this asserts the daemon does not serialize badly or
+    // deadlock under a simultaneous burst, not a precise latency figure.
+    expect(
+      elapsed,
+      `${String(COUNT)} simultaneous restores took ${String(elapsed)}ms`,
+    ).toBeLessThan(8000);
+    console.log(`      ${String(COUNT)} simultaneous restores completed in ${String(elapsed)}ms`);
+
+    for (const c of clients) c.close();
+  });
+});
