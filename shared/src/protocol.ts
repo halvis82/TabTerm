@@ -314,6 +314,16 @@ export type ClientMessage =
   // exists and a person decides. See docs/09-agent-integration.md.
   | { t: 'list-resumable'; cwd?: string; limit?: number }
   | { t: 'resume-agent'; sessionId: string; cwd: string; cols: number; rows: number }
+  // Local servers. Discovery runs when someone asks, and on the command-start event, never
+  // on a timer. See docs/11-performance.md §6.
+  | { t: 'list-servers' }
+  | {
+      /** Interrupt whatever is listening, the way a person would. Confirmed in the UI first. */
+      t: 'stop-server';
+      sessionId: string;
+      /** Send the recorded start command again once it has stopped. */
+      restart?: boolean;
+    }
   | { t: 'list-sessions' }
   | { t: 'list-workspaces' }
   | { t: 'subscribe'; topics: readonly string[] };
@@ -454,8 +464,19 @@ export type ServerMessage =
       /** Null when the directory has no config, or has one that was refused outright. */
       config: ProjectConfigInfo | null;
     }
+  | { t: 'server-list'; servers: readonly LocalServer[] }
   | { t: 'resumable-sessions'; sessions: readonly ResumableAgentSession[] }
   | { t: 'error'; code: ServerErrorCode; message: string; context?: string };
+
+export interface LocalServer {
+  sessionId: string;
+  workspaceId?: string;
+  port: number;
+  cwd: string;
+  /** The command that appears to be serving, when it is known. */
+  command?: string;
+  startedAt?: number;
+}
 
 export interface ResumableAgentSession {
   sessionId: string;

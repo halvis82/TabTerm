@@ -34,6 +34,7 @@ import {
 } from './project-config.js';
 import { trustAction, type ProjectTrust } from './project-trust.js';
 import { listResumable } from './agent-sessions.js';
+import { listeningPorts } from './server-detect.js';
 import type { ProjectIndex } from './project-index.js';
 import type { WorkspaceStore } from './workspace-store.js';
 import type { Session, SessionManager } from './session-manager.js';
@@ -857,6 +858,59 @@ export class DaemonServer {
             workspaceId: workspace.id,
           }),
         );
+        return;
+      }
+
+      case 'list-servers': {
+        // One lsof across every live session, run because someone asked. Not a poll: a
+        // dashboard nobody is looking at costs nothing.
+        void listeningPorts(this.#sessions.all.map((session) => session.pid))
+          .then((ports) => {
+            const servers = this.#sessions.all
+              .map((session) => {
+                const port = ports.get(session.pid) ?? session.listeningPort;
+                if (port === undefined) return null;
+                session.listeningPort = port;
+                const workspace = this.#workspaces.findBySession(session.id);
+                return {
+                  sessionId: session.id,
+                  port,
+                  cwd: session.cwd,
+                  ...(workspace ? { workspaceId: workspace.id } : {}),
+                  ...(session.titleFields.process ? { command: session.titleFields.process } : {}),
+                  ...(session.commandStartedAt ? { startedAt: session.commandStartedAt } : {}),
+                };
+              })
+              .filter((s): s is NonNullable<typeof s> => s !== null);
+            send(client.socket, controlFrame({ t: 'server-list', servers }));
+          })
+          .catch(() => {
+            send(client.socket, controlFrame({ t: 'server-list', servers: [] }));
+          });
+        return;
+      }
+
+      case 'stop-server': {
+        const target = this.#sessions.get(msg.sessionId);
+        if (!target) {
+          sendError(client.socket, 'session-not-found', 'that terminal is gone');
+          return;
+        }
+        // An interrupt, exactly what a person would type. Not a kill: the process gets to shut
+        // down the way it was written to, and anything the shell owns is left alone.
+        this.#sessions.write(target, Buffer.from('\u0003', 'utf8'));
+
+        if (msg.restart === true) {
+          const again = target.pendingCommand ?? this.#launcher.lastCommandIn(target.cwd);
+          if (again) {
+            // Long enough for the interrupt to land and the prompt to come back. Sending into
+            // a shell that is still shutting down would type into the wrong place.
+            setTimeout(() => {
+              this.#sessions.write(target, Buffer.from(`${again}\r`, 'utf8'));
+            }, 1200).unref();
+          }
+        }
+        delete target.listeningPort;
         return;
       }
 

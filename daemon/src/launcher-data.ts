@@ -466,6 +466,19 @@ export class LauncherData {
     this.#db.handle.prepare('DELETE FROM saved_items WHERE id = ?').run(id);
   }
 
+  /**
+   * The most recent command run in a directory.
+   *
+   * Used to restart a server: the command that started it is the command that restarts it, and
+   * history already knows what it was.
+   */
+  lastCommandIn(cwd: string): string | null {
+    const row = this.#db.handle
+      .prepare('SELECT command FROM commands WHERE cwd = ? ORDER BY last_used_at DESC LIMIT 1')
+      .get(cwd) as { command: string } | undefined;
+    return row?.command ?? null;
+  }
+
   pinSaved(id: string, pinned: boolean): void {
     this.#db.handle
       .prepare('UPDATE saved_items SET pinned = ? WHERE id = ?')
