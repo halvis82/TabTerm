@@ -10,6 +10,7 @@ import { SessionManager, type SessionEvents } from './session-manager.js';
 import { WorkspaceStore } from './workspace-store.js';
 import { Database } from './database.js';
 import { LauncherData } from './launcher-data.js';
+import { ProjectIndex } from './project-index.js';
 import { ProjectTrust } from './project-trust.js';
 
 /**
@@ -41,6 +42,8 @@ async function main(): Promise<void> {
   const workspaces = new WorkspaceStore();
   const db = new Database();
   const launcher = new LauncherData(db);
+  const projects = new ProjectIndex();
+  launcher.useProjectIndex(projects);
   const trust = new ProjectTrust(db);
   // Reap policy must know whether a session is a pane in a workspace, since workspaces are
   // pinned by default and their panes are never reaped on a timer. See ADR-0012.

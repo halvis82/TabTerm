@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { basename } from 'node:path';
 import type { CommandEntry, RecentDir, SavedItem } from '@tabterm/shared';
 import type { Database } from './database.js';
+import type { ProjectIndex } from './project-index.js';
 
 /**
  * What the launcher shows: where you have been, what you have run, and what you have kept.
@@ -41,9 +42,60 @@ export function isSensitive(command: string): boolean {
 
 export class LauncherData {
   readonly #db: Database;
+  #projects: ProjectIndex | null = null;
 
   constructor(db: Database) {
     this.#db = db;
+  }
+
+  /**
+   * Attach project discovery.
+   *
+   * Optional, so tests and the launcher-only paths do not need one, and so nothing here ever
+   * blocks on the filesystem if it is absent.
+   */
+  useProjectIndex(index: ProjectIndex): void {
+    this.#projects = index;
+  }
+
+  /**
+   * Resolve and store the repository a directory belongs to.
+   *
+   * Deliberately not awaited by its caller. Recording a directory happens on every prompt, and
+   * that path must never wait on a stat. The row is updated when the answer arrives, and the
+   * launcher reads whatever is known at the time it asks.
+   */
+  async #indexProject(path: string): Promise<void> {
+    const index = this.#projects;
+    if (!index) return;
+    const found = await index.find(path);
+    if (!found) return;
+
+    this.#db.handle
+      .prepare(
+        `INSERT INTO projects (root, name, pinned, last_opened_at) VALUES (?, ?, 0, ?)
+         ON CONFLICT(root) DO UPDATE SET last_opened_at = excluded.last_opened_at`,
+      )
+      .run(found.root, found.name, Date.now());
+    this.#db.handle
+      .prepare('UPDATE recent_dirs SET git_root = ? WHERE path = ?')
+      .run(found.root, path);
+  }
+
+  /** Repositories seen recently, most useful first. */
+  projects(limit = 12): { root: string; name: string; pinned: boolean; lastOpenedAt: number }[] {
+    const rows = this.#db.handle
+      .prepare(
+        `SELECT root, name, pinned, last_opened_at FROM projects
+         ORDER BY pinned DESC, last_opened_at DESC LIMIT ?`,
+      )
+      .all(limit) as { root: string; name: string; pinned: number; last_opened_at: number }[];
+    return rows.map((r) => ({
+      root: r.root,
+      name: r.name,
+      pinned: r.pinned === 1,
+      lastOpenedAt: r.last_opened_at,
+    }));
   }
 
   // --- recent directories ------------------------------------------------
@@ -72,13 +124,19 @@ export class LauncherData {
          )`,
       )
       .run(MAX_RECENT_DIRS);
+
+    // Fire and forget: the caller is on a per-prompt path and must not wait for a stat.
+    void this.#indexProject(path).catch(() => {
+      /* a directory that vanished, or an unreadable parent. Not worth reporting. */
+    });
   }
 
   recentDirs(limit = 12): RecentDir[] {
     const rows = this.#db.handle
       .prepare(
-        `SELECT path, name, last_used_at, use_count, pinned
-         FROM recent_dirs ORDER BY pinned DESC, last_used_at DESC LIMIT ?`,
+        `SELECT d.path, d.name, d.last_used_at, d.use_count, d.pinned, d.git_root, p.name AS project_name
+         FROM recent_dirs d LEFT JOIN projects p ON p.root = d.git_root
+         ORDER BY d.pinned DESC, d.last_used_at DESC LIMIT ?`,
       )
       .all(limit * 3) as {
       path: string;
@@ -86,6 +144,8 @@ export class LauncherData {
       last_used_at: number;
       use_count: number;
       pinned: number;
+      git_root: string | null;
+      project_name: string | null;
     }[];
 
     // Recency alone would drop a directory you live in after one busy day elsewhere, so the
@@ -97,6 +157,9 @@ export class LauncherData {
         lastUsedAt: r.last_used_at,
         useCount: r.use_count,
         pinned: r.pinned === 1,
+        ...(r.git_root
+          ? { project: { root: r.git_root, name: r.project_name ?? basename(r.git_root) } }
+          : {}),
       }))
       .sort((a, b) => score(b) - score(a))
       .slice(0, limit);
@@ -127,6 +190,9 @@ export class LauncherData {
     if (isSensitive(command)) return;
 
     const now = Date.now();
+    // Only what the index already knows. This runs on every command, so it reads the cache and
+    // never waits on a lookup; the directory was almost always recorded moments earlier.
+    const root = this.#projects?.cached(entry.cwd)?.root ?? null;
     const existing = this.#db.handle
       .prepare('SELECT id FROM commands WHERE command = ? AND cwd = ?')
       .get(command, entry.cwd) as { id: string } | undefined;
@@ -145,10 +211,18 @@ export class LauncherData {
 
     this.#db.handle
       .prepare(
-        `INSERT INTO commands (id, command, cwd, last_used_at, use_count, exit_code, duration_ms)
-         VALUES (?, ?, ?, ?, 1, ?, ?)`,
+        `INSERT INTO commands (id, command, cwd, last_used_at, use_count, exit_code, duration_ms, git_root)
+         VALUES (?, ?, ?, ?, 1, ?, ?, ?)`,
       )
-      .run(randomUUID(), command, entry.cwd, now, entry.exitCode ?? null, entry.durationMs ?? null);
+      .run(
+        randomUUID(),
+        command,
+        entry.cwd,
+        now,
+        entry.exitCode ?? null,
+        entry.durationMs ?? null,
+        root,
+      );
 
     this.#db.handle
       .prepare(

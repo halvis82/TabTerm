@@ -183,6 +183,8 @@ export interface RecentDir {
   lastUsedAt: number;
   useCount: number;
   pinned: boolean;
+  /** The repository this directory sits in, when it sits in one. */
+  project?: { root: string; name: string };
 }
 
 export interface CommandEntry {

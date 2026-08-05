@@ -149,12 +149,10 @@ interface CommandRecord {
 }
 
 interface Project {
-  id: string;
+  root: string;                // the primary key: a repository is its path
   name: string;
-  root: string;
   pinned: boolean;
-  lastOpenedAt?: number;
-  workspaceTemplateIds: string[];
+  lastOpenedAt: number;
 }
 
 type SavedKind = "command" | "template" | "note" | "prompt" | "workflow";
@@ -177,6 +175,33 @@ interface SavedItem {
   pinned: boolean;
 }
 ```
+
+---
+
+### Finding the project a directory belongs to
+
+`daemon/src/project-index.ts`. A repository root is the unit people think in, so history and
+saved items scope to it rather than to one exact directory.
+
+There is **no filesystem walk**. Finding a root means climbing from a directory that is already
+known, which is bounded by that directory's depth; searching *downward* for repositories would
+be unbounded and is not done. `.git` is checked for existence rather than for a directory, so
+worktrees and submodules are found too, and the innermost match wins.
+
+The climb **stops at the home directory**. A stray `.git` above home would otherwise make every
+directory on the machine one enormous project.
+
+Results are cached both ways, and every directory passed on the way up is cached with the same
+answer. A repeat lookup is a map lookup; a new directory inside a known project costs one
+check, not a fresh climb. Negative answers are cached too, since repeatedly failing to find a
+repository is exactly the case worth not repeating. `invalidate(path)` clears a subtree and any
+ancestor whose negative answer was reached through it, so a directory that has just become a
+repository stops claiming it is not one.
+
+**Discovery never blocks a caller.** `recordDir` runs on every prompt in every session; it
+writes the row and resolves the project in the background, updating `recent_dirs.git_root` when
+the answer arrives. `recordCommand` reads only what the cache already holds, because it must be
+synchronous, and by then the directory was almost always recorded moments earlier.
 
 ---
 
@@ -305,6 +330,15 @@ CREATE TABLE project_trust (
   decision TEXT NOT NULL,      -- 'trusted' | 'denied'
   decided_at INTEGER NOT NULL
 );
+
+-- Repository roots. Discovered by climbing from directories already known, never by scanning.
+CREATE TABLE projects (
+  root TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  pinned INTEGER NOT NULL DEFAULT 0,
+  last_opened_at INTEGER NOT NULL
+);
+CREATE INDEX idx_projects_recent ON projects(pinned DESC, last_opened_at DESC);
 
 CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 CREATE TABLE migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);

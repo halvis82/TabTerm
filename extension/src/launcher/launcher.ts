@@ -256,6 +256,15 @@ export class Launcher {
     const main = document.createElement('button');
     main.className = 'launcher-row';
     main.append(strong(dir.name), dim(shorten(dir.path, home)));
+    // Only when the directory is somewhere *inside* a repository. Repeating the name on the
+    // root itself would say the same thing twice.
+    if (dir.project && dir.project.root !== dir.path) {
+      const badge = document.createElement('span');
+      badge.className = 'launcher-badge';
+      badge.textContent = dir.project.name;
+      badge.title = dir.project.root;
+      main.append(badge);
+    }
     main.addEventListener('click', () => this.#opts.onChooseDir(dir.path));
 
     const pin = document.createElement('button');
