@@ -13,6 +13,7 @@ import { SplitView, collectPanes } from '../layout/split-view.js';
 import { PaneHost } from './panes.js';
 import { findCandidates } from './path-links.js';
 import { chooseOpenAction, describeOpen } from './open-action.js';
+import { PaneStatus } from './pane-status.js';
 import { applyFavicon, composeTitle, drawFavicon, type FaviconState } from './titles.js';
 import { Launcher } from '../launcher/launcher.js';
 import { Palette, type PaletteRow } from '../launcher/palette.js';
@@ -49,6 +50,8 @@ let attached = false;
 
 let titleFields: TitleFields = {};
 let faviconState: FaviconState = 'disconnected';
+/** A tab has one favicon, so many panes reduce to the most urgent state among them. */
+const paneStatus = new PaneStatus();
 let animPhase = 0;
 let animTimer: number | undefined;
 
@@ -77,7 +80,18 @@ function setStatus(text: string, tone: 'ok' | 'warn' | 'error' | 'hidden'): void
 
 function refreshTitle(status?: string): void {
   const count = layout ? collectPanes(layout).length : 1;
-  document.title = composeTitle(titleFields, status ?? (count > 1 ? `${String(count)} panes` : ''));
+  // With several panes the interesting thing is what needs attention, not the pane count.
+  const attention =
+    paneStatus.countIn('approval') > 0
+      ? 'needs approval'
+      : paneStatus.countIn('failed') > 0
+        ? 'failed'
+        : paneStatus.countIn('running') > 0 && count > 1
+          ? `${String(paneStatus.countIn('running'))} running`
+          : count > 1
+            ? `${String(count)} panes`
+            : '';
+  document.title = composeTitle(titleFields, status ?? attention);
 }
 
 function setFavicon(state: FaviconState): void {
@@ -344,7 +358,11 @@ function paletteRows(history: readonly CommandEntry[]): PaletteRow[] {
 function applyLayout(next: LayoutNode): void {
   layout = next;
   splitView?.render(next);
-  panesHost?.retain(collectPanes(next));
+  const live = collectPanes(next);
+  panesHost?.retain(live);
+  // A pane that no longer exists must stop influencing the tab's indicator.
+  paneStatus.retain(live);
+  setFavicon(paneStatus.effective());
   refreshTitle();
 }
 
@@ -480,7 +498,8 @@ function onControl(msg: ServerMessage): void {
       }
       applyLayout(msg.layout);
       attached = true;
-      setFavicon('idle');
+      for (const p of msg.panes) paneStatus.set(p.paneId, 'idle');
+      setFavicon(paneStatus.effective());
       client?.send({ t: 'list-launcher' });
       if (splitView?.focused) panesHost?.focus(splitView.focused);
       return;
@@ -573,7 +592,18 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'process-state': {
-      setFavicon(msg.state === 'running' ? 'running' : msg.state === 'failed' ? 'failed' : 'idle');
+      const pane = panesHost?.all.find((p) => p.sessionId === msg.sessionId);
+      const state: FaviconState =
+        msg.state === 'running'
+          ? 'running'
+          : msg.state === 'failed'
+            ? 'failed'
+            : msg.state === 'waiting' || msg.state === 'approval'
+              ? msg.state
+              : 'idle';
+      if (pane) paneStatus.set(pane.paneId, state);
+      setFavicon(paneStatus.effective());
+      refreshTitle();
       return;
     }
 
