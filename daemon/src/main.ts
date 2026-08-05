@@ -7,6 +7,7 @@ import { error, info, initLog } from './log.js';
 import { DaemonServer } from './server.js';
 import { SessionManager, type SessionEvents } from './session-manager.js';
 import { WorkspaceStore } from './workspace-store.js';
+import { Database } from './database.js';
 import { LauncherData } from './launcher-data.js';
 
 /**
@@ -36,7 +37,8 @@ async function main(): Promise<void> {
   const events: SessionEvents = { onExit: () => {}, onStateChange: () => {} };
   const sessions = new SessionManager(config, events);
   const workspaces = new WorkspaceStore();
-  const launcher = new LauncherData();
+  const db = new Database();
+  const launcher = new LauncherData(db);
   const server = new DaemonServer(config, sessions, workspaces, launcher);
 
   events.onExit = (s) => {
@@ -86,6 +88,7 @@ async function main(): Promise<void> {
     void (async () => {
       await server.close();
       launcher.flush();
+      db.close();
       await sessions.shutdown();
       releaseLock();
       process.exit(0);

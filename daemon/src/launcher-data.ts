@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { basename } from 'node:path';
 import type { CommandEntry, RecentDir, SavedItem } from '@tabterm/shared';
-import { JsonStore } from './store.js';
+import type { Database } from './database.js';
 
 /**
  * What the launcher shows: where you have been, what you have run, and what you have kept.
@@ -40,9 +40,11 @@ export function isSensitive(command: string): boolean {
 }
 
 export class LauncherData {
-  readonly #dirs = new JsonStore<RecentDir[]>('recent-dirs', []);
-  readonly #history = new JsonStore<CommandEntry[]>('command-history', []);
-  readonly #saved = new JsonStore<SavedItem[]>('saved-items', []);
+  readonly #db: Database;
+
+  constructor(db: Database) {
+    this.#db = db;
+  }
 
   // --- recent directories ------------------------------------------------
 
@@ -52,43 +54,62 @@ export class LauncherData {
    */
   recordDir(path: string): void {
     if (!path.startsWith('/') || BORING.has(path)) return;
-    this.#dirs.update((list) => {
-      const existing = list.find((d) => d.path === path);
-      if (existing) {
-        existing.lastUsedAt = Date.now();
-        existing.useCount++;
-      } else {
-        list.push({
-          path,
-          name: basename(path) || path,
-          lastUsedAt: Date.now(),
-          useCount: 1,
-          pinned: false,
-        });
-      }
-      list.sort((a, b) => score(b) - score(a));
-      return list.slice(0, MAX_RECENT_DIRS);
-    });
+    this.#db.handle
+      .prepare(
+        `INSERT INTO recent_dirs (path, name, last_used_at, use_count, pinned)
+         VALUES (?, ?, ?, 1, 0)
+         ON CONFLICT(path) DO UPDATE SET
+           last_used_at = excluded.last_used_at,
+           use_count = use_count + 1`,
+      )
+      .run(path, basename(path) || path, Date.now());
+
+    // Keep the table bounded. Pinned rows are never candidates for eviction.
+    this.#db.handle
+      .prepare(
+        `DELETE FROM recent_dirs WHERE pinned = 0 AND path NOT IN (
+           SELECT path FROM recent_dirs ORDER BY pinned DESC, last_used_at DESC LIMIT ?
+         )`,
+      )
+      .run(MAX_RECENT_DIRS);
   }
 
   recentDirs(limit = 12): RecentDir[] {
-    return this.#dirs
-      .read()
-      .slice()
+    const rows = this.#db.handle
+      .prepare(
+        `SELECT path, name, last_used_at, use_count, pinned
+         FROM recent_dirs ORDER BY pinned DESC, last_used_at DESC LIMIT ?`,
+      )
+      .all(limit * 3) as {
+      path: string;
+      name: string;
+      last_used_at: number;
+      use_count: number;
+      pinned: number;
+    }[];
+
+    // Recency alone would drop a directory you live in after one busy day elsewhere, so the
+    // final ranking applies a frequency bonus in code where it is easy to read and tune.
+    return rows
+      .map((r) => ({
+        path: r.path,
+        name: r.name,
+        lastUsedAt: r.last_used_at,
+        useCount: r.use_count,
+        pinned: r.pinned === 1,
+      }))
       .sort((a, b) => score(b) - score(a))
       .slice(0, limit);
   }
 
   pinDir(path: string, pinned: boolean): void {
-    this.#dirs.update((list) => {
-      const hit = list.find((d) => d.path === path);
-      if (hit) hit.pinned = pinned;
-      return list;
-    });
+    this.#db.handle
+      .prepare('UPDATE recent_dirs SET pinned = ? WHERE path = ?')
+      .run(pinned ? 1 : 0, path);
   }
 
   forgetDir(path: string): void {
-    this.#dirs.update((list) => list.filter((d) => d.path !== path));
+    this.#db.handle.prepare('DELETE FROM recent_dirs WHERE path = ?').run(path);
   }
 
   // --- command history ---------------------------------------------------
@@ -105,54 +126,132 @@ export class LauncherData {
     if (entry.command.startsWith(' ')) return;
     if (isSensitive(command)) return;
 
-    this.#history.update((list) => {
-      // Collapse an immediate repeat rather than filling history with the same line.
-      const last = list[list.length - 1];
-      if (last && last.command === command && last.cwd === entry.cwd) {
-        last.lastUsedAt = Date.now();
-        last.useCount++;
-        if (entry.exitCode !== undefined) last.exitCode = entry.exitCode;
-        return list;
-      }
-      list.push({
-        id: randomUUID(),
-        command,
-        cwd: entry.cwd,
-        lastUsedAt: Date.now(),
-        useCount: 1,
-        ...(entry.exitCode !== undefined ? { exitCode: entry.exitCode } : {}),
-        ...(entry.durationMs !== undefined ? { durationMs: entry.durationMs } : {}),
-      });
-      return list.length > MAX_HISTORY ? list.slice(-MAX_HISTORY) : list;
-    });
+    const now = Date.now();
+    const existing = this.#db.handle
+      .prepare('SELECT id FROM commands WHERE command = ? AND cwd = ?')
+      .get(command, entry.cwd) as { id: string } | undefined;
+
+    if (existing) {
+      // Running the same thing again is a stronger signal than a new row would be.
+      this.#db.handle
+        .prepare(
+          `UPDATE commands SET last_used_at = ?, use_count = use_count + 1,
+             exit_code = COALESCE(?, exit_code), duration_ms = COALESCE(?, duration_ms)
+           WHERE id = ?`,
+        )
+        .run(now, entry.exitCode ?? null, entry.durationMs ?? null, existing.id);
+      return;
+    }
+
+    this.#db.handle
+      .prepare(
+        `INSERT INTO commands (id, command, cwd, last_used_at, use_count, exit_code, duration_ms)
+         VALUES (?, ?, ?, ?, 1, ?, ?)`,
+      )
+      .run(randomUUID(), command, entry.cwd, now, entry.exitCode ?? null, entry.durationMs ?? null);
+
+    this.#db.handle
+      .prepare(
+        `DELETE FROM commands WHERE id NOT IN (
+           SELECT id FROM commands ORDER BY last_used_at DESC LIMIT ?
+         )`,
+      )
+      .run(MAX_HISTORY);
   }
 
   /** Most recent first, optionally filtered. Deduplicated by command text. */
   history(query = '', limit = 200): CommandEntry[] {
-    const all = this.#history.read();
-    const seen = new Set<string>();
-    const out: CommandEntry[] = [];
-    for (let i = all.length - 1; i >= 0 && out.length < limit; i--) {
-      const entry = all[i] as CommandEntry;
-      if (seen.has(entry.command)) continue;
-      if (query && !matches(entry.command, query)) continue;
-      seen.add(entry.command);
-      out.push(entry);
+    // Narrow in SQL with an indexed LIKE first, then apply the fuzzy match in code. Doing the
+    // whole thing in code would mean reading every row; doing it all in SQL would lose
+    // subsequence matching, which is what makes `gco` find `git checkout`.
+    const like = query ? `%${query.replaceAll('%', '').replaceAll('_', '')}%` : '%';
+    const rows = this.#db.handle
+      .prepare(
+        `SELECT id, command, cwd, last_used_at, use_count, exit_code, duration_ms
+         FROM commands
+         WHERE (? = '%' OR command LIKE ?)
+         ORDER BY last_used_at DESC
+         LIMIT ?`,
+      )
+      .all(like, like, Math.max(limit * 4, 400)) as {
+      id: string;
+      command: string;
+      cwd: string;
+      last_used_at: number;
+      use_count: number;
+      exit_code: number | null;
+      duration_ms: number | null;
+    }[];
+
+    const mapped = rows.map((r) => ({
+      id: r.id,
+      command: r.command,
+      cwd: r.cwd,
+      lastUsedAt: r.last_used_at,
+      useCount: r.use_count,
+      ...(r.exit_code !== null ? { exitCode: r.exit_code } : {}),
+      ...(r.duration_ms !== null ? { durationMs: r.duration_ms } : {}),
+    }));
+
+    const direct = mapped.filter((e) => matches(e.command, query));
+    if (direct.length >= limit || !query) return direct.slice(0, limit);
+
+    // The LIKE narrowing misses subsequence matches, so widen once if it came up short.
+    const wide = this.#db.handle
+      .prepare(
+        `SELECT id, command, cwd, last_used_at, use_count, exit_code, duration_ms
+         FROM commands ORDER BY last_used_at DESC LIMIT 2000`,
+      )
+      .all() as typeof rows;
+
+    const seen = new Set(direct.map((e) => e.command));
+    for (const r of wide) {
+      if (direct.length >= limit) break;
+      if (seen.has(r.command) || !matches(r.command, query)) continue;
+      seen.add(r.command);
+      direct.push({
+        id: r.id,
+        command: r.command,
+        cwd: r.cwd,
+        lastUsedAt: r.last_used_at,
+        useCount: r.use_count,
+        ...(r.exit_code !== null ? { exitCode: r.exit_code } : {}),
+        ...(r.duration_ms !== null ? { durationMs: r.duration_ms } : {}),
+      });
     }
-    return out;
+    return direct.slice(0, limit);
   }
 
   clearHistory(): void {
-    this.#history.update(() => []);
+    this.#db.handle.exec('DELETE FROM commands');
   }
 
   // --- saved items -------------------------------------------------------
 
   saved(): SavedItem[] {
-    return this.#saved
-      .read()
-      .slice()
-      .sort((a, b) => b.lastUsedAt - a.lastUsedAt);
+    const rows = this.#db.handle
+      .prepare(
+        `SELECT id, title, body, tags, created_at, last_used_at, use_count
+         FROM saved_items ORDER BY last_used_at DESC LIMIT 500`,
+      )
+      .all() as {
+      id: string;
+      title: string;
+      body: string;
+      tags: string;
+      created_at: number;
+      last_used_at: number;
+      use_count: number;
+    }[];
+    return rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      body: r.body,
+      tags: r.tags ? r.tags.split('\u0000') : [],
+      createdAt: r.created_at,
+      lastUsedAt: r.last_used_at,
+      useCount: r.use_count,
+    }));
   }
 
   save(item: { title: string; body: string; tags?: readonly string[] }): SavedItem {
@@ -165,29 +264,35 @@ export class LauncherData {
       lastUsedAt: Date.now(),
       useCount: 0,
     };
-    this.#saved.update((list) => [entry, ...list].slice(0, 500));
+    this.#db.handle
+      .prepare(
+        `INSERT INTO saved_items (id, title, body, tags, created_at, last_used_at, use_count)
+         VALUES (?, ?, ?, ?, ?, ?, 0)`,
+      )
+      .run(
+        entry.id,
+        entry.title,
+        entry.body,
+        entry.tags.join('\u0000'),
+        entry.createdAt,
+        entry.lastUsedAt,
+      );
     return entry;
   }
 
   deleteSaved(id: string): void {
-    this.#saved.update((list) => list.filter((i) => i.id !== id));
+    this.#db.handle.prepare('DELETE FROM saved_items WHERE id = ?').run(id);
   }
 
   markUsed(id: string): void {
-    this.#saved.update((list) => {
-      const hit = list.find((i) => i.id === id);
-      if (hit) {
-        hit.lastUsedAt = Date.now();
-        hit.useCount++;
-      }
-      return list;
-    });
+    this.#db.handle
+      .prepare('UPDATE saved_items SET last_used_at = ?, use_count = use_count + 1 WHERE id = ?')
+      .run(Date.now(), id);
   }
 
+  /** Retained so shutdown stays symmetric. SQLite durability is handled by WAL. */
   flush(): void {
-    this.#dirs.flush();
-    this.#history.flush();
-    this.#saved.flush();
+    /* nothing to flush */
   }
 }
 

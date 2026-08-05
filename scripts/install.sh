@@ -10,7 +10,26 @@ HOSTS="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
 # grant for those, so exec fails with a bare "Operation not permitted" and Chrome reports it
 # only as "Native host has exited". See docs/13-packaging.md.
 LIBEXEC="$HOME/.local/libexec/tabterm"
-NODE="$(command -v node)"
+# node:sqlite needs Node 22 or newer. Picking whatever is first on PATH would silently
+# install a daemon that cannot open its own database. See docs/adr/0015.
+pick_node() {
+  for candidate in "$(command -v node)" /opt/homebrew/opt/node@24/bin/node \
+                   /opt/homebrew/opt/node@23/bin/node /opt/homebrew/opt/node@22/bin/node \
+                   /usr/local/bin/node; do
+    [ -x "$candidate" ] || continue
+    if "$candidate" -e "require('node:sqlite')" >/dev/null 2>&1; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+if ! NODE="$(pick_node)"; then
+  echo "  ERROR: no Node with built-in SQLite found. TabTerm needs Node 22 or newer."
+  echo "         Install one, for example: brew install node@24"
+  exit 1
+fi
+echo "  node:    $NODE ($("$NODE" -v))"
 
 echo "TabTerm install"
 mkdir -p "$STATE/scrollback" "$STATE/logs" "$CONFIG"

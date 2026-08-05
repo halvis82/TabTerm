@@ -81,7 +81,7 @@ Then `Command+Shift+E` opens a terminal.
 
 ## Requirements
 
-macOS, Chrome, Node 20 or later, zsh. Not cross-platform, and not planned to be.
+macOS, Chrome, **Node 22 or newer**, zsh. Not cross-platform, and not planned to be.
 
 ## Status
 

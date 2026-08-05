@@ -94,6 +94,26 @@ else
   warn "node-pty prebuilds not found beside the staged daemon"
 fi
 
+# --- runtime --------------------------------------------------------------
+plist_node=$(python3 -c "
+import plistlib,sys
+try:
+    d=plistlib.load(open(sys.argv[1],'rb'))
+    print(d['ProgramArguments'][0])
+except Exception: print('')
+" "$PLIST" 2>/dev/null)
+if [ -n "$plist_node" ] && [ -x "$plist_node" ]; then
+  if "$plist_node" -e "require('node:sqlite')" >/dev/null 2>&1; then
+    ok "daemon runtime has built-in SQLite ($("$plist_node" -v))"
+  else
+    bad "daemon runtime lacks node:sqlite. Needs Node 22 or newer, has $("$plist_node" -v)"
+  fi
+fi
+
+if [ -f "$STATE/tabterm.sqlite" ]; then
+  ok "database present ($(du -h "$STATE/tabterm.sqlite" | cut -f1))"
+fi
+
 # --- shell integration ----------------------------------------------------
 if [ -f "$HOME/.local/share/tabterm/tabterm-integration.zsh" ]; then
   if grep -q "tabterm-integration.zsh" "$HOME/.zshrc" 2>/dev/null; then

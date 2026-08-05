@@ -9,6 +9,7 @@ import {
 } from '@tabterm/shared';
 import { initAuth } from './auth.js';
 import { DEFAULTS, type Config } from './config.js';
+import { Database } from './database.js';
 import { LauncherData } from './launcher-data.js';
 import { initLog } from './log.js';
 import { DaemonServer } from './server.js';
@@ -33,7 +34,7 @@ beforeAll(async () => {
   initLog('error');
   token = initAuth();
   sessions = new SessionManager(config, { onExit: () => {}, onStateChange: () => {} });
-  launcher = new LauncherData();
+  launcher = new LauncherData(new Database(':memory:'));
   server = new DaemonServer(config, sessions, new WorkspaceStore(), launcher);
   await server.listen();
 });

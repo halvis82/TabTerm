@@ -54,6 +54,15 @@ Notes:
 - **The daemon and Chrome race at login.** This is the normal path. Terminal pages back off and
   connect when the daemon appears, rather than showing an error. See `04-session-lifecycle.md` §5
 
+### Runtime version
+
+TabTerm needs **Node 22 or newer**, because it uses Node's built-in SQLite rather than a native
+module. See `adr/0015-node-sqlite-over-native.md`.
+
+The installer selects a Node that actually has `node:sqlite` rather than trusting whatever
+`command -v node` returns first. Picking the wrong one produces a daemon that starts, listens, and
+then fails only when it opens its database, which is a long way from the cause.
+
 ### The node-pty spawn-helper permission
 
 node-pty shells out to a small `spawn-helper` binary to set up the controlling terminal. The npm

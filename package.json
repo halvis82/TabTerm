@@ -6,7 +6,7 @@
   "description": "A macOS terminal system where local PTY sessions behave like native Chrome tabs",
   "license": "MIT",
   "engines": {
-    "node": ">=20.11"
+    "node": ">=22"
   },
   "workspaces": [
     "shared",
@@ -24,14 +24,15 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify": "npm run typecheck && npm run lint && npm run format:check && npm run test",
+    "verify": "npm run check-node && npm run typecheck && npm run lint && npm run format:check && npm run test",
     "clean": "rm -rf */dist */dist-types *.tsbuildinfo */*.tsbuildinfo",
-    "postinstall": "node scripts/postinstall.mjs"
+    "postinstall": "node scripts/postinstall.mjs",
+    "check-node": "node scripts/check-node.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.0",
     "@types/chrome": "^0.0.270",
-    "@types/node": "^20.14.0",
+    "@types/node": "^22.20.1",
     "@types/ws": "^8.18.1",
     "esbuild": "^0.25.0",
     "eslint": "^9.9.0",
