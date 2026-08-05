@@ -709,6 +709,28 @@ function onControl(msg: ServerMessage): void {
       return;
     }
 
+    case 'agent-state': {
+      // Structured, from the agent's own hooks. Never inferred from what is on screen.
+      const pane = panesHost?.all.find((p) => p.sessionId === msg.sessionId);
+      if (pane) {
+        const state: FaviconState =
+          msg.state === 'approval'
+            ? 'approval'
+            : msg.state === 'waiting'
+              ? 'waiting'
+              : msg.state === 'working'
+                ? 'running'
+                : msg.state === 'failed'
+                  ? 'failed'
+                  : 'idle';
+        paneStatus.set(pane.paneId, state);
+        setFavicon(paneStatus.effective());
+        titleFields = { ...titleFields, status: msg.state };
+        refreshTitle();
+      }
+      return;
+    }
+
     case 'process-state': {
       const pane = panesHost?.all.find((p) => p.sessionId === msg.sessionId);
       const state: FaviconState =

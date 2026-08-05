@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
-import type { SessionState, TitleFields } from '@tabterm/shared';
+import type { AgentState, SessionState, TitleFields } from '@tabterm/shared';
 import type { Config } from './config.js';
 import { debug, info, warn } from './log.js';
 import { killPty, spawnPty, type PtyHandle } from './pty-manager.js';
@@ -36,6 +36,8 @@ export interface Session {
   listeningPort?: number;
   /** Best-known foreground program, consulted by the reap policy. */
   foregroundProcess?: string;
+  /** Latest state reported by an agent CLI's hooks, never inferred from output. */
+  agentState?: AgentState;
   titleFields: TitleFields;
   handle: PtyHandle;
   vt: VtState;

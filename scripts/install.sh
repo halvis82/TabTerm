@@ -47,6 +47,8 @@ chmod 600 "$STATE/token"
 
 mkdir -p "$HOSTS" "$LIBEXEC"
 cp "$REPO/native-host/host.mjs" "$LIBEXEC/host.mjs"
+cp "$REPO/native-host/agent-hook.sh" "$LIBEXEC/agent-hook.sh"
+chmod +x "$LIBEXEC/agent-hook.sh"
 cat > "$LIBEXEC/host-wrapper.sh" <<WRAP
 #!/usr/bin/env bash
 exec "$NODE" "$LIBEXEC/host.mjs"
@@ -121,6 +123,10 @@ Next, once:
   3. Open a terminal with Command+Shift+E, or click the toolbar icon
 
 The daemon now starts at login. It is running already.
+
+Optional, reports agent state to the tab favicon and notifications:
+  node $REPO/scripts/install-agent-hooks.mjs          # add
+  node $REPO/scripts/install-agent-hooks.mjs --remove # take back out
 
 Optional, adds directory-aware tab titles and command timing:
   echo '[ -f ~/.local/share/tabterm/tabterm-integration.zsh ] && source ~/.local/share/tabterm/tabterm-integration.zsh' >> ~/.zshrc

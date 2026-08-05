@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { PROTOCOL_VERSION, VERSION } from '@tabterm/shared';
-import { initAuth } from './auth.js';
+import { initAuth, verifyToken } from './auth.js';
+import { AgentBridge } from './agent-bridge.js';
 import { loadConfig, paths } from './config.js';
 import { acquireLock } from './lockfile.js';
 import { error, info, initLog } from './log.js';
@@ -125,6 +126,38 @@ async function main(): Promise<void> {
     });
   };
 
+  // Agent state arrives over its own loopback endpoint rather than the socket, because hooks
+  // are separate processes that cannot hold a WebSocket. Same token, same boundary.
+  const agentBridge = new AgentBridge({
+    port: config.agentBridgePort,
+    verifyToken,
+    onEvent: ({ sessionId, state, detail }) => {
+      const session = sessions.get(sessionId);
+      if (!session) return;
+      session.agentState = state;
+
+      server.notifySession(session, {
+        t: 'agent-state',
+        sessionId,
+        state,
+        ...(detail ? { detail } : {}),
+      });
+
+      // Needing a person is the whole reason this exists, and it must arrive even with every
+      // terminal tab hidden. See docs/09-agent-integration.md.
+      if (state === 'approval' || state === 'waiting') {
+        const where = workspaces.findBySession(sessionId);
+        server.notify(
+          state === 'approval' ? 'critical' : 'important',
+          state === 'approval' ? 'Agent needs approval' : 'Agent is waiting for you',
+          detail ?? session.cwd,
+          where ? { workspaceId: where.id } : undefined,
+        );
+      }
+    },
+  });
+  await agentBridge.listen();
+
   await server.listen();
   info('daemon.ready', { version: VERSION, protocol: PROTOCOL_VERSION, pid: process.pid });
   console.error(`tabtermd ${VERSION} listening on 127.0.0.1:${String(config.port)}`);
@@ -135,6 +168,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     info('daemon.shutdown', { signal });
     void (async () => {
+      await agentBridge.close();
       await server.close();
       launcher.flush();
       db.close();
