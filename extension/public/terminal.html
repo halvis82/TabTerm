@@ -291,6 +291,50 @@
     align-items: center;
     gap: 4px;
   }
+  .launcher-row-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .launcher-chip.project {
+    font-size: 11px;
+    padding: 2px 8px;
+    background: #1d3557;
+    border-color: #2b4d7a;
+  }
+  /* An unreviewed config is marked, never styled to look already approved. */
+  .launcher-chip.project.unreviewed {
+    background: #4a3210;
+    border-color: #7a5518;
+  }
+  .launcher-chip.primary {
+    background: #2b4d7a;
+    border-color: #3d6ba8;
+  }
+  .launcher-project {
+    border: 1px solid #333;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin: 0 0 6px 12px;
+    background: #16181d;
+  }
+  .launcher-project-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .launcher-project-warn {
+    color: #e8b339;
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+  .launcher-project-commands {
+    margin: 8px 0;
+    padding-left: 18px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    color: #d6d6d6;
+    overflow-x: auto;
+  }
   .launcher-row {
     flex: 1;
     display: flex;

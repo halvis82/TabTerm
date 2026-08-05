@@ -1,4 +1,4 @@
-import type { LauncherState, RecentDir } from '@tabterm/shared';
+import type { LauncherState, ProjectConfigInfo, RecentDir } from '@tabterm/shared';
 
 /**
  * The panel a fresh terminal tab opens with.
@@ -18,6 +18,10 @@ export interface LauncherOptions {
   onCreateLayout: (path: string, panes: number, direction: 'horizontal' | 'vertical') => void;
   onPinDir: (path: string, pinned: boolean) => void;
   onForgetDir: (path: string) => void;
+  /** Ask the daemon what a directory declares. Answers arrive via projectConfig(). */
+  onInspectProject: (path: string) => void;
+  onDecideProjectTrust: (info: ProjectConfigInfo, decision: 'trusted' | 'denied') => void;
+  onOpenProject: (path: string) => void;
   onDismiss: () => void;
 }
 
@@ -26,6 +30,9 @@ export class Launcher {
   readonly #el: HTMLElement;
   #state: LauncherState | null = null;
   #dismissed = false;
+  /** Per directory, what the daemon reported. Absent means not asked or nothing there. */
+  readonly #projects = new Map<string, ProjectConfigInfo>();
+  #expanded: string | null = null;
 
   constructor(opts: LauncherOptions) {
     this.#opts = opts;
@@ -162,6 +169,86 @@ export class Launcher {
     return wrap;
   }
 
+  /** Record what a directory declares, and show it. */
+  projectConfig(cwd: string, config: ProjectConfigInfo | null): void {
+    if (config) this.#projects.set(cwd, config);
+    else this.#projects.delete(cwd);
+    if (!this.#dismissed) this.render();
+  }
+
+  /**
+   * The approval prompt.
+   *
+   * It shows every command the file declares, exactly as written, because approving a summary
+   * is not approving anything. A changed file says so plainly rather than quietly re-asking:
+   * the person needs to know they trusted this once already.
+   */
+  #projectPanel(dir: RecentDir, info: ProjectConfigInfo): HTMLElement {
+    const box = document.createElement('div');
+    box.className = 'launcher-project';
+
+    const title = document.createElement('div');
+    title.className = 'launcher-project-title';
+    title.textContent = info.name;
+    box.append(title);
+
+    if (info.changedSince) {
+      const warn = document.createElement('div');
+      warn.className = 'launcher-project-warn';
+      warn.textContent =
+        info.changedSince === 'trusted'
+          ? 'This file has changed since you approved it. Review it again.'
+          : 'This file has changed since you rejected it.';
+      box.append(warn);
+    }
+
+    const path = document.createElement('div');
+    path.className = 'launcher-dim';
+    path.textContent = info.path;
+    box.append(path);
+
+    const list = document.createElement('ul');
+    list.className = 'launcher-project-commands';
+    for (const argv of info.commands) {
+      const li = document.createElement('li');
+      // textContent, never innerHTML: this string came from a cloned repository.
+      li.textContent = argv.length ? argv.join(' ') : '(shell)';
+      list.append(li);
+    }
+    if (info.commands.length) box.append(list);
+
+    const buttons = document.createElement('div');
+    buttons.className = 'launcher-buttons';
+
+    if (info.action === 'offer') {
+      const open = document.createElement('button');
+      open.className = 'launcher-chip primary';
+      open.textContent = `Open (${String(info.paneCount)} panes)`;
+      open.addEventListener('click', () => this.#opts.onOpenProject(dir.path));
+      const revoke = document.createElement('button');
+      revoke.className = 'launcher-chip';
+      revoke.textContent = 'Revoke';
+      revoke.addEventListener('click', () => this.#opts.onDecideProjectTrust(info, 'denied'));
+      buttons.append(open, revoke);
+    } else {
+      const approve = document.createElement('button');
+      approve.className = 'launcher-chip primary';
+      approve.textContent = 'Approve and open';
+      approve.addEventListener('click', () => {
+        this.#opts.onDecideProjectTrust(info, 'trusted');
+        this.#opts.onOpenProject(dir.path);
+      });
+      const reject = document.createElement('button');
+      reject.className = 'launcher-chip';
+      reject.textContent = 'Never for this project';
+      reject.addEventListener('click', () => this.#opts.onDecideProjectTrust(info, 'denied'));
+      buttons.append(approve, reject);
+    }
+
+    box.append(buttons);
+    return box;
+  }
+
   #dirRow(dir: RecentDir, home: string): HTMLElement {
     const row = document.createElement('div');
     row.className = 'launcher-row-wrap';
@@ -190,7 +277,31 @@ export class Launcher {
     });
 
     row.append(main, pin, forget);
-    return row;
+
+    // Ask about each listed directory once. Bounded by what is on screen, so this is a handful
+    // of stat calls on tab open rather than a scan.
+    if (!this.#projects.has(dir.path)) this.#opts.onInspectProject(dir.path);
+
+    const info = this.#projects.get(dir.path);
+    if (!info || info.action === 'ignore') return row;
+
+    const chip = document.createElement('button');
+    chip.className = `launcher-chip project${info.action === 'ask' ? ' unreviewed' : ''}`;
+    chip.textContent = info.action === 'offer' ? 'Project layout' : 'Project layout (review)';
+    chip.title = info.path;
+    chip.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.#expanded = this.#expanded === dir.path ? null : dir.path;
+      this.render();
+    });
+    row.insertBefore(chip, pin);
+
+    if (this.#expanded !== dir.path) return row;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'launcher-row-group';
+    wrap.append(row, this.#projectPanel(dir, info));
+    return wrap;
   }
 }
 

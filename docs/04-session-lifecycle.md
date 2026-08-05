@@ -237,7 +237,37 @@ expired session metadata per the retention table.
 
 ---
 
-## 9. Chrome quitting
+## 9. When a process exits
+
+A pane whose process ends normally stops being a pane: the layout closes over it, and the
+daemon broadcasts the new layout. That is what makes typing `exit` in a shell close its pane,
+which is what everyone expects.
+
+**A pane that was given an explicit command is treated differently.** Its output is the reason
+it existed, and removing it the instant the command finishes would throw away exactly what the
+user was waiting for. Those panes stay until they are closed deliberately.
+
+The notice is written into the session's terminal state, not drawn by whichever client happens
+to be attached:
+
+```
+[finished]
+[exited with code 1]
+[killed by signal 9]
+```
+
+Writing it into the VT state rather than the DOM means reattaching later shows the same thing,
+and a snapshot taken after the exit still contains it. Implemented in
+`daemon/src/session-manager.ts` and `daemon/src/main.ts`, covered by
+`daemon/src/project-protocol.test.ts`.
+
+An exited session that has left its workspace is no longer protected by the `in-a-workspace`
+rule, so it is reaped a few seconds later per §4. One that stays in a workspace stays until its
+pane is closed.
+
+---
+
+## 10. Chrome quitting
 
 Chrome exiting closes every connection. Every session becomes detached. Because workspaces are
 pinned by default, nothing is reaped.
@@ -248,7 +278,7 @@ paths are supported; which one happens depends on the user's Chrome setting, whi
 
 ---
 
-## 10. macOS reboot
+## 11. macOS reboot
 
 A process cannot survive a reboot. Nothing can change that.
 

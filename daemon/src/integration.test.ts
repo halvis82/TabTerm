@@ -10,6 +10,7 @@ import {
 } from '@tabterm/shared';
 import { DEFAULTS, type Config } from './config.js';
 import { initLog } from './log.js';
+import { ProjectTrust } from './project-trust.js';
 import { DaemonServer } from './server.js';
 import { SessionManager } from './session-manager.js';
 import { initAuth } from './auth.js';
@@ -35,6 +36,7 @@ beforeAll(async () => {
     sessions,
     workspaces,
     new LauncherData(new Database(':memory:')),
+    new ProjectTrust(new Database(':memory:')),
   );
   await server.listen();
 });

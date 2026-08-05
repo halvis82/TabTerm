@@ -285,6 +285,11 @@ export type ClientMessage =
       cols: number;
       rows: number;
     }
+  // Project-local config. Discovery is separate from acting on it, and trust is answered by a
+  // person for specific content. See docs/05-security.md §5.
+  | { t: 'inspect-project'; cwd: string }
+  | { t: 'decide-project-trust'; path: string; contentHash: string; decision: 'trusted' | 'denied' }
+  | { t: 'launch-project-template'; cwd: string; cols: number; rows: number }
   | { t: 'list-sessions' }
   | { t: 'list-workspaces' }
   | { t: 'subscribe'; topics: readonly string[] };
@@ -408,7 +413,30 @@ export type ServerMessage =
       workspaceId: string;
       newWorkspaceId: string;
     }
+  | {
+      t: 'project-config';
+      cwd: string;
+      /** Null when the directory has no config, or has one that was refused outright. */
+      config: ProjectConfigInfo | null;
+    }
   | { t: 'error'; code: ServerErrorCode; message: string; context?: string };
+
+/**
+ * A project config as presented to the user before they decide about it.
+ *
+ * The commands are sent verbatim so the approval prompt can show exactly what would run.
+ * Summarizing them would mean approving something other than what was displayed.
+ */
+export interface ProjectConfigInfo {
+  path: string;
+  contentHash: string;
+  name: string;
+  paneCount: number;
+  commands: readonly (readonly string[])[];
+  action: 'offer' | 'ask' | 'ignore';
+  /** Set when the file changed after a previous decision. */
+  changedSince?: 'trusted' | 'denied';
+}
 
 export type ControlMessage = ClientMessage | ServerMessage;
 

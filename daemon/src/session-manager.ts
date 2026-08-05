@@ -163,6 +163,17 @@ export class SessionManager {
     handle.pty.onExit(({ exitCode, signal }) => {
       session.exitCode = exitCode;
       if (signal !== undefined) session.signal = signal;
+
+      // A pane that ran a declared command keeps its output, so the notice goes into the
+      // terminal state itself rather than being drawn by whoever happens to be attached.
+      // Reattaching later shows the same thing. See docs/04-session-lifecycle.md §9.
+      if (session.command?.length) {
+        const notice = `\r\n\x1b[2m[${describeExit(exitCode, signal)}]\x1b[0m\r\n`;
+        const buf = Buffer.from(notice, 'utf8');
+        vt.write(buf);
+        for (const client of session.clients.values()) client.onOutput(buf);
+      }
+
       this.#transition(session, 'exited');
       info('session.exited', { sessionId: id, exitCode, signal });
       this.#events.onExit(session);
@@ -338,4 +349,10 @@ export class SessionManager {
   async shutdown(): Promise<void> {
     await Promise.all(this.all.map((s) => killPty(s.handle, s.id)));
   }
+}
+
+/** Plain words for how a process ended, because an exit code alone tells most people nothing. */
+function describeExit(exitCode: number, signal?: number): string {
+  if (signal !== undefined && signal !== 0) return `killed by signal ${String(signal)}`;
+  return exitCode === 0 ? 'finished' : `exited with code ${String(exitCode)}`;
 }
