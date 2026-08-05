@@ -5,6 +5,8 @@ import type { Config } from './config.js';
 import { debug, info, warn } from './log.js';
 import { killPty, spawnPty, type PtyHandle } from './pty-manager.js';
 import { OscScanner } from './osc.js';
+import { decideReap, describeReap, reapInputFor } from './cleanup.js';
+import { listeningPorts } from './server-detect.js';
 import { assertTransition } from './session-state.js';
 import { VtState } from './vt-state.js';
 
@@ -29,6 +31,11 @@ export interface Session {
   exitCode?: number;
   signal?: number;
   pinned: boolean;
+  persistent: boolean;
+  /** Set when a listening socket is attributed to this session. Protects it from reaping. */
+  listeningPort?: number;
+  /** Best-known foreground program, consulted by the reap policy. */
+  foregroundProcess?: string;
   titleFields: TitleFields;
   handle: PtyHandle;
   vt: VtState;
@@ -93,6 +100,7 @@ export class SessionManager {
       shell: this.#config.shell,
       pid: handle.pid,
       pinned: false,
+      persistent: false,
       titleFields: { cwd },
       handle,
       vt,
@@ -181,7 +189,20 @@ export class SessionManager {
     session.lastDetachedAt = Date.now();
     if (session.state === 'exited' || session.state === 'reaped') return;
     this.#transition(session, 'detached');
-    this.#scheduleReap(session);
+
+    // Check for a listening socket before deciding. This is the only moment the answer
+    // matters, so it is asked here rather than polled.
+    void listeningPorts([session.pid])
+      .then((ports) => {
+        const port = ports.get(session.pid);
+        if (port !== undefined) session.listeningPort = port;
+      })
+      .catch(() => {
+        /* detection is best effort; without it the session just follows the normal policy */
+      })
+      .finally(() => {
+        if (session.state === 'detached') this.#scheduleReap(session);
+      });
   }
 
   resize(session: Session, clientId: string, cols: number, rows: number): void {
@@ -195,6 +216,14 @@ export class SessionManager {
   write(session: Session, data: Buffer): void {
     if (session.state === 'exited' || session.state === 'reaped') return;
     session.handle.pty.write(data.toString('utf8'));
+  }
+
+  setPersistent(session: Session, persistent: boolean): void {
+    session.persistent = persistent;
+    if (persistent && session.reapTimer) {
+      clearTimeout(session.reapTimer);
+      delete session.reapTimer;
+    }
   }
 
   setPinned(session: Session, pinned: boolean): void {
@@ -233,25 +262,41 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Schedule a reap, or decline to.
+   *
+   * The decision and its reason are always logged. A session disappearing without an
+   * explanation is indistinguishable from a bug. See docs/04-session-lifecycle.md §4.
+   */
   #scheduleReap(session: Session): void {
-    if (session.pinned) return;
-    const seconds = this.#reapDelay(session);
+    const decision = decideReap(
+      reapInputFor(session, {
+        inWorkspace: this.#inWorkspace(session.id),
+        listeningPort: session.listeningPort,
+      }),
+      this.#config,
+    );
+
+    if (decision.afterSeconds === null) {
+      info('session.reap.declined', { sessionId: session.id, reason: decision.reason });
+      return;
+    }
+
     session.reapTimer = setTimeout(() => {
+      info('session.reaping', { sessionId: session.id, reason: decision.reason });
       void this.kill(session);
-    }, seconds * 1000);
+    }, decision.afterSeconds * 1000);
     this.#transition(session, 'expiring');
-    debug('session.reap.scheduled', { sessionId: session.id, seconds });
+    debug('session.reap.scheduled', { sessionId: session.id, policy: describeReap(decision) });
   }
 
-  #reapDelay(session: Session): number {
-    const cmd = session.command?.[0] ?? '';
-    const program = cmd.slice(cmd.lastIndexOf('/') + 1);
-    if (this.#config.longLivedPrograms.includes(program)) {
-      return this.#config.reapAgentOrEditorSeconds;
-    }
-    if (!session.command) return this.#config.reapIdleShellSeconds;
-    return this.#config.reapDefaultSeconds;
+  /** Whether a session is a pane in a workspace. Injected, so the manager owns no layout state. */
+  #inWorkspace(sessionId: string): boolean {
+    return this.isInWorkspace?.(sessionId) ?? false;
   }
+
+  /** Set by the daemon once the workspace store exists. */
+  isInWorkspace?: (sessionId: string) => boolean;
 
   #transition(session: Session, to: SessionState): void {
     if (session.state === to) return;

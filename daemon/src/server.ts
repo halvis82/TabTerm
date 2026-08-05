@@ -449,6 +449,12 @@ export class DaemonServer {
         return;
       }
 
+      case 'set-persistence': {
+        const session = this.#sessions.get(msg.sessionId);
+        if (session) this.#sessions.setPersistent(session, true);
+        return;
+      }
+
       case 'set-pin': {
         if (!msg.sessionId) return;
         const session = this.#sessions.get(msg.sessionId);

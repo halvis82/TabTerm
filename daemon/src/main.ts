@@ -39,6 +39,10 @@ async function main(): Promise<void> {
   const workspaces = new WorkspaceStore();
   const db = new Database();
   const launcher = new LauncherData(db);
+  // Reap policy must know whether a session is a pane in a workspace, since workspaces are
+  // pinned by default and their panes are never reaped on a timer. See ADR-0012.
+  sessions.isInWorkspace = (sessionId) => workspaces.findBySession(sessionId) !== undefined;
+
   const server = new DaemonServer(config, sessions, workspaces, launcher);
 
   events.onExit = (s) => {

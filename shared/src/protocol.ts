@@ -219,6 +219,7 @@ export type ClientMessage =
   | { t: 'request-scrollback'; sessionId: string; beforeSeq: number; maxLines: number }
   | { t: 'kill-session'; sessionId: string }
   | { t: 'set-pin'; sessionId?: string; workspaceId?: string; pinned: boolean }
+  | { t: 'set-persistence'; sessionId: string; policyId?: string }
   | { t: 'attach-workspace'; workspaceId: string; cols: number; rows: number }
   | {
       t: 'split-pane';
