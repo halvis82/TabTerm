@@ -60,10 +60,26 @@ async function main(): Promise<void> {
   };
   events.onCwd = (s) => {
     launcher.recordDir(s.cwd);
+    const ws = workspaces.findBySession(s.id);
+    launcher.rememberSession({
+      id: s.id,
+      cwd: s.cwd,
+      shell: s.shell,
+      ...(ws ? { workspaceId: ws.id } : {}),
+      ...(s.command ? { command: s.command } : {}),
+    });
     server.notifySession(s, { t: 'cwd', sessionId: s.id, cwd: s.cwd });
   };
   events.onCommand = (s, command, exitCode, durationMs) => {
     launcher.recordCommand({ command, cwd: s.cwd, exitCode, durationMs });
+    const ws = workspaces.findBySession(s.id);
+    launcher.rememberSession({
+      id: s.id,
+      cwd: s.cwd,
+      shell: s.shell,
+      lastCommand: command,
+      ...(ws ? { workspaceId: ws.id } : {}),
+    });
   };
   events.onTitle = (s) => {
     server.notifySession(s, { t: 'title', sessionId: s.id, fields: s.titleFields });

@@ -290,6 +290,68 @@ export class LauncherData {
       .run(Date.now(), id);
   }
 
+  // --- session metadata, for recovery after expiry or a daemon restart ----
+
+  rememberSession(meta: {
+    id: string;
+    workspaceId?: string;
+    cwd: string;
+    shell: string;
+    command?: readonly string[];
+    lastCommand?: string;
+  }): void {
+    this.#db.handle
+      .prepare(
+        `INSERT INTO session_meta (id, workspace_id, cwd, shell, command_json, last_seen_at, last_command)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           workspace_id = excluded.workspace_id,
+           cwd = excluded.cwd,
+           last_seen_at = excluded.last_seen_at,
+           last_command = COALESCE(excluded.last_command, last_command)`,
+      )
+      .run(
+        meta.id,
+        meta.workspaceId ?? null,
+        meta.cwd,
+        meta.shell,
+        meta.command ? JSON.stringify(meta.command) : null,
+        Date.now(),
+        meta.lastCommand ?? null,
+      );
+  }
+
+  /**
+   * What a tab can show when its session is gone.
+   *
+   * The process cannot come back, but where it was and what it last ran can, which is the
+   * difference between a useful recovery screen and an apology. See docs/04-session-lifecycle.md §8.
+   */
+  recallWorkspace(
+    workspaceId: string,
+  ): { cwd: string; lastCommand?: string; lastSeenAt: number } | null {
+    const row = this.#db.handle
+      .prepare(
+        `SELECT cwd, last_command, last_seen_at FROM session_meta
+         WHERE workspace_id = ? ORDER BY last_seen_at DESC LIMIT 1`,
+      )
+      .get(workspaceId) as
+      { cwd: string; last_command: string | null; last_seen_at: number } | undefined;
+    if (!row) return null;
+    return {
+      cwd: row.cwd,
+      lastSeenAt: row.last_seen_at,
+      ...(row.last_command ? { lastCommand: row.last_command } : {}),
+    };
+  }
+
+  /** Keep the metadata table from growing without bound. */
+  pruneSessions(olderThanMs: number): void {
+    this.#db.handle
+      .prepare('DELETE FROM session_meta WHERE last_seen_at < ?')
+      .run(Date.now() - olderThanMs);
+  }
+
   /** Retained so shutdown stays symmetric. SQLite durability is handled by WAL. */
   flush(): void {
     /* nothing to flush */

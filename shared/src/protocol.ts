@@ -255,6 +255,7 @@ export type ClientMessage =
   | { t: 'resolve-paths'; sessionId: string; candidates: readonly string[] }
   | { t: 'open-path'; sessionId: string; path: string; how: OpenHow }
   | { t: 'list-launcher' }
+  | { t: 'recall-workspace'; workspaceId: string }
   | { t: 'list-history'; query?: string; limit?: number }
   | { t: 'save-item'; title: string; body: string; tags?: readonly string[] }
   | { t: 'delete-saved'; id: string }
@@ -360,6 +361,15 @@ export type ServerMessage =
   | { t: 'launcher-state'; state: LauncherState }
   | { t: 'history-page'; entries: readonly CommandEntry[] }
   | { t: 'saved-updated'; saved: readonly SavedItem[] }
+  | {
+      /** What a tab can offer after its session is gone. */
+      t: 'workspace-recall';
+      workspaceId: string;
+      found: boolean;
+      cwd?: string;
+      lastCommand?: string;
+      lastSeenAt?: number;
+    }
   | { t: 'mergeable-sessions'; sessions: readonly MergeableSession[] }
   | {
       /** A pane left this workspace. The frontend opens a tab at this URL to pick it up. */

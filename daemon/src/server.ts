@@ -140,7 +140,13 @@ export class DaemonServer {
       clearTimeout(authTimer);
       for (const sessionId of client.streams.keys()) {
         const s = this.#sessions.get(sessionId);
-        if (s) this.#sessions.detach(s, client.id);
+        if (!s) continue;
+        // Capture where the session ended up before letting go of it. This is the last moment
+        // before it might expire, and it is what a recovery screen will have to work with.
+        void this.#liveCwd(s).catch(() => {
+          /* best effort */
+        });
+        this.#sessions.detach(s, client.id);
       }
       for (const f of client.flow.values()) f.dispose();
       this.#clients.delete(client);
@@ -501,6 +507,26 @@ export class DaemonServer {
         return;
       }
 
+      case 'recall-workspace': {
+        const recalled = this.#launcher.recallWorkspace(msg.workspaceId);
+        send(
+          client.socket,
+          controlFrame({
+            t: 'workspace-recall',
+            workspaceId: msg.workspaceId,
+            found: recalled !== null,
+            ...(recalled
+              ? {
+                  cwd: recalled.cwd,
+                  lastSeenAt: recalled.lastSeenAt,
+                  ...(recalled.lastCommand ? { lastCommand: recalled.lastCommand } : {}),
+                }
+              : {}),
+          }),
+        );
+        return;
+      }
+
       case 'list-history': {
         send(
           client.socket,
@@ -586,10 +612,21 @@ export class DaemonServer {
    */
   async #liveCwd(session: Session): Promise<string> {
     const fromOs = await processCwd(session.pid);
-    if (fromOs) {
-      session.cwd = fromOs;
-      return fromOs;
-    }
+    if (fromOs) session.cwd = fromOs;
+
+    // This is the one place the daemon reliably learns where a session really is, with or
+    // without shell integration, so it is also where recovery metadata is kept current.
+    // Without it an expired tab could only apologise instead of offering to reopen where you
+    // were. See docs/04-session-lifecycle.md §8.
+    const workspace = this.#workspaces.findBySession(session.id);
+    this.#launcher.rememberSession({
+      id: session.id,
+      cwd: session.cwd,
+      shell: session.shell,
+      ...(workspace ? { workspaceId: workspace.id } : {}),
+      ...(session.command ? { command: session.command } : {}),
+    });
+
     return session.cwd;
   }
 
@@ -783,6 +820,11 @@ export class DaemonServer {
     // Snapshot first, then stream. The snapshot establishes the sequence point so the live
     // stream resumes with no gap and no duplication.
     this.#sendSnapshot(client, session, streamId);
+
+    // Learn and remember where this session is, so a later expiry has something to offer.
+    void this.#liveCwd(session).catch(() => {
+      /* best effort: recovery detail is a nicety, not a requirement */
+    });
 
     this.#sessions.attach(session, {
       clientId: client.id,

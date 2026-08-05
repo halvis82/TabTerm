@@ -134,6 +134,36 @@
     font-weight: 600;
     margin: 0;
   }
+  #recovery-detail {
+    display: grid;
+    gap: 4px;
+    margin: 4px 0 6px;
+    font:
+      12px/1.6 ui-monospace,
+      SFMono-Regular,
+      Menlo,
+      monospace;
+  }
+  .recovery-row {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+  }
+  .recovery-key {
+    color: #6f758a;
+    min-width: 110px;
+    text-align: right;
+  }
+  .recovery-value {
+    color: #d5d8e2;
+    text-align: left;
+  }
+  #recovery-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
   #recovery p {
     margin: 0;
     color: #8b91a6;
@@ -386,7 +416,9 @@
   <div id="overlays"></div>
   <div id="recovery" hidden>
     <h1 id="recovery-reason">This terminal session expired.</h1>
-    <p>The daemon no longer has this session. Nothing was run automatically.</p>
+    <p>Nothing was run automatically.</p>
+    <div id="recovery-detail"></div>
+    <div id="recovery-actions"></div>
   </div>
   <script type="module" src="terminal.js"></script>
 </body>
