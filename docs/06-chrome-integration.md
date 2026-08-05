@@ -317,6 +317,27 @@ Every permission is justified line by line in `05-security.md` §8. No `<all_url
 scripts.
 
 `Command+Alt` combinations are rejected by Chrome on macOS, and only **four** commands may carry a
-suggested key, so these four are the entire budget. Everything else reaches the command palette.
-All four are user-rebindable at `chrome://extensions/shortcuts`, and whether Chrome actually binds a
-given key at runtime still needs one manual confirmation.
+suggested key, so these are the entire budget. Everything else reaches the command palette.
+
+**Verified bound at runtime**, Chrome 150: `Command+Shift+O`, `Alt+Shift+T`, and
+`MacCtrl+Shift+T`. Manifest acceptance is not binding, so this was read back with
+`chrome.commands.getAll()` rather than assumed. See `10-limitations.md` tier 1.8. All are
+rebindable at `chrome://extensions/shortcuts`.
+
+### The command palette is the primary surface
+
+`Command+K`. Every pane, workspace, and session action is in it, filtered by the same
+subsequence match the history search uses, so `sp` finds "Split right" the way `gco` finds
+`git checkout`.
+
+This replaces a control bar rather than duplicating one, per design principle 9. A
+thirteen-button strip is something you have to remember the layout of; a searchable list is
+something you can describe. Actions head the list, ahead of saved items and history, because
+they are the only rows that *do* something rather than being text.
+
+Two details that matter more than they look:
+
+- **Actions that cannot apply are omitted, not disabled.** "Close this pane" does not appear in
+  a one-pane tab. A palette offering something that does nothing is worse than a shorter one.
+- **Each action shows its keystroke where one exists.** The palette teaches the shortcut instead
+  of becoming the only way to reach it.
