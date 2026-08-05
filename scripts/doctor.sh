@@ -114,6 +114,32 @@ if [ -f "$STATE/tabterm.sqlite" ]; then
   ok "database present ($(du -h "$STATE/tabterm.sqlite" | cut -f1))"
 fi
 
+# --- authenticated connectivity -------------------------------------------
+# A listening port proves very little. A version mismatch, a stale token, and a wedged daemon
+# all look identical from outside, and only an authenticated connection tells them apart.
+probe_out=$("$(command -v node)" "$(dirname "$0")/health-probe.mjs" 2>/dev/null)
+if [ -n "$probe_out" ]; then
+  authed=$(printf '%s' "$probe_out" | python3 -c "import json,sys;print(json.load(sys.stdin)['authenticated'])" 2>/dev/null)
+  if [ "$authed" = "True" ]; then
+    version=$(printf '%s' "$probe_out" | python3 -c "import json,sys;print(json.load(sys.stdin)['serverVersion'])" 2>/dev/null)
+    sessions=$(printf '%s' "$probe_out" | python3 -c "import json,sys;print(json.load(sys.stdin)['sessionCount'])" 2>/dev/null)
+    ok "authenticated to the daemon (version $version, $sessions live session(s))"
+  else
+    reason=$(printf '%s' "$probe_out" | python3 -c "import json,sys;print(json.load(sys.stdin)['error'] or 'unknown')" 2>/dev/null)
+    bad "could not authenticate to the daemon: $reason"
+  fi
+
+  db_ok=$(printf '%s' "$probe_out" | python3 -c "import json,sys;d=json.load(sys.stdin).get('database') or {};print(d.get('ok'))" 2>/dev/null)
+  if [ "$db_ok" = "True" ]; then
+    schema=$(printf '%s' "$probe_out" | python3 -c "import json,sys;print((json.load(sys.stdin).get('database') or {}).get('schemaVersion'))" 2>/dev/null)
+    ok "database passes integrity check (schema version $schema)"
+  elif [ -n "$db_ok" ]; then
+    bad "database failed its integrity check"
+  fi
+else
+  warn "could not run the health probe; is node on PATH?"
+fi
+
 # --- shell integration ----------------------------------------------------
 if [ -f "$HOME/.local/share/tabterm/tabterm-integration.zsh" ]; then
   if grep -q "tabterm-integration.zsh" "$HOME/.zshrc" 2>/dev/null; then
