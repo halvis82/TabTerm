@@ -326,6 +326,18 @@ export type ClientMessage =
     }
   | { t: 'set-memory-mode'; mode: MemoryModeName }
   | { t: 'get-memory-mode' }
+  // Reboot restore. Processes cannot survive a restart; layout and context can.
+  // See docs/04-session-lifecycle.md §11.
+  | { t: 'list-restorable' }
+  | {
+      t: 'restore-workspace';
+      workspaceId: string;
+      /** Opt-in per restore. Off means the panes come back as plain shells in place. */
+      replayCommands: boolean;
+      cols: number;
+      rows: number;
+    }
+  | { t: 'forget-restorable'; workspaceId: string }
   | { t: 'list-sessions' }
   | { t: 'list-workspaces' }
   | { t: 'subscribe'; topics: readonly string[] };
@@ -476,9 +488,24 @@ export type ServerMessage =
       faviconWhileHidden: boolean;
       scrollbackLines: number;
     }
+  | { t: 'restorable-workspaces'; workspaces: readonly RestorableSummary[] }
   | { t: 'server-list'; servers: readonly LocalServer[] }
   | { t: 'resumable-sessions'; sessions: readonly ResumableAgentSession[] }
   | { t: 'error'; code: ServerErrorCode; message: string; context?: string };
+
+/** A workspace that could be brought back, as presented before anyone decides to. */
+export interface RestorableSummary {
+  workspaceId: string;
+  paneCount: number;
+  savedAt: number;
+  /** One entry per pane, in layout order. */
+  panes: readonly {
+    cwd: string;
+    lastCommand?: string;
+    /** True when the pane ran an explicit command rather than a shell. */
+    hadCommand: boolean;
+  }[];
+}
 
 export interface LocalServer {
   sessionId: string;

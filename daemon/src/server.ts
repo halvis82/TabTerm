@@ -36,6 +36,7 @@ import { trustAction, type ProjectTrust } from './project-trust.js';
 import { listResumable } from './agent-sessions.js';
 import { listeningPorts } from './server-detect.js';
 import { applyMemoryMode, frontendSettings } from './memory-modes.js';
+import type { RestoreStore } from './restore-store.js';
 import type { ProjectIndex } from './project-index.js';
 import type { WorkspaceStore } from './workspace-store.js';
 import type { Session, SessionManager } from './session-manager.js';
@@ -67,6 +68,7 @@ export class DaemonServer {
   readonly #launcher: LauncherData;
   readonly #trust: ProjectTrust;
   readonly #projects: ProjectIndex;
+  readonly #restore: RestoreStore;
   readonly #clients = new Set<Client>();
 
   constructor(
@@ -76,6 +78,7 @@ export class DaemonServer {
     launcher: LauncherData,
     trust: ProjectTrust,
     projects: ProjectIndex,
+    restore: RestoreStore,
   ) {
     this.#config = config;
     this.#sessions = sessions;
@@ -83,6 +86,7 @@ export class DaemonServer {
     this.#launcher = launcher;
     this.#trust = trust;
     this.#projects = projects;
+    this.#restore = restore;
     this.#http = createServer((_req, res) => {
       res.writeHead(426);
       res.end('websocket only');
@@ -930,6 +934,37 @@ export class DaemonServer {
         return;
       }
 
+      case 'list-restorable': {
+        const live = new Set(this.#workspaces.all.map((w) => w.id));
+        const workspaces = this.#restore.list(live).map((entry) => ({
+          workspaceId: entry.workspaceId,
+          paneCount: entry.panes.length,
+          savedAt: entry.savedAt,
+          panes: entry.panes.map((pane) => ({
+            cwd: pane.cwd,
+            hadCommand: (pane.command?.length ?? 0) > 0,
+            ...(pane.lastCommand ? { lastCommand: pane.lastCommand } : {}),
+          })),
+        }));
+        send(client.socket, controlFrame({ t: 'restorable-workspaces', workspaces }));
+        return;
+      }
+
+      case 'forget-restorable': {
+        this.#restore.forget(msg.workspaceId);
+        return;
+      }
+
+      case 'restore-workspace': {
+        try {
+          this.#restoreWorkspace(client, msg);
+        } catch (e: unknown) {
+          warn('restore.failed', { error: String(e) });
+          sendError(client.socket, 'internal', 'could not restore that workspace');
+        }
+        return;
+      }
+
       case 'list-sessions': {
         for (const s of this.#sessions.all) {
           send(
@@ -1028,6 +1063,9 @@ export class DaemonServer {
   #broadcastLayout(workspaceId: string, except?: Client): void {
     const workspace = this.#workspaces.get(workspaceId);
     if (!workspace) return;
+    // Every layout change is also the moment the restore snapshot is worth updating. Saving on
+    // the event rather than on a timer means a workspace that has not changed is never written.
+    this.snapshotWorkspace(workspaceId);
     for (const c of this.#clients) {
       if (c === except || !c.authed) continue;
       const holdsIt = this.#workspaces.sessionIds(workspace).some((id) => c.streams.has(id));
@@ -1166,6 +1204,118 @@ export class DaemonServer {
     this.#workspaces.setRatio(workspaceId, hostPaneId, node.ratio);
     this.#realizeTemplate(workspaceId, node.children[0], hostPaneId, spawn);
     this.#realizeTemplate(workspaceId, node.children[1], newPane, spawn);
+  }
+
+  /**
+   * Save what a workspace looks like right now.
+   *
+   * Public because shutdown needs it too: a clean stop is the one moment every screen is worth
+   * capturing, and a machine restarting is exactly the case this exists for.
+   */
+  snapshotWorkspace(workspaceId: string): void {
+    const workspace = this.#workspaces.get(workspaceId);
+    if (!workspace) return;
+    this.#restore.save(workspace, (sessionId) => {
+      const session = this.#sessions.get(sessionId);
+      if (!session) return null;
+      return {
+        cwd: session.cwd,
+        screen: session.vt.snapshot(0).screen,
+        ...(session.pendingCommand ? { lastCommand: session.pendingCommand } : {}),
+        ...(session.command ? { command: session.command } : {}),
+      };
+    });
+  }
+
+  /** Snapshot every live workspace. Called on shutdown. */
+  snapshotAll(): void {
+    for (const workspace of this.#workspaces.all) this.snapshotWorkspace(workspace.id);
+  }
+
+  /**
+   * Bring a workspace back after its processes are gone.
+   *
+   * The layout, the directories and the screens come back. The processes do not, and cannot:
+   * a PTY dies with the machine. What is recreated is a fresh shell per pane, in the directory
+   * that pane was in, showing what was on its screen before, with a line saying plainly that
+   * it was restarted rather than resumed. Anything else would be a lie told by a terminal.
+   *
+   * Replaying the last command is opt-in per restore, because re-running whatever was last in
+   * a pane is occasionally exactly right and occasionally destructive, and the daemon cannot
+   * tell which. See docs/04-session-lifecycle.md §11.
+   */
+  #restoreWorkspace(
+    client: Client,
+    msg: { workspaceId: string; replayCommands: boolean; cols: number; rows: number },
+  ): void {
+    const saved = this.#restore.get(msg.workspaceId);
+    if (!saved || saved.panes.length === 0) {
+      sendError(client.socket, 'session-expired', 'nothing recorded for that workspace');
+      return;
+    }
+
+    const ordered = [...saved.panes];
+    const first = ordered[0];
+    if (!first) return;
+
+    const spawn = (pane: (typeof ordered)[number]): Session =>
+      this.#sessions.create({
+        cwd: pane.cwd,
+        cols: msg.cols,
+        rows: msg.rows,
+        ...(pane.command?.length ? { command: pane.command } : {}),
+      });
+
+    const firstSession = spawn(first);
+    const { workspace, paneId } = this.#workspaces.create(firstSession.id);
+    const created: { session: Session; pane: (typeof ordered)[number] }[] = [
+      { session: firstSession, pane: first },
+    ];
+
+    // Rebuilt as a chain of splits rather than by writing the old layout back, because the old
+    // layout names session ids that no longer exist. The shape is preserved, the identities are
+    // not, which is the honest thing to do when the processes are gone.
+    let anchor = paneId;
+    for (const pane of ordered.slice(1)) {
+      const session = spawn(pane);
+      const result = this.#workspaces.split(workspace.id, anchor, 'horizontal', session.id);
+      anchor = result.paneId;
+      created.push({ session, pane });
+    }
+
+    for (const { session, pane } of created) {
+      // The screen as it was, then a line making clear this is not the same process. Written
+      // into the VT state so it survives a reattach, and so it is part of what the pane is
+      // rather than something drawn over it.
+      const notice =
+        `\r\n\x1b[2m[restored ${describeAge(pane.savedAt)}. ` +
+        `This is a new shell in ${pane.cwd}, not the original process.]\x1b[0m\r\n`;
+      session.vt.write(Buffer.from(pane.screen + notice, 'utf8'));
+
+      if (msg.replayCommands && pane.lastCommand) {
+        // Typed, not run. The command lands at the prompt and waits, so a destructive one is
+        // seen before it happens. Opt-in twice over: the flag, and then Enter.
+        setTimeout(() => {
+          this.#sessions.write(session, Buffer.from(pane.lastCommand ?? '', 'utf8'));
+        }, 900).unref();
+      }
+      this.#launcher.recordDir(pane.cwd);
+    }
+
+    info('restore.done', { from: msg.workspaceId, into: workspace.id, panes: created.length });
+    // The old record is spent. Leaving it would offer the same restore forever.
+    this.#restore.forget(msg.workspaceId);
+
+    send(
+      client.socket,
+      controlFrame({
+        t: 'session-created',
+        sessionId: firstSession.id,
+        streamId: 0,
+        pid: firstSession.pid,
+        workspaceId: workspace.id,
+      }),
+    );
   }
 
   async #createLayout(
@@ -1359,3 +1509,18 @@ function toBuffer(raw: Buffer | ArrayBuffer | Buffer[]): Buffer {
 }
 
 export { ackFrame };
+
+/**
+ * How long ago something was saved, in words.
+ *
+ * A restore notice saying "restored 1754377200000" would be useless. The point of the line is
+ * that a person immediately understands what they are looking at.
+ */
+function describeAge(at: number): string {
+  const minutes = Math.max(0, Math.round((Date.now() - at) / 60_000));
+  if (minutes < 2) return 'just now';
+  if (minutes < 90) return `${String(minutes)} minutes ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 36) return `${String(hours)} hours ago`;
+  return `${String(Math.round(hours / 24))} days ago`;
+}

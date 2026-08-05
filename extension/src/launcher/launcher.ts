@@ -1,6 +1,7 @@
 import type {
   LauncherState,
   LocalServer,
+  RestorableSummary,
   ProjectConfigInfo,
   RecentDir,
   ResumableAgentSession,
@@ -29,6 +30,8 @@ export interface LauncherOptions {
   onDecideProjectTrust: (info: ProjectConfigInfo, decision: 'trusted' | 'denied') => void;
   onOpenProject: (path: string) => void;
   onResumeAgent: (session: ResumableAgentSession) => void;
+  onRestore: (workspaceId: string, replayCommands: boolean) => void;
+  onForgetRestorable: (workspaceId: string) => void;
   onOpenServer: (port: number) => void;
   onAttachServer: (server: LocalServer) => void;
   onStopServer: (server: LocalServer, restart: boolean) => void;
@@ -45,6 +48,8 @@ export class Launcher {
   #expanded: string | null = null;
   #resumable: readonly ResumableAgentSession[] = [];
   #servers: readonly LocalServer[] = [];
+  #restorable: readonly RestorableSummary[] = [];
+  #expandedRestore: string | null = null;
   /** Which server is asking for confirmation, and for what. */
   #confirming: { sessionId: string; restart: boolean } | null = null;
 
@@ -87,6 +92,8 @@ export class Launcher {
 
     // --- new layout in a directory ---------------------------------------
     sections.push(this.#layoutSection(state));
+    const restorable = this.#restoreSection(state.home);
+    if (restorable) sections.push(restorable);
     const servers = this.#serverSection(state.home);
     if (servers) sections.push(servers);
     const resume = this.#resumeSection(state.home);
@@ -185,6 +192,101 @@ export class Launcher {
     form.append(input, buttons);
     wrap.append(form, note);
     return wrap;
+  }
+
+  /** Workspaces that could be brought back after a restart. */
+  setRestorable(workspaces: readonly RestorableSummary[]): void {
+    this.#restorable = workspaces;
+    if (!this.#dismissed) this.render();
+  }
+
+  /**
+   * The restore offer.
+   *
+   * Deliberately blunt about what it does. A restart killed the processes and nothing can bring
+   * them back, so the wording says "reopen" rather than "resume", and the panel spells out that
+   * these will be new shells. A terminal that implies otherwise is lying to someone about
+   * whether their build is still running.
+   */
+  #restoreSection(home: string): HTMLElement | null {
+    if (this.#restorable.length === 0) return null;
+
+    const rows = this.#restorable.map((entry) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'launcher-row-wrap';
+
+      const main = document.createElement('button');
+      main.className = 'launcher-row';
+      const dirs = entry.panes.map((p) => shorten(p.cwd, home).split('/').pop() ?? '').join(', ');
+      main.append(
+        strong(`${String(entry.paneCount)} pane${entry.paneCount === 1 ? '' : 's'}`),
+        dim(`${dirs} · ${relativeAge(entry.savedAt)}`),
+      );
+      main.addEventListener('click', () => {
+        this.#expandedRestore =
+          this.#expandedRestore === entry.workspaceId ? null : entry.workspaceId;
+        this.render();
+      });
+
+      const forget = document.createElement('button');
+      forget.className = 'launcher-icon';
+      forget.title = 'Forget this layout';
+      forget.textContent = '×';
+      forget.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.#opts.onForgetRestorable(entry.workspaceId);
+      });
+
+      wrap.append(main, forget);
+      if (this.#expandedRestore !== entry.workspaceId) return wrap;
+
+      const panel = document.createElement('div');
+      panel.className = 'launcher-project';
+
+      const warn = document.createElement('div');
+      warn.className = 'launcher-project-warn';
+      warn.textContent = 'These will be new shells. The original processes did not survive.';
+      panel.append(warn);
+
+      const list = document.createElement('ul');
+      list.className = 'launcher-project-commands';
+      for (const pane of entry.panes) {
+        const li = document.createElement('li');
+        li.textContent = pane.lastCommand
+          ? `${shorten(pane.cwd, home)} — last ran: ${pane.lastCommand}`
+          : shorten(pane.cwd, home);
+        list.append(li);
+      }
+      panel.append(list);
+
+      const buttons = document.createElement('div');
+      buttons.className = 'launcher-buttons';
+
+      const plain = document.createElement('button');
+      plain.className = 'launcher-chip primary';
+      plain.textContent = 'Reopen the layout';
+      plain.addEventListener('click', () => this.#opts.onRestore(entry.workspaceId, false));
+      buttons.append(plain);
+
+      // Only offered when there is something to replay, and even then the command is typed at
+      // the prompt rather than run, so a destructive one is seen before it happens.
+      if (entry.panes.some((p) => p.lastCommand)) {
+        const replay = document.createElement('button');
+        replay.className = 'launcher-chip';
+        replay.textContent = 'Reopen and retype the last commands';
+        replay.title = 'The commands are placed at each prompt. You still press Enter.';
+        replay.addEventListener('click', () => this.#opts.onRestore(entry.workspaceId, true));
+        buttons.append(replay);
+      }
+
+      panel.append(buttons);
+      const group = document.createElement('div');
+      group.className = 'launcher-row-group';
+      group.append(wrap, panel);
+      return group;
+    });
+
+    return section('Reopen from before the restart', rows);
   }
 
   /** Local servers the daemon attributed to a session. */
@@ -480,6 +582,16 @@ function dim(text: string): HTMLElement {
   el.className = 'launcher-dim';
   el.textContent = text;
   return el;
+}
+
+/** Plain words for how long ago, because a timestamp in a launcher row helps nobody. */
+function relativeAge(at: number): string {
+  const minutes = Math.max(0, Math.round((Date.now() - at) / 60_000));
+  if (minutes < 2) return 'just now';
+  if (minutes < 90) return `${String(minutes)}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 36) return `${String(hours)}h ago`;
+  return `${String(Math.round(hours / 24))}d ago`;
 }
 
 export function shorten(path: string, home: string): string {

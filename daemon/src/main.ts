@@ -4,13 +4,14 @@ import { initAuth, verifyToken } from './auth.js';
 import { AgentBridge } from './agent-bridge.js';
 import { loadConfig, paths } from './config.js';
 import { acquireLock } from './lockfile.js';
-import { error, info, initLog } from './log.js';
+import { error, info, initLog, warn } from './log.js';
 import { DaemonServer } from './server.js';
 import { SessionManager, type SessionEvents } from './session-manager.js';
 import { WorkspaceStore } from './workspace-store.js';
 import { Database } from './database.js';
 import { LauncherData } from './launcher-data.js';
 import { ProjectIndex } from './project-index.js';
+import { RestoreStore } from './restore-store.js';
 import { ProjectTrust } from './project-trust.js';
 
 /**
@@ -45,11 +46,12 @@ async function main(): Promise<void> {
   const projects = new ProjectIndex();
   launcher.useProjectIndex(projects);
   const trust = new ProjectTrust(db);
+  const restore = new RestoreStore(db);
   // Reap policy must know whether a session is a pane in a workspace, since workspaces are
   // pinned by default and their panes are never reaped on a timer. See ADR-0012.
   sessions.isInWorkspace = (sessionId) => workspaces.findBySession(sessionId) !== undefined;
 
-  const server = new DaemonServer(config, sessions, workspaces, launcher, trust, projects);
+  const server = new DaemonServer(config, sessions, workspaces, launcher, trust, projects, restore);
 
   events.onExit = (s) => {
     // A pane whose process failed is worth surfacing: the tab may be hidden, and a silent
@@ -180,6 +182,9 @@ async function main(): Promise<void> {
   info('daemon.ready', { version: VERSION, protocol: PROTOCOL_VERSION, pid: process.pid });
   console.error(`tabtermd ${VERSION} listening on 127.0.0.1:${String(config.port)}`);
 
+  /** How long a workspace stays restorable. Long enough to survive a weekend away. */
+  const RESTORE_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
+
   let shuttingDown = false;
   const shutdown = (signal: string) => {
     if (shuttingDown) return;
@@ -187,6 +192,14 @@ async function main(): Promise<void> {
     info('daemon.shutdown', { signal });
     void (async () => {
       await agentBridge.close();
+      // Capture every workspace before anything closes. A machine restarting is the case reboot
+      // restore exists for, and this is the last moment the screens are still readable.
+      try {
+        server.snapshotAll();
+        restore.prune(RESTORE_RETENTION_MS);
+      } catch (e) {
+        warn('restore.snapshot.failed', { error: String(e) });
+      }
       await server.close();
       launcher.flush();
       db.close();

@@ -129,6 +129,30 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       CREATE INDEX idx_saved_scope ON saved_items(git_root, last_used_at DESC);
     `,
   },
+  {
+    version: 6,
+    sql: `
+      -- What a workspace looked like, so a macOS restart can bring back everything that is not
+      -- a process. The processes themselves cannot survive; this is context only.
+      -- See docs/04-session-lifecycle.md §11.
+      ALTER TABLE workspaces ADD COLUMN title TEXT;
+      ALTER TABLE workspaces ADD COLUMN closed_at INTEGER;
+
+      CREATE TABLE pane_snapshots (
+        workspace_id TEXT NOT NULL,
+        pane_id      TEXT NOT NULL,
+        session_id   TEXT NOT NULL,
+        cwd          TEXT NOT NULL,
+        last_command TEXT,
+        command_json TEXT,
+        agent_resume TEXT,
+        screen       TEXT NOT NULL DEFAULT '',
+        saved_at     INTEGER NOT NULL,
+        PRIMARY KEY (workspace_id, pane_id)
+      );
+      CREATE INDEX idx_pane_ws ON pane_snapshots(workspace_id);
+    `,
+  },
 ];
 
 export class Database {
