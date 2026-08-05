@@ -9,6 +9,8 @@ const savedRow: PaletteRow = {
   kind: 'saved',
   item: {
     id: '2',
+    kind: 'command',
+    pinned: false,
     title: 'Restart backend',
     body: 'npm run backend:restart',
     tags: [],

@@ -117,6 +117,18 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       CREATE INDEX idx_cmd_exit    ON commands(exit_code, last_used_at DESC);
     `,
   },
+  {
+    version: 5,
+    sql: `
+      -- Saved items gain a kind, a scope, and pinning. Existing rows are commands, which is
+      -- what everything saved before this migration was.
+      ALTER TABLE saved_items ADD COLUMN kind     TEXT NOT NULL DEFAULT 'command';
+      ALTER TABLE saved_items ADD COLUMN git_root TEXT;
+      ALTER TABLE saved_items ADD COLUMN pinned   INTEGER NOT NULL DEFAULT 0;
+      CREATE INDEX idx_saved_kind  ON saved_items(kind, last_used_at DESC);
+      CREATE INDEX idx_saved_scope ON saved_items(git_root, last_used_at DESC);
+    `,
+  },
 ];
 
 export class Database {

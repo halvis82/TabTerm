@@ -435,7 +435,43 @@ Results page by `offset`; a short page is the last page. Measured on 100k rows i
 
 ---
 
-## 7. Retention
+## 7. Saved items
+
+`daemon/src/launcher-data.ts` stores them; `shared/src/placeholders.ts` handles variables.
+
+Five kinds — `command`, `template`, `note`, `prompt`, `workflow` — distinct because they are
+*used* differently, not stored differently. A command is staged at a prompt, a note is read, a
+prompt is meant for an agent. One undifferentiated "saved text" type would leave the UI guessing.
+
+**Project items are returned alongside global ones, never instead of them.** Being inside a
+repository adds to what you are offered and never takes anything away. Scope is resolved from
+the session the user is in, not from anything the page asserts.
+
+Tags live NUL-joined in one column. A join table is the textbook answer and buys nothing here:
+nobody has thousands of tags, and this keeps a read to one row. Caps are enforced on write —
+200 characters of title, 4000 of body, 12 tags of 40 characters each.
+
+### Placeholder variables
+
+`{{name}}` or `{{name:default}}`. A saved command is only worth keeping if it can be reused
+somewhere slightly different, so `deploy {{env}}` asks rather than being copied and edited.
+
+- **The prompt happens before the command goes anywhere.** A half-substituted command sitting
+  at a terminal prompt is too easy to run by accident, so nothing leaves the palette until every
+  name has a value or a default. A live preview shows what will be staged.
+- **An unfilled name keeps its braces** rather than becoming an empty string. A command that
+  looks complete and is not would be worse than an obviously unfinished one.
+- **Values may not contain line breaks.** The result is staged at a prompt where Enter runs it,
+  so a newline would turn one command into two. Everything else is left alone: quoting is the
+  user's business in their own saved command, and mangling it would break real commands.
+- Shell syntax is not a placeholder. `${HOME}` and `{a,b}` are left untouched.
+
+Filling a template still only *stages* it. Running remains a separate, explicit action, per
+`05-security.md` §4.
+
+---
+
+## 8. Retention
 
 | Data | Default retention | Mode: low | Mode: full |
 |---|---|---|---|
