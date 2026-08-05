@@ -98,6 +98,15 @@ Chrome behavior that can be driven is driven. Everything else is manual.
 Automatable: tab creation and placement, group inheritance, stable URL round-trip, service worker
 termination and recovery, offscreen document reconnection, notification firing.
 
+**Run headless.** A visible browser is not required for terminal rendering, keyboard input,
+splits, merge and detach, the launcher, or workspace restore, all of which have been verified with
+no window at all. Headless also avoids taking focus from whoever is using the machine, which
+matters over a long session.
+
+A real window is needed only where the window itself is the subject: WebGL context limits, true
+tab-visibility throttling, and tab discard. Those are the exception, and they should record and
+restore the frontmost application around the run.
+
 ---
 
 ## 6. Manual verification
