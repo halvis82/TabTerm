@@ -305,7 +305,7 @@ canvas, it never breaks the pane.
     "clipboardRead", "commands"
   ],
   "commands": {
-    "new-terminal":    { "suggested_key": { "mac": "Command+Shift+E" } },
+    "new-terminal":    { "suggested_key": { "mac": "Command+Shift+O" } },
     "open-agent":      { "suggested_key": { "mac": "Command+Shift+J" } },
     "command-palette": { "suggested_key": { "mac": "Command+Shift+K" } },
     "history-search":  { "suggested_key": { "mac": "Command+Shift+Y" } }

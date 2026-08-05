@@ -72,7 +72,8 @@ regenerates an existing token.
 One step is manual, because Chrome no longer honors `--load-extension`: open `chrome://extensions`,
 enable Developer mode, choose **Load unpacked**, and select `extension/dist`.
 
-Then `Command+Shift+E` opens a terminal.
+Then `Command+Shift+O` opens a terminal. `Control+Shift+T` and `Option+Shift+T` also work,
+and you can change any of them at `chrome://extensions/shortcuts`.
 
 ```sh
 ./scripts/doctor.sh     # check every link in the chain
