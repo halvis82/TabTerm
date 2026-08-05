@@ -19,7 +19,17 @@ import { checkExtensionId } from '../daemon/dist/extension-id.js';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = join(ROOT, 'extension', 'dist');
 const OUT = join(ROOT, 'dist');
-const EXPECTED_ID = 'mcchodnlokiofihbecdeicicfhmgpadb';
+/**
+ * The ID this build is expected to have.
+ *
+ * For an unpacked or self-distributed build it is derived from the manifest key, and this check
+ * is what stops a regenerated key from silently invalidating every stable URL. A Chrome Web
+ * Store build is different: the store assigns the ID and the key cannot control it, so
+ * `--published` skips the check and the store's ID goes in package.json instead.
+ */
+const EXPECTED_ID = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).tabterm
+  .extensionId;
+const forStore = process.argv.includes('--published');
 
 if (!existsSync(join(DIST, 'manifest.json'))) {
   console.error('extension/dist is not built. Run `npm run build:extension` first.');
@@ -29,13 +39,20 @@ if (!existsSync(join(DIST, 'manifest.json'))) {
 const manifest = JSON.parse(readFileSync(join(DIST, 'manifest.json'), 'utf8'));
 
 // The check that matters. Everything else in this script is a zip.
-const check = checkExtensionId(manifest, EXPECTED_ID);
-if (!check.ok) {
-  console.error(`Refusing to package: ${check.reason}`);
-  console.error('Shipping this would invalidate every stable session URL in Chrome history.');
-  process.exit(1);
+if (forStore) {
+  // The store mints its own ID from a key it holds. Checking against the manifest key here
+  // would fail for a reason that is not a problem.
+  console.log('  packaging for the Web Store: the store assigns the id, so it is not checked');
+  console.log('  after publishing, put the assigned id in package.json and re-run install.sh');
+} else {
+  const check = checkExtensionId(manifest, EXPECTED_ID);
+  if (!check.ok) {
+    console.error(`Refusing to package: ${check.reason}`);
+    console.error('Shipping this would invalidate every stable session URL in Chrome history.');
+    process.exit(1);
+  }
+  console.log(`  extension id: ${check.id} (matches the id in package.json)`);
 }
-console.log(`  extension id: ${check.id} (matches the minted id)`);
 
 mkdirSync(OUT, { recursive: true });
 const zip = join(OUT, `tabterm-extension-${String(manifest.version)}.zip`);

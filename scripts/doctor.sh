@@ -9,7 +9,9 @@ STATE="$HOME/.local/state/tabterm"
 LIBEXEC="$HOME/.local/libexec/tabterm"
 PLIST="$HOME/Library/LaunchAgents/com.tabterm.daemon.plist"
 HOST_MANIFEST="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.tabterm.host.json"
-EXT_ID="mcchodnlokiofihbecdeicicfhmgpadb"
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+EXT_ID="${TABTERM_EXT_ID:-$(python3 -c "import json;print(json.load(open('$REPO/package.json'))['tabterm']['extensionId'])" 2>/dev/null)}"
+EXT_ID="${EXT_ID:-mcchodnlokiofihbecdeicicfhmgpadb}"
 PORT=7377
 fails=0
 

@@ -46,5 +46,9 @@
     "typescript": "^5.5.0",
     "typescript-eslint": "^8.0.0",
     "vitest": "^3.2.0"
+  },
+  "tabterm": {
+    "extensionId": "mcchodnlokiofihbecdeicicfhmgpadb",
+    "extensionIdNote": "Unpacked builds derive this from the manifest key. The Chrome Web Store assigns its own ID on publish; put that one here and re-run scripts/install.sh."
   }
 }

@@ -4,7 +4,14 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 STATE="$HOME/.local/state/tabterm"
 CONFIG="$HOME/.config/tabterm"
-EXT_ID="mcchodnlokiofihbecdeicicfhmgpadb"
+# One source of truth: package.json. Override for a Web Store build, whose ID the store
+# assigns and which will not match the manifest key.
+#   TABTERM_EXT_ID=<published id> ./scripts/install.sh
+EXT_ID="${TABTERM_EXT_ID:-$(python3 -c "import json;print(json.load(open('$REPO/package.json'))['tabterm']['extensionId'])" 2>/dev/null)}"
+if [ -z "$EXT_ID" ]; then
+  echo "could not read the extension id from package.json" >&2
+  exit 1
+fi
 HOSTS="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
 # The host binary must NOT live under Documents, Desktop, or Downloads. Chrome has no TCC
 # grant for those, so exec fails with a bare "Operation not permitted" and Chrome reports it
@@ -128,7 +135,8 @@ Optional, reports agent state to the tab favicon and notifications:
   node $REPO/scripts/install-agent-hooks.mjs          # add
   node $REPO/scripts/install-agent-hooks.mjs --remove # take back out
 
-Optional, adds directory-aware tab titles and command timing:
+Optional. History, timing and server detection already work without it.
+It adds exit codes, shell builtins, and very short commands:
   echo '[ -f ~/.local/share/tabterm/tabterm-integration.zsh ] && source ~/.local/share/tabterm/tabterm-integration.zsh' >> ~/.zshrc
 
 Not done automatically, on purpose:

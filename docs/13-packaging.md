@@ -42,9 +42,17 @@ is used.
 bundled, and its `spawn-helper` is re-chmodded to 755 on the way in. Without that bit every PTY
 spawn fails with a bare `posix_spawnp failed`, which is exactly how it presented the first time.
 
-**Signing.** With no `--sign` identity the bundle is signed ad-hoc, which is enough for TCC to
-have a stable identifier on the machine that built it and not enough to distribute. A Developer
-ID and notarization are required to ship, and both need an Apple Developer account:
+**Signing.** With no `--sign` identity the bundle is signed ad-hoc.
+
+For the shipping model this project actually uses — **clone the repository and build** — that is
+sufficient and nothing further is required. A locally built bundle carries no
+`com.apple.quarantine` attribute, so Gatekeeper never assesses it, and the ad-hoc signature is
+enough for macOS to have a stable identity to attach privacy grants to. Verified: `spctl -a`
+rejects the bundle, as it rejects any ad-hoc signature, and the daemon starts, serves an
+authenticated client, and spawns PTYs regardless, because that assessment is not on the path.
+
+A Developer ID and notarization are needed **only to ship a prebuilt `.app` for download**,
+where the quarantine attribute does apply. Both need an Apple Developer account:
 
 ```
 node scripts/build-app-bundle.mjs --sign "Developer ID Application: NAME (TEAMID)"
