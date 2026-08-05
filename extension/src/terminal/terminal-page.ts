@@ -17,7 +17,7 @@ import { PaneStatus } from './pane-status.js';
 import { describeTime, isLongRunning, type TimeState } from './elapsed.js';
 import { applyFavicon, composeTitle, drawFavicon, type FaviconState } from './titles.js';
 import { Launcher } from '../launcher/launcher.js';
-import { Palette } from '../launcher/palette.js';
+import { Palette, type PaletteAction } from '../launcher/palette.js';
 
 /**
  * A terminal tab, which is really a workspace of one or more panes.
@@ -505,6 +505,8 @@ function buildLauncher(): void {
   palette = new Palette({
     root: overlay,
     onQuery: (query, scope, offset) => {
+      // Rebuilt per query, because which actions make sense depends on the layout right now.
+      palette?.setActions(paletteActions());
       const sessionId = focusedSessionId();
       client?.send({
         t: 'list-history',
@@ -647,6 +649,99 @@ function closeFocused(): void {
   // Closing the only pane would close the workspace, which is what closing the tab is for.
   if (layout && collectPanes(layout).length <= 1) return;
   client?.send({ t: 'close-pane', workspaceId, paneId });
+}
+
+/**
+ * Every pane, workspace, and session action, reachable by typing.
+ *
+ * This is the primary surface, not a duplicate of a control bar. A thirteen-button strip is
+ * something you have to remember the layout of; a searchable list is something you can describe.
+ * The hints are the keystroke where one exists, so the palette teaches the shortcut rather than
+ * replacing it. See docs/06-chrome-integration.md.
+ */
+function paletteActions(): PaletteAction[] {
+  const paneCount = layout ? collectPanes(layout).length : 1;
+  const actions: PaletteAction[] = [
+    { id: 'split-right', title: 'Split right', hint: '⌘D', run: () => splitFocused('horizontal') },
+    { id: 'split-down', title: 'Split down', hint: '⇧⌘D', run: () => splitFocused('vertical') },
+    {
+      id: 'agent-tab',
+      title: 'Launch an agent in a new tab',
+      hint: '⇧⌘A',
+      run: () => launchAgent('new-tab'),
+    },
+    {
+      id: 'agent-split',
+      title: 'Launch an agent beside this pane',
+      run: () => launchAgent('split'),
+    },
+    {
+      id: 'new-terminal',
+      title: 'New terminal tab',
+      hint: '⇧⌘O',
+      run: () => {
+        void chrome.tabs.create({ url: chrome.runtime.getURL('terminal.html'), active: true });
+      },
+    },
+  ];
+
+  // Actions that need more than one pane are omitted rather than shown disabled. A palette
+  // offering something that does nothing is worse than a shorter palette.
+  if (paneCount > 1) {
+    actions.push(
+      { id: 'close-pane', title: 'Close this pane', hint: '⌘W', run: () => closeFocused() },
+      { id: 'detach-pane', title: 'Move this pane to its own tab', run: () => detachFocused() },
+      {
+        id: 'maximize',
+        title: 'Maximize this pane',
+        hint: 'Esc restores',
+        run: () => splitView?.toggleMaximize(splitView.focused),
+      },
+      {
+        id: 'merge',
+        title: 'Pull a terminal in from another tab',
+        run: () => {
+          client?.send({ t: 'list-mergeable', workspaceId });
+          palette?.openMerge();
+        },
+      },
+    );
+  } else {
+    actions.push({
+      id: 'merge',
+      title: 'Pull a terminal in from another tab',
+      run: () => {
+        client?.send({ t: 'list-mergeable', workspaceId });
+        palette?.openMerge();
+      },
+    });
+  }
+
+  actions.push(
+    {
+      id: 'focus-mode',
+      title: 'Fullscreen focus mode',
+      hint: 'gives this pane ⌘W',
+      run: () => {
+        const paneId = splitView?.focused;
+        if (paneId) void splitView?.enterFocusMode(paneId);
+      },
+    },
+    {
+      id: 'clear-history',
+      title: 'Clear command history',
+      run: () => client?.send({ t: 'clear-history' }),
+    },
+    {
+      id: 'shortcuts',
+      title: 'Change keyboard shortcuts',
+      hint: 'chrome://extensions/shortcuts',
+      run: () => {
+        void chrome.tabs.create({ url: 'chrome://extensions/shortcuts', active: true });
+      },
+    },
+  );
+  return actions;
 }
 
 function installShortcuts(): void {

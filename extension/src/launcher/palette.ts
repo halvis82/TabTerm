@@ -16,10 +16,26 @@ import {
  * worth reading before running. See docs/05-security.md.
  */
 
+/**
+ * A pane, workspace, or session action.
+ *
+ * These are here rather than on a control bar because a thirteen-button strip is a worse
+ * surface than one searchable list: you cannot remember where a button is, but you can always
+ * type what you want. See design principle 9 and docs/06-chrome-integration.md.
+ */
+export interface PaletteAction {
+  id: string;
+  title: string;
+  /** Shown on the right. The keystroke, when there is one. */
+  hint?: string;
+  run: () => void;
+}
+
 export type PaletteRow =
   | { kind: 'history'; entry: CommandEntry }
   | { kind: 'saved'; item: SavedItem }
-  | { kind: 'merge'; session: MergeableSession };
+  | { kind: 'merge'; session: MergeableSession }
+  | { kind: 'action'; action: PaletteAction };
 
 export interface PaletteOptions {
   root: HTMLElement;
@@ -42,7 +58,28 @@ export interface PaletteOptions {
 export function rowText(row: PaletteRow): string {
   if (row.kind === 'history') return row.entry.command;
   if (row.kind === 'saved') return row.item.body;
+  if (row.kind === 'action') return row.action.title;
   return row.session.cwd;
+}
+
+/**
+ * Subsequence match, the same rule the history search uses.
+ *
+ * `sp` finds "Split right" the way `gco` finds `git checkout`, which is what makes a palette
+ * faster than a menu rather than merely different from one.
+ */
+export function matchesAction(title: string, query: string): boolean {
+  if (!query) return true;
+  const haystack = title.toLowerCase();
+  const needle = query.toLowerCase();
+  let at = 0;
+  for (const ch of needle) {
+    if (ch === ' ') continue;
+    at = haystack.indexOf(ch, at);
+    if (at === -1) return false;
+    at++;
+  }
+  return true;
 }
 
 export class Palette {
@@ -61,6 +98,8 @@ export class Palette {
   #applied: readonly string[] = [];
   /** Kept separately, because saved items head the list and history pages in beneath them. */
   #saved: readonly SavedItem[] = [];
+  /** Pane and workspace actions, always offered, filtered by the same query as everything else. */
+  #actions: readonly PaletteAction[] = [];
   #fill: HTMLElement | null = null;
   readonly #scopeBar: HTMLElement;
   readonly #status: HTMLElement;
@@ -178,6 +217,18 @@ export class Palette {
     this.#saved = items;
   }
 
+  setActions(actions: readonly PaletteAction[]): void {
+    this.#actions = actions;
+  }
+
+  /** Actions matching the current query, which is what heads the list. */
+  #matchingActions(): PaletteRow[] {
+    const query = this.#input.value.trim();
+    return this.#actions
+      .filter((action) => matchesAction(action.title, query))
+      .map((action) => ({ kind: 'action' as const, action }));
+  }
+
   setHistoryPage(page: {
     entries: readonly CommandEntry[];
     offset: number;
@@ -190,7 +241,13 @@ export class Palette {
     const rows = page.entries.map((entry) => ({ kind: 'history' as const, entry }));
     if (page.offset === 0) {
       this.#offset = page.entries.length;
-      this.setRows([...this.#saved.map((item) => ({ kind: 'saved' as const, item })), ...rows]);
+      // Actions first: they are the only rows that do something rather than being text, and a
+      // palette that buries them under history is a search box, not a command palette.
+      this.setRows([
+        ...this.#matchingActions(),
+        ...this.#saved.map((item) => ({ kind: 'saved' as const, item })),
+        ...rows,
+      ]);
     } else {
       this.#offset = page.offset + page.entries.length;
       this.setRows([...this.#rows, ...rows]);
@@ -238,6 +295,11 @@ export class Palette {
         e.preventDefault();
         const row = this.#rows[this.#selected];
         if (!row) return;
+        if (row.kind === 'action') {
+          this.close();
+          row.action.run();
+          return;
+        }
         if (row.kind === 'merge') {
           this.#opts.onMerge(row.session.sessionId);
           this.close();
@@ -396,7 +458,10 @@ export class Palette {
 
       const meta = document.createElement('span');
       meta.className = 'palette-meta';
-      if (row.kind === 'merge') {
+      if (row.kind === 'action') {
+        meta.textContent = row.action.hint ?? '';
+        el.classList.add('is-action');
+      } else if (row.kind === 'merge') {
         meta.textContent = row.session.title;
         el.classList.add('is-merge');
       } else if (row.kind === 'saved') {
@@ -424,6 +489,13 @@ export class Palette {
       // happen by aiming badly. See docs/05-security.md.
       el.addEventListener('click', () => {
         this.#selected = i;
+        // An action row is the one kind that does something rather than being text, so it runs
+        // on a click. Everything else stages or pastes.
+        if (row.kind === 'action') {
+          this.close();
+          row.action.run();
+          return;
+        }
         if (row.kind === 'merge') {
           this.#opts.onMerge(row.session.sessionId);
           this.close();
