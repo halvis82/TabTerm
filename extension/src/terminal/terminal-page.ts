@@ -2,6 +2,7 @@ import type {
   LayoutNode,
   MergeableSession,
   ResolvedPath,
+  ResumableAgentSession,
   SavedItem,
   ServerMessage,
   TitleFields,
@@ -232,6 +233,7 @@ function showRecovery(reason: string): void {
   (document.getElementById('recovery-reason') as HTMLElement).textContent = reason;
   // Ask what we can remember about it, so the offer can be specific.
   if (workspaceId) client?.send({ t: 'recall-workspace', workspaceId });
+  client?.send({ t: 'list-resumable', limit: 8 });
 }
 
 function renderRecoveryActions(recall: {
@@ -274,10 +276,30 @@ function renderRecoveryActions(recall: {
   if (recall.found && recall.cwd) {
     const cwd = recall.cwd;
     button('Start a shell here again', () => startFresh(cwd));
+
+    // If an agent was working here, picking that conversation back up is usually what someone
+    // wants after an expiry. Offered, never done automatically.
+    const resumable = resumableSessions.find((r) => r.cwd === cwd);
+    if (resumable) {
+      button(`Resume the agent session here`, () => {
+        recoveryEl.hidden = true;
+        root.style.display = '';
+        client?.send({
+          t: 'resume-agent',
+          sessionId: resumable.sessionId,
+          cwd,
+          cols: 80,
+          rows: 24,
+        });
+      });
+    }
   }
   button('Start a shell in home', () => startFresh(undefined));
   button('Close tab', () => window.close());
 }
+
+/** What the daemon last reported as resumable, so the recovery page can offer it too. */
+let resumableSessions: readonly ResumableAgentSession[] = [];
 
 /** A new session, never an automatic one. The user asked for this by clicking. */
 function startFresh(cwd: string | undefined): void {
@@ -438,6 +460,16 @@ function buildLauncher(): void {
       // Re-read rather than assume: the daemon is the authority on what the decision means,
       // and the file may have changed between the prompt and the click.
       client?.send({ t: 'inspect-project', cwd: info.path.replace(/\/[^/]+$/, '') });
+    },
+    onResumeAgent: (session) => {
+      const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
+      client?.send({
+        t: 'resume-agent',
+        sessionId: session.sessionId,
+        cwd: session.cwd,
+        ...size,
+      });
+      launcher?.dismiss();
     },
     onOpenProject: (path) => {
       const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
@@ -753,11 +785,19 @@ function onControl(msg: ServerMessage): void {
       launcher?.setState(msg.state);
       savedItems = [...msg.state.saved];
       palette?.setSaved(savedItems);
+      // Asked for alongside launcher state, so the chips are there when the panel first draws.
+      client?.send({ t: 'list-resumable', limit: 5 });
       return;
     }
 
     case 'server-detected': {
       showServerOffer(msg.port);
+      return;
+    }
+
+    case 'resumable-sessions': {
+      resumableSessions = msg.sessions;
+      launcher?.setResumable(msg.sessions);
       return;
     }
 

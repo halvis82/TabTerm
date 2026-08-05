@@ -1,4 +1,9 @@
-import type { LauncherState, ProjectConfigInfo, RecentDir } from '@tabterm/shared';
+import type {
+  LauncherState,
+  ProjectConfigInfo,
+  RecentDir,
+  ResumableAgentSession,
+} from '@tabterm/shared';
 
 /**
  * The panel a fresh terminal tab opens with.
@@ -22,6 +27,7 @@ export interface LauncherOptions {
   onInspectProject: (path: string) => void;
   onDecideProjectTrust: (info: ProjectConfigInfo, decision: 'trusted' | 'denied') => void;
   onOpenProject: (path: string) => void;
+  onResumeAgent: (session: ResumableAgentSession) => void;
   onDismiss: () => void;
 }
 
@@ -33,6 +39,7 @@ export class Launcher {
   /** Per directory, what the daemon reported. Absent means not asked or nothing there. */
   readonly #projects = new Map<string, ProjectConfigInfo>();
   #expanded: string | null = null;
+  #resumable: readonly ResumableAgentSession[] = [];
 
   constructor(opts: LauncherOptions) {
     this.#opts = opts;
@@ -73,6 +80,8 @@ export class Launcher {
 
     // --- new layout in a directory ---------------------------------------
     sections.push(this.#layoutSection(state));
+    const resume = this.#resumeSection(state.home);
+    if (resume) sections.push(resume);
 
     // --- recent directories ----------------------------------------------
     if (state.recentDirs.length > 0) {
@@ -167,6 +176,28 @@ export class Launcher {
     form.append(input, buttons);
     wrap.append(form, note);
     return wrap;
+  }
+
+  /** Agent sessions that could be picked back up. Shown, never resumed automatically. */
+  setResumable(sessions: readonly ResumableAgentSession[]): void {
+    this.#resumable = sessions;
+    if (!this.#dismissed) this.render();
+  }
+
+  #resumeSection(home: string): HTMLElement | null {
+    if (this.#resumable.length === 0) return null;
+    const rows = this.#resumable.slice(0, 5).map((session) => {
+      const row = document.createElement('button');
+      row.className = 'launcher-row';
+      row.append(
+        strong(session.summary ?? `Session ${session.sessionId.slice(0, 8)}`),
+        dim(shorten(session.cwd, home)),
+      );
+      row.title = session.sessionId;
+      row.addEventListener('click', () => this.#opts.onResumeAgent(session));
+      return row;
+    });
+    return section('Resume an agent session', rows);
   }
 
   /** Record what a directory declares, and show it. */
