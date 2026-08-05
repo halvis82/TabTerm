@@ -231,6 +231,16 @@ export type ClientMessage =
       rows: number;
     }
   | { t: 'close-pane'; workspaceId: string; paneId: string }
+  | {
+      /** Move an existing session into this workspace as a new pane beside a target. */
+      t: 'merge-into';
+      workspaceId: string;
+      targetPaneId: string;
+      sessionId: string;
+      direction: 'horizontal' | 'vertical';
+    }
+  | { t: 'detach-pane-to-tab'; workspaceId: string; paneId: string }
+  | { t: 'list-mergeable'; workspaceId: string }
   | { t: 'set-ratio'; workspaceId: string; paneId: string; ratio: number }
   | { t: 'swap-panes'; workspaceId: string; a: string; b: string }
   | { t: 'resize-pane'; workspaceId: string; paneId: string; cols: number; rows: number }
@@ -274,6 +284,15 @@ export interface WorkspacePane {
   paneId: string;
   sessionId: string;
   streamId: number;
+}
+
+/** A session in another tab that could be pulled into this workspace. */
+export interface MergeableSession {
+  sessionId: string;
+  workspaceId: string;
+  title: string;
+  cwd: string;
+  paneCount: number;
 }
 
 export interface ResolvedPath {
@@ -341,6 +360,13 @@ export type ServerMessage =
   | { t: 'launcher-state'; state: LauncherState }
   | { t: 'history-page'; entries: readonly CommandEntry[] }
   | { t: 'saved-updated'; saved: readonly SavedItem[] }
+  | { t: 'mergeable-sessions'; sessions: readonly MergeableSession[] }
+  | {
+      /** A pane left this workspace. The frontend opens a tab at this URL to pick it up. */
+      t: 'pane-detached';
+      workspaceId: string;
+      newWorkspaceId: string;
+    }
   | { t: 'error'; code: ServerErrorCode; message: string; context?: string };
 
 export type ControlMessage = ClientMessage | ServerMessage;

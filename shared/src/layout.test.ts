@@ -196,3 +196,30 @@ describe('layout validation rejects untrusted input', () => {
     expect(paneCount(t)).toBe(60);
   });
 });
+
+describe('merge and detach preserve every session', () => {
+  it('inserting a session into another tree keeps all sessions', () => {
+    const a = splitPane(terminalNode('a1', 'sA1'), 'a1', 'horizontal', 'a2', 'sA2');
+    const merged = splitPane(a, 'a2', 'vertical', 'b1', 'sB1');
+    const ids = panes(merged).map((p) => p.sessionId);
+    expect(ids).toContain('sA1');
+    expect(ids).toContain('sA2');
+    expect(ids).toContain('sB1');
+    expect(isValidLayout(merged)).toBe(true);
+  });
+
+  it('removing a pane from a tree leaves the others intact', () => {
+    let t = splitPane(terminalNode('p1', 's1'), 'p1', 'horizontal', 'p2', 's2');
+    t = splitPane(t, 'p2', 'vertical', 'p3', 's3');
+    const after = closePane(t, 'p2') as LayoutNode;
+    const ids = panes(after).map((p) => p.sessionId);
+    expect(ids).toEqual(['s1', 's3']);
+    expect(isValidLayout(after)).toBe(true);
+  });
+
+  it('a detached pane can seed a valid single-pane tree', () => {
+    const solo = terminalNode('moved', 'sMoved');
+    expect(isValidLayout(solo)).toBe(true);
+    expect(panes(solo)).toEqual([{ paneId: 'moved', sessionId: 'sMoved' }]);
+  });
+});

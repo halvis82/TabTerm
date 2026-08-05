@@ -1,4 +1,4 @@
-import type { CommandEntry, SavedItem } from '@tabterm/shared';
+import type { CommandEntry, MergeableSession, SavedItem } from '@tabterm/shared';
 
 /**
  * The floating command palette: history and saved commands, one keyboard away.
@@ -10,7 +10,9 @@ import type { CommandEntry, SavedItem } from '@tabterm/shared';
  */
 
 export type PaletteRow =
-  { kind: 'history'; entry: CommandEntry } | { kind: 'saved'; item: SavedItem };
+  | { kind: 'history'; entry: CommandEntry }
+  | { kind: 'saved'; item: SavedItem }
+  | { kind: 'merge'; session: MergeableSession };
 
 export interface PaletteOptions {
   root: HTMLElement;
@@ -19,11 +21,14 @@ export interface PaletteOptions {
   onCopy: (text: string) => void;
   onSave: (text: string) => void;
   onDeleteSaved: (id: string) => void;
+  onMerge: (sessionId: string) => void;
   onClose: () => void;
 }
 
 export function rowText(row: PaletteRow): string {
-  return row.kind === 'history' ? row.entry.command : row.item.body;
+  if (row.kind === 'history') return row.entry.command;
+  if (row.kind === 'saved') return row.item.body;
+  return row.session.cwd;
 }
 
 export class Palette {
@@ -34,6 +39,8 @@ export class Palette {
   #rows: PaletteRow[] = [];
   #selected = 0;
   #open = false;
+  /** Merge mode lists other tabs' terminals instead of commands. */
+  #mode: 'commands' | 'merge' = 'commands';
 
   constructor(opts: PaletteOptions) {
     this.#opts = opts;
@@ -63,14 +70,36 @@ export class Palette {
       e.stopPropagation();
       this.#onKey(e);
     });
-    this.#input.addEventListener('input', () => this.#opts.onQuery(this.#input.value));
+    this.#input.addEventListener('input', () => {
+      if (this.#mode === 'commands') this.#opts.onQuery(this.#input.value);
+    });
   }
 
   get isOpen(): boolean {
     return this.#open;
   }
 
+  /** Open listing terminals from other tabs, to pull one in beside the focused pane. */
+  openMerge(): void {
+    this.#mode = 'merge';
+    this.#open = true;
+    this.#el.hidden = false;
+    this.#input.value = '';
+    this.#input.placeholder = 'Choose a terminal from another tab to merge in';
+    this.#selected = 0;
+    this.#rows = [];
+    this.#renderList();
+    this.#input.focus();
+  }
+
+  setMergeable(sessions: readonly MergeableSession[]): void {
+    if (this.#mode !== 'merge') return;
+    this.setRows(sessions.map((session) => ({ kind: 'merge' as const, session })));
+  }
+
   open(): void {
+    this.#mode = 'commands';
+    this.#input.placeholder = 'Search history and saved commands';
     this.#open = true;
     this.#el.hidden = false;
     this.#input.value = '';
@@ -114,6 +143,11 @@ export class Palette {
         e.preventDefault();
         const row = this.#rows[this.#selected];
         if (!row) return;
+        if (row.kind === 'merge') {
+          this.#opts.onMerge(row.session.sessionId);
+          this.close();
+          return;
+        }
         const text = rowText(row);
         if (e.metaKey) this.#opts.onCopy(text);
         else this.#opts.onPaste(text);
@@ -145,7 +179,9 @@ export class Palette {
       const empty = document.createElement('div');
       empty.className = 'palette-empty';
       empty.textContent =
-        'Nothing yet. History fills in as you run commands, once shell integration is enabled.';
+        this.#mode === 'merge'
+          ? 'No terminals in other tabs to merge.'
+          : 'Nothing yet. History fills in as you run commands, once shell integration is enabled.';
       this.#list.replaceChildren(empty);
       return;
     }
@@ -162,7 +198,10 @@ export class Palette {
 
         const meta = document.createElement('span');
         meta.className = 'palette-meta';
-        if (row.kind === 'saved') {
+        if (row.kind === 'merge') {
+          meta.textContent = row.session.title;
+          el.classList.add('is-merge');
+        } else if (row.kind === 'saved') {
           meta.textContent = row.item.title;
           el.classList.add('is-saved');
         } else {
@@ -178,7 +217,8 @@ export class Palette {
 
         el.addEventListener('click', () => {
           this.#selected = i;
-          this.#opts.onPaste(rowText(row));
+          if (row.kind === 'merge') this.#opts.onMerge(row.session.sessionId);
+          else this.#opts.onPaste(rowText(row));
           this.close();
         });
 

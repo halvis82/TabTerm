@@ -1,6 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import type { LayoutNode, SplitDirection, Workspace } from '@tabterm/shared';
-import { closePane, panes, setRatio, splitPane, swapPanes, terminalNode } from '@tabterm/shared';
+import {
+  closePane,
+  insertPane,
+  panes,
+  setRatio,
+  splitPane,
+  swapPanes,
+  terminalNode,
+} from '@tabterm/shared';
 import { info } from './log.js';
 
 /**
@@ -95,6 +103,59 @@ export class WorkspaceStore {
     workspace.layout = swapPanes(workspace.layout, a, b);
     workspace.updatedAt = Date.now();
     return workspace;
+  }
+
+  /**
+   * Move a session from wherever it lives into another workspace.
+   *
+   * The PTY is never touched. Only the layout trees change, which is the whole point: a merge
+   * is a rearrangement of views over processes that keep running throughout.
+   */
+  mergeInto(
+    targetWorkspaceId: string,
+    targetPaneId: string,
+    sessionId: string,
+    direction: SplitDirection,
+  ): { target: Workspace; source: Workspace | null } {
+    const target = this.#require(targetWorkspaceId);
+    const sourceWorkspace = this.findBySession(sessionId);
+    if (sourceWorkspace?.id === targetWorkspaceId) {
+      throw new Error('session is already in this workspace');
+    }
+
+    let source: Workspace | null = null;
+    if (sourceWorkspace) {
+      const sourcePane = this.paneFor(sourceWorkspace, sessionId);
+      if (sourcePane) source = this.closePane(sourceWorkspace.id, sourcePane);
+    }
+
+    const newPaneId = randomUUID();
+    target.layout = insertPane(target.layout, targetPaneId, direction, newPaneId, sessionId);
+    target.updatedAt = Date.now();
+    info('workspace.merged', { from: sourceWorkspace?.id, into: targetWorkspaceId });
+    return { target, source };
+  }
+
+  /**
+   * Pull a pane out into a workspace of its own, which becomes a standalone tab.
+   *
+   * Returns null when the pane is the only one, since detaching it would just be the same tab.
+   */
+  detachToNewWorkspace(
+    workspaceId: string,
+    paneId: string,
+  ): { newWorkspace: Workspace; source: Workspace | null } | null {
+    const workspace = this.#require(workspaceId);
+    const all = panes(workspace.layout);
+    if (all.length <= 1) return null;
+
+    const pane = all.find((p) => p.paneId === paneId);
+    if (!pane) return null;
+
+    const source = this.closePane(workspaceId, paneId);
+    const { workspace: newWorkspace } = this.create(pane.sessionId);
+    info('workspace.detached', { from: workspaceId, to: newWorkspace.id });
+    return { newWorkspace, source };
   }
 
   setLayout(workspaceId: string, layout: LayoutNode): Workspace {

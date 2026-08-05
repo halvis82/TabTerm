@@ -302,6 +302,87 @@ export class DaemonServer {
         return;
       }
 
+      case 'list-mergeable': {
+        const here = this.#workspaces.get(msg.workspaceId);
+        const mine = new Set(here ? this.#workspaces.sessionIds(here) : []);
+        const list = this.#workspaces.all.flatMap((w) =>
+          this.#workspaces.sessionIds(w).flatMap((sessionId) => {
+            if (mine.has(sessionId)) return [];
+            const session = this.#sessions.get(sessionId);
+            if (!session) return [];
+            return [
+              {
+                sessionId,
+                workspaceId: w.id,
+                title: session.titleFields.process ?? session.shell.split('/').pop() ?? 'shell',
+                cwd: session.cwd,
+                paneCount: panes(w.layout).length,
+              },
+            ];
+          }),
+        );
+        send(client.socket, controlFrame({ t: 'mergeable-sessions', sessions: list }));
+        return;
+      }
+
+      case 'merge-into': {
+        try {
+          const sourceBefore = this.#workspaces.findBySession(msg.sessionId);
+          const sourceId = sourceBefore?.id;
+
+          const { source } = this.#workspaces.mergeInto(
+            msg.workspaceId,
+            msg.targetPaneId,
+            msg.sessionId,
+            msg.direction,
+          );
+
+          // Whoever was rendering the source workspace needs to hear about it. If the merge
+          // took its last pane, the workspace is gone and that tab has nothing left to show.
+          if (source) this.#broadcastLayout(source.id);
+          else if (sourceId) this.#notifyWorkspaceGone(sourceId);
+          this.#attachWorkspace(client, msg.workspaceId, 80, 24);
+          this.#broadcastLayout(msg.workspaceId);
+        } catch (e) {
+          warn('workspace.merge.failed', { error: String(e) });
+          sendError(client.socket, 'session-attached-elsewhere', 'could not merge that session');
+        }
+        return;
+      }
+
+      case 'detach-pane-to-tab': {
+        const before = this.#workspaces.get(msg.workspaceId);
+        const leavingSession = before
+          ? panes(before.layout).find((p) => p.paneId === msg.paneId)?.sessionId
+          : undefined;
+
+        const result = this.#workspaces.detachToNewWorkspace(msg.workspaceId, msg.paneId);
+        if (!result) {
+          sendError(client.socket, 'workspace-invalid-layout', 'cannot detach the only pane');
+          return;
+        }
+
+        // Release this client's hold on the departing session. Without this the client still
+        // looks attached, so a later attach skips it as already-bound and never sends the
+        // snapshot, leaving a blank pane.
+        if (leavingSession) {
+          const session = this.#sessions.get(leavingSession);
+          if (session) this.#sessions.detach(session, client.id);
+          this.#unbind(client, leavingSession);
+        }
+
+        send(
+          client.socket,
+          controlFrame({
+            t: 'pane-detached',
+            workspaceId: msg.workspaceId,
+            newWorkspaceId: result.newWorkspace.id,
+          }),
+        );
+        if (result.source) this.#broadcastLayout(result.source.id);
+        return;
+      }
+
       case 'set-ratio': {
         if (!this.#workspaces.get(msg.workspaceId)) return;
         this.#workspaces.setRatio(msg.workspaceId, msg.paneId, msg.ratio);
@@ -635,6 +716,22 @@ export class DaemonServer {
         workspaceId: workspace.id,
       }),
     );
+  }
+
+  /** Tell anyone rendering a workspace that it no longer exists. */
+  #notifyWorkspaceGone(workspaceId: string): void {
+    for (const c of this.#clients) {
+      if (!c.authed) continue;
+      send(
+        c.socket,
+        controlFrame({
+          t: 'error',
+          code: 'session-expired',
+          message: 'workspace closed',
+          context: workspaceId,
+        }),
+      );
+    }
   }
 
   #sendLauncherState(client: Client): void {
