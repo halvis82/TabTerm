@@ -628,6 +628,56 @@
     background: #2b4d7a;
     border-color: #3d6ba8;
   }
+  .palette-fill {
+    border-top: 1px solid #2a2d33;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .palette-fill-title {
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .palette-fill-preview {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    background: #16181d;
+    border: 1px solid #333;
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 20vh;
+    overflow: auto;
+  }
+  .palette-fill-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #9aa0a6;
+  }
+  .palette-fill-row > span {
+    min-width: 90px;
+  }
+  .palette-fill-input {
+    flex: 1;
+    padding: 5px 8px;
+    border-radius: 5px;
+    border: 1px solid #333;
+    background: #101216;
+    color: #e8e8e8;
+    font-size: 12px;
+  }
+  .palette-action:disabled {
+    color: #5f6368;
+    cursor: default;
+  }
+  .palette-action.on {
+    color: #e8b339;
+  }
   .palette-more {
     display: block;
     width: 100%;

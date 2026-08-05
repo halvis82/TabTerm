@@ -498,6 +498,18 @@ function buildLauncher(): void {
     onOpenDir: (path) => sendToFocusedPane(`cd ${quote(path)}\r`),
     onCopy: (text) => void navigator.clipboard.writeText(text),
     onSave: (text) => client?.send({ t: 'save-item', title: text.slice(0, 60), body: text }),
+    onSaveScoped: (text, scopeToProject) => {
+      const sessionId = focusedSessionId();
+      client?.send({
+        t: 'save-item',
+        title: text.slice(0, 60),
+        body: text,
+        scopeToProject,
+        ...(sessionId ? { sessionId } : {}),
+      });
+    },
+    onPinSaved: (id, pinned) => client?.send({ t: 'pin-saved', id, pinned }),
+    onUseSaved: (id) => client?.send({ t: 'use-saved', id }),
     onDeleteSaved: (id) => client?.send({ t: 'delete-saved', id }),
     onMerge: (sessionId) => {
       const targetPaneId = splitView?.focused;
@@ -972,6 +984,7 @@ declare global {
       closePane: () => void;
       detachPane: () => void;
       launchAgent: (where: 'new-tab' | 'split') => void;
+      saveItem: (body: string, title?: string) => void;
       mergeSession: (sessionId: string) => void;
       listMergeable: () => MergeableSession[];
       focus: (paneId: string) => void;
@@ -1019,6 +1032,9 @@ function installTestHook(): void {
       });
     },
     launchAgent: (where) => launchAgent(where),
+    saveItem: (body, title) => {
+      client?.send({ t: 'save-item', title: title ?? body.slice(0, 60), body });
+    },
     listMergeable: () => {
       if (workspaceId) client?.send({ t: 'list-mergeable', workspaceId });
       return mergeable;

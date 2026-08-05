@@ -721,11 +721,26 @@ export class DaemonServer {
         return;
       }
 
+      case 'pin-saved': {
+        this.#launcher.pinSaved(msg.id, msg.pinned);
+        send(client.socket, controlFrame({ t: 'saved-updated', saved: this.#launcher.saved() }));
+        return;
+      }
+
       case 'save-item': {
+        // Scoping is resolved from the session, so "this project" always means the repository
+        // the user is actually in rather than one the page asserts.
+        const scopeSession = msg.sessionId ? this.#sessions.get(msg.sessionId) : undefined;
+        const scopeRoot =
+          msg.scopeToProject === true && scopeSession
+            ? this.#projects.cached(scopeSession.cwd)?.root
+            : undefined;
         this.#launcher.save({
+          ...(msg.kind ? { kind: msg.kind } : {}),
           title: msg.title,
           body: msg.body,
           ...(msg.tags ? { tags: msg.tags } : {}),
+          ...(scopeRoot ? { gitRoot: scopeRoot } : {}),
         });
         send(client.socket, controlFrame({ t: 'saved-updated', saved: this.#launcher.saved() }));
         return;

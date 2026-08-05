@@ -1,4 +1,11 @@
-import type { CommandEntry, HistoryScope, MergeableSession, SavedItem } from '@tabterm/shared';
+import {
+  fillPlaceholders,
+  isComplete,
+  type CommandEntry,
+  type HistoryScope,
+  type MergeableSession,
+  type SavedItem,
+} from '@tabterm/shared';
 
 /**
  * The floating command palette: history and saved commands, one keyboard away.
@@ -24,6 +31,10 @@ export interface PaletteOptions {
   onRun: (text: string) => void;
   onOpenDir: (path: string) => void;
   onDeleteSaved: (id: string) => void;
+  onPinSaved: (id: string, pinned: boolean) => void;
+  onUseSaved: (id: string) => void;
+  /** Promote a history entry to a saved command, scoped or global. */
+  onSaveScoped: (text: string, scopeToProject: boolean) => void;
   onMerge: (sessionId: string) => void;
   onClose: () => void;
 }
@@ -50,6 +61,7 @@ export class Palette {
   #applied: readonly string[] = [];
   /** Kept separately, because saved items head the list and history pages in beneath them. */
   #saved: readonly SavedItem[] = [];
+  #fill: HTMLElement | null = null;
   readonly #scopeBar: HTMLElement;
   readonly #status: HTMLElement;
 
@@ -231,6 +243,16 @@ export class Palette {
           this.close();
           return;
         }
+        if (row.kind === 'saved' && (row.item.placeholders ?? []).length && !e.metaKey) {
+          this.#opts.onUseSaved(row.item.id);
+          const run = e.shiftKey;
+          this.#promptPlaceholders(row.item, (filled) => {
+            if (run) this.#opts.onRun(filled);
+            else this.#opts.onPaste(filled);
+            this.close();
+          });
+          return;
+        }
         const text = rowText(row);
         // Running takes a distinct, deliberate gesture. Pasting is the default because the
         // commands most worth recalling are the ones worth reading first.
@@ -251,6 +273,89 @@ export class Palette {
       const row = this.#rows[this.#selected];
       if (row) this.#opts.onSave(rowText(row));
     }
+  }
+
+  /**
+   * Ask for placeholder values before a saved command goes anywhere.
+   *
+   * Filling happens here rather than at the prompt because a half-substituted command sitting
+   * in a terminal is easy to run by accident. Nothing leaves this until every name has a value
+   * or a default.
+   */
+  #promptPlaceholders(item: SavedItem, then: (text: string) => void): void {
+    const names = item.placeholders ?? [];
+    if (names.length === 0) {
+      then(item.body);
+      return;
+    }
+
+    const box = document.createElement('div');
+    box.className = 'palette-fill';
+    const heading = document.createElement('div');
+    heading.className = 'palette-fill-title';
+    heading.textContent = item.title;
+    const preview = document.createElement('pre');
+    preview.className = 'palette-fill-preview';
+    preview.textContent = item.body;
+    box.append(heading, preview);
+
+    const values: Record<string, string> = {};
+    const inputs: HTMLInputElement[] = [];
+    const update = () => {
+      preview.textContent = fillPlaceholders(item.body, values);
+      go.disabled = !isComplete(item.body, values);
+    };
+
+    for (const name of names) {
+      const row = document.createElement('label');
+      row.className = 'palette-fill-row';
+      const label = document.createElement('span');
+      label.textContent = name;
+      const input = document.createElement('input');
+      input.className = 'palette-fill-input';
+      input.type = 'text';
+      input.placeholder = name;
+      input.addEventListener('input', () => {
+        values[name] = input.value;
+        update();
+      });
+      input.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Escape') this.#closeFill();
+        if (e.key === 'Enter' && !go.disabled) go.click();
+      });
+      row.append(label, input);
+      box.append(row);
+      inputs.push(input);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'palette-buttons';
+    const go = document.createElement('button');
+    go.className = 'palette-action';
+    go.textContent = 'Place at the prompt';
+    go.addEventListener('click', () => {
+      const text = fillPlaceholders(item.body, values);
+      this.#closeFill();
+      then(text);
+    });
+    const cancel = document.createElement('button');
+    cancel.className = 'palette-action';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', () => this.#closeFill());
+    actions.append(go, cancel);
+    box.append(actions);
+
+    update();
+    this.#closeFill();
+    this.#el.append(box);
+    this.#fill = box;
+    inputs[0]?.focus();
+  }
+
+  #closeFill(): void {
+    this.#fill?.remove();
+    this.#fill = null;
   }
 
   #renderStatus(): void {
@@ -295,8 +400,15 @@ export class Palette {
         meta.textContent = row.session.title;
         el.classList.add('is-merge');
       } else if (row.kind === 'saved') {
-        meta.textContent = row.item.title;
+        // The kind, the scope, and how much is still to fill. All three change what clicking
+        // it will do, so none of them belong hidden behind a hover.
+        const bits: string[] = [row.item.kind];
+        if (row.item.gitRoot) bits.push('project');
+        const toFill = (row.item.placeholders ?? []).length;
+        if (toFill) bits.push(`${String(toFill)} to fill`);
+        meta.textContent = `${row.item.title} · ${bits.join(' · ')}`;
         el.classList.add('is-saved');
+        if (row.item.pinned) el.classList.add('pinned');
       } else {
         const bits: string[] = [];
         if (row.entry.exitCode !== undefined && row.entry.exitCode !== 0) {
@@ -312,8 +424,22 @@ export class Palette {
       // happen by aiming badly. See docs/05-security.md.
       el.addEventListener('click', () => {
         this.#selected = i;
-        if (row.kind === 'merge') this.#opts.onMerge(row.session.sessionId);
-        else this.#opts.onPaste(rowText(row));
+        if (row.kind === 'merge') {
+          this.#opts.onMerge(row.session.sessionId);
+          this.close();
+          return;
+        }
+        // A saved item with placeholders asks for values first. A half-substituted command
+        // sitting at a prompt is too easy to run by accident.
+        if (row.kind === 'saved') {
+          this.#opts.onUseSaved(row.item.id);
+          this.#promptPlaceholders(row.item, (text) => {
+            this.#opts.onPaste(text);
+            this.close();
+          });
+          return;
+        }
+        this.#opts.onPaste(rowText(row));
         this.close();
       });
 
@@ -338,10 +464,32 @@ export class Palette {
           this.close();
         });
 
-        el.append(run, dir);
+        const save = document.createElement('button');
+        save.className = 'palette-action';
+        save.textContent = 'Save';
+        save.title = 'Keep this command. Hold Option to scope it to this project.';
+        save.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          // Option scopes it to the project. A modifier rather than a second button, because
+          // the common case is global and a row of buttons gets noisy fast.
+          this.#opts.onSaveScoped(row.entry.command, ev.altKey);
+          this.close();
+        });
+
+        el.append(run, dir, save);
       }
 
       if (row.kind === 'saved') {
+        const pin = document.createElement('button');
+        pin.className = `palette-action${row.item.pinned ? ' on' : ''}`;
+        pin.textContent = row.item.pinned ? '★' : '☆';
+        pin.title = row.item.pinned ? 'Unpin' : 'Pin';
+        pin.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          this.#opts.onPinSaved(row.item.id, !row.item.pinned);
+        });
+        el.append(pin);
+
         const del = document.createElement('button');
         del.className = 'palette-delete';
         del.textContent = '×';

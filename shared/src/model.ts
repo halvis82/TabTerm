@@ -199,14 +199,29 @@ export interface CommandEntry {
   gitRoot?: string;
 }
 
+/**
+ * What a saved item is.
+ *
+ * The kinds are distinct because they are used differently, not because they are stored
+ * differently: a command is staged at a prompt, a note is read, a prompt is meant for an agent.
+ * A single "saved text" type would leave the UI guessing what to do with each one.
+ */
+export type SavedKind = 'command' | 'template' | 'note' | 'prompt' | 'workflow';
+
 export interface SavedItem {
   id: string;
+  kind: SavedKind;
   title: string;
   body: string;
   tags: readonly string[];
   createdAt: number;
   lastUsedAt: number;
   useCount: number;
+  pinned: boolean;
+  /** Set when the item belongs to one repository rather than everywhere. */
+  gitRoot?: string;
+  /** Placeholder names found in the body, so the UI can prompt without re-parsing. */
+  placeholders?: readonly string[];
 }
 
 /** A plugin the launcher can offer. None exist yet; the list is empty and renders nothing. */

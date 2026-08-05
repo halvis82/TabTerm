@@ -1,7 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { basename } from 'node:path';
-import type { CommandEntry, RecentDir, SavedItem } from '@tabterm/shared';
+import {
+  findPlaceholders,
+  type CommandEntry,
+  type RecentDir,
+  type SavedItem,
+  type SavedKind,
+} from '@tabterm/shared';
+
+/** Anything the database holds that is not a known kind is treated as a command. */
+function asKind(value: string): SavedKind {
+  const kinds: readonly SavedKind[] = ['command', 'template', 'note', 'prompt', 'workflow'];
+  return (kinds as readonly string[]).includes(value) ? (value as SavedKind) : 'command';
+}
 import type { Database } from './database.js';
 import type { ProjectIndex } from './project-index.js';
 import { buildWhere, parseHistoryQuery, scopeFilter, type Scope } from './history-query.js';
@@ -352,60 +364,112 @@ export class LauncherData {
 
   // --- saved items -------------------------------------------------------
 
-  saved(): SavedItem[] {
+  /**
+   * Saved items, optionally narrowed to a project.
+   *
+   * Project-scoped items are returned alongside global ones rather than instead of them, so
+   * being inside a repository adds to what is offered and never takes anything away.
+   */
+  saved(options?: { gitRoot?: string; kind?: SavedKind }): SavedItem[] {
+    const clauses: string[] = [];
+    const params: (string | number)[] = [];
+    if (options?.gitRoot) {
+      clauses.push('(git_root IS NULL OR git_root = ?)');
+      params.push(options.gitRoot);
+    }
+    if (options?.kind) {
+      clauses.push('kind = ?');
+      params.push(options.kind);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+
     const rows = this.#db.handle
       .prepare(
-        `SELECT id, title, body, tags, created_at, last_used_at, use_count
-         FROM saved_items ORDER BY last_used_at DESC LIMIT 500`,
+        `SELECT id, kind, title, body, tags, created_at, last_used_at, use_count, pinned, git_root
+         FROM saved_items ${where}
+         ORDER BY pinned DESC, last_used_at DESC LIMIT 500`,
       )
-      .all() as {
+      .all(...params) as {
       id: string;
+      kind: string;
       title: string;
       body: string;
       tags: string;
       created_at: number;
       last_used_at: number;
       use_count: number;
+      pinned: number;
+      git_root: string | null;
     }[];
-    return rows.map((r) => ({
-      id: r.id,
-      title: r.title,
-      body: r.body,
-      tags: r.tags ? r.tags.split('\u0000') : [],
-      createdAt: r.created_at,
-      lastUsedAt: r.last_used_at,
-      useCount: r.use_count,
-    }));
+
+    return rows.map((r) => {
+      const placeholders = findPlaceholders(r.body).map((p) => p.name);
+      return {
+        id: r.id,
+        kind: asKind(r.kind),
+        title: r.title,
+        body: r.body,
+        tags: r.tags ? r.tags.split('\u0000') : [],
+        createdAt: r.created_at,
+        lastUsedAt: r.last_used_at,
+        useCount: r.use_count,
+        pinned: r.pinned === 1,
+        ...(r.git_root !== null ? { gitRoot: r.git_root } : {}),
+        ...(placeholders.length ? { placeholders } : {}),
+      };
+    });
   }
 
-  save(item: { title: string; body: string; tags?: readonly string[] }): SavedItem {
+  save(item: {
+    kind?: SavedKind;
+    title: string;
+    body: string;
+    tags?: readonly string[];
+    gitRoot?: string;
+  }): SavedItem {
+    const body = item.body.slice(0, 4000);
+    const placeholders = findPlaceholders(body).map((p) => p.name);
     const entry: SavedItem = {
       id: randomUUID(),
+      kind: item.kind ?? 'command',
       title: item.title.slice(0, 200),
-      body: item.body.slice(0, 4000),
-      tags: (item.tags ?? []).slice(0, 12),
+      body,
+      // Tags are stored NUL-joined in one column. A join table would be the textbook answer and
+      // would buy nothing here: nobody has thousands of tags, and this keeps reads to one row.
+      tags: (item.tags ?? []).slice(0, 12).map((t) => t.slice(0, 40)),
       createdAt: Date.now(),
       lastUsedAt: Date.now(),
       useCount: 0,
+      pinned: false,
+      ...(item.gitRoot ? { gitRoot: item.gitRoot } : {}),
+      ...(placeholders.length ? { placeholders } : {}),
     };
     this.#db.handle
       .prepare(
-        `INSERT INTO saved_items (id, title, body, tags, created_at, last_used_at, use_count)
-         VALUES (?, ?, ?, ?, ?, ?, 0)`,
+        `INSERT INTO saved_items (id, kind, title, body, tags, created_at, last_used_at, use_count, pinned, git_root)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?)`,
       )
       .run(
         entry.id,
+        entry.kind,
         entry.title,
         entry.body,
         entry.tags.join('\u0000'),
         entry.createdAt,
         entry.lastUsedAt,
+        entry.gitRoot ?? null,
       );
     return entry;
   }
 
   deleteSaved(id: string): void {
     this.#db.handle.prepare('DELETE FROM saved_items WHERE id = ?').run(id);
+  }
+
+  pinSaved(id: string, pinned: boolean): void {
+    this.#db.handle
+      .prepare('UPDATE saved_items SET pinned = ? WHERE id = ?')
+      .run(pinned ? 1 : 0, id);
   }
 
   markUsed(id: string): void {

@@ -17,6 +17,7 @@ import type {
   ProcessState,
   SavedItem,
   SessionSnapshot,
+  SavedKind,
   TitleFields,
 } from './model.js';
 
@@ -278,7 +279,17 @@ export type ClientMessage =
       limit?: number;
       offset?: number;
     }
-  | { t: 'save-item'; title: string; body: string; tags?: readonly string[] }
+  | {
+      t: 'save-item';
+      kind?: SavedKind;
+      title: string;
+      body: string;
+      tags?: readonly string[];
+      /** Scopes the item to one repository. The daemon resolves it from the session. */
+      scopeToProject?: boolean;
+      sessionId?: string;
+    }
+  | { t: 'pin-saved'; id: string; pinned: boolean }
   | { t: 'delete-saved'; id: string }
   | { t: 'use-saved'; id: string }
   | { t: 'clear-history' }
