@@ -166,6 +166,66 @@ function setFavicon(state: FaviconState): void {
  * of an expired session is normal rather than exceptional. It has to be a useful screen, and
  * nothing on it ever runs by itself. See docs/04-session-lifecycle.md §8.
  */
+/**
+ * Confirm text that came from a webpage before it reaches the shell.
+ *
+ * The whole point of the overlay is that the user reads the exact string. It is rendered with
+ * textContent into a `pre`, never as markup, and the accept path sends it **without a trailing
+ * newline**, so it lands at the prompt and waits. See docs/05-security.md §4.
+ */
+function showStaged(text: string, source: string): void {
+  const panel = document.getElementById('staged') as HTMLElement;
+  (document.getElementById('staged-text') as HTMLElement).textContent = text;
+  (document.getElementById('staged-source') as HTMLElement).textContent = `From ${source}`;
+  panel.hidden = false;
+
+  const dismiss = () => {
+    panel.hidden = true;
+    // Take the parameters out of the URL, so a reload or a Chrome restore does not re-ask
+    // about something the user already answered.
+    const url = new URL(location.href);
+    url.searchParams.delete('staged');
+    url.searchParams.delete('stagedFrom');
+    history.replaceState(null, '', url.toString());
+    if (splitView?.focused) panesHost?.focus(splitView.focused);
+  };
+
+  (document.getElementById('staged-accept') as HTMLElement).onclick = () => {
+    // No newline. This is the difference between staging and running.
+    sendToFocusedPane(text);
+    dismiss();
+  };
+  (document.getElementById('staged-cancel') as HTMLElement).onclick = dismiss;
+}
+
+/**
+ * Offer to open a server the terminal just noticed.
+ *
+ * An offer rather than an action: opening a tab because a process bound a port would be a
+ * browser doing something nobody asked for. It fades out on its own, because a dev server
+ * restart should not leave a queue of notices behind.
+ */
+function showServerOffer(port: number): void {
+  const bar = document.getElementById('server-offer') as HTMLElement;
+  const open = document.getElementById('server-open') as HTMLButtonElement;
+  (document.getElementById('server-text') as HTMLElement).textContent =
+    `Listening on port ${String(port)}`;
+  open.textContent = `Open localhost:${String(port)}`;
+  open.onclick = () => {
+    void chrome.runtime.sendMessage({ t: 'tabterm:open-local', port });
+    bar.hidden = true;
+  };
+  (document.getElementById('server-dismiss') as HTMLElement).onclick = () => {
+    bar.hidden = true;
+  };
+  bar.hidden = false;
+  clearTimeout(serverOfferTimer);
+  serverOfferTimer = setTimeout(() => {
+    bar.hidden = true;
+  }, 20_000);
+}
+let serverOfferTimer: ReturnType<typeof setTimeout> | undefined;
+
 function showRecovery(reason: string): void {
   recoveryEl.hidden = false;
   root.style.display = 'none';
@@ -696,6 +756,11 @@ function onControl(msg: ServerMessage): void {
       return;
     }
 
+    case 'server-detected': {
+      showServerOffer(msg.port);
+      return;
+    }
+
     case 'project-config': {
       launcher?.projectConfig(msg.cwd, msg.config);
       return;
@@ -957,6 +1022,11 @@ async function start(): Promise<void> {
   });
   setFavicon('disconnected');
   refreshTitle();
+
+  // A command handed over by a context menu. It is only ever displayed here; nothing sends it
+  // anywhere until the user says so.
+  const staged = params.get('staged');
+  if (staged) showStaged(staged, params.get('stagedFrom') ?? 'a webpage');
 
   client = new DaemonClient({
     port: DEFAULT_PORT,

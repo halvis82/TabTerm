@@ -1,5 +1,6 @@
 import { getToken } from './transport/token.js';
 import { installClickHandler, notify, type NotifyPriority } from './chrome/notifications.js';
+import { buildAction } from './chrome/cross-actions.js';
 
 /**
  * Service worker: dispatch only.
@@ -129,6 +130,7 @@ async function openTerminal(): Promise<void> {
 
 interface NotifyMessage {
   t: string;
+  port?: number;
   priority?: NotifyPriority;
   title?: string;
   body?: string;
@@ -155,6 +157,15 @@ chrome.runtime.onMessage.addListener((msg: NotifyMessage, _sender, sendResponse)
     return false;
   }
 
+  // A server the terminal detected. Focusing an existing tab rather than opening a second one
+  // matters here: a dev server restarts constantly, and each restart would otherwise leave
+  // another tab behind.
+  if (msg.t === 'tabterm:open-local' && typeof msg.port === 'number') {
+    void openOrFocusLocal(msg.port);
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (msg.t !== 'tabterm:need-credentials') return false;
   void (async () => {
     sendResponse({ token: await getToken(), clientId: await clientId() });
@@ -162,7 +173,103 @@ chrome.runtime.onMessage.addListener((msg: NotifyMessage, _sender, sendResponse)
   return true; // keep the channel open for the async reply
 });
 
-chrome.runtime.onInstalled.addListener(() => {});
+/**
+ * Context-menu actions from a webpage into a terminal.
+ *
+ * Menus are rebuilt on install and on every wake, because a service worker that died loses
+ * nothing here but a worker that never registered them shows no menu at all. `removeAll` first
+ * makes that idempotent rather than an error about duplicate ids.
+ *
+ * Every action opens a terminal with the command **staged, not run**. See docs/05-security.md §4.
+ */
+function installContextMenus(): void {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: 'send-selection',
+      title: 'Send selection to a terminal',
+      contexts: ['selection'],
+    });
+    chrome.contextMenus.create({
+      id: 'clone-repo',
+      title: 'Clone this repository in a terminal',
+      contexts: ['page', 'link'],
+      documentUrlPatterns: [
+        'https://github.com/*',
+        'https://gitlab.com/*',
+        'https://bitbucket.org/*',
+        'https://codeberg.org/*',
+      ],
+    });
+    chrome.contextMenus.create({
+      id: 'open-url',
+      title: 'Fetch this link in a terminal',
+      contexts: ['link'],
+    });
+    // A menu id that failed to register is worth knowing about, and is otherwise invisible.
+    if (chrome.runtime.lastError) {
+      console.warn('TabTerm: context menus', chrome.runtime.lastError.message);
+    }
+  });
+}
+
+chrome.contextMenus.onClicked.addListener((info) => {
+  const id = String(info.menuItemId);
+  if (id !== 'send-selection' && id !== 'clone-repo' && id !== 'open-url') return;
+  const action = buildAction(id, {
+    ...(info.selectionText ? { selectionText: info.selectionText } : {}),
+    ...(info.pageUrl ? { pageUrl: info.pageUrl } : {}),
+    ...(info.linkUrl ? { linkUrl: info.linkUrl } : {}),
+  });
+  // Nothing usable came out of it. Opening an empty terminal would be a worse answer than
+  // doing nothing, because it would look like the action worked.
+  if (!action) return;
+  void openTerminalWithStaged(action);
+});
+
+/**
+ * Open a terminal with a command waiting for confirmation.
+ *
+ * The command travels in the URL rather than in a message, so it survives the worker dying
+ * between the click and the page loading, which it routinely does.
+ */
+async function openTerminalWithStaged(action: {
+  id: string;
+  text: string;
+  source: string;
+}): Promise<void> {
+  const [current] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const url = new URL(chrome.runtime.getURL('terminal.html'));
+  url.searchParams.set('staged', action.text);
+  url.searchParams.set('stagedFrom', action.source);
+  const created = await chrome.tabs.create({
+    url: url.toString(),
+    index: current ? current.index + 1 : undefined,
+    active: true,
+  });
+  if (created.id !== undefined) await placeInGroup(created.id, current?.groupId);
+}
+
+/**
+ * Open a detected local server, or focus the tab already showing it.
+ *
+ * Matching is by host and port, ignoring the path, because a single-page app changes its own
+ * path and would otherwise never look like the same server twice.
+ */
+async function openOrFocusLocal(port: number): Promise<void> {
+  const url = `http://localhost:${String(port)}/`;
+  const existing = await chrome.tabs.query({
+    url: [`http://localhost:${String(port)}/*`, `http://127.0.0.1:${String(port)}/*`],
+  });
+  const hit = existing[0];
+  if (hit?.id !== undefined) {
+    await chrome.tabs.update(hit.id, { active: true });
+    if (hit.windowId !== undefined) await chrome.windows.update(hit.windowId, { focused: true });
+    return;
+  }
+  await chrome.tabs.create({ url, active: true });
+}
+
+chrome.runtime.onInstalled.addListener(() => installContextMenus());
 chrome.runtime.onStartup.addListener(() => void ensureOffscreen());
 chrome.commands.onCommand.addListener((command) => {
   if (command === 'new-terminal' || command === 'new-terminal-alt') void openTerminal();
@@ -192,5 +299,6 @@ chrome.action.onClicked.addListener(() => void openTerminal());
 // Clicking a notification focuses the tab that owns the workspace, so this must be registered
 // every time the worker wakes, not once at install.
 installClickHandler();
+installContextMenus();
 void ensureOffscreen();
 void reportShortcuts();

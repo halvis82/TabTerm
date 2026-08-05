@@ -9,7 +9,15 @@
     "service_worker": "service-worker.js",
     "type": "module"
   },
-  "permissions": ["nativeMessaging", "notifications", "offscreen", "storage", "tabGroups", "tabs"],
+  "permissions": [
+    "contextMenus",
+    "nativeMessaging",
+    "notifications",
+    "offscreen",
+    "storage",
+    "tabGroups",
+    "tabs"
+  ],
   "icons": {
     "16": "icon16.png",
     "48": "icon48.png",

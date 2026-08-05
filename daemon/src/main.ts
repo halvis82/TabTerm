@@ -82,6 +82,16 @@ async function main(): Promise<void> {
       ...(s.signal !== undefined ? { signal: String(s.signal) } : {}),
     });
   };
+  events.onServerDetected = (s, port) => {
+    server.notifySession(s, { t: 'server-detected', sessionId: s.id, port });
+    // Low priority, so it never becomes a desktop notification. Starting a dev server is not
+    // an event that should interrupt anyone; the offer belongs in the tab that started it.
+    server.notify(
+      'low',
+      `Server on port ${String(port)}`,
+      `${s.titleFields.process ?? 'A process'} is listening on ${String(port)}.`,
+    );
+  };
   events.onCwd = (s) => {
     launcher.recordDir(s.cwd);
     const ws = workspaces.findBySession(s.id);
