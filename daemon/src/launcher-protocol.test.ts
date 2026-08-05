@@ -12,6 +12,7 @@ import { DEFAULTS, type Config } from './config.js';
 import { Database } from './database.js';
 import { LauncherData } from './launcher-data.js';
 import { initLog } from './log.js';
+import { ProjectTrust } from './project-trust.js';
 import { DaemonServer } from './server.js';
 import { SessionManager } from './session-manager.js';
 import { WorkspaceStore } from './workspace-store.js';
@@ -35,7 +36,13 @@ beforeAll(async () => {
   token = initAuth();
   sessions = new SessionManager(config, { onExit: () => {}, onStateChange: () => {} });
   launcher = new LauncherData(new Database(':memory:'));
-  server = new DaemonServer(config, sessions, new WorkspaceStore(), launcher);
+  server = new DaemonServer(
+    config,
+    sessions,
+    new WorkspaceStore(),
+    launcher,
+    new ProjectTrust(new Database(':memory:')),
+  );
   await server.listen();
 });
 

@@ -123,20 +123,69 @@ invocation, always paste rather than execute, and always show what will be inser
 
 ## 5. Project configuration trust
 
-The highest-severity surface in the project. A cloned repository can contain `.tabterm/`.
+The highest-severity surface in the project. A cloned repository can contain a `.tabterm.json`
+(or `.tabterm/workspace.json`), and the whole point of that file is to describe commands to run.
+
+Implemented in `daemon/src/project-config.ts` (parsing) and `daemon/src/project-trust.ts`
+(decisions). The two are separate on purpose: parsing decides what a file is even allowed to
+say, and trust decides whether anyone acts on it.
+
+### What a config may contain
 
 | Kind | Behavior |
 |---|---|
-| **Declarative JSON** (`workspace.json`, `commands.json`) | Applied without prompting. Schema-validated. `command` must be `string[]`. Cannot express arbitrary execution beyond the argv it declares, and those still only run when the user opens the workspace |
-| **Executable** (`plugin.ts`, any script) | **Never runs automatically, under any circumstance.** Requires an explicit trust grant per path, recorded with a content hash |
+| **Declarative JSON** — a layout tree, one argv per pane, an optional tab group | Parsed, validated, and *offered*. Never applied without a decision |
+| **Anything executable** — `plugin`, `script`, `exec`, `setup`, `preLaunch`, `postLaunch` | **Refused outright.** Not gated behind a prompt: refused. The whole file is rejected |
 
-Trust grants live in the `trust_grants` table with a content hash. Any change to the file
-invalidates the grant and re-prompts. The prompt shows a diff and offers Review, Trust and enable,
-and Ignore. There is no "trust all projects" setting.
+Refusing rather than prompting is deliberate. There is no version of "run this cloned
+repository's script" that is safe by default, and a prompt that appears often enough becomes a
+button people click without reading.
 
-Note that even declarative JSON declares commands that will be spawned. Applying a template without
-a prompt is acceptable because the user still has to open that workspace deliberately, and the
-argv is visible. Auto-running a project's commands on directory entry is not, and is not implemented.
+### Why argv, and only argv
+
+A command must be a JSON array of strings. A command given as a *string* is rejected rather
+than split. Splitting is exactly where shell metacharacters re-enter, so the file is simply
+unable to express anything a shell would reinterpret:
+
+```json
+{ "layout": { "terminal": { "command": ["grep", "-r", "$(whoami); rm -rf /"] } } }
+```
+
+Those characters reach `grep` as a literal argument and can never be re-interpreted. They are
+*not* stripped or escaped: sanitizing would be the wrong fix and would break legitimate
+commands. Every argv goes to `execvp`, never through a shell.
+
+Further limits, all of which reject rather than repair: 64 KB maximum file size, 8 panes,
+8 levels of nesting, 32 arguments per command, 2000 bytes per argument, no null bytes. A
+config that names a `sessionId` is ignored, so a repository cannot attach itself to a live
+shell. A declared `cwd` is confined to the project directory.
+
+### How trust is decided
+
+Approval is granted by a person, to specific bytes, and is never inferred.
+
+- **Keyed by content hash, not path.** Approving a config once must not approve whatever that
+  file says after a `git pull` or a branch switch. A changed file re-prompts, and says that it
+  changed since it was approved.
+- **Denials are remembered.** Otherwise a repository re-asks on every visit until someone
+  clicks through it.
+- **There is no "trust all projects" setting.** A blanket approval is indistinguishable from no
+  approval at all, and it is the setting an attacker is counting on.
+- **The prompt shows every command verbatim**, exactly as written in the file. Approving a
+  summary is not approving anything.
+
+Decisions live in the `project_trust` table (`path`, `content_hash`, `decision`, `decided_at`).
+
+### The daemon enforces this, not the page
+
+`launch-project-template` re-reads the file and re-checks trust server-side. A compromised
+extension page that sends the message directly gets `not-trusted` back. The client is never the
+authority on whether a prompt was shown. Covered by
+`daemon/src/project-protocol.test.ts`, including the supply-chain case end to end: approve,
+rewrite the file, and confirm the daemon refuses to launch it.
+
+Nothing here runs on directory entry. Trust decides only whether a workspace is *offered*; the
+commands still run when a person opens it.
 
 ---
 

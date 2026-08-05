@@ -10,6 +10,7 @@ import { SessionManager, type SessionEvents } from './session-manager.js';
 import { WorkspaceStore } from './workspace-store.js';
 import { Database } from './database.js';
 import { LauncherData } from './launcher-data.js';
+import { ProjectTrust } from './project-trust.js';
 
 /**
  * The daemon owns every PTY. No terminal process is ever tied to a Chrome page's lifetime,
@@ -40,11 +41,12 @@ async function main(): Promise<void> {
   const workspaces = new WorkspaceStore();
   const db = new Database();
   const launcher = new LauncherData(db);
+  const trust = new ProjectTrust(db);
   // Reap policy must know whether a session is a pane in a workspace, since workspaces are
   // pinned by default and their panes are never reaped on a timer. See ADR-0012.
   sessions.isInWorkspace = (sessionId) => workspaces.findBySession(sessionId) !== undefined;
 
-  const server = new DaemonServer(config, sessions, workspaces, launcher);
+  const server = new DaemonServer(config, sessions, workspaces, launcher, trust);
 
   events.onExit = (s) => {
     // A pane whose process failed is worth surfacing: the tab may be hidden, and a silent
@@ -58,8 +60,11 @@ async function main(): Promise<void> {
         where ? { workspaceId: where.id } : undefined,
       );
     }
-    // A pane whose process ended stops being a pane. The layout closes over it.
-    const surviving = workspaces.forgetSession(s.id);
+    // A pane whose process ended stops being a pane, so a shell you typed `exit` into takes
+    // its pane with it. A pane that was given a command is different: its output is the
+    // reason it existed, and closing it the instant the command finishes would throw away
+    // exactly what the user was waiting for. Those stay until they are closed deliberately.
+    const surviving = s.command?.length ? undefined : workspaces.forgetSession(s.id);
     if (surviving) {
       server.broadcast({
         t: 'workspace-updated',

@@ -297,10 +297,13 @@ CREATE TABLE saved_item_tags (
 );
 CREATE INDEX idx_tags_tag ON saved_item_tags(tag);
 
-CREATE TABLE trust_grants (
+-- Decisions about project-local config, keyed by the bytes that were decided about.
+-- Denials are stored too, so a repository cannot re-ask on every visit.
+CREATE TABLE project_trust (
   path TEXT PRIMARY KEY,
   content_hash TEXT NOT NULL,
-  granted_at INTEGER NOT NULL
+  decision TEXT NOT NULL,      -- 'trusted' | 'denied'
+  decided_at INTEGER NOT NULL
 );
 
 CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
@@ -315,37 +318,51 @@ terminal bytes in the database would make every history query slow and every bac
 
 ## 5. Workspace template schema
 
-Declarative JSON. **Never executes anything**, which is why it can be applied without a trust prompt
-while an executable project plugin cannot. See `05-security.md`.
+Declarative JSON, read from `.tabterm.json` or `.tabterm/workspace.json` in a project
+directory. It **never executes anything by itself**: it describes a layout whose commands run
+only when someone deliberately opens that workspace, after an explicit trust decision. See
+`05-security.md` §5 for the trust model and for what is refused outright.
 
 ```json
 {
   "name": "EEG workspace",
-  "cwd": "~/Projects/eeg-analysis",
+  "cwd": "analysis",
   "group": { "title": "EEG", "color": "blue" },
-  "env": { "PYTHONUNBUFFERED": "1" },
   "layout": {
     "direction": "horizontal",
     "ratio": 0.5,
     "children": [
       { "terminal": { "command": ["agent"] } },
-      { "direction": "vertical",
+      {
+        "direction": "vertical",
         "ratio": 0.5,
         "children": [
-          { "terminal": { "command": ["npm", "test", "--", "--watch"], "delayMs": 500 } },
+          { "terminal": { "command": ["npm", "test", "--", "--watch"] } },
           { "terminal": { "command": ["npm", "run", "dev"] } }
-        ] } ]
-  },
-  "cleanupPolicyId": "never",
-  "openUrls": ["http://localhost:3000"]
+        ]
+      }
+    ]
+  }
 }
 ```
 
-`command` is always `string[]` argv. A string form is rejected by the schema validator, so a template
+`command` is always `string[]` argv. A string form is **rejected**, not split, so a template
 can never smuggle shell metacharacters into an execution path.
 
-`color` is validated against Chrome's fixed tab-group enum. Arbitrary hex is not supported by Chrome.
-See `10-limitations.md` tier 1.5.
+`cwd` is resolved relative to the project directory and confined to it. A config cannot point
+its commands at an unrelated part of the filesystem.
+
+`color` is validated against Chrome's fixed tab-group enum, falling back to `blue`. Arbitrary
+hex is not supported by Chrome. See `10-limitations.md` tier 1.5.
+
+Limits, all of which reject the file rather than repairing it: 64 KB, 8 panes, 8 levels of
+nesting, 32 arguments per command, 2000 bytes per argument, no null bytes. A `sessionId` in the
+file is ignored rather than honored.
+
+**Deliberately not supported.** `env` (a repository setting environment variables for spawned
+processes is an execution surface with no upside), and any executable entry point. `delayMs`,
+`cleanupPolicyId`, and `openUrls` are not implemented; a pane starts when the workspace opens,
+and cleanup follows the normal policy in `04-session-lifecycle.md`.
 
 ---
 

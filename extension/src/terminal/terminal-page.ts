@@ -368,6 +368,23 @@ function buildLauncher(): void {
       client?.send({ t: 'forget-dir', path });
       client?.send({ t: 'list-launcher' });
     },
+    onInspectProject: (path) => client?.send({ t: 'inspect-project', cwd: path }),
+    onDecideProjectTrust: (info, decision) => {
+      client?.send({
+        t: 'decide-project-trust',
+        path: info.path,
+        contentHash: info.contentHash,
+        decision,
+      });
+      // Re-read rather than assume: the daemon is the authority on what the decision means,
+      // and the file may have changed between the prompt and the click.
+      client?.send({ t: 'inspect-project', cwd: info.path.replace(/\/[^/]+$/, '') });
+    },
+    onOpenProject: (path) => {
+      const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
+      client?.send({ t: 'launch-project-template', cwd: path, ...size });
+      launcher?.dismiss();
+    },
     onDismiss: () => panesHost?.focus(splitView?.focused ?? ''),
   });
 
@@ -663,6 +680,11 @@ function onControl(msg: ServerMessage): void {
     case 'launcher-state': {
       launcher?.setState(msg.state);
       savedItems = [...msg.state.saved];
+      return;
+    }
+
+    case 'project-config': {
+      launcher?.projectConfig(msg.cwd, msg.config);
       return;
     }
 

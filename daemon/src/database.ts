@@ -73,6 +73,20 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       CREATE INDEX idx_meta_ws ON session_meta(workspace_id);
     `,
   },
+  {
+    version: 2,
+    sql: `
+      -- Trust decisions for project-local config, keyed by the exact bytes that were approved.
+      -- Storing the hash rather than a flag is the whole point: editing the file, or checking
+      -- out a branch that changes it, invalidates the approval automatically.
+      CREATE TABLE project_trust (
+        path         TEXT PRIMARY KEY,
+        content_hash TEXT NOT NULL,
+        decision     TEXT NOT NULL,
+        decided_at   INTEGER NOT NULL
+      );
+    `,
+  },
 ];
 
 export class Database {

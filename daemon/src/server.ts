@@ -15,6 +15,7 @@ import {
   outputFrame,
   ProtocolError,
   type ClientMessage,
+  type LayoutNode,
   type ServerErrorCode,
   type ServerMessage,
 } from '@tabterm/shared';
@@ -25,6 +26,13 @@ import { debug, info, warn } from './log.js';
 import { openPath, resolvePaths } from './paths.js';
 import { processCwd } from './process-cwd.js';
 import type { LauncherData } from './launcher-data.js';
+import {
+  findProjectConfig,
+  leftmostTemplatePane,
+  templateCommandIndex,
+  type ProjectTemplate,
+} from './project-config.js';
+import { trustAction, type ProjectTrust } from './project-trust.js';
 import type { WorkspaceStore } from './workspace-store.js';
 import type { Session, SessionManager } from './session-manager.js';
 
@@ -40,6 +48,12 @@ interface Client {
   nextStream: number;
 }
 
+/**
+ * A trust decision names a file and its content, and nothing else. The template is irrelevant
+ * to recording an answer, so recording one never needs to re-parse the file.
+ */
+const EMPTY_TEMPLATE: ProjectTemplate = { name: '', layout: null, commands: [] };
+
 export class DaemonServer {
   readonly #http: Server;
   readonly #wss: WebSocketServer;
@@ -47,6 +61,7 @@ export class DaemonServer {
   readonly #sessions: SessionManager;
   readonly #workspaces: WorkspaceStore;
   readonly #launcher: LauncherData;
+  readonly #trust: ProjectTrust;
   readonly #clients = new Set<Client>();
 
   constructor(
@@ -54,11 +69,13 @@ export class DaemonServer {
     sessions: SessionManager,
     workspaces: WorkspaceStore,
     launcher: LauncherData,
+    trust: ProjectTrust,
   ) {
     this.#config = config;
     this.#sessions = sessions;
     this.#workspaces = workspaces;
     this.#launcher = launcher;
+    this.#trust = trust;
     this.#http = createServer((_req, res) => {
       res.writeHead(426);
       res.end('websocket only');
@@ -717,6 +734,32 @@ export class DaemonServer {
         return;
       }
 
+      case 'inspect-project': {
+        void this.#inspectProject(client, msg.cwd).catch((e: unknown) => {
+          warn('project.inspect.failed', { error: String(e) });
+          send(client.socket, controlFrame({ t: 'project-config', cwd: msg.cwd, config: null }));
+        });
+        return;
+      }
+
+      case 'decide-project-trust': {
+        // Recorded against the hash the user was actually shown. If the file changed between
+        // the prompt and the answer, the stored decision simply will not match it next time.
+        this.#trust.record(
+          { path: msg.path, contentHash: msg.contentHash, template: EMPTY_TEMPLATE },
+          msg.decision,
+        );
+        return;
+      }
+
+      case 'launch-project-template': {
+        void this.#launchProjectTemplate(client, msg).catch((e: unknown) => {
+          warn('project.launch.failed', { error: String(e) });
+          sendError(client.socket, 'internal', 'could not open that project workspace');
+        });
+        return;
+      }
+
       case 'list-sessions': {
         for (const s of this.#sessions.all) {
           send(
@@ -833,6 +876,128 @@ export class DaemonServer {
    * The path is expanded and resolved here rather than in the frontend, because the frontend
    * cannot see the filesystem and a path typed by a human is untrusted input like any other.
    */
+  /** Report what a directory declares, and what the user has already decided about it. */
+  async #inspectProject(client: Client, cwd: string): Promise<void> {
+    const target = expandPath(cwd);
+    const loaded = target ? await findProjectConfig(target) : null;
+    if (!loaded) {
+      send(client.socket, controlFrame({ t: 'project-config', cwd, config: null }));
+      return;
+    }
+
+    const state = this.#trust.evaluate(loaded);
+    send(
+      client.socket,
+      controlFrame({
+        t: 'project-config',
+        cwd,
+        config: {
+          path: loaded.path,
+          contentHash: loaded.contentHash,
+          name: loaded.template.name,
+          paneCount: Math.max(1, loaded.template.commands.length),
+          // Verbatim, so the prompt shows exactly what would run.
+          commands: loaded.template.commands,
+          action: trustAction(state),
+          ...(state.status === 'changed' && state.previousDecision
+            ? { changedSince: state.previousDecision }
+            : {}),
+        },
+      }),
+    );
+  }
+
+  /**
+   * Build the workspace a project declares.
+   *
+   * Reached only after an explicit trust decision, and re-checked here rather than taken on
+   * the client's word: a compromised page must not be able to skip the prompt by sending this
+   * message directly. See docs/05-security.md §5.
+   */
+  async #launchProjectTemplate(
+    client: Client,
+    msg: { cwd: string; cols: number; rows: number },
+  ): Promise<void> {
+    const target = expandPath(msg.cwd);
+    if (!target) {
+      sendError(client.socket, 'path-not-found', 'not a usable path');
+      return;
+    }
+    const loaded = await findProjectConfig(target);
+    if (!loaded) {
+      sendError(client.socket, 'path-not-found', 'no project config there');
+      return;
+    }
+    if (trustAction(this.#trust.evaluate(loaded)) !== 'offer') {
+      // Not an error the user needs to see as a failure: it means the file changed, or was
+      // never approved, and the honest answer is to ask again rather than to run it.
+      sendError(client.socket, 'not-trusted', 'this project config has not been approved');
+      return;
+    }
+
+    // A declared working directory is confined to the project. Letting a repository choose
+    // any directory on the machine would turn a layout into a way to point commands at
+    // someone else's files.
+    const declared = loaded.template.cwd ? resolvePath(target, loaded.template.cwd) : null;
+    const cwd =
+      declared && (declared === target || declared.startsWith(`${target}/`)) ? declared : target;
+    const commands = loaded.template.commands;
+    const spawn = (index: number): Session =>
+      this.#sessions.create({
+        cwd,
+        cols: msg.cols,
+        rows: msg.rows,
+        // argv straight through to execvp. Nothing in the file is ever handed to a shell.
+        ...(commands[index]?.length ? { command: commands[index] } : {}),
+      });
+
+    const layout = loaded.template.layout;
+    const first = spawn(layout ? templateCommandIndex(leftmostTemplatePane(layout)) : 0);
+    const { workspace, paneId } = this.#workspaces.create(first.id);
+    if (layout) this.#realizeTemplate(workspace.id, layout, paneId, spawn);
+
+    this.#launcher.recordDir(cwd);
+    info('project.launched', { path: loaded.path, panes: commands.length });
+    send(
+      client.socket,
+      controlFrame({
+        t: 'session-created',
+        sessionId: first.id,
+        streamId: 0,
+        pid: first.pid,
+        workspaceId: workspace.id,
+      }),
+    );
+  }
+
+  /**
+   * Turn a declared tree into real panes.
+   *
+   * Splits are applied in place, so the pane that is already there becomes the left child and
+   * each new session lands at the leftmost slot of the right child. That ordering is what
+   * makes each declared command reach the pane it was written for.
+   */
+  #realizeTemplate(
+    workspaceId: string,
+    node: LayoutNode,
+    hostPaneId: string,
+    spawn: (index: number) => Session,
+  ): void {
+    if (node.type === 'terminal') return;
+
+    const rightAnchor = leftmostTemplatePane(node.children[1]);
+    const session = spawn(templateCommandIndex(rightAnchor));
+    const { paneId: newPane } = this.#workspaces.split(
+      workspaceId,
+      hostPaneId,
+      node.direction,
+      session.id,
+    );
+    this.#workspaces.setRatio(workspaceId, hostPaneId, node.ratio);
+    this.#realizeTemplate(workspaceId, node.children[0], hostPaneId, spawn);
+    this.#realizeTemplate(workspaceId, node.children[1], newPane, spawn);
+  }
+
   async #createLayout(
     client: Client,
     msg: {

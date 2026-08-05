@@ -13,6 +13,7 @@ import { DEFAULTS, type Config } from './config.js';
 import { Database } from './database.js';
 import { LauncherData } from './launcher-data.js';
 import { initLog } from './log.js';
+import { ProjectTrust } from './project-trust.js';
 import { DaemonServer } from './server.js';
 import { SessionManager } from './session-manager.js';
 import { WorkspaceStore } from './workspace-store.js';
@@ -41,6 +42,7 @@ beforeAll(async () => {
     sessions,
     workspaces,
     new LauncherData(new Database(':memory:')),
+    new ProjectTrust(new Database(':memory:')),
   );
   await server.listen();
 });
