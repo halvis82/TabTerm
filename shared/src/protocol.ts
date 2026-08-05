@@ -299,6 +299,10 @@ export type ClientMessage =
   | { t: 'inspect-project'; cwd: string }
   | { t: 'decide-project-trust'; path: string; contentHash: string; decision: 'trusted' | 'denied' }
   | { t: 'launch-project-template'; cwd: string; cols: number; rows: number }
+  // Agent sessions that could be resumed. Listing is not resuming: the daemon reports what
+  // exists and a person decides. See docs/09-agent-integration.md.
+  | { t: 'list-resumable'; cwd?: string; limit?: number }
+  | { t: 'resume-agent'; sessionId: string; cwd: string; cols: number; rows: number }
   | { t: 'list-sessions' }
   | { t: 'list-workspaces' }
   | { t: 'subscribe'; topics: readonly string[] };
@@ -439,7 +443,16 @@ export type ServerMessage =
       /** Null when the directory has no config, or has one that was refused outright. */
       config: ProjectConfigInfo | null;
     }
+  | { t: 'resumable-sessions'; sessions: readonly ResumableAgentSession[] }
   | { t: 'error'; code: ServerErrorCode; message: string; context?: string };
+
+export interface ResumableAgentSession {
+  sessionId: string;
+  cwd: string;
+  modifiedAt: number;
+  /** First words of what the user asked. A label only, absent when it cannot be read. */
+  summary?: string;
+}
 
 /**
  * A project config as presented to the user before they decide about it.

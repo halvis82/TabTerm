@@ -124,14 +124,37 @@ Chrome and other extensions may reserve combinations.
 
 ## 6. Session resume
 
-agent CLI persists its own session records. TabTerm reads them to offer resume, per the session resume work.
+The agent CLI keeps its own session records under `~/.claude/projects/`. TabTerm reads them to
+offer resume. Implemented in `daemon/src/agent-sessions.ts`.
 
-- Resume IDs are discovered from the agent's session store, not guessed
-- Offered on the expired-session recovery page and in the launcher
-- **Never auto-resumes.** Always an explicit action
-- If the store format changes, discovery returns nothing and the feature disappears cleanly. No crash
+- Resume IDs are discovered from the store, never guessed
+- Offered in the launcher and on the expired-session recovery page
+- **Never auto-resumes.** Listing is not resuming; a person clicks
+- The id is passed as argv to the agent CLI, never through a shell
 
-This is what makes reboot restore (the reboot restore work) meaningful for the agent panes: the process cannot survive,
+### Reading somebody else's format
+
+This is an undocumented on-disk format that is free to change. Every assumption is checked and
+every failure means "offer nothing" rather than an error. A store that has moved or changed
+shape degrades to a launcher with no resume rows, never to a broken launcher.
+
+**The directory naming is lossy and cannot be reversed.** The store names a directory after its
+path with separators replaced, and underscores and dots are flattened the same way, so
+`/a/b_c`, `/a/b-c` and `/a/b/c` all become `-a-b-c`. Guessing would attach a resume to the
+wrong project.
+
+The way around it is to go the other direction: the daemon encodes directories it already knows
+from `recent_dirs` and looks for those names in the store. That is exact and free. Store
+directories that no known path accounts for fall back to candidate decoding, and each candidate
+is confirmed against the filesystem before being used; one that resolves to nothing is skipped.
+
+**Labels are a bounded head read.** Session files reach megabytes and the first real message can
+sit well past the start, behind session metadata and hook output, so 128 KB is read looking for
+the first thing a person actually typed. Assistant turns, tool results, and injected context
+wrapped in a tag are all skipped, since none of them make a useful label. A session with no
+readable label still appears, identified by its id.
+
+This is what would make reboot restore meaningful for agent panes: the process cannot survive,
 but the conversation can be picked back up.
 
 ---

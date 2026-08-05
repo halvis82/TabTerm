@@ -33,6 +33,7 @@ import {
   type ProjectTemplate,
 } from './project-config.js';
 import { trustAction, type ProjectTrust } from './project-trust.js';
+import { listResumable } from './agent-sessions.js';
 import type { ProjectIndex } from './project-index.js';
 import type { WorkspaceStore } from './workspace-store.js';
 import type { Session, SessionManager } from './session-manager.js';
@@ -798,6 +799,49 @@ export class DaemonServer {
           warn('project.launch.failed', { error: String(e) });
           sendError(client.socket, 'internal', 'could not open that project workspace');
         });
+        return;
+      }
+
+      case 'list-resumable': {
+        void listResumable({
+          ...(msg.cwd ? { cwd: msg.cwd } : {}),
+          // Known directories make the store's lossy directory naming exact rather than a
+          // guess. See daemon/src/agent-sessions.ts.
+          knownDirs: this.#launcher.recentDirs(40).map((d) => d.path),
+          limit: msg.limit ?? 8,
+        })
+          .then((sessions) => {
+            send(client.socket, controlFrame({ t: 'resumable-sessions', sessions }));
+          })
+          .catch(() => {
+            // Discovery reads somebody else's file format. It failing means no offer, and
+            // never an error the user has to think about.
+            send(client.socket, controlFrame({ t: 'resumable-sessions', sessions: [] }));
+          });
+        return;
+      }
+
+      case 'resume-agent': {
+        // Resuming is a spawn like any other. The id came from the store, but it is passed as
+        // argv to the agent CLI and never through a shell.
+        const session = this.#sessions.create({
+          cwd: msg.cwd,
+          cols: msg.cols,
+          rows: msg.rows,
+          command: [...this.#config.agentCommand, '--resume', msg.sessionId],
+        });
+        this.#launcher.recordDir(msg.cwd);
+        const { workspace } = this.#workspaces.create(session.id);
+        send(
+          client.socket,
+          controlFrame({
+            t: 'session-created',
+            sessionId: session.id,
+            streamId: 0,
+            pid: session.pid,
+            workspaceId: workspace.id,
+          }),
+        );
         return;
       }
 
