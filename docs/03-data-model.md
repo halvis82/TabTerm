@@ -400,7 +400,42 @@ and cleanup follows the normal policy in `04-session-lifecycle.md`.
 
 ---
 
-## 6. Retention
+## 6. History search
+
+`daemon/src/history-query.ts` parses, `LauncherData.search` runs it.
+
+**No user text ever reaches a SQL string.** The parser decides the column and the operator; every
+value it extracts becomes a bound parameter. That is the property that makes accepting a query
+language from a text box reasonable at all.
+
+| Filter | Examples |
+|---|---|
+| `project:` / `repo:` | `project:tabterm` — matched on the repository name, since nobody types an absolute path |
+| `cwd:` / `dir:` | `cwd:/w/app` — the directory and everything under it. Quote values with spaces |
+| `exit:` | `exit:ok`, `exit:fail`, `exit:130` |
+| `duration:` | `duration:>2s`, `duration:<500ms`, `duration:1m` (bare means at least) |
+| `host:` | `host:build-box` — remote sessions only |
+| `since:` / `before:` | `since:2d`, `before:1w` — resolved against a clock passed in, so it is deterministic |
+
+Anything unrecognized stays in the free text rather than raising an error. A half-typed
+`duration:` is someone mid-word, not a mistake.
+
+**Scopes** — global, project, directory, session — are a click in the palette rather than syntax
+to remember, and are resolved from the session the user is looking at, never from anything the
+page asserts. A scope with no context to resolve against applies no filter, because silently
+showing an empty history would be worse than showing everything.
+
+**Filters run in SQL, free text runs in code.** Indexes cannot express a subsequence match,
+which is what makes `gco` find `git checkout`, so the database narrows to a page-sized candidate
+set and the fuzzy pass runs on that. If the page comes back short, one bounded wider read
+follows. The table is never loaded wholesale.
+
+Results page by `offset`; a short page is the last page. Measured on 100k rows in
+`11-performance.md`.
+
+---
+
+## 7. Retention
 
 | Data | Default retention | Mode: low | Mode: full |
 |---|---|---|---|

@@ -268,7 +268,16 @@ export type ClientMessage =
     }
   | { t: 'list-launcher' }
   | { t: 'recall-workspace'; workspaceId: string }
-  | { t: 'list-history'; query?: string; limit?: number }
+  | {
+      t: 'list-history';
+      query?: string;
+      /** Applied on top of the query. The daemon supplies the context from the session. */
+      scope?: HistoryScope;
+      /** Which session's project and directory a scope resolves against. */
+      sessionId?: string;
+      limit?: number;
+      offset?: number;
+    }
   | { t: 'save-item'; title: string; body: string; tags?: readonly string[] }
   | { t: 'delete-saved'; id: string }
   | { t: 'use-saved'; id: string }
@@ -301,6 +310,8 @@ export type ClientMessage =
  * Each maps to one specific structured spawn. The frontend chooses by modifier; the daemon
  * decides what that means, because only the daemon can see the filesystem.
  */
+export type HistoryScope = 'global' | 'project' | 'directory' | 'session';
+
 export type OpenHow = 'default-app' | 'reveal-in-finder' | 'editor' | 'gui-editor' | 'new-terminal';
 
 /** A pane, paired with the stream that carries its terminal output. */
@@ -382,7 +393,16 @@ export type ServerMessage =
   | { t: 'server-detected'; sessionId: string; port: number }
   | { t: 'paths-resolved'; sessionId: string; cwd: string; results: readonly ResolvedPath[] }
   | { t: 'launcher-state'; state: LauncherState }
-  | { t: 'history-page'; entries: readonly CommandEntry[] }
+  | {
+      t: 'history-page';
+      entries: readonly CommandEntry[];
+      offset: number;
+      /** False when the page came back short, which is how the UI knows to stop asking. */
+      hasMore: boolean;
+      /** What was actually applied, so the UI can show it rather than guess. */
+      appliedFilters: readonly string[];
+      scope: HistoryScope;
+    }
   | { t: 'saved-updated'; saved: readonly SavedItem[] }
   | {
       /**

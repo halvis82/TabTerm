@@ -49,7 +49,7 @@ async function main(): Promise<void> {
   // pinned by default and their panes are never reaped on a timer. See ADR-0012.
   sessions.isInWorkspace = (sessionId) => workspaces.findBySession(sessionId) !== undefined;
 
-  const server = new DaemonServer(config, sessions, workspaces, launcher, trust);
+  const server = new DaemonServer(config, sessions, workspaces, launcher, trust, projects);
 
   events.onExit = (s) => {
     // A pane whose process failed is worth surfacing: the tab may be hidden, and a silent
@@ -113,7 +113,7 @@ async function main(): Promise<void> {
       completedAt: Date.now(),
       interrupted: exitCode === 130,
     });
-    launcher.recordCommand({ command, cwd: s.cwd, exitCode, durationMs });
+    launcher.recordCommand({ command, cwd: s.cwd, exitCode, durationMs, sessionId: s.id });
     const ws = workspaces.findBySession(s.id);
     launcher.rememberSession({
       id: s.id,

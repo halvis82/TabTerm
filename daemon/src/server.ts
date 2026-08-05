@@ -33,6 +33,7 @@ import {
   type ProjectTemplate,
 } from './project-config.js';
 import { trustAction, type ProjectTrust } from './project-trust.js';
+import type { ProjectIndex } from './project-index.js';
 import type { WorkspaceStore } from './workspace-store.js';
 import type { Session, SessionManager } from './session-manager.js';
 
@@ -62,6 +63,7 @@ export class DaemonServer {
   readonly #workspaces: WorkspaceStore;
   readonly #launcher: LauncherData;
   readonly #trust: ProjectTrust;
+  readonly #projects: ProjectIndex;
   readonly #clients = new Set<Client>();
 
   constructor(
@@ -70,12 +72,14 @@ export class DaemonServer {
     workspaces: WorkspaceStore,
     launcher: LauncherData,
     trust: ProjectTrust,
+    projects: ProjectIndex,
   ) {
     this.#config = config;
     this.#sessions = sessions;
     this.#workspaces = workspaces;
     this.#launcher = launcher;
     this.#trust = trust;
+    this.#projects = projects;
     this.#http = createServer((_req, res) => {
       res.writeHead(426);
       res.end('websocket only');
@@ -679,11 +683,38 @@ export class DaemonServer {
       }
 
       case 'list-history': {
+        // A scope is resolved from the session the user is looking at, not from anything the
+        // page asserts, so "this project" always means the project they are actually in.
+        const scope = msg.scope ?? 'global';
+        const session = msg.sessionId ? this.#sessions.get(msg.sessionId) : undefined;
+        const limit = msg.limit ?? 100;
+        const offset = msg.offset ?? 0;
+        const context = session
+          ? {
+              cwd: session.cwd,
+              sessionId: session.id,
+              ...(this.#projects.cached(session.cwd)?.root
+                ? { gitRoot: this.#projects.cached(session.cwd)?.root as string }
+                : {}),
+            }
+          : {};
+
+        const entries = this.#launcher.search({
+          query: msg.query ?? '',
+          scope,
+          context,
+          limit,
+          offset,
+        });
         send(
           client.socket,
           controlFrame({
             t: 'history-page',
-            entries: this.#launcher.history(msg.query ?? '', msg.limit ?? 200),
+            entries,
+            offset,
+            hasMore: entries.length >= limit,
+            appliedFilters: this.#launcher.lastApplied,
+            scope,
           }),
         );
         return;
@@ -712,7 +743,17 @@ export class DaemonServer {
 
       case 'clear-history': {
         this.#launcher.clearHistory();
-        send(client.socket, controlFrame({ t: 'history-page', entries: [] }));
+        send(
+          client.socket,
+          controlFrame({
+            t: 'history-page',
+            entries: [],
+            offset: 0,
+            hasMore: false,
+            appliedFilters: [],
+            scope: 'global',
+          }),
+        );
         return;
       }
 
