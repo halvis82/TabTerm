@@ -9,10 +9,19 @@
     "service_worker": "service-worker.js",
     "type": "module"
   },
-  "permissions": ["offscreen", "storage", "tabs", "tabGroups", "nativeMessaging"],
-  "icons": {},
+  "permissions": ["nativeMessaging", "notifications", "offscreen", "storage", "tabGroups", "tabs"],
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
   "action": {
-    "default_title": "New terminal"
+    "default_title": "New terminal",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
   },
   "commands": {
     "new-terminal": {

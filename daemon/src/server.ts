@@ -81,6 +81,21 @@ export class DaemonServer {
     });
   }
 
+  /**
+   * Raise something for the user's attention.
+   *
+   * Goes only to control connections, because a terminal page may be hidden or already
+   * discarded and cannot be relied on to deliver anything. See ADR-0003.
+   */
+  notify(
+    priority: 'critical' | 'important' | 'low',
+    title: string,
+    body: string,
+    target?: { workspaceId?: string; paneId?: string },
+  ): void {
+    this.broadcast({ t: 'notify', priority, title, body, ...(target ? { target } : {}) });
+  }
+
   broadcast(message: ServerMessage): void {
     for (const c of this.#clients) {
       if (c.authed && c.role === 'control') send(c.socket, controlFrame(message));

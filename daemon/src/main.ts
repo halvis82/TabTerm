@@ -46,6 +46,17 @@ async function main(): Promise<void> {
   const server = new DaemonServer(config, sessions, workspaces, launcher);
 
   events.onExit = (s) => {
+    // A pane whose process failed is worth surfacing: the tab may be hidden, and a silent
+    // failure is one the user finds much later. A clean exit is not worth interrupting for.
+    if ((s.exitCode ?? 0) !== 0) {
+      const where = workspaces.findBySession(s.id);
+      server.notify(
+        'important',
+        'Process failed',
+        `${s.titleFields.cwd ?? s.cwd} exited with ${String(s.exitCode ?? 0)}`,
+        where ? { workspaceId: where.id } : undefined,
+      );
+    }
     // A pane whose process ended stops being a pane. The layout closes over it.
     const surviving = workspaces.forgetSession(s.id);
     if (surviving) {

@@ -1,4 +1,5 @@
 import { getToken } from './transport/token.js';
+import { installClickHandler, notify, type NotifyPriority } from './chrome/notifications.js';
 
 /**
  * Service worker: dispatch only.
@@ -57,6 +58,65 @@ async function ensureOffscreen(): Promise<void> {
   }
 }
 
+/**
+ * Group colors Chrome accepts.
+ *
+ * `chrome.tabGroups` takes only this fixed enum, never an arbitrary hex value. Picking one by
+ * hashing the project name keeps a given project the same color between sessions without
+ * storing anything. See docs/10-limitations.md tier 1.5.
+ */
+const GROUP_COLORS: chrome.tabGroups.ColorEnum[] = [
+  'blue',
+  'cyan',
+  'green',
+  'yellow',
+  'orange',
+  'pink',
+  'purple',
+  'red',
+];
+
+function colorFor(name: string): chrome.tabGroups.ColorEnum {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return GROUP_COLORS[hash % GROUP_COLORS.length] as chrome.tabGroups.ColorEnum;
+}
+
+/**
+ * Put a terminal in the right group.
+ *
+ * Inheriting the current tab's group is what makes a terminal land beside the work it belongs
+ * to. When there is no group to inherit, nothing is created: silently grouping a lone tab
+ * would be the extension rearranging a tab strip nobody asked it to touch.
+ */
+async function placeInGroup(
+  createdTabId: number,
+  sourceGroupId: number | undefined,
+): Promise<void> {
+  if (sourceGroupId === undefined || sourceGroupId === chrome.tabGroups.TAB_GROUP_ID_NONE) return;
+  try {
+    await chrome.tabs.group({ groupId: sourceGroupId, tabIds: [createdTabId] });
+  } catch {
+    /* the group may have closed between the query and here */
+  }
+}
+
+/**
+ * Group a terminal with its project, creating the group if needed.
+ *
+ * Only ever called from an explicit user action, never automatically on `cd`.
+ */
+export async function groupByProject(tabId: number, projectName: string): Promise<void> {
+  const existing = await chrome.tabGroups.query({ title: projectName });
+  const target = existing[0];
+  if (target) {
+    await chrome.tabs.group({ groupId: target.id, tabIds: [tabId] });
+    return;
+  }
+  const groupId = await chrome.tabs.group({ tabIds: [tabId] });
+  await chrome.tabGroups.update(groupId, { title: projectName, color: colorFor(projectName) });
+}
+
 async function openTerminal(): Promise<void> {
   const [current] = await chrome.tabs.query({ active: true, currentWindow: true });
   const created = await chrome.tabs.create({
@@ -64,19 +124,37 @@ async function openTerminal(): Promise<void> {
     index: current ? current.index + 1 : undefined,
     active: true,
   });
-  // Inherit the current tab's group, so a terminal lands beside the work it belongs to.
-  if (current?.groupId !== undefined && current.groupId > -1 && created.id !== undefined) {
-    try {
-      await chrome.tabs.group({ groupId: current.groupId, tabIds: [created.id] });
-    } catch {
-      /* the group may have closed between the query and here */
-    }
-  }
-  void ensureOffscreen();
-  void reportShortcuts();
+  if (created.id !== undefined) await placeInGroup(created.id, current?.groupId);
 }
 
-chrome.runtime.onMessage.addListener((msg: { t?: string }, _sender, sendResponse) => {
+interface NotifyMessage {
+  t: string;
+  priority?: NotifyPriority;
+  title?: string;
+  body?: string;
+  target?: { workspaceId?: string; paneId?: string };
+}
+
+chrome.runtime.onMessage.addListener((msg: NotifyMessage, _sender, sendResponse) => {
+  // Raised by the offscreen document, which holds the daemon connection but has only
+  // chrome.runtime and cannot fire a notification itself.
+  if (msg.t === 'tabterm:notify' && msg.title && msg.body) {
+    void notify({
+      priority: msg.priority ?? 'important',
+      title: msg.title,
+      body: msg.body,
+      ...(msg.target ? { target: msg.target } : {}),
+    });
+    sendResponse({ ok: true });
+    return false;
+  }
+
+  // A bare ping exists only to wake this worker, which is a side effect of any message.
+  if (msg.t === 'tabterm:ping-for-wake') {
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (msg.t !== 'tabterm:need-credentials') return false;
   void (async () => {
     sendResponse({ token: await getToken(), clientId: await clientId() });
@@ -84,10 +162,7 @@ chrome.runtime.onMessage.addListener((msg: { t?: string }, _sender, sendResponse
   return true; // keep the channel open for the async reply
 });
 
-chrome.runtime.onInstalled.addListener(() => {
-  void ensureOffscreen();
-  void reportShortcuts();
-});
+chrome.runtime.onInstalled.addListener(() => {});
 chrome.runtime.onStartup.addListener(() => void ensureOffscreen());
 chrome.commands.onCommand.addListener((command) => {
   if (command === 'new-terminal' || command === 'new-terminal-alt') void openTerminal();
@@ -114,4 +189,8 @@ async function reportShortcuts(): Promise<void> {
 }
 chrome.action.onClicked.addListener(() => void openTerminal());
 
+// Clicking a notification focuses the tab that owns the workspace, so this must be registered
+// every time the worker wakes, not once at install.
+installClickHandler();
 void ensureOffscreen();
+void reportShortcuts();

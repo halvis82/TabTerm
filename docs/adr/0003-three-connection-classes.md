@@ -20,7 +20,11 @@ Three classes:
 - **Dispatch** — service worker. Wakes for a command or context menu, forwards, dies. Holds nothing.
 
 ## Consequences
-- Notifications and daemon-initiated tab creation originate only from the offscreen document.
+- Daemon-initiated actions are **triggered** by the offscreen document and **fired** by the service
+  worker. The offscreen document is given only `chrome.runtime`, so it cannot fire a notification
+  or open a tab itself. Its relay message wakes the worker, which by then has died. This was
+  discovered by measurement after the decision, and does not change the decision: the offscreen
+  document is still the only context that reliably hears from the daemon.
 - The control connection must be idempotent on reconnect: the daemon re-sends current state rather
   than a delta, so a missed window costs nothing.
 - the service worker lifetime spike must measure real offscreen document lifetime before anything depends on it.

@@ -209,9 +209,16 @@ put their edits, since `.zshrc` runs for interactive non-login shells and `.zpro
 login shell is the only spawn that works regardless of dotfile layout.
 
 ### 2.11 Offscreen documents get only chrome.runtime
-Measured. An offscreen document has no `chrome.storage` and no `chrome.runtime.sendNativeMessage`,
-so it cannot obtain the daemon token by itself. It must ask the service worker, which has the full
-API surface. Only one offscreen document may exist, and concurrent creation attempts throw.
+Measured on Chrome 150, and broader than it first appears. An offscreen document has **only**
+`chrome.runtime`. There is no `chrome.storage`, no `chrome.runtime.sendNativeMessage`, no
+`chrome.notifications`, no `chrome.tabs`, no `chrome.tabGroups`, and no `chrome.windows`.
+
+So the context that can always hear from the daemon cannot act on anything, and the context that
+can act, the service worker, is dead most of the time. Every daemon-initiated action is therefore a
+relay: the offscreen document sends a runtime message, which both wakes the worker and asks it to
+do the thing. Verified end to end with the worker confirmed dead beforehand.
+
+Only one offscreen document may exist, and concurrent creation attempts throw.
 See `06-chrome-integration.md` §2.
 
 ### 2.12 Chrome cannot execute anything in a TCC-protected folder

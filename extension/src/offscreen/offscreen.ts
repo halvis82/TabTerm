@@ -23,8 +23,26 @@ function start(token: string, clientId: string): void {
     token,
     clientId: `${clientId}:control`,
     role: 'control',
-    onControl: () => {
-      /* Session state events land here. Notifications are wired in a later phase. */
+    onControl: (msg) => {
+      // Anything that must reach the user while every terminal tab is hidden or discarded
+      // originates here, because this is the only context that survives both.
+      if (msg.t === 'notify') {
+        // Measured: an offscreen document is given ONLY chrome.runtime. It has no
+        // chrome.notifications, so it relays to the service worker, which has the full API
+        // surface. Sending the message also wakes the worker, which by now has died.
+        // See docs/06-chrome-integration.md §2.
+        void chrome.runtime
+          .sendMessage({
+            t: 'tabterm:notify',
+            priority: msg.priority,
+            title: msg.title,
+            body: msg.body,
+            target: msg.target,
+          })
+          .catch(() => {
+            /* the worker may be mid-restart; a dropped notification is not worth retrying */
+          });
+      }
     },
     onOutput: () => {
       /* The control connection carries no terminal output. */

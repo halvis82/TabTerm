@@ -363,6 +363,19 @@ export type ServerMessage =
   | { t: 'history-page'; entries: readonly CommandEntry[] }
   | { t: 'saved-updated'; saved: readonly SavedItem[] }
   | {
+      /**
+       * Something that must reach the user even with no terminal tab on screen.
+       *
+       * Delivered on the control connection, because the offscreen document is the only
+       * context that survives both a hidden tab and a discarded one.
+       */
+      t: 'notify';
+      priority: 'critical' | 'important' | 'low';
+      title: string;
+      body: string;
+      target?: { workspaceId?: string; paneId?: string };
+    }
+  | {
       /** What a tab can offer after its session is gone. */
       t: 'workspace-recall';
       workspaceId: string;

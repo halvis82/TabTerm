@@ -50,8 +50,17 @@ prompt arriving while all terminal tabs are hidden produces no notification. The
 that looks idle. With the connection in a terminal page, the same happens the moment Chrome discards
 that tab.
 
-Notifications and daemon-initiated tab creation therefore originate **only** from the offscreen
-document. Never from a terminal page.
+Notifications and daemon-initiated tab actions are **triggered** by the offscreen document, which
+is the only context that survives both a hidden tab and a discarded one. They are **fired** by the
+service worker, which is the only context with the APIs.
+
+The offscreen document relays over `chrome.runtime.sendMessage`, and that message also wakes the
+worker, which by then has died. Verified: with the worker confirmed dead after idling out, a relay
+from the offscreen document woke it and it fired a notification.
+
+This is a three-step path rather than a two-step one, and the reason is worth stating plainly. The
+context that can always hear from the daemon cannot act, and the context that can act cannot always
+be listening. Neither alone is sufficient.
 
 ### What an offscreen document is actually given
 
@@ -62,7 +71,13 @@ Measured on Chrome 150, and it constrains the design:
 | `chrome.runtime` | ✅ | ✅ | ✅ |
 | `chrome.storage` | ❌ **undefined** | ✅ | ✅ |
 | `chrome.runtime.sendNativeMessage` | ❌ **undefined** | ✅ | ✅ |
+| `chrome.notifications` | ❌ **undefined** | ✅ | ✅ |
+| `chrome.tabs` / `chrome.tabGroups` | ❌ **undefined** | ✅ | ✅ |
+| `chrome.windows` | ❌ **undefined** | ✅ | ✅ |
 | `WebSocket` | ✅ | ✅ | ✅ |
+
+Measured on Chrome 150: an offscreen document is given **only `chrome.runtime`**. Everything else
+is undefined there, not merely restricted.
 
 An offscreen document therefore **cannot fetch the daemon token itself**. It has no storage to
 cache it in and no native messaging to obtain it. It asks the service worker, which has the full

@@ -377,7 +377,7 @@ describe('startup herd', () => {
       elapsed,
       `${String(COUNT)} simultaneous restores took ${String(elapsed)}ms`,
     ).toBeLessThan(8000);
-    console.log(`      ${String(COUNT)} simultaneous restores completed in ${String(elapsed)}ms`);
+    console.warn(`      ${String(COUNT)} simultaneous restores completed in ${String(elapsed)}ms`);
 
     for (const c of clients) c.close();
   });
