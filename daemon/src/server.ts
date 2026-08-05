@@ -254,11 +254,42 @@ export class DaemonServer {
 
       case 'attach-workspace': {
         const workspace = this.#workspaces.get(msg.workspaceId);
-        if (!workspace) {
-          sendError(client.socket, 'session-expired', 'no such workspace');
+        if (workspace) {
+          this.#attachWorkspace(client, msg.workspaceId, msg.cols, msg.rows);
           return;
         }
-        this.#attachWorkspace(client, msg.workspaceId, msg.cols, msg.rows);
+
+        // The workspace is gone. If its session was merged into another tab and is still
+        // alive, restoring this tab means the user wants it back here, so hand it back
+        // rather than reporting an expiry. See docs/04-session-lifecycle.md §7.
+        const moved = this.#mergedAway.get(msg.workspaceId);
+        const session = moved ? this.#sessions.get(moved.sessionId) : undefined;
+        if (moved && session) {
+          const host = this.#workspaces.findBySession(moved.sessionId);
+          if (host) {
+            const pane = this.#workspaces.paneFor(host, moved.sessionId);
+            if (pane && panes(host.layout).length > 1) {
+              this.#workspaces.detachToNewWorkspace(host.id, pane);
+              this.#broadcastLayout(host.id);
+            }
+          }
+          const revived = this.#workspaces.findBySession(moved.sessionId);
+          this.#mergedAway.delete(msg.workspaceId);
+          if (revived) {
+            info('workspace.auto-detached', { restored: msg.workspaceId, into: revived.id });
+            send(
+              client.socket,
+              controlFrame({
+                t: 'pane-detached',
+                workspaceId: msg.workspaceId,
+                newWorkspaceId: revived.id,
+              }),
+            );
+            return;
+          }
+        }
+
+        sendError(client.socket, 'session-expired', 'no such workspace');
         return;
       }
 
@@ -346,7 +377,12 @@ export class DaemonServer {
           // Whoever was rendering the source workspace needs to hear about it. If the merge
           // took its last pane, the workspace is gone and that tab has nothing left to show.
           if (source) this.#broadcastLayout(source.id);
-          else if (sourceId) this.#notifyWorkspaceGone(sourceId);
+          else if (sourceId) {
+            // Its last pane left, so the workspace is gone. Remember where the session went,
+            // so restoring that tab can pull it back instead of reporting an expiry.
+            this.#mergedAway.set(sourceId, { sessionId: msg.sessionId, at: Date.now() });
+            this.#notifyWorkspaceGone(sourceId);
+          }
           this.#attachWorkspace(client, msg.workspaceId, 80, 24);
           this.#broadcastLayout(msg.workspaceId);
         } catch (e) {
@@ -760,6 +796,15 @@ export class DaemonServer {
       }),
     );
   }
+
+  /**
+   * Workspaces whose last pane was merged elsewhere, and where it went.
+   *
+   * Chrome cannot be told to forget a closed tab, so restoring one of these URLs is normal.
+   * The session is alive and visible in another tab, and the right response is to hand it
+   * back rather than to claim it expired. See docs/04-session-lifecycle.md §7.
+   */
+  readonly #mergedAway = new Map<string, { sessionId: string; at: number }>();
 
   /** Tell anyone rendering a workspace that it no longer exists. */
   #notifyWorkspaceGone(workspaceId: string): void {

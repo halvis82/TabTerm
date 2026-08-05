@@ -199,3 +199,69 @@ describe('durability', () => {
     back.close();
   });
 });
+
+describe('a merged-away tab, restored', () => {
+  it('gets its session handed back instead of being told it expired', async () => {
+    // Two tabs, each with a session. Merge the second into the first, which empties the
+    // second's workspace. Chrome cannot be told to forget that tab, so restoring its URL is
+    // normal, and the session is alive in the other tab rather than gone.
+    const a = await makeSession('merge-a');
+    const b = await makeSession('merge-b');
+    b.c.type('echo MERGED-AWAY-MARKER\r');
+    await sleep(900);
+
+    const hostWorkspace = workspaces.findBySession(a.sessionId);
+    const targetPane = hostWorkspace ? workspaces.paneFor(hostWorkspace, a.sessionId) : undefined;
+    expect(targetPane).toBeTruthy();
+
+    const orphanedWorkspace = workspaces.findBySession(b.sessionId)?.id;
+    a.c.send({
+      t: 'merge-into',
+      workspaceId: hostWorkspace?.id ?? '',
+      targetPaneId: targetPane ?? '',
+      sessionId: b.sessionId,
+      direction: 'horizontal',
+    });
+    await sleep(1200);
+
+    // The second workspace is gone, its session now a pane in the first.
+    expect(workspaces.get(orphanedWorkspace ?? '')).toBeUndefined();
+    b.c.close();
+    await sleep(400);
+
+    // Restoring the closed tab: it must come back with the session, not an expiry notice.
+    const restored = await C.connect('merge-b-restored');
+    restored.send({
+      t: 'attach-workspace',
+      workspaceId: orphanedWorkspace ?? '',
+      cols: 80,
+      rows: 24,
+    });
+    const handedBack = (await restored.wait('pane-detached')) as unknown as {
+      newWorkspaceId: string;
+    };
+    expect(handedBack.newWorkspaceId).toBeTruthy();
+
+    restored.send({
+      t: 'attach-workspace',
+      workspaceId: handedBack.newWorkspaceId,
+      cols: 80,
+      rows: 24,
+    });
+    const snap = (await restored.wait('snapshot')) as unknown as { snapshot: { screen: string } };
+    expect(snap.snapshot.screen, 'the same session, with its history').toContain(
+      'MERGED-AWAY-MARKER',
+    );
+
+    restored.close();
+    a.c.close();
+  });
+
+  it('still reports an expiry when the session is genuinely gone', async () => {
+    const c = await C.connect('really-gone');
+    c.send({ t: 'attach-workspace', workspaceId: 'no-such-workspace-at-all', cols: 80, rows: 24 });
+    const err = (await c.wait('error')) as unknown as { code: string };
+    expect(err.code).toBe('session-expired');
+    c.close();
+  });
+});
