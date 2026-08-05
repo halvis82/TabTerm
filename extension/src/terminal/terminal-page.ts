@@ -151,6 +151,9 @@ function setFavicon(state: FaviconState): void {
   faviconState = state;
   clearInterval(animTimer);
   animTimer = undefined;
+  // In the lowest memory mode a hidden tab stops redrawing its icon. Nothing is lost: the
+  // favicon is brought up to date the moment the tab is looked at again.
+  if (!memorySettings.faviconWhileHidden && document.visibilityState === 'hidden') return;
   applyFavicon(drawFavicon(state, animPhase));
   if (state === 'running' && document.visibilityState === 'visible') {
     animTimer = window.setInterval(() => {
@@ -552,6 +555,32 @@ function quote(path: string): string {
 }
 
 /** The session behind the focused pane, which is what a scoped search resolves against. */
+/**
+ * The memory mode's frontend half.
+ *
+ * Defaults match `balanced`, so a page that has not heard from the daemon yet behaves the way
+ * the shipped configuration does rather than the most aggressive one.
+ */
+let memorySettings = {
+  rendererUnloadMs: 120_000,
+  faviconWhileHidden: true,
+  scrollbackLines: 10_000,
+};
+let rendererTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * Release renderers after a tab has been hidden for a while.
+ *
+ * Not immediately: flicking between two tabs is common, and tearing down a WebGL context on
+ * every switch would cost more than it saves. The delay is what the memory mode sets.
+ */
+function scheduleRendererRelease(): void {
+  clearTimeout(rendererTimer);
+  rendererTimer = setTimeout(() => {
+    if (document.visibilityState === 'hidden') panesHost?.releaseRenderers();
+  }, memorySettings.rendererUnloadMs);
+}
+
 function focusedSessionId(): string | undefined {
   const paneId = splitView?.focused;
   const pane = paneId ? panesHost?.get(paneId) : undefined;
@@ -820,6 +849,7 @@ function onControl(msg: ServerMessage): void {
       // Asked for alongside launcher state, so the chips are there when the panel first draws.
       client?.send({ t: 'list-resumable', limit: 5 });
       client?.send({ t: 'list-servers' });
+      client?.send({ t: 'get-memory-mode' });
       return;
     }
 
@@ -827,6 +857,15 @@ function onControl(msg: ServerMessage): void {
       showServerOffer(msg.port);
       // The dashboard, if it is on screen, should gain the row rather than wait to be reopened.
       client?.send({ t: 'list-servers' });
+      return;
+    }
+
+    case 'memory-mode': {
+      memorySettings = msg;
+      panesHost?.setScrollback(msg.scrollbackLines);
+      // A mode that only took effect on the next tab would not help the machine it was chosen
+      // for, so it is applied to what is already open.
+      if (document.visibilityState === 'hidden') scheduleRendererRelease();
       return;
     }
 
@@ -1127,6 +1166,9 @@ async function start(): Promise<void> {
 
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
+      clearTimeout(rendererTimer);
+      rendererTimer = undefined;
+      panesHost?.restoreRenderers();
       if (splitView?.focused) panesHost?.focus(splitView.focused);
       setFavicon(faviconState);
       startTimeTicking();
@@ -1135,6 +1177,7 @@ async function start(): Promise<void> {
       animTimer = undefined;
       // A hidden tab throttles timers anyway, and nobody is reading the label.
       stopTimeTicking();
+      scheduleRendererRelease();
     }
   });
 }

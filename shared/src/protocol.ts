@@ -324,6 +324,8 @@ export type ClientMessage =
       /** Send the recorded start command again once it has stopped. */
       restart?: boolean;
     }
+  | { t: 'set-memory-mode'; mode: MemoryModeName }
+  | { t: 'get-memory-mode' }
   | { t: 'list-sessions' }
   | { t: 'list-workspaces' }
   | { t: 'subscribe'; topics: readonly string[] };
@@ -335,6 +337,8 @@ export type ClientMessage =
  * Each maps to one specific structured spawn. The frontend chooses by modifier; the daemon
  * decides what that means, because only the daemon can see the filesystem.
  */
+export type MemoryModeName = 'low' | 'balanced' | 'full';
+
 export type HistoryScope = 'global' | 'project' | 'directory' | 'session';
 
 export type OpenHow = 'default-app' | 'reveal-in-finder' | 'editor' | 'gui-editor' | 'new-terminal';
@@ -463,6 +467,14 @@ export type ServerMessage =
       cwd: string;
       /** Null when the directory has no config, or has one that was refused outright. */
       config: ProjectConfigInfo | null;
+    }
+  | {
+      t: 'memory-mode';
+      mode: MemoryModeName;
+      /** The part of the mode the daemon cannot enforce, applied by the page. */
+      rendererUnloadMs: number;
+      faviconWhileHidden: boolean;
+      scrollbackLines: number;
     }
   | { t: 'server-list'; servers: readonly LocalServer[] }
   | { t: 'resumable-sessions'; sessions: readonly ResumableAgentSession[] }

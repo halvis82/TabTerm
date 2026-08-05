@@ -166,8 +166,9 @@ Reattach must restore *screen state*, not replay bytes. Byte replay breaks the m
 the alternate screen. So the daemon runs a headless emulator per session.
 
 Consequences: the daemon must **always drain the PTY**, never applying backpressure toward a child
-process. Measured cost is 3.6 MB per session at the 10,000-line default, so twelve live sessions cost
-about 44 MB. `07-terminal-fidelity.md` §2.
+process. Measured cost is around 30 MB per session at the 10,000-line default, so twelve live
+sessions cost about 350 MB. The `low` memory mode brings that to 113 MB by capping scrollback at
+2,000 lines. `07-terminal-fidelity.md` §2 and `11-performance.md` §1.
 
 ### 2.4 Extension ID stability
 Unpacked extension IDs derive from the load path. Without an explicit manifest `"key"`, reinstalling

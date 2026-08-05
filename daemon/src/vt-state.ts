@@ -30,6 +30,17 @@ export class VtState {
     this.#term.loadAddon(this.#serializer);
   }
 
+  /**
+   * Change how much scrollback is kept, on a terminal that is already running.
+   *
+   * Lowering it drops the oldest lines immediately, which is the point: switching to a lower
+   * memory mode has to actually release memory rather than only apply to sessions started
+   * afterwards.
+   */
+  setScrollback(lines: number): void {
+    this.#term.options.scrollback = Math.max(0, Math.floor(lines));
+  }
+
   get seq(): number {
     return this.#seq;
   }

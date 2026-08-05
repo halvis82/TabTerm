@@ -57,6 +57,11 @@ export interface Config {
   /** GUI editor used for Command-click. */
   guiEditor: string;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
+  /**
+   * One dial for the memory settings that only make sense together. See memory-modes.ts.
+   * A config file may still override any individual field; the mode supplies the baseline.
+   */
+  memoryMode: 'low' | 'balanced' | 'full';
 }
 
 export const DEFAULTS: Config = {
@@ -75,14 +80,21 @@ export const DEFAULTS: Config = {
   editor: 'nvim',
   guiEditor: 'code',
   logLevel: 'info',
+  memoryMode: 'balanced',
 };
 
 export async function loadConfig(): Promise<Config> {
   const { readFile } = await import('node:fs/promises');
+  const { applyMemoryMode, isMemoryMode } = await import('./memory-modes.js');
   try {
     const raw = await readFile(paths.configFile, 'utf8');
     const parsed = JSON.parse(raw) as Partial<Config>;
-    return { ...DEFAULTS, ...parsed };
+    // The mode supplies the baseline, then explicit fields win. Someone who set a mode *and* a
+    // scrollback figure meant both, and the more specific one is the one they typed.
+    const base = isMemoryMode(parsed.memoryMode)
+      ? applyMemoryMode(DEFAULTS, parsed.memoryMode)
+      : DEFAULTS;
+    return { ...base, ...parsed };
   } catch {
     return { ...DEFAULTS };
   }

@@ -11,15 +11,39 @@ It is not automatically true of the system.
 |---|---|---|
 | PTY + zsh | Very small | |
 | **TabTerm daemon, base** | Small | |
-| **Daemon VT state, per session** | **3.6 MB** at the 10k default | Measured across 12 live emulators. 0.5 MB at 1k, 1.9 MB at 5k, 17.7 MB at 50k |
+| **Daemon VT state, per session** | **~30 MB** at the 10k default | Process RSS across 12 live emulators, filled past their cap. 9.5 MB at 2k, 77 MB at 50k |
+| Serialized snapshot of one session | **0.3 to 3.6 MB** | What crosses the socket on reattach. Far smaller than the live emulator, and not a proxy for it |
 | xterm.js frontend, per pane | Modest, roughly 20 to 50 MB | Which is why hidden-pane suspension is mandatory, not optional |
 | Chrome renderer, per tab | Modest, irreducible | |
 | agent CLI | Potentially large | Not ours |
 | Language servers, build systems | Potentially very large | Not ours |
 
-The measured picture: twelve live sessions cost about **44 MB of daemon memory** at the default
-scrollback cap. That is modest. The renderer side dominates, which is why hidden-pane suspension
-matters more than daemon frugality.
+### A correction worth recording
+
+An earlier figure of 3.6 MB per session was the size of a **serialized snapshot**, not the cost
+of the live emulator. Those are not the same thing and are not close: measured as process RSS,
+twelve filled sessions cost **349 MB** at the default cap, roughly 30 MB each, while one
+session's snapshot serializes to 0.3 MB. Snapshot size tracks how compressible the screen
+content is; live cost tracks how many cells are held.
+
+So twelve live sessions cost around **350 MB of daemon memory** at the default scrollback, not
+the 44 MB the snapshot figure implied. That is the number to plan against, and it is why
+`scrollbackLines` is the setting a memory mode moves first.
+
+### Memory modes, measured
+
+Twelve live sessions, each filled past its scrollback cap, on arm64 with Node 24. Daemon RSS
+over a 79 MB baseline:
+
+| Mode | Scrollback | RSS over baseline | Per session |
+|---|---|---|---|
+| `low` | 2,000 | **113 MB** | 9.5 MB |
+| `balanced` (default) | 10,000 | **369 MB** | 30.8 MB |
+| `full` | 50,000 | **925 MB** | 77.1 MB |
+
+`full` is expensive and says so. It is for a machine with memory to spare and someone who
+genuinely scrolls back that far; it is not a better default. `low` gives up durability first —
+a shorter grace period is annoying, and a lost scrollback is not recoverable.
 
 ---
 
