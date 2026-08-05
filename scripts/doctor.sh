@@ -145,7 +145,8 @@ if [ -f "$HOME/.local/share/tabterm/tabterm-integration.zsh" ]; then
   if grep -q "tabterm-integration.zsh" "$HOME/.zshrc" 2>/dev/null; then
     ok "shell integration installed and sourced from .zshrc"
   else
-    warn "shell integration available but not sourced. Titles will not follow the directory"
+    warn "shell integration not sourced. History and timing still work via the OS fallback,"
+    echo "        but exit codes, builtins, and sub-second commands need it. To enable:"
     echo "        echo '[ -f ~/.local/share/tabterm/tabterm-integration.zsh ] && source ~/.local/share/tabterm/tabterm-integration.zsh' >> ~/.zshrc"
   fi
 else

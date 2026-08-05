@@ -74,6 +74,12 @@ export interface SessionEvents {
   onServerDetected?: (session: Session, port: number) => void;
   /** Raw output, for the archive. Only called while something is capturing. */
   onOutput?: (session: Session, chunk: string) => void;
+  /** A session was created, so anything tracking sessions can start. */
+  onCreated?: (session: Session) => void;
+  /** Input on its way to the PTY, for the fallback command tracker. */
+  onInputWritten?: (session: Session, data: string) => void;
+  /** This session has real shell integration, so the fallback should stand down. */
+  onIntegrationDetected?: (session: Session) => void;
 }
 
 export class SessionManager {
@@ -138,6 +144,9 @@ export class SessionManager {
       onCommandStart: () => {
         session.commandRunning = true;
         session.commandStartedAt = Date.now();
+        // Proof this session has real shell integration. The fallback tracker stands down for
+        // good, so the two can never both report the same command.
+        this.#events.onIntegrationDetected?.(session);
       },
       onCommandText: (command) => {
         session.pendingCommand = command;
@@ -195,6 +204,7 @@ export class SessionManager {
     });
 
     this.#sessions.set(id, session);
+    this.#events.onCreated?.(session);
     info('session.created', { sessionId: id, pid: handle.pid });
     return session;
   }
@@ -249,7 +259,11 @@ export class SessionManager {
 
   write(session: Session, data: Buffer): void {
     if (session.state === 'exited' || session.state === 'reaped') return;
-    session.handle.pty.write(data.toString('utf8'));
+    const text = data.toString('utf8');
+    // The fallback command tracker needs to know when Enter was pressed. It ignores everything
+    // else, so this costs a substring check per keystroke.
+    this.#events.onInputWritten?.(session, text);
+    session.handle.pty.write(text);
   }
 
   /**
@@ -320,6 +334,16 @@ export class SessionManager {
    * checking on that one event costs a single `lsof` rather than a timer that runs forever.
    * Reported once per port, so restarting a server on the same port does not re-announce it.
    */
+  /**
+   * A command started, reported by something other than OSC 133.
+   *
+   * Exists so the fallback tracker gets the same server check the integrated path gets, without
+   * reaching into private state to do it.
+   */
+  noteCommandStarted(session: Session): void {
+    this.#checkForServer(session);
+  }
+
   #checkForServer(session: Session): void {
     if (session.serverCheckTimer) clearTimeout(session.serverCheckTimer);
     const timer = setTimeout(() => {
