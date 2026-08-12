@@ -350,6 +350,56 @@ function setCmdHeld(held: boolean): void {
   panesHost?.refreshLinks();
 }
 
+/**
+ * Keep the terminal ready to type into, always.
+ *
+ * A terminal has no other controls, so nobody expects to have to click into one before typing.
+ * This page does have other controls -- the launcher, its buttons, the palette -- and clicking
+ * any of them takes DOM focus away, after which keystrokes went nowhere. That is not a terminal.
+ *
+ * The rule: **if you are not deliberately typing into a text field, you are typing into the
+ * terminal.** Focus is moved on the way in, during the capture phase, so the keystroke that
+ * triggered it lands in the terminal rather than being swallowed as the price of getting there.
+ *
+ * A real text field keeps its keys: the palette's search box, the launcher's path box, and the
+ * placeholder inputs are all places where typing means something else, and each one is where
+ * the user deliberately put the cursor.
+ */
+function installAmbientFocus(): void {
+  const isTextField = (node: EventTarget | null): boolean => {
+    if (!(node instanceof HTMLElement)) return false;
+    if (node.isContentEditable) return true;
+    const tag = node.tagName;
+    // xterm's own hidden textarea is the terminal, not a competing field.
+    if (node.classList.contains('xterm-helper-textarea')) return false;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  };
+
+  document.addEventListener(
+    'keydown',
+    (e) => {
+      if (isTextField(document.activeElement)) return;
+      // Browser and system shortcuts are not typing, and stealing focus for them would move the
+      // cursor for something that never reaches the page anyway.
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const paneId = splitView?.focused ?? panesHost?.all[0]?.paneId;
+      if (paneId) panesHost?.focus(paneId);
+    },
+    true,
+  );
+
+  // Clicking a button does its job and hands the keyboard straight back, so the next thing you
+  // type goes where it would have gone if you had never touched the mouse.
+  document.addEventListener('click', (e) => {
+    if (isTextField(e.target)) return;
+    if (palette?.isOpen) return;
+    // A click inside a pane is already handled by the pane itself, which focuses the right one.
+    if (e.target instanceof HTMLElement && e.target.closest('.pane')) return;
+    const paneId = splitView?.focused ?? panesHost?.all[0]?.paneId;
+    if (paneId) setTimeout(() => panesHost?.focus(paneId), 0);
+  });
+}
+
 function installModifierTracking(): void {
   window.addEventListener('keydown', (e) => setCmdHeld(e.metaKey), { capture: true });
   window.addEventListener('keyup', (e) => setCmdHeld(e.metaKey), { capture: true });
@@ -374,8 +424,12 @@ function buildHosts(): void {
       inputBytesSeen += data.length;
       const pane = panesHost?.get(paneId);
       if (!pane) return;
-      // Anything reaching the shell means the user has started working, so the panel goes.
-      launcher?.dismiss();
+      // The panel survives typing and goes when a command is actually sent. It is not a page
+      // you leave to reach the terminal: the terminal is already underneath it, and what is
+      // drawn on top is only there because there is no output yet. Dismissing on the first
+      // keystroke made a half-typed command the moment everything disappeared, which is both
+      // startling and useless, since that is exactly when you might still want the list.
+      if (submitsCommand(data)) launcher?.dismiss();
       client?.write(pane.streamId, new TextEncoder().encode(data));
     },
     onResize: (paneId, cols, rows) => {
@@ -608,7 +662,18 @@ function sendToFocusedPane(text: string): void {
   const pane = paneId ? panesHost?.get(paneId) : undefined;
   if (!pane) return;
   client?.write(pane.streamId, new TextEncoder().encode(text));
-  launcher?.dismiss();
+  // Same rule as typing: pasting a command leaves the panel up, running one takes it away.
+  if (submitsCommand(text)) launcher?.dismiss();
+}
+
+/**
+ * Whether this input submits a command rather than editing one.
+ *
+ * A carriage return is what a shell treats as "run it", which is exactly the moment the user
+ * has stopped choosing and started working.
+ */
+function submitsCommand(data: string): boolean {
+  return data.includes('\r') || data.includes('\n');
 }
 
 function applyLayout(next: LayoutNode): void {
@@ -1274,6 +1339,7 @@ async function start(): Promise<void> {
   installTestHook();
   installModifierTracking();
   installShortcuts();
+  installAmbientFocus();
   // Leaving fullscreen by any route, including the Escape the browser handles itself, must
   // put the layout back and release the lock.
   document.addEventListener('fullscreenchange', () => {

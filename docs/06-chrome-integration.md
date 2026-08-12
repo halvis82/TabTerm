@@ -324,6 +324,32 @@ suggested key, so these are the entire budget. Everything else reaches the comma
 `chrome.commands.getAll()` rather than assumed. See `10-limitations.md` tier 1.8. All are
 rebindable at `chrome://extensions/shortcuts`.
 
+### You never focus the terminal
+
+A terminal has no other controls, so nobody expects to click into one before typing. This page
+*does* have other controls, and clicking any of them used to take the keyboard away with no way
+back except clicking the terminal again.
+
+The rule: **if you are not deliberately typing into a text field, you are typing into the
+terminal.** Focus moves during the capture phase of `keydown`, so the keystroke that triggered
+it lands in the terminal rather than being spent getting there. Clicking a button does its job
+and hands the keyboard straight back.
+
+The exception is a real text field — the palette's search box, the launcher's folder box, the
+placeholder inputs — where the user deliberately put the cursor and typing means something else.
+Modified keys are left alone too: a browser shortcut is not typing, and moving the cursor for
+one that never reaches the page would be a side effect of nothing.
+
+### The launcher is drawn over the terminal, not instead of it
+
+There is a live shell behind the panel from the moment the tab opens, already able to receive
+input. What is on top is there only because there is no output yet.
+
+So it **survives typing and goes when a command is sent**. Dismissing on the first keystroke
+made a half-typed command the moment everything vanished, which is both startling and exactly
+when the list might still be wanted. A carriage return is what a shell treats as "run it", and
+that is the moment someone has stopped choosing and started working.
+
 ### Selecting and acting are separate
 
 Arrow keys, `Home`, `End`, or a click move the highlight. **Nothing acts on a row until you say
