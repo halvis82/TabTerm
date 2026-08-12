@@ -124,14 +124,17 @@ const start = JSON.parse(
        return JSON.stringify({ x: Math.round(b.left), y: Math.round(b.top) }); })()`,
   ),
 );
+// Up and to the left. The panel opens anchored to the top right, so dragging down or right is
+// pinned by the clamp that keeps it on screen, and in a small window that is no movement at all.
+// A test that cannot tell "clamped correctly" from "drag is broken" is testing the window size.
 await evaluate(
   client,
   `(() => {
     const header = document.querySelector('.cmd-header');
     const opts = { bubbles: true, clientX: 200, clientY: 200, pointerId: 1 };
     header.dispatchEvent(new PointerEvent('pointerdown', opts));
-    header.dispatchEvent(new PointerEvent('pointermove', { ...opts, clientX: 320, clientY: 340 }));
-    header.dispatchEvent(new PointerEvent('pointerup', { ...opts, clientX: 320, clientY: 340 }));
+    header.dispatchEvent(new PointerEvent('pointermove', { ...opts, clientX: 120, clientY: 150 }));
+    header.dispatchEvent(new PointerEvent('pointerup', { ...opts, clientX: 120, clientY: 150 }));
   })()`,
 );
 await sleep(500);

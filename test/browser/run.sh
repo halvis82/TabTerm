@@ -24,6 +24,9 @@ node "$ROOT/test/browser/load-extension.mjs" >/dev/null || exit 1
 pass=0; fail=0
 for suite in "$SUITES"/*.mjs; do
   name=$(basename "$suite" .mjs)
+  # iCloud sync conflict copies are stale duplicates of a real suite, and running one reports
+  # yesterday's results beside today's under a name that looks almost right.
+  case "$name" in *" "[0-9]) echo "  skipping conflict copy: $name"; continue ;; esac
   out=$(node "$suite" 2>&1)
   p=$(printf '%s\n' "$out" | grep -c "^  PASS")
   f=$(printf '%s\n' "$out" | grep -c "^  FAIL")

@@ -26,3 +26,7 @@ plugins/*
 
 # macOS
 .DS_Store
+# iCloud Drive makes these when it resolves a sync conflict, and a home directory under
+# Documents is synced by default. They are stale copies of tracked files.
+* 2.*
+* [0-9].*
