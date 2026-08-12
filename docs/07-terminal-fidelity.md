@@ -167,8 +167,15 @@ headless run.
 that passes through something the page might have wanted.
 
 Drag selects, double-click selects a word or path, triple-click selects a line, and shift-click
-extends, all from xterm. **Right-click selects the word under the cursor**, which is the macOS
-convention and means the menu's Copy is usually live immediately.
+extends, all from xterm.
+
+**Right-click never changes the selection.** xterm's macOS default replaces it with the word
+under the pointer, and over blank space that word is empty, so right-clicking past the end of a
+line silently cleared the selection and greyed out Copy in the menu the same click had just
+opened. Selecting a whole line worked and selecting text then right-clicking beside it did not,
+which from the outside is simply "sometimes I cannot copy". The selection is also recorded in
+the capture phase of the right-click, so the menu reports on what the user had regardless of
+what the terminal does with it afterwards.
 
 The context menu is rendered in the page (`Copy`, `Paste`, `Select all`, `Clear`) rather than
 left to Chrome's, because Chrome's menu has no idea a canvas contains selected text and would

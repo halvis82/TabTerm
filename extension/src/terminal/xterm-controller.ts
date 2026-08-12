@@ -37,6 +37,16 @@ export class XtermController {
       // entry via Option+letter. See docs/06-chrome-integration.md §6.
       macOptionIsMeta: true,
       macOptionClickForcesSelection: true,
+      /*
+       * Right-click must never change what is selected.
+       *
+       * xterm's default on macOS replaces the selection with the word under the pointer. Over
+       * blank space that word is empty, so right-clicking anywhere to the right of a line
+       * silently destroyed the selection and greyed out Copy in the menu that the same click
+       * had just opened. Selecting a line worked; selecting text and right-clicking past the
+       * end of it did not, which is exactly as arbitrary as it sounds from the outside.
+       */
+      rightClickSelectsWord: false,
       theme: {
         background: '#12131a',
         foreground: '#d5d8e2',
@@ -112,11 +122,25 @@ export class XtermController {
    * canvas contains selected text and would offer nothing useful.
    */
   #installContextMenu(): void {
+    // Recorded in the capture phase, before anything else can act on the click. Belt and
+    // braces alongside `rightClickSelectsWord: false`: the menu then reports on the selection
+    // the user actually had, whatever happens to the terminal's own state afterwards.
+    this.term.element?.addEventListener(
+      'mousedown',
+      (e: MouseEvent) => {
+        if (e.button === 2) this.#selectionAtRightClick = this.term.getSelection();
+      },
+      true,
+    );
+
     this.term.element?.addEventListener('contextmenu', (e: MouseEvent) => {
       e.preventDefault();
       this.#showMenu(e.clientX, e.clientY);
     });
   }
+
+  /** What was selected when the right-click arrived, which is what the menu acts on. */
+  #selectionAtRightClick = '';
 
   #showMenu(x: number, y: number): void {
     document.querySelector('.term-menu')?.remove();
@@ -138,8 +162,8 @@ export class XtermController {
       menu.append(b);
     };
 
-    const selected = this.term.hasSelection();
-    item('Copy', selected, () => void this.copySelection());
+    const selected = this.term.getSelection() || this.#selectionAtRightClick;
+    item('Copy', selected.length > 0, () => void this.copySelection(selected));
     item('Paste', true, () => void this.pasteFromClipboard());
     item('Select all', true, () => this.term.selectAll());
     item('Clear', true, () => this.term.clear());
@@ -157,8 +181,8 @@ export class XtermController {
     }, 0);
   }
 
-  async copySelection(): Promise<void> {
-    const text = this.term.getSelection();
+  async copySelection(override?: string): Promise<void> {
+    const text = override ?? this.term.getSelection();
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
