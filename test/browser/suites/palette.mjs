@@ -1,5 +1,12 @@
 // The command palette is the primary surface: every action reachable by typing.
-import { openTerminal, openPalette, evaluate, sleep, paneCount } from '../helpers.mjs';
+import {
+  openTerminal,
+  openPalette,
+  pressInPalette,
+  evaluate,
+  sleep,
+  paneCount,
+} from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -58,12 +65,21 @@ r.ok(
   single.map((a) => a.title).join(', '),
 );
 
-// Running one from the palette must actually do it.
+// Running one takes two steps now: select, then Enter. Clicking alone must not run it, which
+// matters more for an action than for text, because an action is not undone by ignoring it.
 await query('Split right');
 await evaluate(client, `document.querySelector('.palette-row.is-action')?.click()`);
+await sleep(1200);
+r.ok(
+  'clicking an action only selects it',
+  (await paneCount(client)) === 1,
+  `${String(await paneCount(client))} panes`,
+);
+
+await pressInPalette(client, 'Enter', 'Enter', 0, 13);
 await sleep(3000);
 r.ok(
-  'running an action from the palette works',
+  'Enter runs the selected action',
   (await paneCount(client)) === 2,
   `${String(await paneCount(client))} panes`,
 );

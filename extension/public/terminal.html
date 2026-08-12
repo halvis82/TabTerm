@@ -544,8 +544,17 @@
     padding: 7px 14px;
     cursor: pointer;
   }
+  /*
+   * Selection is now a step of its own, so it has to be unmistakable: an accent bar as well as
+   * a background, because a background alone is easy to lose against a long list.
+   */
   .palette-row.selected {
     background: #31384f;
+    box-shadow: inset 3px 0 0 #7fa8d8;
+  }
+  /* Hover is deliberately weaker than selection. They mean different things now. */
+  .palette-row:hover:not(.selected) {
+    background: #23262c;
   }
   .palette-row:hover {
     background: #262a38;

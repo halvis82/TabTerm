@@ -144,8 +144,10 @@ export class Palette {
 
     const footer = document.createElement('div');
     footer.className = 'palette-footer';
+    // Says what the keys do, including that clicking only selects, which is the one thing
+    // people will otherwise assume works the other way.
     footer.textContent =
-      'Enter pastes · Shift+Enter runs · Command+Enter copies · Command+S saves · Escape closes';
+      'Arrows or click to select · Enter pastes · Shift+Enter runs · Command+Enter copies · Command+S saves · Escape closes';
 
     this.#el.append(this.#input, this.#scopeBar, this.#status, this.#list, footer);
     opts.root.append(this.#el);
@@ -291,39 +293,20 @@ export class Palette {
         e.preventDefault();
         this.#move(-1);
         return;
-      case 'Enter': {
+      case 'Home':
         e.preventDefault();
-        const row = this.#rows[this.#selected];
-        if (!row) return;
-        if (row.kind === 'action') {
-          this.close();
-          row.action.run();
-          return;
-        }
-        if (row.kind === 'merge') {
-          this.#opts.onMerge(row.session.sessionId);
-          this.close();
-          return;
-        }
-        if (row.kind === 'saved' && (row.item.placeholders ?? []).length && !e.metaKey) {
-          this.#opts.onUseSaved(row.item.id);
-          const run = e.shiftKey;
-          this.#promptPlaceholders(row.item, (filled) => {
-            if (run) this.#opts.onRun(filled);
-            else this.#opts.onPaste(filled);
-            this.close();
-          });
-          return;
-        }
-        const text = rowText(row);
-        // Running takes a distinct, deliberate gesture. Pasting is the default because the
-        // commands most worth recalling are the ones worth reading first.
-        if (e.metaKey) this.#opts.onCopy(text);
-        else if (e.shiftKey) this.#opts.onRun(text);
-        else this.#opts.onPaste(text);
-        this.close();
+        this.#moveTo(0);
         return;
-      }
+      case 'End':
+        e.preventDefault();
+        this.#moveTo(this.#rows.length - 1);
+        return;
+      case 'Enter':
+        e.preventDefault();
+        // Command+Enter copies, Shift+Enter runs, Enter alone pastes. Selection and action are
+        // separate steps: nothing here acts on a row that was merely highlighted.
+        this.#activate(e.metaKey ? 'copy' : e.shiftKey ? 'run' : 'paste');
+        return;
       default:
         break;
     }
@@ -335,6 +318,53 @@ export class Palette {
       const row = this.#rows[this.#selected];
       if (row) this.#opts.onSave(rowText(row));
     }
+  }
+
+  /**
+   * Do something with the selected row.
+   *
+   * The single place any row is acted on. Enter and the row buttons both come here, because
+   * when clicking and Enter had their own copies they drifted: one grew Shift-to-run and the
+   * other did not, so the same row behaved differently depending on how you reached it.
+   */
+  #activate(how: 'paste' | 'run' | 'copy'): void {
+    const row = this.#rows[this.#selected];
+    if (!row) return;
+
+    if (row.kind === 'action') {
+      // An action is a thing to do, not text. Copy is meaningless for it, so Command+Enter is
+      // ignored rather than doing something arbitrary.
+      if (how === 'copy') return;
+      this.close();
+      row.action.run();
+      return;
+    }
+
+    if (row.kind === 'merge') {
+      if (how === 'copy') return;
+      this.#opts.onMerge(row.session.sessionId);
+      this.close();
+      return;
+    }
+
+    // A saved command with placeholders asks for values first, unless it is only being copied,
+    // in which case the template itself is what someone wants.
+    if (row.kind === 'saved' && (row.item.placeholders ?? []).length > 0 && how !== 'copy') {
+      this.#opts.onUseSaved(row.item.id);
+      this.#promptPlaceholders(row.item, (filled) => {
+        if (how === 'run') this.#opts.onRun(filled);
+        else this.#opts.onPaste(filled);
+        this.close();
+      });
+      return;
+    }
+
+    const text = rowText(row);
+    if (row.kind === 'saved') this.#opts.onUseSaved(row.item.id);
+    if (how === 'copy') this.#opts.onCopy(text);
+    else if (how === 'run') this.#opts.onRun(text);
+    else this.#opts.onPaste(text);
+    this.close();
   }
 
   /**
@@ -429,9 +459,30 @@ export class Palette {
 
   #move(delta: number): void {
     if (this.#rows.length === 0) return;
-    this.#selected = (this.#selected + delta + this.#rows.length) % this.#rows.length;
+    // Wraps, because a list you can walk off the end of makes you look at where you are.
+    this.#moveTo((this.#selected + delta + this.#rows.length) % this.#rows.length);
+  }
+
+  #moveTo(index: number): void {
+    if (this.#rows.length === 0) return;
+    this.#selected = Math.min(this.#rows.length - 1, Math.max(0, index));
     this.#renderList();
     this.#list.children[this.#selected]?.scrollIntoView({ block: 'nearest' });
+  }
+
+  /**
+   * Highlight a row without doing anything to it.
+   *
+   * Clicking selects; it does not act. A list where clicking immediately pastes into a terminal
+   * gives you no way to look at something before choosing it, and the row under the pointer
+   * when a list re-renders is not necessarily the row you meant.
+   *
+   * Focus goes back to the input, so Enter works straight after a click rather than needing the
+   * pointer and the keyboard to agree on where focus is.
+   */
+  #select(index: number): void {
+    this.#moveTo(index);
+    this.#input.focus();
   }
 
   #renderList(): void {
@@ -465,8 +516,8 @@ export class Palette {
         meta.textContent = row.session.title;
         el.classList.add('is-merge');
       } else if (row.kind === 'saved') {
-        // The kind, the scope, and how much is still to fill. All three change what clicking
-        // it will do, so none of them belong hidden behind a hover.
+        // The kind, the scope, and how much is still to fill. All three change what pressing
+        // Enter will do, so none of them belong hidden behind a hover.
         const bits: string[] = [row.item.kind];
         if (row.item.gitRoot) bits.push('project');
         const toFill = (row.item.placeholders ?? []).length;
@@ -485,35 +536,9 @@ export class Palette {
       }
       el.append(meta);
 
-      // Clicking the row pastes. Running and opening are separate buttons, so neither can
-      // happen by aiming badly. See docs/05-security.md.
-      el.addEventListener('click', () => {
-        this.#selected = i;
-        // An action row is the one kind that does something rather than being text, so it runs
-        // on a click. Everything else stages or pastes.
-        if (row.kind === 'action') {
-          this.close();
-          row.action.run();
-          return;
-        }
-        if (row.kind === 'merge') {
-          this.#opts.onMerge(row.session.sessionId);
-          this.close();
-          return;
-        }
-        // A saved item with placeholders asks for values first. A half-substituted command
-        // sitting at a prompt is too easy to run by accident.
-        if (row.kind === 'saved') {
-          this.#opts.onUseSaved(row.item.id);
-          this.#promptPlaceholders(row.item, (text) => {
-            this.#opts.onPaste(text);
-            this.close();
-          });
-          return;
-        }
-        this.#opts.onPaste(rowText(row));
-        this.close();
-      });
+      // Clicking selects. It does not paste, run, or copy: that is what Enter is for. The
+      // buttons below are the exception, because each one names exactly what it does.
+      el.addEventListener('click', () => this.#select(i));
 
       if (row.kind === 'history') {
         const run = document.createElement('button');

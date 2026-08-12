@@ -324,6 +324,34 @@ suggested key, so these are the entire budget. Everything else reaches the comma
 `chrome.commands.getAll()` rather than assumed. See `10-limitations.md` tier 1.8. All are
 rebindable at `chrome://extensions/shortcuts`.
 
+### Selecting and acting are separate
+
+Arrow keys, `Home`, `End`, or a click move the highlight. **Nothing acts on a row until you say
+so**, which is the whole reason the distinction exists: a list that pastes into a live terminal
+the instant you click gives you no chance to read a command before choosing it, and the row
+under the pointer when a list re-renders is not necessarily the row you meant.
+
+| Key | Does |
+|---|---|
+| Arrows, `Home`, `End`, click | Select only |
+| `Enter` | Paste the selected row at the prompt |
+| `Shift+Enter` | Run it |
+| `Command+Enter` | Copy it |
+| `Command+S` | Save it |
+| `Escape` | Close |
+
+Clicking returns focus to the input, so `Enter` works immediately afterwards rather than
+requiring the pointer and the keyboard to agree on where focus is.
+
+Selection carries an accent bar as well as a background, and hover is deliberately weaker than
+selection, because the two now mean different things.
+
+Enter and the row buttons share one activation path. When clicking and Enter had separate
+copies they drifted, and the same row behaved differently depending on how you reached it.
+
+For an action row, `Command+Enter` does nothing: an action is a thing to do, not text, and
+copying it has no meaning worth inventing.
+
 ### The command palette is the primary surface
 
 `Command+K`. Every pane, workspace, and session action is in it, filtered by the same
