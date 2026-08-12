@@ -192,6 +192,26 @@
     color: #e8e8e8;
     border-color: #3d6ba8;
   }
+  /* Under the menu icon, and only there for a few seconds after a clear. */
+  #clear-undo {
+    position: absolute;
+    top: 40px;
+    right: 10px;
+    z-index: 30;
+    padding: 4px 9px;
+    border-radius: 7px;
+    border: 1px solid #2f3346;
+    background: rgba(26, 28, 38, 0.85);
+    color: #9ec5ff;
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    backdrop-filter: blur(6px);
+  }
+  #clear-undo:hover {
+    color: #e8e8e8;
+    border-color: #3d6ba8;
+  }
 
   /*
    * Translucent, because there is terminal output behind it and hiding that is the one thing a
@@ -1187,6 +1207,8 @@
     <div id="recovery-actions"></div>
   </div>
   <button id="cmd-button" title="Commands (Command+K)">⌘</button>
+  <button id="clear-undo" hidden title="Bring back what was just cleared">Undo clear</button>
+
   <div id="server-offer" hidden>
     <span id="server-text"></span>
     <button id="server-open" class="staged-button primary"></button>

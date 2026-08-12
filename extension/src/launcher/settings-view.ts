@@ -17,7 +17,20 @@ export interface SettingsOptions {
   onChangeAgentHooks: (enabled: boolean) => void;
   shellIntegration: () => ShellIntegrationStatus | null;
   onChangeShellIntegration: (enabled: boolean) => void;
+  /** Bytes of output kept per session, across every copy of it. Null until the daemon answers. */
+  scrollbackBytes: () => number | null;
+  onChangeScrollback: (bytes: number) => void;
 }
+
+/** Megabytes, because that is what a person budgeting memory is actually budgeting. */
+const SCROLLBACK_CHOICES: [bytes: number, label: string][] = [
+  [1024 * 1024, '1 MB'],
+  [2 * 1024 * 1024, '2 MB'],
+  [5 * 1024 * 1024, '5 MB'],
+  [10 * 1024 * 1024, '10 MB'],
+  [25 * 1024 * 1024, '25 MB'],
+  [50 * 1024 * 1024, '50 MB'],
+];
 
 /** Offered thresholds. A slider would imply a precision nobody wants from this. */
 const THRESHOLDS: [ms: number, label: string][] = [
@@ -69,6 +82,28 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
   select.addEventListener('change', () => options.onChangeTheme(select.value));
   theme.append(themeLabel, select);
   wrap.append(theme);
+
+  const scrollback = options.scrollbackBytes();
+  if (scrollback !== null) {
+    const field = document.createElement('label');
+    field.className = 'cmd-field';
+    const label = document.createElement('span');
+    label.textContent = 'History kept per terminal';
+    const note = document.createElement('small');
+    note.textContent = 'Applies everywhere it is stored, including what survives an update';
+    label.append(note);
+    const select = document.createElement('select');
+    for (const [bytes, text] of SCROLLBACK_CHOICES) {
+      const option = document.createElement('option');
+      option.value = String(bytes);
+      option.textContent = text;
+      select.append(option);
+    }
+    select.value = String(scrollback);
+    select.addEventListener('change', () => options.onChangeScrollback(Number(select.value)));
+    field.append(label, select);
+    wrap.append(field);
+  }
 
   wrap.append(buildNotifications(options));
 

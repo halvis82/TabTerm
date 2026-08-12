@@ -160,7 +160,7 @@ headless run.
 | `Cmd+V` | Pastes through xterm's `paste()`, so bracketed paste applies where the application asked for it |
 | `Cmd+A` | Selects the terminal buffer |
 | `Cmd+K` | Opens the command menu |
-| `Shift+Cmd+K` | Clears the terminal |
+| `Shift+Cmd+K` | Clears the terminal, everywhere it is kept |
 | Everything else with `Cmd` | Chrome's. In a normal tab those never reach the page at all |
 
 `Cmd+K` clears the screen in most terminals, and it did here too until the command menu wanted
@@ -236,3 +236,50 @@ screen.
 
 The round-trip test: feed the fixture, serialize, restore into a fresh emulator, assert cell-for-cell
 equality including attributes, cursor, alt-screen flag, and scroll region. See `12-testing.md`.
+
+
+---
+
+## Clearing, and what it has to mean
+
+A session's output exists in three places: the xterm buffer in the tab, the daemon's terminal
+state, and the PTY host's buffer. Clearing used to wipe the first one only, so the output was
+still on the machine and came straight back on the next reload. Somebody who cleared because a
+token had been echoed had cleared nothing.
+
+**Clear now drops all three**, plus the saved pane snapshot, which is what an expired tab offers
+to show you and would otherwise hand the same content back by another route.
+
+### The undo window
+
+Clearing is a reflex and it can destroy an hour of output, so an **Undo clear** button appears
+under the command menu icon for ten seconds, or until the next command runs, whichever is first.
+
+It restores **only this tab's copy**, which was kept in the page. The durable copies are gone the
+moment clear is pressed and are never recovered, so the undo cannot resurrect something that was
+cleared in order to be gone. That asymmetry is deliberate: the reason people clear is the reason
+the undo must be limited.
+
+Dismissed by a new command, because an undo offered over fresh output would put the old screen
+underneath the new one.
+
+---
+
+## How much output is kept
+
+One setting, in **megabytes per session**, governing every copy.
+
+Bytes rather than lines, because a line is anywhere from one character to several thousand, so
+the old `scrollback: 10000` meant 200 KB for one person and 20 MB for another. Terminals count
+lines, so the setting converts using a measured average, and what is shown and stored is the byte
+figure.
+
+| | |
+|---|---|
+| Default | 5 MB per session |
+| Range | 1 MB to 50 MB |
+| Applies to | The tab's buffer, the daemon's terminal state, and the PTY host's buffer |
+
+The last one matters more than it looks: the host's buffer is what survives a daemon restart, so
+raising this means more of your history comes back after an update, not merely more of it being
+visible now. See `adr/0017`.

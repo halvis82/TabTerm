@@ -11,6 +11,8 @@ import { createPathLinkProvider } from './path-links.js';
 export interface PaneHostOptions {
   onData: (paneId: string, data: string) => void;
   onResize: (paneId: string, cols: number, rows: number) => void;
+  /** Clearing reaches the daemon, because the page holds only one copy of the output. */
+  onClear?: (paneId: string) => void;
   resolvePaths: (paneId: string, candidates: string[]) => void;
   lookupPath: (candidate: string) => ResolvedPath | undefined;
   openPath: (paneId: string, resolved: ResolvedPath, event: MouseEvent) => void;
@@ -60,6 +62,7 @@ export class PaneHost {
       container: element,
       onData: (data) => this.#opts.onData(paneId, data),
       onResize: (cols, rows) => this.#opts.onResize(paneId, cols, rows),
+      onClear: () => this.#opts.onClear?.(paneId),
     });
 
     controller.registerLinkProvider(

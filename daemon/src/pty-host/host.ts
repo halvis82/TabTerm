@@ -47,10 +47,12 @@ interface Live {
  * on disk. What this has to guarantee is that a daemon which restarts can show you a correct
  * screen rather than a plausible one.
  */
-const RING_BYTES = 1024 * 1024;
+const RING_BYTES = 5 * 1024 * 1024;
 
 export class PtyHost {
   readonly #sessions = new Map<string, Live>();
+  /** Per session, set by the daemon from the user's setting. */
+  #ringBytes = RING_BYTES;
   readonly #clients = new Set<Socket>();
   readonly #server: Server;
   readonly #socketPath: string;
@@ -216,6 +218,26 @@ export class PtyHost {
         return;
       }
 
+      case 'clear': {
+        // The buffer that survives a daemon restart. Clearing that has to include this, or the
+        // output comes back the next time anything reconnects.
+        const live = this.#sessions.get(id);
+        if (live) {
+          live.ring = [];
+          live.ringBytes = 0;
+          delete live.stash;
+        }
+        return;
+      }
+
+      case 'budget': {
+        // One number governs every copy of the scrollback, so raising it means more history
+        // actually survives an update rather than only more being visible now.
+        const bytes = Number(msg['bytes']);
+        if (Number.isFinite(bytes) && bytes > 0) this.#ringBytes = Math.floor(bytes);
+        return;
+      }
+
       case 'kill': {
         const live = this.#sessions.get(id);
         if (!live) return;
@@ -237,7 +259,7 @@ export class PtyHost {
       live.ring.push({ seq: live.seq, data: copy });
       live.ringBytes += copy.length;
       // Dropped from the front, because the recent past is what redraws a screen.
-      while (live.ringBytes > RING_BYTES && live.ring.length > 1) {
+      while (live.ringBytes > this.#ringBytes && live.ring.length > 1) {
         const dropped = live.ring.shift();
         live.ringBytes -= dropped?.data.length ?? 0;
       }

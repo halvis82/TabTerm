@@ -8,6 +8,14 @@ export interface ControllerOptions {
   container: HTMLElement;
   onData: (data: string) => void;
   onResize: (cols: number, rows: number) => void;
+  /**
+   * Clearing, which is more than wiping this buffer.
+   *
+   * The page holds one of three copies of a session's output. Clearing only this one is what
+   * the product used to do, and it made clear a lie: reloading the tab brought everything back
+   * from the daemon. See docs/07-terminal-fidelity.md.
+   */
+  onClear?: () => void;
 }
 
 /**
@@ -24,7 +32,11 @@ export class XtermController {
   readonly #fit: FitAddon;
   #webgl: WebglAddon | null = null;
 
+  #undoText = '';
+  readonly #opts: ControllerOptions;
+
   constructor(opts: ControllerOptions) {
+    this.#opts = opts;
     this.term = new Terminal({
       allowProposedApi: true,
       cursorBlink: true,
@@ -101,7 +113,7 @@ export class XtermController {
           return false;
         case 'clear':
           e.preventDefault();
-          this.term.clear();
+          this.clear();
           return false;
         case 'search':
           // Chrome's own find cannot see a WebGL-rendered buffer, so claiming the key without
@@ -266,6 +278,41 @@ export class XtermController {
   }
 
   /** Change how much scrollback the renderer keeps, without disturbing what is on screen. */
+  /**
+   * Clear, keeping this tab's own copy briefly so it can be undone.
+   *
+   * The durable copies are dropped immediately by the daemon, so an undo restores only what was
+   * already in this browser process. That way the undo cannot resurrect something the user
+   * cleared in order to get rid of it.
+   */
+  clear(): void {
+    this.#undoText = this.#allText();
+    this.term.clear();
+    this.#opts.onClear?.();
+  }
+
+  /** What was on screen before the last clear, or empty once the window has passed. */
+  takeUndo(): string {
+    const text = this.#undoText;
+    this.#undoText = '';
+    return text;
+  }
+
+  forgetUndo(): void {
+    this.#undoText = '';
+  }
+
+  #allText(): string {
+    const buffer = this.term.buffer.active;
+    const lines: string[] = [];
+    for (let i = 0; i < buffer.length; i++) {
+      lines.push(buffer.getLine(i)?.translateToString(true) ?? '');
+    }
+    // Trailing blank lines are noise when this is written back.
+    while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+    return lines.join('\r\n');
+  }
+
   setScrollback(lines: number): void {
     this.term.options.scrollback = Math.max(0, Math.floor(lines));
   }

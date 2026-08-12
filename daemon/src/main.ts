@@ -360,6 +360,13 @@ async function main(): Promise<void> {
     }
   }
 
+  if (usingHost) {
+    // Clearing and the memory budget both have to reach the process that holds the buffers.
+    server.hostClear = (sessionId) => hostClient.clear(sessionId);
+    server.hostBudget = (bytes) => hostClient.setBudget(bytes);
+    hostClient.setBudget(server.scrollbackBytes);
+  }
+
   await server.listen();
   info('daemon.ready', { version: VERSION, protocol: PROTOCOL_VERSION, pid: process.pid });
   console.error(`tabtermd ${VERSION} listening on 127.0.0.1:${String(config.port)}`);

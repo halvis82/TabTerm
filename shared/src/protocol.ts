@@ -341,6 +341,17 @@ export type ClientMessage =
   // See docs/06-chrome-integration.md and docs/09-agent-integration.md.
   | { t: 'get-notify-policy' }
   | { t: 'set-notify-policy'; policy: Partial<NotifyPolicy> }
+  /**
+   * Throw away this session's scrollback everywhere it is kept.
+   *
+   * Not the same as the terminal's own clear sequence, which only affects the screen in one tab.
+   * This drops the daemon's copy, the PTY host's buffer and the saved snapshot, which is what
+   * has to happen for clearing to mean anything. See docs/07-terminal-fidelity.md.
+   */
+  | { t: 'clear-scrollback'; sessionId: string }
+  /** How much output to keep per session, in bytes, across every copy of it. */
+  | { t: 'set-scrollback-budget'; bytes: number }
+  | { t: 'get-scrollback-budget' }
   | { t: 'get-agent-hooks' }
   | { t: 'set-agent-hooks'; enabled: boolean }
   // Sourcing the shell integration, without which there are no exit codes at all.
@@ -500,6 +511,7 @@ export type ServerMessage =
     }
   | { t: 'notify-policy'; policy: NotifyPolicy }
   | { t: 'agent-hooks'; status: AgentHooksStatus }
+  | { t: 'scrollback-budget'; bytes: number }
   | { t: 'shell-integration'; status: ShellIntegrationStatus }
   | {
       /** What a tab can offer after its session is gone. */

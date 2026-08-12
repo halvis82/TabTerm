@@ -256,6 +256,16 @@ export class PtyHostClient {
     this.#send({ t: 'resize', sessionId, cols, rows });
   }
 
+  /** Drop a session's buffered output. Part of clear actually clearing. */
+  clear(sessionId: string): void {
+    this.#send({ t: 'clear', sessionId });
+  }
+
+  /** How much output to keep per session, in bytes. */
+  setBudget(bytes: number): void {
+    this.#send({ t: 'budget', bytes });
+  }
+
   kill(sessionId: string): void {
     this.#send({ t: 'kill', sessionId });
   }

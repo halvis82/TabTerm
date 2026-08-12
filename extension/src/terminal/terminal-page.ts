@@ -82,6 +82,7 @@ const paneStatus = new StatusMachine();
 let notifyPolicy: NotifyPolicy | null = null;
 let agentHooks: AgentHooksStatus | null = null;
 let shellIntegration: ShellIntegrationStatus | null = null;
+let scrollbackBytes: number | null = null;
 
 /**
  * Per-pane timing, driven entirely by discrete events from the daemon.
@@ -164,6 +165,39 @@ function refreshTitle(status?: string): void {
   const count = layout ? collectPanes(layout).length : 1;
   // With several panes the interesting thing is what needs attention, not the pane count.
   document.title = composeTitle(titleFields, status ?? titleStatus(paneStatus, count));
+}
+
+/**
+ * A way back from a clear, for a few seconds.
+ *
+ * Clearing is a reflex, and a reflex that can destroy an hour of output needs a way back. The
+ * durable copies are already gone by the time this appears, so undo restores only what this tab
+ * still had in memory, which is the compromise that keeps clearing honest.
+ */
+let clearUndoTimer: number | undefined;
+
+function offerClearUndo(paneId: string): void {
+  const button = document.getElementById('clear-undo');
+  if (!(button instanceof HTMLButtonElement)) return;
+  clearTimeout(clearUndoTimer);
+  button.hidden = false;
+  button.onclick = () => {
+    const pane = panesHost?.get(paneId);
+    const text = pane?.controller.takeUndo() ?? '';
+    if (text) pane?.controller.write(new TextEncoder().encode(`${text}\r\n`), () => {});
+    dismissClearUndo(paneId);
+  };
+  // Ten seconds, and gone the moment anything else is run: an undo offered over new output
+  // would put the old screen underneath the new one.
+  clearUndoTimer = window.setTimeout(() => dismissClearUndo(paneId), 10_000);
+}
+
+function dismissClearUndo(paneId?: string): void {
+  clearTimeout(clearUndoTimer);
+  clearUndoTimer = undefined;
+  const button = document.getElementById('clear-undo');
+  if (button instanceof HTMLButtonElement) button.hidden = true;
+  if (paneId) panesHost?.get(paneId)?.controller.forgetUndo();
 }
 
 function setFavicon(state: FaviconState): void {
@@ -520,6 +554,11 @@ function buildHosts(): void {
     },
     onResize: (paneId, cols, rows) => {
       if (workspaceId) client?.send({ t: 'resize-pane', workspaceId, paneId, cols, rows });
+    },
+    onClear: (paneId) => {
+      const pane = panesHost?.get(paneId);
+      if (pane?.sessionId) client?.send({ t: 'clear-scrollback', sessionId: pane.sessionId });
+      offerClearUndo(paneId);
     },
     resolvePaths: (paneId, candidates) => {
       const pane = panesHost?.get(paneId);
@@ -991,6 +1030,8 @@ function buildCommandPanel(): void {
         onChangeNotify: (policy) => client?.send({ t: 'set-notify-policy', policy }),
         agentHooks: () => agentHooks,
         onChangeAgentHooks: (enabled) => client?.send({ t: 'set-agent-hooks', enabled }),
+        scrollbackBytes: () => scrollbackBytes,
+        onChangeScrollback: (bytes) => client?.send({ t: 'set-scrollback-budget', bytes }),
         shellIntegration: () => shellIntegration,
         onChangeShellIntegration: (enabled) =>
           client?.send({ t: 'set-shell-integration', enabled }),
@@ -1232,6 +1273,7 @@ function onControl(msg: ServerMessage): void {
       client?.send({ t: 'get-notify-policy' });
       client?.send({ t: 'get-agent-hooks' });
       client?.send({ t: 'get-shell-integration' });
+      client?.send({ t: 'get-scrollback-budget' });
       client?.send({ t: 'list-restorable' });
       return;
     }
@@ -1251,6 +1293,12 @@ function onControl(msg: ServerMessage): void {
 
     case 'agent-hooks': {
       agentHooks = msg.status;
+      commandPanel?.refreshSettings();
+      return;
+    }
+
+    case 'scrollback-budget': {
+      scrollbackBytes = msg.bytes;
       commandPanel?.refreshSettings();
       return;
     }
@@ -1329,6 +1377,7 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'command-start': {
+      dismissClearUndo();
       sessionStats.begin(msg.sessionId, msg.command, msg.startedAt);
       const pane = panesHost?.all.find((p) => p.sessionId === msg.sessionId);
       if (pane) {

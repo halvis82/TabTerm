@@ -41,6 +41,20 @@ export class VtState {
     this.#term.options.scrollback = Math.max(0, Math.floor(lines));
   }
 
+  /**
+   * Throw away everything above the visible screen.
+   *
+   * What "clear" has to mean if it is to mean anything. Clearing used to wipe only the xterm
+   * buffer inside one tab, so the output was still here, still in the pane snapshot, and came
+   * straight back on the next reload. Somebody who clears because a token was echoed had
+   * cleared nothing. See docs/07-terminal-fidelity.md.
+   */
+  clearScrollback(): void {
+    // xterm's own `clear` keeps the current line and discards the rest, which is exactly the
+    // behaviour a person expects from the key.
+    this.#term.clear();
+  }
+
   get seq(): number {
     return this.#seq;
   }

@@ -46,6 +46,7 @@ import { agentHooksStatus, setAgentHooks } from './agent-hooks.js';
 import { setShellIntegration, shellIntegrationStatus } from './shell-integration.js';
 import { clampPolicy, decide, type Finished, type NotifyPolicy } from './notify-policy.js';
 import { readUserSettings, updateUserSetting } from './user-settings.js';
+import { clampBudget, DEFAULT_SCROLLBACK_BYTES, linesForBytes } from './scrollback-budget.js';
 
 interface Client {
   id: string;
@@ -93,6 +94,12 @@ export class DaemonServer {
   );
   /** When an agent hook last reported anything, which is how "installed" is told from "working". */
   #lastAgentEventAt: number | undefined;
+  #scrollbackBytes: number = clampBudget(
+    (readUserSettings()['scrollbackBytes'] as number | undefined) ?? DEFAULT_SCROLLBACK_BYTES,
+  );
+  /** Set by main, since only it holds the host client. Absent with the in-process fallback. */
+  hostClear?: (sessionId: string) => void;
+  hostBudget?: (bytes: number) => void;
 
   constructor(
     config: Config,
@@ -137,6 +144,10 @@ export class DaemonServer {
         resolve(this.#config.port);
       });
     });
+  }
+
+  get scrollbackBytes(): number {
+    return this.#scrollbackBytes;
   }
 
   get notifyPolicy(): NotifyPolicy {
@@ -1124,6 +1135,34 @@ export class DaemonServer {
           info('notify-policy.changed', { policy: this.#notifyPolicy });
         }
         this.broadcastAll({ t: 'notify-policy', policy: this.#notifyPolicy });
+        return;
+      }
+
+      case 'clear-scrollback': {
+        const session = this.#sessions.get(msg.sessionId);
+        if (!session) return;
+        session.vt.clearScrollback();
+        this.hostClear?.(msg.sessionId);
+        // The saved screen too. A snapshot is what an expired tab offers to show you, and
+        // offering back something the user cleared would be the same failure by another route.
+        const workspace = this.#workspaces.findBySession(msg.sessionId);
+        if (workspace) this.snapshotWorkspace(workspace.id);
+        info('scrollback.cleared', { sessionId: msg.sessionId });
+        return;
+      }
+
+      case 'get-scrollback-budget':
+      case 'set-scrollback-budget': {
+        if (msg.t === 'set-scrollback-budget') {
+          this.#scrollbackBytes = clampBudget(msg.bytes);
+          updateUserSetting('scrollbackBytes', this.#scrollbackBytes);
+          // Lines are what a terminal counts, bytes are what a person budgets. The conversion
+          // uses a measured average line, so the number in settings stays honest.
+          this.#sessions.applyScrollback(linesForBytes(this.#scrollbackBytes));
+          this.hostBudget?.(this.#scrollbackBytes);
+          info('scrollback.budget', { bytes: this.#scrollbackBytes });
+        }
+        this.broadcastAll({ t: 'scrollback-budget', bytes: this.#scrollbackBytes });
         return;
       }
 
