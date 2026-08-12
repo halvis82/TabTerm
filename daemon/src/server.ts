@@ -61,6 +61,12 @@ interface Client {
  */
 const EMPTY_TEMPLATE: ProjectTemplate = { name: '', layout: null, commands: [] };
 
+/** How long a peer gets to complete a close handshake before its socket is destroyed. */
+const GRACEFUL_CLOSE_MS = 2000;
+
+/** And how long the forced path waits for the server to finish once sockets are destroyed. */
+const FORCED_CLOSE_MS = 2000;
+
 export class DaemonServer {
   readonly #http: Server;
   readonly #wss: WebSocketServer;
@@ -74,6 +80,7 @@ export class DaemonServer {
   readonly #archive: OutputArchive;
   readonly #plugins: PluginHost;
   readonly #clients = new Set<Client>();
+  #closing: Promise<void> | null = null;
 
   constructor(
     config: Config,
@@ -144,10 +151,61 @@ export class DaemonServer {
     }
   }
 
+  /**
+   * Stop serving, and actually finish doing it.
+   *
+   * `http.Server.close()` only calls back once every connection has gone, and a WebSocket whose
+   * peer never completes the close handshake never goes. A discarded Chrome tab does exactly
+   * that. The listener is released immediately either way, so the symptom is not a port that
+   * stays bound: it is a process that has stopped serving and will not exit, which then blocks
+   * launchd from starting its replacement. That happened for six days before it was noticed.
+   *
+   * So: ask nicely, then insist.
+   */
   async close(): Promise<void> {
+    // Idempotent. Shutdown is reached from a signal handler, from tests, and from an error
+    // path, and a second call used to never return at all: closing an already-closed http
+    // server never invokes the callback. A latent trap, and exactly the kind that only shows up
+    // while something else is already going wrong.
+    if (this.#closing) return this.#closing;
+    this.#closing = this.#doClose();
+    return this.#closing;
+  }
+
+  async #doClose(): Promise<void> {
     for (const c of this.#clients) c.socket.close(1001, 'daemon shutting down');
-    await new Promise<void>((r) => this.#wss.close(() => r()));
-    await new Promise<void>((r) => this.#http.close(() => r()));
+
+    // Give peers a moment to answer the close frame, so a well-behaved client gets a clean
+    // disconnect rather than a destroyed socket.
+    const closed = (async () => {
+      await new Promise<void>((r) => this.#wss.close(() => r()));
+      await new Promise<void>((r) => this.#http.close(() => r()));
+    })();
+
+    const graceful = await Promise.race([
+      closed.then(() => true),
+      new Promise<boolean>((r) => setTimeout(() => r(false), GRACEFUL_CLOSE_MS).unref()),
+    ]);
+    if (graceful) return;
+
+    // Somebody did not answer. Destroy what is left and then wait for the close to actually
+    // complete: resolving here without that would be a lie, and the caller's next move is
+    // usually to bind the same port.
+    for (const c of this.#clients) {
+      try {
+        c.socket.terminate();
+      } catch {
+        /* already gone */
+      }
+    }
+    this.#clients.clear();
+    try {
+      this.#http.closeAllConnections();
+    } catch {
+      /* already fully closed */
+    }
+
+    await Promise.race([closed, new Promise<void>((r) => setTimeout(r, FORCED_CLOSE_MS).unref())]);
   }
 
   #onConnection(socket: WebSocket, source: string, origin: string | undefined): void {
