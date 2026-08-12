@@ -1,3 +1,4 @@
+import { homedir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import type { LayoutNode, Workspace } from '@tabterm/shared';
 import { Database } from './database.js';
@@ -101,7 +102,10 @@ describe('offering restores', () => {
 
   it('honors the limit', () => {
     const store = fresh();
-    for (let i = 0; i < 20; i++) store.save(workspace(`w${String(i)}`, ['s']), () => pane('/w'));
+    // Distinct directories, because identical layouts now collapse to one.
+    for (let i = 0; i < 20; i++) {
+      store.save(workspace(`w${String(i)}`, ['s']), () => pane(`/w/${String(i)}`));
+    }
     expect(store.list(new Set(), 5)).toHaveLength(5);
   });
 
@@ -161,5 +165,59 @@ describe('forgetting', () => {
     store.save(workspace('w1', ['s1']), () => pane('/w'));
     store.prune(60_000);
     expect(store.list(new Set())).toHaveLength(1);
+  });
+});
+
+describe('what is not worth offering back', () => {
+  const trivial = (id: string) => {
+    const store = fresh();
+    store.save(workspace(id, ['s1']), () => ({ cwd: homedir(), screen: '' }));
+    return store;
+  };
+
+  it('does not offer a plain shell in the home directory', () => {
+    // Restoring one pane that never ran anything, in the directory a new tab already opens in,
+    // restores nothing. A list of them buries the ones that carry something back.
+    expect(trivial('w1').list(new Set())).toHaveLength(0);
+  });
+
+  it('does offer it once something was run there', () => {
+    const store = fresh();
+    store.save(workspace('w1', ['s1']), () => ({
+      cwd: homedir(),
+      screen: 'x',
+      lastCommand: 'npm test',
+    }));
+    expect(store.list(new Set())).toHaveLength(1);
+  });
+
+  it('does offer a single pane somewhere other than home', () => {
+    const store = fresh();
+    store.save(workspace('w1', ['s1']), () => ({ cwd: '/w/app', screen: 'x' }));
+    expect(store.list(new Set())).toHaveLength(1);
+  });
+
+  it('does offer a multi-pane workspace even in home', () => {
+    const store = fresh();
+    store.save(workspace('w1', ['s1', 's2']), () => ({ cwd: homedir(), screen: 'x' }));
+    expect(store.list(new Set())).toHaveLength(1);
+  });
+
+  it('collapses identical layouts to the newest', () => {
+    // A daemon that restarted a dozen times leaves a dozen indistinguishable records.
+    const store = fresh();
+    for (let i = 0; i < 12; i++) {
+      store.save(workspace(`w${String(i)}`, ['s1']), () => ({ cwd: '/w/app', screen: 'x' }));
+    }
+    const listed = store.list(new Set());
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.workspaceId).toBe('w11');
+  });
+
+  it('keeps layouts that genuinely differ', () => {
+    const store = fresh();
+    store.save(workspace('a', ['s1']), () => ({ cwd: '/w/one', screen: 'x' }));
+    store.save(workspace('b', ['s1']), () => ({ cwd: '/w/two', screen: 'x' }));
+    expect(store.list(new Set())).toHaveLength(2);
   });
 });

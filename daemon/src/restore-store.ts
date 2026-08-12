@@ -1,5 +1,6 @@
 import type { LayoutNode, Workspace } from '@tabterm/shared';
 import { panes } from '@tabterm/shared';
+import { homedir } from 'node:os';
 import type { Database } from './database.js';
 import { debug, info } from './log.js';
 
@@ -140,6 +141,7 @@ export class RestoreStore {
       .all(limit * 2) as { id: string; layout_json: string; updated_at: number }[];
 
     const out: RestorableWorkspace[] = [];
+    const seen = new Set<string>();
     for (const row of rows) {
       if (excludeLive.has(row.id)) continue;
       let layout: LayoutNode;
@@ -152,6 +154,15 @@ export class RestoreStore {
       }
       const snapshots = this.#panesFor(row.id);
       if (snapshots.length === 0) continue;
+      if (isTrivial(snapshots)) continue;
+
+      // Identical layouts collapse to the newest. A daemon that restarted a dozen times leaves
+      // a dozen indistinguishable records, and offering the same thing twelve times is worse
+      // than offering it once: it buries everything that is actually different.
+      const signature = snapshots.map((p) => `${p.cwd}|${p.lastCommand ?? ''}`).join('\n');
+      if (seen.has(signature)) continue;
+      seen.add(signature);
+
       out.push({ workspaceId: row.id, layout, panes: snapshots, savedAt: row.updated_at });
       if (out.length >= limit) break;
     }
@@ -215,6 +226,21 @@ export class RestoreStore {
       .run();
     if (removed.changes > 0) info('restore.pruned', { workspaces: Number(removed.changes) });
   }
+}
+
+/**
+ * Whether a workspace is worth offering back.
+ *
+ * One pane, sitting in the home directory, having never run anything, is exactly what opening a
+ * new tab gives you. Restoring it restores nothing, and a list of them buries the workspaces
+ * that do carry something back.
+ */
+function isTrivial(panes: readonly PaneSnapshot[]): boolean {
+  if (panes.length !== 1) return false;
+  const pane = panes[0];
+  if (!pane) return true;
+  if (pane.lastCommand || (pane.command?.length ?? 0) > 0) return false;
+  return pane.cwd === homedir();
 }
 
 /** Present only when it parsed, so an unusable value never becomes an empty command. */

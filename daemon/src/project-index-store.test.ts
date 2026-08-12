@@ -1,16 +1,18 @@
-import { mkdir, mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { Database } from './database.js';
 import { LauncherData } from './launcher-data.js';
 import { ProjectIndex } from './project-index.js';
+import { makeTestDir } from './test-dirs.js';
 
 /** Discovery against a real filesystem, wired the way the daemon wires it. */
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function repo(): Promise<{ root: string; deep: string }> {
-  const root = await mkdtemp(join(tmpdir(), 'tabterm-repo-'));
+  // Not a temp directory: those are excluded from recent folders on purpose, which would make
+  // the fixture invisible to the code under test.
+  const root = await makeTestDir('repo-');
   await mkdir(join(root, '.git'));
   const deep = join(root, 'src', 'nested');
   await mkdir(deep, { recursive: true });
@@ -37,7 +39,7 @@ describe('project index, stored', () => {
   });
 
   it('records nothing for a directory in no repository', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'tabterm-plain-'));
+    const dir = await makeTestDir('plain-');
     const data = wired();
     data.recordDir(dir);
     await sleep(60);
@@ -76,7 +78,8 @@ describe('project index, stored', () => {
 
   it('survives a second daemon start against the same database', async () => {
     // Migration 3 adds columns to existing tables, so a database created before it must open.
-    const file = join(await mkdtemp(join(tmpdir(), 'tabterm-db-')), 'state.db');
+    // A database file is not a recent directory, so anywhere writable will do.
+    const file = join(await makeTestDir('db-'), 'state.db');
     const first = new Database(file);
     first.close();
     const second = new Database(file);

@@ -100,3 +100,33 @@ describe('saved items', () => {
     expect(new LauncherData(db).saved()[0]?.kind).toBe('command');
   });
 });
+
+describe('recent directories', () => {
+  it('never offers a temporary directory back', () => {
+    // A build, a test run, or an installer works in one, and every one of them is gone by the
+    // time anybody would click it. macOS puts per-user temp under /var/folders, which does not
+    // look temporary from the path alone.
+    const data = fresh();
+    for (const dir of [
+      '/var/folders/p7/abc/T/tt-project-x',
+      '/private/var/folders/p7/abc/T/build',
+      '/tmp/scratch',
+      '/private/tmp/scratch',
+    ]) {
+      data.recordDir(dir);
+    }
+    expect(data.recentDirs()).toEqual([]);
+  });
+
+  it('still records real project directories', () => {
+    const data = fresh();
+    data.recordDir('/Users/someone/Projects/app');
+    expect(data.recentDirs().map((d) => d.path)).toEqual(['/Users/someone/Projects/app']);
+  });
+
+  it('does not confuse a real path that merely starts similarly', () => {
+    const data = fresh();
+    data.recordDir('/var/folders-of-mine/project');
+    expect(data.recentDirs().map((d) => d.path)).toEqual(['/var/folders-of-mine/project']);
+  });
+});
