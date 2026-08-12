@@ -61,6 +61,9 @@ interface Client {
  */
 const EMPTY_TEMPLATE: ProjectTemplate = { name: '', layout: null, commands: [] };
 
+/** How long a restored tab may still be handed its merged-away session back. */
+const MERGED_AWAY_TTL_MS = 24 * 60 * 60 * 1000;
+
 /** How long a peer gets to complete a close handshake before its socket is destroyed. */
 const GRACEFUL_CLOSE_MS = 2000;
 
@@ -490,6 +493,7 @@ export class DaemonServer {
             // Its last pane left, so the workspace is gone. Remember where the session went,
             // so restoring that tab can pull it back instead of reporting an expiry.
             this.#mergedAway.set(sourceId, { sessionId: msg.sessionId, at: Date.now() });
+            this.#pruneMergedAway();
             this.#notifyWorkspaceGone(sourceId);
           }
           this.#attachWorkspace(client, msg.workspaceId, 80, 24);
@@ -1490,6 +1494,20 @@ export class DaemonServer {
    * back rather than to claim it expired. See docs/04-session-lifecycle.md §7.
    */
   readonly #mergedAway = new Map<string, { sessionId: string; at: number }>();
+
+  /**
+   * Forget merge records nobody came back for.
+   *
+   * The timestamp was always stored and never read, which is the signature of pruning that was
+   * intended and not written. An entry is small, but one per merge with no expiry is still a
+   * map that only grows, and the tab it refers to stopped existing long ago.
+   */
+  #pruneMergedAway(): void {
+    const cutoff = Date.now() - MERGED_AWAY_TTL_MS;
+    for (const [workspaceId, record] of this.#mergedAway) {
+      if (record.at < cutoff) this.#mergedAway.delete(workspaceId);
+    }
+  }
 
   /** Tell anyone rendering a workspace that it no longer exists. */
   #notifyWorkspaceGone(workspaceId: string): void {

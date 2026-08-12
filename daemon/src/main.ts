@@ -33,9 +33,18 @@ async function main(): Promise<void> {
   try {
     releaseLock = acquireLock();
   } catch (e) {
-    error('daemon.already-running', { error: String(e) });
+    /**
+     * Another daemon is already serving, so this one has nothing to do.
+     *
+     * It exits **successfully**, which matters: the LaunchAgent is
+     * `KeepAlive{SuccessfulExit:false}`, so a non-zero exit means "restart me". A daemon that
+     * cannot start because a healthy one already exists is not a failure, and treating it as
+     * one produces an infinite restart loop. That is not hypothetical: it ran 18,538 times over
+     * six days and wrote 6 MB of the identical line to stderr.
+     */
+    info('daemon.already-running', { detail: String(e) });
     console.error(String(e));
-    process.exit(1);
+    process.exit(0);
   }
 
   initAuth();
@@ -262,6 +271,10 @@ async function main(): Promise<void> {
   const ARCHIVE_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
   const ARCHIVE_MAX_BYTES = 256 * 1024 * 1024;
 
+  /** Expired session metadata is only useful for offering a recovery, which ages out fast. */
+  const SESSION_META_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+  const MAINTENANCE_INTERVAL_MS = 60 * 60 * 1000;
+
   /** The longest a shutdown may take before it is completed by force. */
   const SHUTDOWN_DEADLINE_MS = 8000;
 
@@ -301,12 +314,47 @@ async function main(): Promise<void> {
       db.close();
       await sessions.shutdown();
       clearTimeout(watchdog);
+      clearInterval(maintenanceTimer);
       releaseLock();
       process.exit(0);
     })();
   };
+  /**
+   * Housekeeping.
+   *
+   * Pruning used to run only in the shutdown handler, which meant it ran only on a clean stop.
+   * A machine that reboots, a daemon that is SIGKILLed, or one that simply runs for months
+   * never pruned anything at all, and the tables it prunes are the ones that grow forever.
+   *
+   * Hourly, unref'd, and cheap: three indexed deletes. This is a maintenance interval, not a
+   * poll for state, which is the distinction docs/11-performance.md draws.
+   */
+  const maintain = () => {
+    try {
+      restore.prune(RESTORE_RETENTION_MS);
+      archive.prune({ olderThanMs: ARCHIVE_RETENTION_MS, maxTotalBytes: ARCHIVE_MAX_BYTES });
+      launcher.pruneSessions(SESSION_META_RETENTION_MS);
+    } catch (e) {
+      warn('maintenance.failed', { error: String(e) });
+    }
+  };
+  const maintenanceTimer = setInterval(maintain, MAINTENANCE_INTERVAL_MS);
+  maintenanceTimer.unref();
+  // Once at startup too, so a machine that is rebooted daily still prunes.
+  maintain();
+
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
+  /**
+   * An unhandled rejection terminates the process by default, with nothing written down.
+   *
+   * The daemon is restarted by launchd, so the user sees a blip and the logs say nothing about
+   * why. Recording it costs a line and turns an unexplained restart into a diagnosable one.
+   */
+  process.on('unhandledRejection', (reason) => {
+    error('daemon.unhandled-rejection', { reason: String(reason) });
+  });
+
   process.on('uncaughtException', (e) => {
     error('daemon.uncaught', { error: String(e), stack: e.stack });
   });
