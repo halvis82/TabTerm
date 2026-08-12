@@ -1,13 +1,17 @@
 // A cloned repository can declare a workspace. Nothing about it runs without a decision.
 import { openTerminal, type, evaluate, sleep } from '../helpers.mjs';
 import { reporter, connect } from '../cdp.mjs';
-import { mkdtempSync, writeFileSync, realpathSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdtempSync, mkdirSync, writeFileSync, realpathSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 const r = reporter();
 
-const dir = realpathSync(mkdtempSync(join(tmpdir(), 'tt-project-')));
+// Not a temp directory: those are deliberately kept out of recent folders, so a fixture under
+// tmp never reaches the launcher and this suite would be testing nothing.
+const base = join(homedir(), '.cache', 'tabterm-test');
+mkdirSync(base, { recursive: true });
+const dir = realpathSync(mkdtempSync(join(base, 'project-')));
 writeFileSync(
   join(dir, '.tabterm.json'),
   JSON.stringify({

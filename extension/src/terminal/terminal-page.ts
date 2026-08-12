@@ -567,7 +567,13 @@ function buildLauncher(): void {
       client?.send({ t: 'launch-project-template', cwd: path, ...size });
       launcher?.dismiss();
     },
-    onDismiss: () => panesHost?.focus(splitView?.focused ?? ''),
+    onDismiss: () => {
+      // The terminal takes the whole window back. Its size genuinely changes, so the shell is
+      // told, and it redraws into the space it now has.
+      root.classList.remove('panel-open');
+      refitAllPanes();
+      panesHost?.focus(splitView?.focused ?? '');
+    },
   });
 
   palette = new Palette({
@@ -672,6 +678,21 @@ function sendToFocusedPane(text: string): void {
  * A carriage return is what a shell treats as "run it", which is exactly the moment the user
  * has stopped choosing and started working.
  */
+/**
+ * Re-measure every pane after the available space changes.
+ *
+ * A terminal that is not told it grew keeps wrapping to its old width, which looks like a
+ * rendering bug and is really a stale size.
+ */
+function refitAllPanes(): void {
+  for (const pane of panesHost?.all ?? []) {
+    const size = panesHost?.fit(pane.paneId);
+    if (size && workspaceId) {
+      client?.send({ t: 'resize-pane', workspaceId, paneId: pane.paneId, ...size });
+    }
+  }
+}
+
 function submitsCommand(data: string): boolean {
   return data.includes('\r') || data.includes('\n');
 }
@@ -1018,6 +1039,11 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'launcher-state': {
+      // The panel is about to be drawn, so the terminal gives up the top of the window.
+      if (launcher && !launcher.dismissed) {
+        root.classList.add('panel-open');
+        refitAllPanes();
+      }
       launcher?.setState(msg.state);
       savedItems = [...msg.state.saved];
       palette?.setSaved(savedItems);

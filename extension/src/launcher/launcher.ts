@@ -38,6 +38,17 @@ export interface LauncherOptions {
   onDismiss: () => void;
 }
 
+/**
+ * How many rows each section shows.
+ *
+ * This is a shortcut, not an inventory. A start page that lists everything is a page you have to
+ * read, and the whole point is to not have to: what is worth showing is the handful you would
+ * plausibly want, and anything else is reachable by typing a path.
+ */
+const MAX_RECENT = 6;
+const MAX_RESTORE = 3;
+const MAX_RESUME = 3;
+
 export class Launcher {
   readonly #opts: LauncherOptions;
   readonly #el: HTMLElement;
@@ -111,7 +122,7 @@ export class Launcher {
       sections.push(
         section(
           'Recent folders',
-          state.recentDirs.map((d) => this.#dirRow(d, state.home)),
+          state.recentDirs.slice(0, MAX_RECENT).map((d) => this.#dirRow(d, state.home)),
         ),
       );
     }
@@ -218,7 +229,7 @@ export class Launcher {
   #restoreSection(home: string): HTMLElement | null {
     if (this.#restorable.length === 0) return null;
 
-    const rows = this.#restorable.map((entry) => {
+    const rows = this.#restorable.slice(0, MAX_RESTORE).map((entry) => {
       const wrap = document.createElement('div');
       wrap.className = 'launcher-row-wrap';
 
@@ -402,7 +413,7 @@ export class Launcher {
 
   #resumeSection(home: string): HTMLElement | null {
     if (this.#resumable.length === 0) return null;
-    const rows = this.#resumable.slice(0, 5).map((session) => {
+    const rows = this.#resumable.slice(0, MAX_RESUME).map((session) => {
       const row = document.createElement('button');
       row.className = 'launcher-row';
       row.append(

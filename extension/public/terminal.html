@@ -93,10 +93,43 @@
     background: #5b6a92;
   }
 
+  /*
+   * A flex container, because its child is a flex item.
+   *
+   * A single-pane workspace renders one `.pane` directly here, with no `.split-node` between
+   * them, and `.pane` is `flex: 1 1 0`. Against a block parent that resolves to zero height, so
+   * the terminal collapsed to a few pixels and the tab looked simply dark. Splits were fine,
+   * because a split does insert a flex wrapper -- which is why this survived: every test that
+   * split a pane passed.
+   */
   #terminal {
     position: absolute;
     inset: 0;
     padding: 6px 8px;
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  /*
+   * While the panel is up, the terminal keeps the bottom of the window.
+   *
+   * A terminal's input belongs at the bottom, and the panel is drawn in the space above it that
+   * has no output in it yet. The terminal really is smaller here rather than being visually
+   * shifted: the shell is told its true size, so what is on screen is what it thinks it has.
+   */
+  #terminal.panel-open {
+    align-items: flex-end;
+  }
+  #terminal.panel-open > .pane,
+  #terminal.panel-open > .split-node {
+    /* A fixed height, not a cap: `flex: 1 1 0` against `align-items: flex-end` shrinks to
+       content, which is a couple of pixels. */
+    /* Fixed height, full width. `flex: 0 0 auto` alone sizes to content in both directions,
+       which collapsed the strip horizontally to nothing. */
+    flex: 0 0 auto;
+    width: 100%;
+    height: 4.5rem;
   }
   .xterm-viewport::-webkit-scrollbar {
     width: 9px;
@@ -306,34 +339,55 @@
     pointer-events: auto;
   }
 
+  /*
+   * Part of the page, not a window on top of it.
+   *
+   * It used to be a centred card with its own background, its own border, and its own
+   * scrollbar, which made it look like a dialog you had to deal with before you could reach
+   * the terminal. It is not: there is a live shell behind it from the moment the tab opens,
+   * and this is only here because there is no output yet.
+   *
+   * So: no card, no second scrollbar, and anchored to the top so the prompt keeps the bottom of
+   * the window, where a terminal's input belongs.
+   */
+  /* `hidden` must win over the display below, or dismissing the panel does nothing at all.
+     The recovery overlay had this exact bug once already. */
+  .launcher[hidden] {
+    display: none;
+  }
   .launcher {
     position: absolute;
-    left: 50%;
-    top: 40px;
-    transform: translateX(-50%);
-    width: min(620px, calc(100% - 48px));
-    max-height: calc(100% - 90px);
-    overflow-y: auto;
-    background: #1a1c26;
-    border: 1px solid #2f3346;
-    border-radius: 10px;
-    padding: 18px 20px 16px;
-    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
-    font:
-      13px/1.55 -apple-system,
-      BlinkMacSystemFont,
-      sans-serif;
-    color: #d5d8e2;
+    left: 0;
+    right: 0;
+    top: 0;
+    /* Stops short of the bottom, leaving the prompt visible underneath. */
+    bottom: 4.5rem;
+    padding: 14px 18px 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: transparent;
+    border: 0;
+    /* Fades out where it meets the prompt rather than ending in a hard edge. */
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      #000 0,
+      #000 calc(100% - 36px),
+      transparent 100%
+    );
+    mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 36px), transparent 100%);
   }
   .launcher-section {
-    margin-bottom: 18px;
+    margin-bottom: 10px;
   }
+  /* Quiet. A heading here is a label, not a banner. */
   .launcher-heading {
-    font-size: 11px;
+    font-size: 10px;
     text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: #868da3;
-    margin: 0 0 8px;
+    letter-spacing: 0.08em;
+    color: #5f6672;
+    margin: 0 0 4px;
     font-weight: 600;
   }
   .launcher-form {
@@ -448,6 +502,7 @@
     color: #d6d6d6;
     overflow-x: auto;
   }
+  /* One line, always. A row that wraps turns a list into a paragraph. */
   .launcher-row {
     flex: 1;
     display: flex;
@@ -455,13 +510,20 @@
     gap: 10px;
     background: transparent;
     border: 0;
-    border-radius: 6px;
+    border-radius: 5px;
     color: inherit;
     text-align: left;
-    padding: 6px 8px;
+    padding: 3px 6px;
     cursor: pointer;
     font: inherit;
     min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .launcher-row > * {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .launcher-row:hover {
     background: #262a38;

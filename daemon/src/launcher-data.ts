@@ -37,6 +37,21 @@ const WIDEN_ROWS = 2000;
 const BORING = new Set(['/', homedir(), '/tmp', '/private/tmp']);
 
 /**
+ * Directory trees nobody wants offered back to them.
+ *
+ * Temporary directories in particular: a build, a test run, or an installer works in one, and
+ * every one of them is gone by the time you would click it. macOS puts per-user temp under
+ * `/var/folders`, which is where they arrive from in practice and is not obviously temporary
+ * from the path alone.
+ */
+const BORING_TREES = ['/var/folders/', '/private/var/folders/', '/tmp/', '/private/tmp/'];
+
+function isBoring(path: string): boolean {
+  if (BORING.has(path)) return true;
+  return BORING_TREES.some((prefix) => path.startsWith(prefix));
+}
+
+/**
  * Commands that must never be written down.
  *
  * Dropped entirely rather than stored with the value blanked: the existence of the command is
@@ -123,7 +138,7 @@ export class LauncherData {
    * enter constantly should not fall off just because you were somewhere else this morning.
    */
   recordDir(path: string): void {
-    if (!path.startsWith('/') || BORING.has(path)) return;
+    if (!path.startsWith('/') || isBoring(path)) return;
     this.#db.handle
       .prepare(
         `INSERT INTO recent_dirs (path, name, last_used_at, use_count, pinned)
