@@ -76,7 +76,7 @@ way that looks like something else.
 ### 2. Build
 
 ```sh
-git clone https://github.com/<you>/TabTerm.git
+git clone https://github.com/halvis82/TabTerm.git
 cd TabTerm
 npm install
 npm run build
@@ -227,7 +227,11 @@ Complete. Terminals, splits, workspaces, restore across close and reopen with th
 intact, project templates behind a trust prompt, history search, saved commands, agent
 integration, a local server dashboard, reboot restore, and a plugin API.
 
-503 unit tests and 74 browser checks; `npm run verify` gates every change.
+Plus a floating command menu with favorites, history, hotstrings and session statistics, tab
+status in the favicon and title, and desktop notifications when a long command or an agent turn
+finishes.
+
+619 unit tests and 113 browser checks. `npm run verify` gates every change.
 
 Read [limitations](docs/10-limitations.md) before filing anything: what Chrome and macOS will
 not permit is documented there with measurements, including the things that cannot be fixed.
