@@ -340,6 +340,17 @@ placeholder inputs — where the user deliberately put the cursor and typing mea
 Modified keys are left alone too: a browser shortcut is not typing, and moving the cursor for
 one that never reaches the page would be a side effect of nothing.
 
+### The panel belongs to a new tab only
+
+A page that opens with a workspace id in its URL is reattaching to a session somebody already
+has, most often because they reloaded. It is not a new tab, so it gets no panel and the terminal
+takes the whole window immediately.
+
+Without that, a reload put the panel back over a session that already had output, and the output
+was crammed into the strip the panel leaves for the prompt. The flag is read **once at load**,
+because the URL gains a workspace id as soon as a session is created and would otherwise stop
+telling the two cases apart within the same page.
+
 ### The launcher is drawn over the terminal, not instead of it
 
 There is a live shell behind the panel from the moment the tab opens, already able to receive

@@ -33,6 +33,19 @@ const DEFAULT_PORT = 7377;
 
 const params = new URLSearchParams(location.search);
 
+/**
+ * Whether this page is reattaching to a workspace that already exists.
+ *
+ * The start panel belongs to a *new* tab: it is drawn over an empty terminal because there is
+ * no output yet. A page that opened with a workspace in its URL is not that. It is a session
+ * somebody already has, most often because they reloaded, and it may have a screen full of
+ * output -- which used to end up crammed into the small strip the panel leaves behind.
+ *
+ * Read once at load, because the URL gains a workspace id as soon as a session is created and
+ * would otherwise stop telling the two cases apart.
+ */
+const reattaching = params.has('workspace');
+
 const root = document.getElementById('terminal') as HTMLElement;
 const statusEl = document.getElementById('status') as HTMLElement;
 const recoveryEl = document.getElementById('recovery') as HTMLElement;
@@ -1040,7 +1053,7 @@ function onControl(msg: ServerMessage): void {
 
     case 'launcher-state': {
       // The panel is about to be drawn, so the terminal gives up the top of the window.
-      if (launcher && !launcher.dismissed) {
+      if (!reattaching && launcher && !launcher.dismissed) {
         root.classList.add('panel-open');
         refitAllPanes();
       }
@@ -1366,6 +1379,9 @@ async function start(): Promise<void> {
   installModifierTracking();
   installShortcuts();
   installAmbientFocus();
+  // A reattached session gets the whole window from the start. Nothing about it is new, so
+  // there is nothing to offer.
+  if (reattaching) launcher?.dismiss();
   // Leaving fullscreen by any route, including the Escape the browser handles itself, must
   // put the layout back and release the lock.
   document.addEventListener('fullscreenchange', () => {
