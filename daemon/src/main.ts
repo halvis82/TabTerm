@@ -262,11 +262,29 @@ async function main(): Promise<void> {
   const ARCHIVE_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
   const ARCHIVE_MAX_BYTES = 256 * 1024 * 1024;
 
+  /** The longest a shutdown may take before it is completed by force. */
+  const SHUTDOWN_DEADLINE_MS = 8000;
+
   let shuttingDown = false;
   const shutdown = (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
     info('daemon.shutdown', { signal });
+
+    /**
+     * A shutdown that cannot finish is worse than an abrupt one.
+     *
+     * Everything below is bounded on its own, but "bounded on its own" is a claim about code
+     * that changes. This is the invariant: the process exits. A daemon that will not is one
+     * launchd cannot replace.
+     */
+    const watchdog = setTimeout(() => {
+      warn('daemon.shutdown.forced', { signal, afterMs: SHUTDOWN_DEADLINE_MS });
+      releaseLock();
+      process.exit(0);
+    }, SHUTDOWN_DEADLINE_MS);
+    watchdog.unref();
+
     void (async () => {
       await agentBridge.close();
       // Capture every workspace before anything closes. A machine restarting is the case reboot
@@ -282,6 +300,7 @@ async function main(): Promise<void> {
       launcher.flush();
       db.close();
       await sessions.shutdown();
+      clearTimeout(watchdog);
       releaseLock();
       process.exit(0);
     })();
