@@ -96,6 +96,10 @@ else
   warn "node-pty prebuilds not found beside the staged daemon"
 fi
 
+if [ -f "$STATE/tabterm.sqlite" ]; then
+  ok "database present ($(du -h "$STATE/tabterm.sqlite" | cut -f1))"
+fi
+
 # --- runtime --------------------------------------------------------------
 plist_node=$(python3 -c "
 import plistlib,sys
@@ -112,14 +116,15 @@ if [ -n "$plist_node" ] && [ -x "$plist_node" ]; then
   fi
 fi
 
-if [ -f "$STATE/tabterm.sqlite" ]; then
-  ok "database present ($(du -h "$STATE/tabterm.sqlite" | cut -f1))"
-fi
-
 # --- authenticated connectivity -------------------------------------------
 # A listening port proves very little. A version mismatch, a stale token, and a wedged daemon
 # all look identical from outside, and only an authenticated connection tells them apart.
-probe_out=$("$(command -v node)" "$(dirname "$0")/health-probe.mjs" 2>/dev/null)
+# The LaunchAgent's node, not whatever is first on PATH. The daemon needs Node 22 or newer and
+# a machine can easily have an older one earlier in PATH, which would make doctor's own probe
+# fail and report that as a daemon problem. The tool you run when things are broken must not be
+# broken by the same thing.
+PROBE_NODE="${plist_node:-$(command -v node)}"
+probe_out=$("$PROBE_NODE" "$(dirname "$0")/health-probe.mjs" 2>/dev/null)
 if [ -n "$probe_out" ]; then
   authed=$(printf '%s' "$probe_out" | python3 -c "import json,sys;print(json.load(sys.stdin)['authenticated'])" 2>/dev/null)
   if [ "$authed" = "True" ]; then
@@ -139,7 +144,7 @@ if [ -n "$probe_out" ]; then
     bad "database failed its integrity check"
   fi
 else
-  warn "could not run the health probe; is node on PATH?"
+  warn "could not run the health probe using $PROBE_NODE"
 fi
 
 # --- shell integration ----------------------------------------------------
