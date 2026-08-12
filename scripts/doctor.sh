@@ -178,7 +178,9 @@ probe_tcc() {
 for dir in Desktop Documents Downloads; do
   case "$(probe_tcc "$dir")" in
     ok)     ok "this shell can read ~/$dir" ;;
-    denied) warn "~/$dir denied for this shell" ;;
+    denied) warn "~/$dir is denied. Re-allow at System Settings > Privacy & Security >
+        Files and Folders, or Full Disk Access, then restart the daemon:
+        launchctl kickstart -k gui/$(id -u)/com.tabterm.daemon" ;;
     hang)   bad "~/$dir HANGS on a consent prompt. A terminal doing this looks frozen" ;;
   esac
 done

@@ -57,12 +57,27 @@ export function spawnPty(opts: PtyOptions): PtyHandle {
   return { pty, pid: pty.pid };
 }
 
+/**
+ * Variables that describe how the daemon runs, not how the user's shell should.
+ *
+ * A terminal must hand you *your* environment. The daemon happens to be a Node process, and
+ * when it runs from the app bundle its launcher sets `NODE_PATH` so it can find its own native
+ * `node-pty`. Passing that to a shell puts TabTerm's `node_modules` on the module resolution
+ * path of every `node` command you run, which produces the worst kind of bug: a project
+ * resolving a dependency it never installed, from a directory it has no idea exists.
+ *
+ * `NODE_OPTIONS` is here for the same reason -- it would silently apply to every Node process
+ * started in a terminal.
+ */
+const DAEMON_ONLY_VARS = ['NODE_PATH', 'NODE_OPTIONS', 'NODE_REPL_EXTERNAL_MODULE'];
+
 /** The auth token is never placed in a PTY environment. See docs/08-shell-integration.md §7. */
 function filteredEnv(): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
     if (v === undefined) continue;
     if (k.startsWith('TABTERM_')) continue;
+    if (DAEMON_ONLY_VARS.includes(k)) continue;
     out[k] = v;
   }
   return out;

@@ -107,12 +107,31 @@ The extension ID is pinned by the `key` in the manifest, so it stays the same ac
 reinstalls. That matters: every terminal tab is a `chrome-extension://<id>/...` URL, and a
 changed ID would invalidate every one of them in your history.
 
-### 5. Open a terminal
+### 5. macOS will ask for permission once
+
+The first time a terminal reads `~/Documents`, `~/Desktop` or `~/Downloads`, macOS asks. It asks
+about **TabTerm's daemon**, not about Terminal.app, so permissions you granted other terminals do
+not carry over.
+
+Allowing is a one-time decision per folder. **Denying is not fatal and not permanent**: the
+command fails with `Operation not permitted` the way any permission error does, and you can
+re-allow it later in System Settings, Privacy & Security, Files and Folders. Restart the daemon
+afterwards so the new grant is picked up:
+
+```sh
+launchctl kickstart -k gui/$(id -u)/com.tabterm.daemon
+```
+
+The one state worth knowing about is *unanswered*: while a prompt is pending the command blocks,
+which looks like a frozen terminal. `./scripts/doctor.sh` checks all three folders and tells the
+three states apart.
+
+### 6. Open a terminal
 
 `Command+Shift+O`. `Control+Shift+T` and `Option+Shift+T` also work, and all three are
 rebindable at `chrome://extensions/shortcuts`.
 
-### 6. Check it
+### 7. Check it
 
 ```sh
 ./scripts/doctor.sh
@@ -162,6 +181,8 @@ Drop a `.mjs` file in `~/.config/tabterm/plugins/` and restart the daemon. See
 | Terminals open but nothing runs | `node-pty`'s `spawn-helper` lost its executable bit. `doctor.sh` checks this specifically |
 | The daemon will not start | Almost always Node older than 22. `doctor.sh` reports the version it found |
 | History is empty | Expected on a fresh install; it fills as you run commands |
+| A command touching `~/Documents`, `~/Desktop` or `~/Downloads` hangs | macOS is waiting on a privacy prompt you have not answered. Answer it; the command continues |
+| The same command fails with `Operation not permitted` | You denied that folder. Re-allow it in System Settings, Privacy & Security, Files and Folders, then `launchctl kickstart -k gui/$(id -u)/com.tabterm.daemon` |
 
 Anything else: `node scripts/diagnostics.mjs` writes a redacted bundle to your Desktop. It
 contains no scrollback, command text, or environment values, and it says what it redacted.
