@@ -162,3 +162,43 @@ Non-optional, per `05-security.md` §10.
 | Behavior in non-Chrome browsers | Out of scope by definition |
 | Chrome's own tab restore mechanics | Chrome's job. We test that our page handles being restored |
 | Reboot process survival | Impossible. Tier 0.3 |
+
+---
+
+## Browser suites
+
+`npm run test:browser` runs everything in `test/browser/suites/` against one daemon and one
+headless browser.
+
+**Headless by default and deliberately.** These run while someone is using the machine, and a
+browser that steals focus every few seconds makes that impossible. Everything the suites need
+works without a window, including WebGL terminal rendering and real key events. The profile is
+throwaway and recreated per run, so a suite never sees state from the previous one and the
+developer's own Chrome profile is never opened.
+
+### Two rules these suites learned the hard way
+
+**Setup that touches shared state belongs to the runner, not a suite.** One suite restarted the
+daemon so a loader would re-run. On its own it passed; in the batch it took down every suite
+after it, and the output looked like nine unrelated product bugs.
+
+**Input needs `rawKeyDown`, not `char`.** A CDP `char` event is not a keydown, so xterm never
+turns it into a control sequence and `Ctrl+C` does nothing at all. That cost time three separate
+times before it was written down in `helpers.mjs`.
+
+### What is asserted, and why these ones
+
+| Suite | Guards |
+|---|---|
+| `terminal` | A tab is a real shell; Ctrl+C interrupts and Command+C does not |
+| `workspace` | Splits, and reopening a workspace URL restoring the *same* panes |
+| `palette` | Actions reachable by typing, absent when they cannot apply |
+| `project-trust` | A cloned repository's config is shown and never acted on unasked |
+| `no-busy-loop` | An idle tab sends almost nothing |
+
+The last one is not hypothetical. The launcher recorded "this directory has no project config" by
+deleting the entry, which made "asked, nothing there" indistinguishable from "never asked". Every
+render asked again and every answer caused another render: thousands of messages a second.
+Nothing looked broken, because a busy loop is invisible; what showed was every other message
+starved behind it, so typing appeared to do nothing. It also got worse the more the product was
+used, since each new recent folder added another question per render.
