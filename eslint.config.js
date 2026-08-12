@@ -36,4 +36,10 @@ export default tseslint.config(
       'no-console': ['warn', { allow: ['warn', 'error'] }],
     },
   },
+
+  // Command line entry points, whose entire job is writing to stdout.
+  {
+    files: ['daemon/src/*-cli.ts'],
+    rules: { 'no-console': 'off' },
+  },
 );

@@ -204,6 +204,12 @@ async function main(): Promise<void> {
     });
     launcher.recordCommand({ command, cwd: s.cwd, exitCode, durationMs, sessionId: s.id });
     const ws = workspaces.findBySession(s.id);
+    // Long enough that you tabbed away from it, which is the only case worth interrupting for.
+    server.notifyFinished(
+      { kind: 'command', command, durationMs, exitCode },
+      shortPlace(s.cwd),
+      ws ? { workspaceId: ws.id } : undefined,
+    );
     launcher.rememberSession({
       id: s.id,
       cwd: s.cwd,
@@ -223,6 +229,9 @@ async function main(): Promise<void> {
     });
   };
 
+  /** When each session's current agent turn began, so its duration can be reported. */
+  const turnStartedAt = new Map<string, number>();
+
   // Agent state arrives over its own loopback endpoint rather than the socket, because hooks
   // are separate processes that cannot hold a WebSocket. Same token, same boundary.
   const agentBridge = new AgentBridge({
@@ -231,7 +240,9 @@ async function main(): Promise<void> {
     onEvent: ({ sessionId, state, detail }) => {
       const session = sessions.get(sessionId);
       if (!session) return;
+      const previous = session.agentState;
       session.agentState = state;
+      server.recordAgentEvent(Date.now());
 
       server.notifySession(session, {
         t: 'agent-state',
@@ -250,6 +261,33 @@ async function main(): Promise<void> {
           detail ?? session.cwd,
           where ? { workspaceId: where.id } : undefined,
         );
+      }
+
+      /**
+       * A turn, bounded by the hooks that report its ends.
+       *
+       * This is the event a shell command boundary cannot see: the command is `claude` and it
+       * runs for an hour, so `command-end` fires when the agent CLI is quit rather than when it
+       * finished thinking. Timed from the first working event, which is where a person stopped
+       * being able to do anything but wait.
+       */
+      if (state === 'working' || state === 'starting') {
+        if (previous !== 'working') turnStartedAt.set(sessionId, Date.now());
+      } else if (state === 'idle' || state === 'failed') {
+        const startedAt = turnStartedAt.get(sessionId);
+        turnStartedAt.delete(sessionId);
+        if (startedAt !== undefined) {
+          const where = workspaces.findBySession(sessionId);
+          server.notifyFinished(
+            {
+              kind: 'agent-turn',
+              durationMs: Date.now() - startedAt,
+              ...(state === 'failed' ? { failed: true } : {}),
+            },
+            shortPlace(session.cwd),
+            where ? { workspaceId: where.id } : undefined,
+          );
+        }
       }
     },
   });
@@ -361,3 +399,9 @@ async function main(): Promise<void> {
 }
 
 void main();
+
+/** The last path segment, which is what a person calls the place they are working in. */
+function shortPlace(cwd: string): string | undefined {
+  const trimmed = cwd.replace(/\/+$/, '');
+  return trimmed.slice(trimmed.lastIndexOf('/') + 1) || undefined;
+}

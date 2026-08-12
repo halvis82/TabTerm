@@ -42,6 +42,9 @@ import type { PluginHost } from './plugin-api.js';
 import type { ProjectIndex } from './project-index.js';
 import type { WorkspaceStore } from './workspace-store.js';
 import type { Session, SessionManager } from './session-manager.js';
+import { agentHooksStatus, setAgentHooks } from './agent-hooks.js';
+import { clampPolicy, decide, type Finished, type NotifyPolicy } from './notify-policy.js';
+import { readUserSettings, updateUserSetting } from './user-settings.js';
 
 interface Client {
   id: string;
@@ -84,6 +87,11 @@ export class DaemonServer {
   readonly #plugins: PluginHost;
   readonly #clients = new Set<Client>();
   #closing: Promise<void> | null = null;
+  #notifyPolicy: NotifyPolicy = clampPolicy(
+    readUserSettings()['notify'] as Partial<NotifyPolicy> | undefined,
+  );
+  /** When an agent hook last reported anything, which is how "installed" is told from "working". */
+  #lastAgentEventAt: number | undefined;
 
   constructor(
     config: Config,
@@ -124,6 +132,34 @@ export class DaemonServer {
         info('server.listening', { port: this.#config.port });
         resolve(this.#config.port);
       });
+    });
+  }
+
+  get notifyPolicy(): NotifyPolicy {
+    return this.#notifyPolicy;
+  }
+
+  /** An agent hook fired. Recorded so the settings switch can say whether it is really working. */
+  recordAgentEvent(at: number): void {
+    this.#lastAgentEventAt = at;
+  }
+
+  /**
+   * Something finished. Notify only if the policy says it was worth it.
+   *
+   * The threshold lives here rather than in the page because the duration is authoritative here
+   * and because a discarded tab has nothing left to make the decision with.
+   */
+  notifyFinished(event: Finished, where?: string, target?: { workspaceId?: string }): void {
+    const decision = decide(event, this.#notifyPolicy, where);
+    if (!decision) return;
+    this.broadcast({
+      t: 'notify',
+      priority: decision.priority,
+      title: decision.title,
+      body: decision.body,
+      ...(target ? { target } : {}),
+      ...(this.#notifyPolicy.onlyWhenUnfocused ? { suppressIfVisible: true } : {}),
     });
   }
 
@@ -1075,6 +1111,30 @@ export class DaemonServer {
       }
 
       case 'get-archive-status':
+      case 'get-notify-policy':
+      case 'set-notify-policy': {
+        if (msg.t === 'set-notify-policy') {
+          this.#notifyPolicy = clampPolicy({ ...this.#notifyPolicy, ...msg.policy });
+          // Persisted, because a preference that does not survive a restart is not a preference.
+          updateUserSetting('notify', this.#notifyPolicy);
+          info('notify-policy.changed', { policy: this.#notifyPolicy });
+        }
+        this.broadcastAll({ t: 'notify-policy', policy: this.#notifyPolicy });
+        return;
+      }
+
+      case 'get-agent-hooks':
+      case 'set-agent-hooks': {
+        // Writing to somebody else's configuration file, so it happens only here, on an
+        // explicit request, and never as a side effect of starting up.
+        const status =
+          msg.t === 'set-agent-hooks'
+            ? setAgentHooks(msg.enabled, this.#lastAgentEventAt)
+            : agentHooksStatus(this.#lastAgentEventAt);
+        this.broadcastAll({ t: 'agent-hooks', status });
+        return;
+      }
+
       case 'set-archive-enabled': {
         if (msg.t === 'set-archive-enabled') this.#archive.setEnabled(msg.enabled);
         const usage = this.#archive.usage();

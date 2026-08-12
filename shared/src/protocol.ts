@@ -19,6 +19,8 @@ import type {
   SessionSnapshot,
   SavedKind,
   TitleFields,
+  NotifyPolicy,
+  AgentHooksStatus,
 } from './model.js';
 
 export const PROTOCOL_VERSION = 1;
@@ -334,6 +336,12 @@ export type ClientMessage =
     }
   | { t: 'set-memory-mode'; mode: MemoryModeName }
   | { t: 'get-memory-mode' }
+  // Completion notifications, and the agent CLI hooks that make agent turns visible at all.
+  // See docs/06-chrome-integration.md and docs/09-agent-integration.md.
+  | { t: 'get-notify-policy' }
+  | { t: 'set-notify-policy'; policy: Partial<NotifyPolicy> }
+  | { t: 'get-agent-hooks' }
+  | { t: 'set-agent-hooks'; enabled: boolean }
   // Reboot restore. Processes cannot survive a restart; layout and context can.
   // See docs/04-session-lifecycle.md §11.
   | { t: 'list-restorable' }
@@ -471,7 +479,16 @@ export type ServerMessage =
       title: string;
       body: string;
       target?: { workspaceId?: string; paneId?: string };
+      /**
+       * Drop it if the pane is already on screen.
+       *
+       * Decided by the receiver rather than here, because only the extension can see which tab
+       * is active in which focused window. The daemon knows what happened, not who is watching.
+       */
+      suppressIfVisible?: boolean;
     }
+  | { t: 'notify-policy'; policy: NotifyPolicy }
+  | { t: 'agent-hooks'; status: AgentHooksStatus }
   | {
       /** What a tab can offer after its session is gone. */
       t: 'workspace-recall';

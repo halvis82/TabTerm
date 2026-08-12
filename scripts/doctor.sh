@@ -160,6 +160,26 @@ else
   warn "shell integration not staged. Run scripts/install.sh"
 fi
 
+# --- agent CLI hooks ------------------------------------------------------
+# Without these, agent state never reaches a tab and nothing says why. That silence is what
+# this check exists to break.
+HOOKS_CLI="$LIBEXEC/agent-hooks.mjs"
+[ -f "$HOOKS_CLI" ] || HOOKS_CLI="$REPO/daemon/dist/agent-hooks-cli.js"
+if [ -f "$HOOKS_CLI" ]; then
+  hooks_out="$(node "$HOOKS_CLI" status 2>/dev/null)"
+  if echo "$hooks_out" | grep -q "hooks installed"; then
+    ok "agent CLI hooks installed"
+  elif echo "$hooks_out" | grep -q "not present on this machine"; then
+    ok "no supported agent CLI on this machine, so no hooks are needed"
+  else
+    warn "agent CLI hooks not installed. Agent status and agent turn notifications will do
+        nothing until they are. Turn on Agent events in TabTerm settings, or run:
+        node $REPO/scripts/install-agent-hooks.mjs"
+  fi
+else
+  warn "agent hooks helper not built. Run: npm run build"
+fi
+
 # --- macOS privacy --------------------------------------------------------
 # An ungranted folder HANGS rather than failing, so probe with a timeout.
 probe_tcc() {

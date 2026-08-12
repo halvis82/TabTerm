@@ -209,7 +209,8 @@ needs its own copy.
 5. Write the LaunchAgent plist, `launchctl bootstrap`
 6. Write the native messaging host manifest with the permanent extension ID
 7. Offer shell integration. Print the exact `.zshrc` line. **Never edit dotfiles automatically**
-8. Offer agent CLI hook installation. Additive and reversible only
+8. Offer agent CLI hook installation, as a prompt when a terminal is attached. Additive and
+   reversible only, and skipped entirely in a scripted install
 9. Print the extension install step
 10. Run `tabterm doctor` and print the result
 
@@ -223,12 +224,17 @@ A failed migration leaves the previous database intact and refuses to start rath
 
 ### Uninstall
 
-`scripts/uninstall.sh` removes: the LaunchAgent (`launchctl bootout` first), the app bundle, the
-native host manifest, the token, and the state directory. It **prompts before deleting the database**,
+`scripts/uninstall.sh` removes: the agent CLI hooks, the LaunchAgent (`launchctl bootout` first),
+the app bundle, the native host manifest, the token, and the state directory. It **prompts before deleting the database**,
 because it holds notes and saved commands the user may want.
 
-It prints, rather than performs, the `.zshrc` line to remove and the the agent hook entries to remove.
-Same principle as install.
+It prints, rather than performs, the `.zshrc` line to remove.
+
+**It does remove the agent CLI hooks**, before deleting the binaries, and this is not an
+exception to the principle above. Hooks that outlive the install point at a script that no longer
+exists, so every agent turn would try to run a missing file. Removal is exact: only entries
+carrying our marker are taken out, and a settings file that contained nothing else of ours comes
+back byte identical.
 
 ---
 

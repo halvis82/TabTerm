@@ -1,78 +1,36 @@
 #!/usr/bin/env node
-// Install or remove TabTerm's agent CLI hooks.
+// Install or remove TabTerm's agent CLI hooks, from the command line.
 //
-// Opt in, additive, idempotent, and reversible. It adds only its own entries and leaves
-// everything else byte identical, because editing someone's agent configuration without asking
-// is not acceptable and silently rewriting unrelated settings is worse.
-// See docs/09-agent-integration.md §3.
-import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from 'node:fs';
+// A thin wrapper. The implementation lives in daemon/src/agent-hooks.ts, which is also what the
+// settings switch in the extension calls, so the two paths cannot disagree about what a hook
+// looks like or which events are wired.
+//
+// See docs/09-agent-integration.md.
+import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const MARKER = 'tabterm-agent-hook';
-const SETTINGS = join(homedir(), '.claude', 'settings.json');
-const HOOK_SCRIPT = join(homedir(), '.local', 'libexec', 'tabterm', 'agent-hook.sh');
-const HOOKS = [
-  'SessionStart',
-  'UserPromptSubmit',
-  'PreToolUse',
-  'Notification',
-  'Stop',
-  'SubagentStop',
+const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
+// The installed copy first, since that is the one a user has. The build output is the fallback
+// for a working tree that has not been installed yet.
+const candidates = [
+  join(homedir(), '.local', 'libexec', 'tabterm', 'agent-hooks.mjs'),
+  join(repo, 'daemon', 'dist', 'agent-hooks-cli.js'),
 ];
+const daemon = candidates.find((p) => existsSync(p));
 
-const remove = process.argv.includes('--remove');
-
-function readSettings() {
-  if (!existsSync(SETTINGS)) return {};
-  try {
-    return JSON.parse(readFileSync(SETTINGS, 'utf8'));
-  } catch (e) {
-    console.error(`Could not parse ${SETTINGS}, refusing to touch it.`);
-    console.error(String(e));
-    process.exit(1);
-  }
+if (!daemon) {
+  console.error('No built daemon found. Run: npm run build');
+  process.exit(1);
 }
 
-/** Ours are the only entries carrying the marker, so removal is exact. */
-const isOurs = (entry) => JSON.stringify(entry).includes(MARKER);
+const action = process.argv.includes('--remove')
+  ? 'remove'
+  : process.argv.includes('--status')
+    ? 'status'
+    : 'install';
 
-const settings = readSettings();
-settings.hooks ??= {};
-
-if (existsSync(SETTINGS)) {
-  // A backup, once, before the first modification. Cheap insurance on a file we did not write.
-  const backup = `${SETTINGS}.tabterm-backup`;
-  if (!existsSync(backup)) copyFileSync(SETTINGS, backup);
-}
-
-let changed = 0;
-for (const hook of HOOKS) {
-  const existing = Array.isArray(settings.hooks[hook]) ? settings.hooks[hook] : [];
-  const withoutOurs = existing.filter((e) => !isOurs(e));
-
-  if (remove) {
-    if (withoutOurs.length !== existing.length) changed++;
-    if (withoutOurs.length === 0) delete settings.hooks[hook];
-    else settings.hooks[hook] = withoutOurs;
-    continue;
-  }
-
-  withoutOurs.push({
-    matcher: '',
-    hooks: [{ type: 'command', command: `${HOOK_SCRIPT} ${hook} # ${MARKER}` }],
-  });
-  settings.hooks[hook] = withoutOurs;
-  changed++;
-}
-
-if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
-
-mkdirSync(dirname(SETTINGS), { recursive: true });
-writeFileSync(SETTINGS, JSON.stringify(settings, null, 2) + '\n');
-
-console.log(
-  remove
-    ? `Removed TabTerm hooks from ${SETTINGS} (${String(changed)} changed).`
-    : `Installed ${String(changed)} TabTerm hooks into ${SETTINGS}.`,
-);
+const run = spawnSync(process.execPath, [daemon, action], { stdio: 'inherit' });
+process.exit(run.status ?? 1);

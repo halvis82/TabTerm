@@ -72,6 +72,46 @@ Hook installation is **opt-in and reversible**.
 5. If the hook format changes in a future agent CLI version, the bridge degrades to no state
    information. It never crashes and never falls back to parsing output
 
+### Three ways in, one implementation
+
+Reachable as a switch in settings, as a prompt during install, and as a command. All three call
+the same code, so they cannot disagree about which events are wired or what an entry looks like.
+
+| Route | For |
+|---|---|
+| Settings, Agent events | Somebody who installed the extension and never opened a terminal to configure it |
+| `scripts/install.sh` | The prompt during install, skipped when no terminal is attached |
+| `node scripts/install-agent-hooks.mjs [--remove\|--status]` | Scripts, and anybody who prefers it |
+
+The switch works because the daemon is a local process with filesystem access. The extension
+cannot edit a settings file, and asking a browser page to do it would be worse if it could.
+
+**Why this is a switch and not a line in the install output.** It used to be the latter, and the
+result was that essentially nobody ran it. Agent state then does nothing, silently, with no way
+to tell that from an agent CLI that simply never needed attention. A feature whose failure mode
+is indistinguishable from working is not installed, whatever the documentation says.
+
+The helper is built as its own bundle, separate from the daemon. The daemon imports `node:sqlite`
+at load, so on a Node too old for it the daemon cannot even print its own help, and the installer
+has to work before anything else does.
+
+### Detected, and supported
+
+Installation covers every **supported** agent CLI whose configuration directory exists. Others
+are reported as found and unsupported rather than passed over in silence. Writing hooks in a
+format that has not been verified produces entries that never fire, which is worse than nothing
+because it looks like success.
+
+| Agent CLI | Settings | State |
+|---|---|---|
+| Claude Code | `~/.claude/settings.json` | Supported |
+| Codex | `~/.codex/config.toml` | Detected, format not verified |
+
+### Installed is not working
+
+The status carries `lastEventAt` beside `installed`, because they are different claims. Hooks
+present that have never fired is a real state, and the one worth being able to see.
+
 ---
 
 ## 4. Correlation across concurrent sessions

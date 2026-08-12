@@ -24,13 +24,22 @@ const options = {
 };
 
 /**
- * Redaction is emitted separately as well as bundled into the daemon.
+ * Emitted separately as well as bundled into the daemon.
  *
- * `scripts/diagnostics.mjs` needs it, and a second copy of the patterns in the script is
- * exactly how "we redact secrets" quietly stops being true. One implementation, tested once.
+ * `scripts/diagnostics.mjs` needs redaction, and the installer needs the agent hooks, and a
+ * second copy of either in a script is exactly how "we redact secrets" or "this is what a hook
+ * looks like" quietly stops being true. One implementation, tested once.
+ *
+ * The hooks CLI is its own bundle rather than a flag on the daemon because the daemon imports
+ * `node:sqlite` at load, so on a Node too old for it the daemon cannot even print help. The
+ * installer has to work before anything else does.
  */
 const redactOptions = {
-  entryPoints: ['daemon/src/redact.ts', 'daemon/src/extension-id.ts'],
+  entryPoints: [
+    'daemon/src/redact.ts',
+    'daemon/src/extension-id.ts',
+    'daemon/src/agent-hooks-cli.ts',
+  ],
   outdir: 'daemon/dist',
   bundle: true,
   platform: 'node',

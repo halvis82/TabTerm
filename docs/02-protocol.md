@@ -69,6 +69,8 @@ Rules, all enforced:
 | `save-item` / `delete-item` | | Notes and saved commands |
 | `open-workspace-template` | `templateId`, `overrides?` | |
 | `subscribe` | `topics[]` | Control connection only |
+| `get-notify-policy` / `set-notify-policy` | `policy{}` | Partial. Threshold clamped to 5s..10m |
+| `get-agent-hooks` / `set-agent-hooks` | `enabled` | Writes agent CLI settings. See `09-agent-integration.md` |
 
 ---
 
@@ -91,7 +93,9 @@ Rules, all enforced:
 | `session-expired` | `sessionId` | |
 | `workspace-updated` | `workspaceId`, `layout` | Another client changed it |
 | `server-detected` | `sessionId`, `port`, `proto` | |
-| `notify` | `priority`, `title`, `body`, `target{}` | Control connection only |
+| `notify` | `priority`, `title`, `body`, `target{}`, `suppressIfVisible?` | Control connection only |
+| `notify-policy` | `policy{}` | After a get or a set |
+| `agent-hooks` | `status{}` | `installed`, per-target detail, `lastEventAt?` |
 | `error` | `code`, `message`, `context?` | Never a bare string |
 
 ---

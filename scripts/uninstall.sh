@@ -11,6 +11,13 @@ echo "TabTerm uninstall"
 launchctl bootout "gui/$(id -u)/com.tabterm.daemon" 2>/dev/null && echo "  LaunchAgent stopped" || echo "  LaunchAgent was not running"
 rm -f "$PLIST" && echo "  plist removed"
 rm -f "$HOST"  && echo "  native messaging host unregistered"
+# Before the binaries go, since the helper that knows how to remove them lives among them.
+# Hooks left behind would point at a script that no longer exists, and every agent turn would
+# quietly try to run it.
+if [ -f "$LIBEXEC/agent-hooks.mjs" ]; then
+  node "$LIBEXEC/agent-hooks.mjs" remove >/dev/null 2>&1 && echo "  agent CLI hooks removed"
+fi
+
 rm -rf "$LIBEXEC" && echo "  binaries removed"
 rm -f "$STATE/token" && echo "  token removed"
 

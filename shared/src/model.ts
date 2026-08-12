@@ -244,3 +244,41 @@ export interface LauncherState {
   plugins: readonly LauncherPlugin[];
   home: string;
 }
+
+/**
+ * When a finished thing is worth interrupting somebody for.
+ *
+ * Enforced in the daemon, because that is where a duration is authoritative and where the
+ * notification originates. The interface sets it and reads it back. See
+ * docs/06-chrome-integration.md.
+ */
+export interface NotifyPolicy {
+  enabled: boolean;
+  /** A command or an agent turn that ran at least this long is worth mentioning. */
+  thresholdMs: number;
+  commands: boolean;
+  /** Agent turns, which a shell command boundary cannot see. */
+  agentTurns: boolean;
+  onlyWhenUnfocused: boolean;
+}
+
+export interface AgentHookTarget {
+  id: string;
+  name: string;
+  settingsPath: string;
+  /** Whether its hook format is known. Guessing writes hooks that never fire. */
+  supported: boolean;
+  /** Its configuration exists, so the tool has been run at least once. */
+  detected: boolean;
+  installed: boolean;
+}
+
+export interface AgentHooksStatus {
+  installed: boolean;
+  targets: readonly AgentHookTarget[];
+  /**
+   * When an event last arrived, if one ever has. Reported separately from `installed` because
+   * those are different claims, and hooks present but never firing is the failure worth seeing.
+   */
+  lastEventAt?: number;
+}

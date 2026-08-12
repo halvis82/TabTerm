@@ -84,6 +84,8 @@ echo "  built daemon and extension"
 # Named .mjs so Node treats it as ESM without needing a package.json alongside. The bundle
 # uses import.meta, which a .js file outside a "type": "module" package would reject.
 cp "$REPO/daemon/dist/main.js" "$LIBEXEC/daemon.mjs"
+# Standalone so it runs before, and independently of, a working daemon.
+cp "$REPO/daemon/dist/agent-hooks-cli.js" "$LIBEXEC/agent-hooks.mjs"
 # node-pty is a native module and cannot be bundled, so it ships beside the daemon.
 mkdir -p "$LIBEXEC/node_modules"
 for mod in node-pty; do
@@ -121,6 +123,22 @@ done
 
 "$REPO/scripts/doctor.sh" || true
 
+# Agent CLI hooks. Asked rather than assumed, because this writes to a configuration file we
+# did not create. Skipped without a terminal, which is what a scripted install has.
+if [ -t 0 ] && [ -f "$LIBEXEC/agent-hooks.mjs" ]; then
+  if ! node "$LIBEXEC/agent-hooks.mjs" status 2>/dev/null | grep -q "hooks installed"; then
+    echo
+    echo "Agent CLI hooks report when an agent needs you and when it finishes a turn."
+    echo "They are added to your agent settings, backed up first, and removable at any time."
+    printf "  Install them now? [y/N] "
+    read -r reply
+    case "$reply" in
+      [yY]*) node "$LIBEXEC/agent-hooks.mjs" install ;;
+      *)     echo "  Skipped. Turn on Agent events in TabTerm settings whenever you like." ;;
+    esac
+  fi
+fi
+
 cat <<NEXT
 
 Next, once:
@@ -130,10 +148,6 @@ Next, once:
   3. Open a terminal with Command+Shift+O, or click the toolbar icon
 
 The daemon now starts at login. It is running already.
-
-Optional, reports agent state to the tab favicon and notifications:
-  node $REPO/scripts/install-agent-hooks.mjs          # add
-  node $REPO/scripts/install-agent-hooks.mjs --remove # take back out
 
 Optional. History, timing and server detection already work without it.
 It adds exit codes, shell builtins, and very short commands:
