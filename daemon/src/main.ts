@@ -399,8 +399,8 @@ void main();
 /**
  * The last path segment, which is what a person calls the place they are working in.
  *
- * Home is the exception and is called `~`. Its last segment is the account name, so "in
- * halvis82" is what a notification from the home directory would otherwise say, which reads as
+ * Home is the exception and is called `~`. Its last segment is the account name, so a
+ * notification from the home directory would otherwise be "in <username>", which reads as
  * though it happened to somebody else.
  */
 function shortPlace(cwd: string): string | undefined {
