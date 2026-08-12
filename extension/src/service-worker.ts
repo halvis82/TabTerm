@@ -1,5 +1,10 @@
 import { getToken } from './transport/token.js';
-import { installClickHandler, notify, type NotifyPriority } from './chrome/notifications.js';
+import {
+  installClickHandler,
+  notify,
+  workspaceIsOnScreen,
+  type NotifyPriority,
+} from './chrome/notifications.js';
 import { buildAction } from './chrome/cross-actions.js';
 
 /**
@@ -135,18 +140,22 @@ interface NotifyMessage {
   title?: string;
   body?: string;
   target?: { workspaceId?: string; paneId?: string };
+  suppressIfVisible?: boolean;
 }
 
 chrome.runtime.onMessage.addListener((msg: NotifyMessage, _sender, sendResponse) => {
   // Raised by the offscreen document, which holds the daemon connection but has only
   // chrome.runtime and cannot fire a notification itself.
   if (msg.t === 'tabterm:notify' && msg.title && msg.body) {
-    void notify({
+    const request = {
       priority: msg.priority ?? 'important',
       title: msg.title,
       body: msg.body,
       ...(msg.target ? { target: msg.target } : {}),
-    });
+      ...(msg.suppressIfVisible === true ? { suppressIfVisible: true } : {}),
+    };
+    // Being told about a command you watched finish is how people turn notifications off.
+    void workspaceIsOnScreen(msg.target?.workspaceId).then((visible) => notify(request, visible));
     sendResponse({ ok: true });
     return false;
   }

@@ -167,17 +167,41 @@ carries everything. See `10-limitations.md` tier 1.6.
 
 ### Favicons
 
-Canvas-generated data URLs assigned to `<link rel="icon">`. States:
+Canvas-generated data URLs assigned to `<link rel="icon">`.
 
-```
-idle · running · waiting · approval · success · failure · disconnected
-```
+| State | Icon | Means |
+|---|---|---|
+| `idle` | Caret | Nothing to report |
+| `running` | Caret, sweeping underline | A command is in flight |
+| `done` | Grey bar | Finished, with no exit code to say how. See ADR-0016 |
+| `success` | Green tick | Exited zero |
+| `failed` | Red cross | Exited non-zero |
+| `waiting` | Amber dot | An agent is waiting for a person |
+| `approval` | Amber dot, ringed | An agent needs approval |
+| `disconnected` | Grey caret | No session |
+
+**Shape carries the state as well as color.** At 16 pixels in a strip of twenty tabs, hue is the
+first thing read and the first thing lost. Roughly one man in twelve cannot separate the red from
+the green, so success is a tick and failure is a cross, and the color agrees with the shape rather
+than carrying it alone.
 
 Multi-pane priority, highest wins, because a tab has exactly one favicon:
 
 ```
-approval > failure > waiting > running > idle
+approval > waiting > failed > success > done > running > idle
 ```
+
+Waiting outranks failed deliberately: one of them can still be acted on.
+
+### Outcomes wait to be seen
+
+`success`, `failed` and `done` persist **until the tab is actually looked at**, and are cleared by
+the look rather than by a timer. This is the whole point of the indicator. A command that finished
+while you were in another tab is exactly the thing you left to find out, and a state that expires
+on a timer expires while nobody is there to read it.
+
+Conditions do not work this way. `running` describes the present and speaks for itself, and
+`approval` clears when the approval is answered rather than when it is noticed.
 
 **Animation policy, from the background-tab status spike:**
 
@@ -186,6 +210,12 @@ approval > failure > waiting > running > idle
 | Visible | Animate freely, capped at 5 fps |
 | Hidden | **Discrete state icons only.** No animation |
 | Discarded | Frozen at discard time. Nothing we can do |
+
+The hidden row is not a preference. Measured over eight minutes, a hidden tab's `setInterval(1000)`
+delivers 59 ticks in the first minute and **one per minute after that**, so a self-driven pulse
+there is a still image that occasionally jumps. A pane needing input gets a distinct static icon,
+and the thing that actually reaches somebody looking elsewhere is the notification. See
+`10-limitations.md` tier 1.1.
 
 Measured on Chrome 150: in a hidden tab `requestAnimationFrame` is fully paused and
 `setInterval(1000)` drops to 0.53/s, so a self-driven spinner cannot animate. But **WebSocket
@@ -244,10 +274,40 @@ with bracketed paste.
 `chrome.notifications`, fired from the offscreen document so they work with every terminal tab
 hidden or discarded.
 
+### What raises one
+
+| Event | Priority | Gated by |
+|---|---|---|
+| Agent needs approval | Critical | Nothing. It is the case this exists for |
+| Agent waiting for input | Important | Nothing |
+| Agent turn finished | Important | Duration threshold |
+| Shell command finished | Important | Duration threshold |
+| Shell command failed | Critical | Duration threshold |
+
+**The threshold is enforced in the daemon**, not in the page. The duration is authoritative there,
+and a discarded tab has nothing left to make the decision with. Default 60 seconds, clamped to
+between 5 seconds and 10 minutes so a stored value cannot make it notify about `ls` or about
+nothing. Set from the settings pane, persisted, and read back from the daemon rather than assumed.
+
+A failure passes the same threshold as a success. A command that fails instantly is a typo, and
+being told about typos is how people turn notifications off.
+
+**An agent turn is the event a command boundary cannot see.** The shell command is the agent CLI
+itself and it runs for an hour, so `command-end` fires when it is quit rather than when it finished
+thinking. Turns are bounded by the hooks that report their ends, which is why
+`09-agent-integration.md` treats hook installation as part of the product rather than as a
+footnote in the installer.
+
 ### Suppression
 
 Suppressed when the relevant pane is visible and focused, when the command completed faster than the
 configured threshold, when the session is muted, or when the same status is already obvious.
+
+Visibility is decided by the **extension**, because only it can see which tab is active in which
+focused window. The daemon knows what happened, not who is watching, so it marks the notification
+`suppressIfVisible` and the service worker resolves it. A tab counts as being looked at only when
+it is the active tab of a focused window, so a terminal sitting in a background window still
+notifies.
 
 **macOS Do Not Disturb is not queryable.** macOS honors Focus modes and will swallow the
 notification, and the extension cannot know it happened. See `10-limitations.md` tier 1.4.

@@ -43,6 +43,7 @@ import type { ProjectIndex } from './project-index.js';
 import type { WorkspaceStore } from './workspace-store.js';
 import type { Session, SessionManager } from './session-manager.js';
 import { agentHooksStatus, setAgentHooks } from './agent-hooks.js';
+import { setShellIntegration, shellIntegrationStatus } from './shell-integration.js';
 import { clampPolicy, decide, type Finished, type NotifyPolicy } from './notify-policy.js';
 import { readUserSettings, updateUserSetting } from './user-settings.js';
 
@@ -1132,6 +1133,19 @@ export class DaemonServer {
             ? setAgentHooks(msg.enabled, this.#lastAgentEventAt)
             : agentHooksStatus(this.#lastAgentEventAt);
         this.broadcastAll({ t: 'agent-hooks', status });
+        return;
+      }
+
+      case 'get-shell-integration':
+      case 'set-shell-integration': {
+        // A live session emitting command marks proves the integration is working, which beats
+        // reading the profile: it can be sourced from anywhere.
+        const active = this.#sessions.all.some((s) => s.shellIntegration === true);
+        const status =
+          msg.t === 'set-shell-integration'
+            ? setShellIntegration(msg.enabled, active)
+            : shellIntegrationStatus(active);
+        this.broadcastAll({ t: 'shell-integration', status });
         return;
       }
 

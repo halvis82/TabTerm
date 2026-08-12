@@ -70,8 +70,19 @@ The feature survives, but not in its obvious form.
 
 ### 1.1 Self-driven animation in background tabs
 Measured on Chrome 150: in a hidden tab `requestAnimationFrame` is **fully paused, 0 frames**, and
-`setInterval(1000)` drops to 0.53/s and degrades further. A self-driven favicon spinner cannot
-animate in a background tab.
+`setInterval(1000)` degrades to **1 tick per minute**. A self-driven favicon spinner cannot animate
+in a background tab.
+
+The degradation is far sharper than a single sample suggests, and worth stating as a curve rather
+than a number. Over eight minutes hidden, one `setInterval(1000)`:
+
+| Minute | Ticks |
+|---|---|
+| 1 | 59 |
+| 2 onward | 1 |
+
+So the first minute is nearly unthrottled and everything after it is not. Anything sampled inside
+that first minute reads as "slow but usable" and is wrong about every minute that follows.
 
 What *does* work, also measured: **WebSocket delivery to a hidden tab is completely unthrottled**
 (60 of 60 messages at 10 Hz, identical to a visible tab), and title and favicon writes still apply.

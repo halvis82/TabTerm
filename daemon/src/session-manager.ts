@@ -46,6 +46,13 @@ export interface Session {
   foregroundProcess?: string;
   /** Latest state reported by an agent CLI's hooks, never inferred from output. */
   agentState?: AgentState;
+  /**
+   * This session has emitted command marks, so the integration really is sourced.
+   *
+   * Proof, as opposed to the profile containing a line that looks right. It can be sourced from
+   * anywhere, and a line that is present but never runs looks identical from the file.
+   */
+  shellIntegration?: boolean;
   titleFields: TitleFields;
   handle: PtyHandle;
   vt: VtState;
@@ -69,7 +76,13 @@ export interface SessionEvents {
   /** Fired when a shell command starts, so a pane can show it ticking. */
   onCommandStarted?: (session: Session, command: string, startedAt: number) => void;
   /** Fired when a shell command finishes, with what it was and how it went. */
-  onCommand?: (session: Session, command: string, exitCode: number, durationMs: number) => void;
+  onCommand?: (
+    session: Session,
+    command: string,
+    /** Absent when it could not be observed, never guessed. */
+    exitCode: number | undefined,
+    durationMs: number,
+  ) => void;
   /** A session started listening on a local port. Fired once per port, never polled. */
   onServerDetected?: (session: Session, port: number) => void;
   /** Raw output, for the archive. Only called while something is capturing. */
@@ -146,6 +159,7 @@ export class SessionManager {
         session.commandStartedAt = Date.now();
         // Proof this session has real shell integration. The fallback tracker stands down for
         // good, so the two can never both report the same command.
+        session.shellIntegration = true;
         this.#events.onIntegrationDetected?.(session);
       },
       onCommandText: (command) => {

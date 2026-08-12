@@ -24,7 +24,7 @@ Opened from a button in the top right of a terminal tab, or with `Command+K`.
 | **Actions** | Split, close, detach, maximize, launch an agent, and the rest |
 | **Stats** | What this session has run, how long each took, and when |
 
-Settings are a gear in the footer rather than a fifth tab. They are not a list of commands, and
+Settings are a gear in the footer rather than a sixth tab. They are not a list of commands, and
 putting them in the row of things you select from would mean one tab that does not answer the
 question the others do.
 
@@ -152,6 +152,30 @@ rather than papered over.
 - **Starring a row in Recent**, which is the common case
 - **Add in the Favorites tab**, for a command you have not run yet
 - `Command+S` while a row is selected, which was the only route before this panel existed
+
+---
+
+## 5.5 Settings
+
+The gear holds what TabTerm itself controls, and two switches that make the rest of the product
+work at all:
+
+| Setting | Does |
+|---|---|
+| Theme | Dark, light, midnight |
+| Desktop notifications | The master switch, with a duration threshold |
+| Shell commands, Agent turns | Which completions are worth a notification |
+| Stay quiet while I am looking | Suppress for a pane already on screen |
+| **Agent events** | Installs the agent CLI hooks. Without them agent status does nothing |
+| **Shell integration** | Adds the line to `.zshrc`. Without it there are no exit codes |
+
+The last two write to files outside TabTerm, so they happen only on an explicit switch, are backed
+up before the first change, and are removable to the byte. Both used to be lines of text in the
+install output, which meant they were not run, which meant a large part of what a tab can show was
+silently inert. See `09-agent-integration.md` and `08-shell-integration.md`.
+
+Each says what it is currently doing rather than only whether it is on. "Installed" and "working"
+are different claims, and hooks present that have never fired is the state worth being able to see.
 
 ---
 

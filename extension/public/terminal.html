@@ -493,6 +493,49 @@
     font: inherit;
     font-size: 13px;
   }
+  /* A group of related switches, set apart without a heavy rule between them. */
+  .cmd-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid rgba(90, 100, 130, 0.18);
+  }
+  .cmd-section .cmd-note {
+    padding: 2px 0 0;
+    color: #9aa0a6;
+    font-weight: 500;
+  }
+  /* Label first, control at the end, so the switches line up down the right edge. */
+  .cmd-toggle {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 12px;
+    color: #cdd2dd;
+    cursor: pointer;
+  }
+  .cmd-toggle span {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .cmd-toggle small {
+    font-size: 10.5px;
+    color: #7d8496;
+  }
+  .cmd-toggle input[type='checkbox'] {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    accent-color: #3d6ba8;
+    cursor: pointer;
+  }
+  .cmd-dim {
+    color: #6b7286;
+  }
   .cmd-buttons {
     display: flex;
     gap: 6px;

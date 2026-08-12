@@ -127,11 +127,40 @@ double every history entry.
 | Blind spot | Consequence |
 |---|---|
 | **Shell builtins** | `cd`, `export`, `alias` spawn no process, so they produce no record. For `export` this is an improvement: the command whose text is most sensitive is the one that never appears |
-| **Exit codes** | The OS does not report one for a process that is already gone. Records are stored without an exit code rather than with a guessed one, because `exit:fail` has to mean something |
+| **Exit codes** | The OS does not report one for a process that is already gone. Records are stored without an exit code rather than with a guessed one, because `exit:fail` has to mean something. The tab shows a third state for it rather than assuming success, see ADR-0016 |
 | **Sub-second commands** | Something that finishes inside the start delay is never seen |
 
 With the integration installed, all three of those work. That is the reason to install it, and
 it is now the only reason.
+
+The exit code is the one a person sees. Without it a tab can say a command **finished** but never
+that it **failed**, so the green tick and the red cross in `06-chrome-integration.md` §5 simply
+never appear. That is a better argument for sourcing it than any paragraph here.
+
+### Installing it
+
+Offered, never automatic. Three routes, all reaching the same code:
+
+| Route | For |
+|---|---|
+| Settings, Shell integration | The common case, with the line added for you |
+| The line printed by `scripts/install.sh` | Anybody who would rather paste it themselves |
+| `scripts/doctor.sh` | Says whether it is sourced, and prints the line if not |
+
+The line is guarded, marked, and removable:
+
+```
+[ -f "$HOME/.local/share/tabterm/tabterm-integration.zsh" ] && source "$HOME/.local/share/tabterm/tabterm-integration.zsh" # tabterm-shell-integration
+```
+
+**The guard is the load-bearing part.** An unguarded `source` of a file that TabTerm's uninstaller
+has removed prints an error on every prompt, in every terminal, forever. `.zshrc` is backed up
+once before the first change, only lines carrying the marker are ever removed, and turning it on
+twice adds one line.
+
+Whether it is really sourced is answered by a live session emitting command marks, not by reading
+the profile. It can be sourced from anywhere, and a line that is present but never runs looks
+identical from the file.
 
 ---
 

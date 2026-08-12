@@ -208,7 +208,8 @@ needs its own copy.
 4. Initialize the database, run migrations
 5. Write the LaunchAgent plist, `launchctl bootstrap`
 6. Write the native messaging host manifest with the permanent extension ID
-7. Offer shell integration. Print the exact `.zshrc` line. **Never edit dotfiles automatically**
+7. Offer shell integration. Print the exact `.zshrc` line. **Never edit dotfiles automatically**,
+   though the settings pane will add it on an explicit switch. See `08-shell-integration.md`
 8. Offer agent CLI hook installation, as a prompt when a terminal is attached. Additive and
    reversible only, and skipped entirely in a scripted install
 9. Print the extension install step

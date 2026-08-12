@@ -14,13 +14,14 @@ import { PaneHost } from './panes.js';
 import { findCandidates } from './path-links.js';
 import { TypedBuffer, backspaces } from './hotstrings.js';
 import { chooseOpenAction, describeOpen } from './open-action.js';
-import { PaneStatus } from './pane-status.js';
+import { needsAttention, StatusMachine, titleStatus } from './status-machine.js';
 import { describeTime, isLongRunning, type TimeState } from './elapsed.js';
 import { applyFavicon, composeTitle, drawFavicon, type FaviconState } from './titles.js';
 import { Launcher } from '../launcher/launcher.js';
 import { CommandPanel } from '../launcher/panel-view.js';
 import { DEFAULT_PLACEMENT, type PanelPlacement } from '../launcher/command-panel.js';
 import { buildSettings } from '../launcher/settings-view.js';
+import type { AgentHooksStatus, NotifyPolicy, ShellIntegrationStatus } from '@tabterm/shared';
 import { buildStats } from '../launcher/stats-view.js';
 import { SessionStats } from '../launcher/session-stats.js';
 import { Palette, type PaletteAction } from '../launcher/palette.js';
@@ -71,7 +72,16 @@ let attached = false;
 let titleFields: TitleFields = {};
 let faviconState: FaviconState = 'disconnected';
 /** A tab has one favicon, so many panes reduce to the most urgent state among them. */
-const paneStatus = new PaneStatus();
+const paneStatus = new StatusMachine();
+/**
+ * Daemon-owned settings, mirrored here for the settings pane to render.
+ *
+ * Null until it answers, which the pane says rather than guessing at a default and showing a
+ * switch in a position the daemon might disagree with.
+ */
+let notifyPolicy: NotifyPolicy | null = null;
+let agentHooks: AgentHooksStatus | null = null;
+let shellIntegration: ShellIntegrationStatus | null = null;
 
 /**
  * Per-pane timing, driven entirely by discrete events from the daemon.
@@ -153,17 +163,7 @@ function setStatus(text: string, tone: 'ok' | 'warn' | 'error' | 'hidden'): void
 function refreshTitle(status?: string): void {
   const count = layout ? collectPanes(layout).length : 1;
   // With several panes the interesting thing is what needs attention, not the pane count.
-  const attention =
-    paneStatus.countIn('approval') > 0
-      ? 'needs approval'
-      : paneStatus.countIn('failed') > 0
-        ? 'failed'
-        : paneStatus.countIn('running') > 0 && count > 1
-          ? `${String(paneStatus.countIn('running'))} running`
-          : count > 1
-            ? `${String(count)} panes`
-            : '';
-  document.title = composeTitle(titleFields, status ?? attention);
+  document.title = composeTitle(titleFields, status ?? titleStatus(paneStatus, count));
 }
 
 function setFavicon(state: FaviconState): void {
@@ -174,11 +174,28 @@ function setFavicon(state: FaviconState): void {
   // favicon is brought up to date the moment the tab is looked at again.
   if (!memorySettings.faviconWhileHidden && document.visibilityState === 'hidden') return;
   applyFavicon(drawFavicon(state, animPhase));
-  if (state === 'running' && document.visibilityState === 'visible') {
+
+  const visible = document.visibilityState === 'visible';
+  /**
+   * Animation only where it can happen.
+   *
+   * A hidden tab cannot drive its own: measured at **one frame per minute** from the second
+   * minute onward, so a pulse there would be a still image that occasionally jumps. The pane
+   * that needs a person gets a distinct static icon instead, and the thing that actually
+   * reaches somebody who is looking elsewhere is the notification.
+   * See docs/10-limitations.md tier 1.1.
+   */
+  if (!visible) return;
+  if (state === 'running') {
     animTimer = window.setInterval(() => {
       animPhase++;
       applyFavicon(drawFavicon('running', animPhase));
     }, 200);
+  } else if (needsAttention(state)) {
+    animTimer = window.setInterval(() => {
+      animPhase++;
+      applyFavicon(drawFavicon(state, animPhase));
+    }, 220);
   }
 }
 
@@ -967,7 +984,17 @@ function buildCommandPanel(): void {
       void chrome.storage.local.set({ 'tabterm.panel': placement });
     },
     actions: () => paletteActions(),
-    settings: () => buildSettings({ onChangeTheme: applyTheme }),
+    settings: () =>
+      buildSettings({
+        onChangeTheme: applyTheme,
+        notify: () => notifyPolicy,
+        onChangeNotify: (policy) => client?.send({ t: 'set-notify-policy', policy }),
+        agentHooks: () => agentHooks,
+        onChangeAgentHooks: (enabled) => client?.send({ t: 'set-agent-hooks', enabled }),
+        shellIntegration: () => shellIntegration,
+        onChangeShellIntegration: (enabled) =>
+          client?.send({ t: 'set-shell-integration', enabled }),
+      }),
     stats: () => buildStats(sessionStats),
   });
 
@@ -1202,6 +1229,9 @@ function onControl(msg: ServerMessage): void {
       client?.send({ t: 'list-resumable', limit: 5 });
       client?.send({ t: 'list-servers' });
       client?.send({ t: 'get-memory-mode' });
+      client?.send({ t: 'get-notify-policy' });
+      client?.send({ t: 'get-agent-hooks' });
+      client?.send({ t: 'get-shell-integration' });
       client?.send({ t: 'list-restorable' });
       return;
     }
@@ -1210,6 +1240,24 @@ function onControl(msg: ServerMessage): void {
       showServerOffer(msg.port);
       // The dashboard, if it is on screen, should gain the row rather than wait to be reopened.
       client?.send({ t: 'list-servers' });
+      return;
+    }
+
+    case 'notify-policy': {
+      notifyPolicy = msg.policy;
+      commandPanel?.refreshSettings();
+      return;
+    }
+
+    case 'agent-hooks': {
+      agentHooks = msg.status;
+      commandPanel?.refreshSettings();
+      return;
+    }
+
+    case 'shell-integration': {
+      shellIntegration = msg.status;
+      commandPanel?.refreshSettings();
       return;
     }
 
@@ -1311,10 +1359,11 @@ function onControl(msg: ServerMessage): void {
         if (startedAt !== undefined) state.lastDurationMs = msg.completedAt - startedAt;
         else delete state.lastDurationMs;
         state.lastFinishedAt = msg.completedAt;
-        state.lastExitCode = msg.exitCode;
+        if (msg.exitCode === undefined) delete state.lastExitCode;
+        else state.lastExitCode = msg.exitCode;
         delete state.commandStartedAt;
 
-        paneStatus.set(pane.paneId, msg.exitCode === 0 ? 'idle' : 'failed');
+        paneStatus.finished(pane.paneId, msg.exitCode);
         setFavicon(paneStatus.effective());
         refreshTitle();
         renderTimeLabels();
@@ -1325,11 +1374,11 @@ function onControl(msg: ServerMessage): void {
           const summary = describeTime({
             ...(state.lastDurationMs !== undefined ? { lastDurationMs: state.lastDurationMs } : {}),
             lastFinishedAt: msg.completedAt,
-            lastExitCode: msg.exitCode,
+            ...(msg.exitCode !== undefined ? { lastExitCode: msg.exitCode } : {}),
           });
           setStatus(
             `${state.lastCommand ?? 'Command'} ${summary}`,
-            msg.exitCode === 0 ? 'ok' : 'warn',
+            msg.exitCode === undefined || msg.exitCode === 0 ? 'ok' : 'warn',
           );
           setTimeout(() => setStatus('', 'hidden'), 4000);
         }
@@ -1584,11 +1633,24 @@ async function start(): Promise<void> {
       rendererTimer = undefined;
       panesHost?.restoreRenderers();
       if (splitView?.focused) panesHost?.focus(splitView.focused);
-      setFavicon(faviconState);
+      /**
+       * Looking at the tab is what clears an outcome.
+       *
+       * A tick that said a command finished has now done its job, and it goes back to idle so
+       * the next one still means something. On a timer instead it would expire while nobody
+       * was there to read it, which is the exact case it exists for.
+       */
+      if (paneStatus.seen()) refreshTitle();
+      setFavicon(paneStatus.effective());
       startTimeTicking();
     } else {
       clearInterval(animTimer);
       animTimer = undefined;
+      // Leave the icon on a full, steady frame rather than wherever the pulse happened to stop,
+      // so a hidden tab reads as a state rather than as a moment.
+      if (needsAttention(faviconState) && memorySettings.faviconWhileHidden) {
+        applyFavicon(drawFavicon(faviconState, 3));
+      }
       // A hidden tab throttles timers anyway, and nobody is reading the label.
       stopTimeTicking();
       scheduleRendererRelease();

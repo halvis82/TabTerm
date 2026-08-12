@@ -285,6 +285,16 @@ export class CommandPanel {
       .map((entry) => ({ kind: 'recent' as const, entry }));
   }
 
+  /**
+   * Redraw settings, but only if they are what is on screen.
+   *
+   * The daemon answers a moment after the panel opens, and a switch that appears in the wrong
+   * position and then corrects itself reads as the switch having been flipped by something.
+   */
+  refreshSettings(): void {
+    if (this.#showingSettings && this.isOpen) this.render();
+  }
+
   render(): void {
     for (const button of this.#tabBar.children) {
       button.classList.toggle('on', (button as HTMLElement).dataset['tab'] === this.#placement.tab);

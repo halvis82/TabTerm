@@ -1,3 +1,4 @@
+import type { AgentHooksStatus, NotifyPolicy, ShellIntegrationStatus } from '@tabterm/shared';
 /**
  * Settings, reached from the gear in the panel's footer.
  *
@@ -9,7 +10,24 @@
 
 export interface SettingsOptions {
   onChangeTheme: (theme: string) => void;
+  /** Current notification policy, or null until the daemon has answered. */
+  notify: () => NotifyPolicy | null;
+  onChangeNotify: (policy: Partial<NotifyPolicy>) => void;
+  agentHooks: () => AgentHooksStatus | null;
+  onChangeAgentHooks: (enabled: boolean) => void;
+  shellIntegration: () => ShellIntegrationStatus | null;
+  onChangeShellIntegration: (enabled: boolean) => void;
 }
+
+/** Offered thresholds. A slider would imply a precision nobody wants from this. */
+const THRESHOLDS: [ms: number, label: string][] = [
+  [5_000, '5 seconds'],
+  [15_000, '15 seconds'],
+  [30_000, '30 seconds'],
+  [60_000, '1 minute'],
+  [300_000, '5 minutes'],
+  [600_000, '10 minutes'],
+];
 
 const THEMES: [value: string, label: string][] = [
   ['dark', 'Dark'],
@@ -52,6 +70,8 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
   theme.append(themeLabel, select);
   wrap.append(theme);
 
+  wrap.append(buildNotifications(options));
+
   const keysHeading = document.createElement('div');
   keysHeading.className = 'cmd-note';
   keysHeading.textContent = 'Shortcuts inside a terminal tab';
@@ -87,4 +107,154 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
   wrap.append(openShortcuts);
 
   return wrap;
+}
+
+function toggle(
+  label: string,
+  checked: boolean,
+  onChange: (value: boolean) => void,
+  hint?: string,
+): HTMLElement {
+  const row = document.createElement('label');
+  row.className = 'cmd-field cmd-toggle';
+  const text = document.createElement('span');
+  text.textContent = label;
+  if (hint !== undefined) {
+    const note = document.createElement('small');
+    note.textContent = hint;
+    text.append(note);
+  }
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  box.checked = checked;
+  box.addEventListener('change', () => onChange(box.checked));
+  row.append(text, box);
+  return row;
+}
+
+/**
+ * Notifications, and the hooks that make half of them possible.
+ *
+ * The agent switch sits here rather than in an install script because that is where it was and
+ * essentially nobody ran it, which left agent status doing nothing with no way to tell that
+ * apart from an agent that never needed anything. See docs/09-agent-integration.md.
+ */
+function buildNotifications(options: SettingsOptions): HTMLElement {
+  const section = document.createElement('div');
+  section.className = 'cmd-section';
+
+  const heading = document.createElement('div');
+  heading.className = 'cmd-note';
+  heading.textContent = 'Tell me when something finishes';
+  section.append(heading);
+
+  const policy = options.notify();
+  if (!policy) {
+    const pending = document.createElement('div');
+    pending.className = 'cmd-note cmd-dim';
+    pending.textContent = 'Waiting for the daemon.';
+    section.append(pending);
+    return section;
+  }
+
+  section.append(
+    toggle('Desktop notifications', policy.enabled, (enabled) =>
+      options.onChangeNotify({ enabled }),
+    ),
+  );
+
+  const threshold = document.createElement('label');
+  threshold.className = 'cmd-field';
+  const thresholdLabel = document.createElement('span');
+  thresholdLabel.textContent = 'Only if it took longer than';
+  const select = document.createElement('select');
+  for (const [ms, label] of THRESHOLDS) {
+    const option = document.createElement('option');
+    option.value = String(ms);
+    option.textContent = label;
+    select.append(option);
+  }
+  select.value = String(policy.thresholdMs);
+  select.addEventListener('change', () =>
+    options.onChangeNotify({ thresholdMs: Number(select.value) }),
+  );
+  threshold.append(thresholdLabel, select);
+  section.append(threshold);
+
+  section.append(
+    toggle('Shell commands', policy.commands, (commands) => options.onChangeNotify({ commands })),
+    toggle('Agent turns', policy.agentTurns, (agentTurns) =>
+      options.onChangeNotify({ agentTurns }),
+    ),
+    toggle(
+      'Stay quiet while I am looking',
+      policy.onlyWhenUnfocused,
+      (onlyWhenUnfocused) => options.onChangeNotify({ onlyWhenUnfocused }),
+      'Nothing for a pane already on screen',
+    ),
+  );
+
+  const hooks = options.agentHooks();
+  if (hooks) {
+    section.append(
+      toggle('Agent events', hooks.installed, options.onChangeAgentHooks, describeHooks(hooks)),
+    );
+  }
+
+  const shell = options.shellIntegration();
+  if (shell) {
+    section.append(
+      toggle(
+        'Shell integration',
+        shell.installed || shell.sourcedElsewhere,
+        options.onChangeShellIntegration,
+        describeShell(shell),
+      ),
+    );
+  }
+
+  return section;
+}
+
+/**
+ * What the agent hooks are actually doing.
+ *
+ * "Installed" and "working" are different claims, so both are said. Hooks that are present and
+ * have never fired is a real state and the one worth being able to see.
+ */
+function describeHooks(hooks: AgentHooksStatus): string {
+  const supported = hooks.targets.filter((t) => t.supported && t.detected);
+  const others = hooks.targets.filter((t) => !t.supported && t.detected);
+  const trailing =
+    others.length > 0 ? `. ${others.map((t) => t.name).join(', ')} not supported yet` : '';
+
+  if (supported.length === 0) return `No supported agent CLI found${trailing}`;
+  if (!hooks.installed) return `Agent status and agent turn notifications need this${trailing}`;
+  const names = supported.map((t) => t.name).join(', ');
+  return hooks.lastEventAt === undefined
+    ? `Installed for ${names}. No events yet${trailing}`
+    : `Installed for ${names}. Last event ${ago(hooks.lastEventAt)}${trailing}`;
+}
+
+function ago(at: number): string {
+  const seconds = Math.max(0, Math.round((Date.now() - at) / 1000));
+  if (seconds < 60) return 'just now';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${String(minutes)} minute${minutes === 1 ? '' : 's'} ago`;
+  const hours = Math.round(minutes / 60);
+  return `${String(hours)} hour${hours === 1 ? '' : 's'} ago`;
+}
+
+/**
+ * What the shell integration is worth, said in terms of what changes without it.
+ *
+ * "Emits OSC 133" is true and tells nobody anything. Exit codes are the visible consequence:
+ * without them a tab can say a command ended but never that it failed.
+ */
+function describeShell(shell: ShellIntegrationStatus): string {
+  if (shell.sourcedElsewhere) return 'Already sourced from your shell profile';
+  if (!shell.scriptStaged) return 'Run the installer first';
+  return shell.installed
+    ? 'Adds exit codes, so finished can be told from failed. Open a new tab to apply'
+    : 'Without it there are no exit codes, so nothing can say a command failed';
 }

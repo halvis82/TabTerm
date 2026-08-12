@@ -282,3 +282,12 @@ export interface AgentHooksStatus {
    */
   lastEventAt?: number;
 }
+
+export interface ShellIntegrationStatus {
+  installed: boolean;
+  /** The script the profile line points at is actually present. */
+  scriptStaged: boolean;
+  profilePath: string;
+  /** Sourced by some other route, so nothing needs adding. */
+  sourcedElsewhere: boolean;
+}

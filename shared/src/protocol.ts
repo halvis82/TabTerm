@@ -21,6 +21,7 @@ import type {
   TitleFields,
   NotifyPolicy,
   AgentHooksStatus,
+  ShellIntegrationStatus,
 } from './model.js';
 
 export const PROTOCOL_VERSION = 1;
@@ -342,6 +343,9 @@ export type ClientMessage =
   | { t: 'set-notify-policy'; policy: Partial<NotifyPolicy> }
   | { t: 'get-agent-hooks' }
   | { t: 'set-agent-hooks'; enabled: boolean }
+  // Sourcing the shell integration, without which there are no exit codes at all.
+  | { t: 'get-shell-integration' }
+  | { t: 'set-shell-integration'; enabled: boolean }
   // Reboot restore. Processes cannot survive a restart; layout and context can.
   // See docs/04-session-lifecycle.md §11.
   | { t: 'list-restorable' }
@@ -435,7 +439,14 @@ export type ServerMessage =
       t: 'command-end';
       sessionId: string;
       commandId: string;
-      exitCode: number;
+      /**
+       * Absent when nobody could tell.
+       *
+       * Without shell integration the OS reports no exit code for a process that is already
+       * gone, and a guessed zero would make "it succeeded" a claim nothing supports. See
+       * docs/08-shell-integration.md.
+       */
+      exitCode?: number;
       completedAt: number;
       interrupted: boolean;
     }
@@ -489,6 +500,7 @@ export type ServerMessage =
     }
   | { t: 'notify-policy'; policy: NotifyPolicy }
   | { t: 'agent-hooks'; status: AgentHooksStatus }
+  | { t: 'shell-integration'; status: ShellIntegrationStatus }
   | {
       /** What a tab can offer after its session is gone. */
       t: 'workspace-recall';

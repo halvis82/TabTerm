@@ -70,6 +70,29 @@ export async function notify(req: NotifyRequest, paneIsVisible = false): Promise
   return id;
 }
 
+/**
+ * Is the pane this is about already on screen?
+ *
+ * Only the extension can answer this: the daemon knows what happened, not who is watching. A
+ * tab counts as being looked at when it is the active tab of a focused window, so a terminal
+ * sitting in a background window still notifies.
+ */
+export async function workspaceIsOnScreen(workspaceId: string | undefined): Promise<boolean> {
+  if (!workspaceId) return false;
+  try {
+    const base = chrome.runtime.getURL('terminal.html');
+    const tabs = await chrome.tabs.query({ url: `${base}*`, active: true });
+    const hit = tabs.find((t) => t.url?.includes(workspaceId));
+    if (hit?.windowId === undefined) return false;
+    const window = await chrome.windows.get(hit.windowId);
+    return window.focused === true;
+  } catch {
+    // Chrome can refuse any of this mid-shutdown. Assuming nobody is watching means the
+    // notification is sent, which is the harmless direction to be wrong in.
+    return false;
+  }
+}
+
 export function installClickHandler(): void {
   chrome.notifications.onClicked.addListener((id) => {
     const target = targets.get(id);

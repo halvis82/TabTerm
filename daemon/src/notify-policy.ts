@@ -38,7 +38,7 @@ export function clampPolicy(input: Partial<NotifyPolicy> | undefined): NotifyPol
 }
 
 export type Finished =
-  | { kind: 'command'; command: string; durationMs: number; exitCode: number }
+  | { kind: 'command'; command: string; durationMs: number; exitCode?: number }
   | { kind: 'agent-turn'; durationMs: number; failed?: boolean };
 
 export interface NotifyDecision {
@@ -86,7 +86,9 @@ export function decide(
   }
 
   if (!policy.commands) return null;
-  const failed = event.exitCode !== 0;
+  // Unknown is not success. Without shell integration there is no exit code, so it says the
+  // command finished and how long it took, which is true, rather than that it worked.
+  const failed = event.exitCode !== undefined && event.exitCode !== 0;
   return {
     priority: failed ? 'critical' : 'important',
     // The command leads, because the first thing anyone wants to know is which one this was.

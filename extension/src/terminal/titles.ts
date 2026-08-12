@@ -29,12 +29,31 @@ function basename(path: string): string {
   return trimmed.slice(trimmed.lastIndexOf('/') + 1) || trimmed;
 }
 
-export type FaviconState = 'idle' | 'running' | 'waiting' | 'approval' | 'failed' | 'disconnected';
+export type FaviconState =
+  | 'idle'
+  | 'running'
+  /** Finished, with no exit code to say how. See docs/08-shell-integration.md. */
+  | 'done'
+  | 'success'
+  | 'waiting'
+  | 'approval'
+  | 'failed'
+  | 'disconnected';
 
+/**
+ * Color carries the state, and shape carries it again.
+ *
+ * At 16 pixels in a strip of twenty tabs, hue is the first thing read and the first thing lost:
+ * roughly one man in twelve cannot separate the red from the green, and nobody can separate
+ * either from a favicon they are not looking at directly. So success is a tick, failure is a
+ * cross, and running is a caret. The color agrees with the shape rather than carrying it alone.
+ */
 const COLORS: Record<FaviconState, { bg: string; fg: string }> = {
   idle: { bg: '#2b2f3d', fg: '#8ab4f8' },
-  running: { bg: '#2b2f3d', fg: '#8ae2a0' },
-  waiting: { bg: '#2b2f3d', fg: '#e8c26a' },
+  running: { bg: '#2b2f3d', fg: '#8ab4f8' },
+  done: { bg: '#2b2f3d', fg: '#9aa4bd' },
+  success: { bg: '#1d3527', fg: '#6ee7a0' },
+  waiting: { bg: '#5a3f18', fg: '#ffc857' },
   approval: { bg: '#5a3f18', fg: '#ffc857' },
   failed: { bg: '#4a2422', fg: '#ff8a7a' },
   disconnected: { bg: '#2b2f3d', fg: '#5b6070' },
@@ -61,11 +80,71 @@ export function drawFavicon(state: FaviconState, phase = 0): string {
   roundRect(g, 0, 0, size, size, 7);
   g.fill();
 
-  // A terminal prompt caret, which reads at 16 px far better than a glyph would.
   g.strokeStyle = fg;
+  g.fillStyle = fg;
   g.lineWidth = 3;
   g.lineCap = 'round';
   g.lineJoin = 'round';
+
+  if (state === 'done') {
+    /**
+     * Finished, and nobody can say how.
+     *
+     * Without shell integration there is no exit code, so a tick would assert something no
+     * evidence supports. A bar says the command is over and stops there, which is the whole of
+     * what is known. See docs/08-shell-integration.md.
+     */
+    g.beginPath();
+    g.moveTo(10, 16);
+    g.lineTo(22, 16);
+    g.stroke();
+    return canvas.toDataURL('image/png');
+  }
+
+  if (state === 'success') {
+    // A tick, which reads as "done" without depending on the green being seen as green.
+    g.beginPath();
+    g.moveTo(9, 17);
+    g.lineTo(14, 22);
+    g.lineTo(23, 10);
+    g.stroke();
+    return canvas.toDataURL('image/png');
+  }
+
+  if (state === 'failed') {
+    g.beginPath();
+    g.moveTo(11, 11);
+    g.lineTo(21, 21);
+    g.moveTo(21, 11);
+    g.lineTo(11, 21);
+    g.stroke();
+    return canvas.toDataURL('image/png');
+  }
+
+  if (state === 'waiting' || state === 'approval') {
+    /**
+     * A dot that breathes, because the tab is asking for something.
+     *
+     * Pulsed by scaling rather than by fading the whole icon: a favicon that dims to nothing is
+     * indistinguishable from a tab that has finished loading, and half the pulse would then be
+     * a lie. This one is always visible and only changes size.
+     */
+    const beat = (Math.sin((phase / 6) * Math.PI) + 1) / 2;
+    const radius = 4.5 + beat * 2.5;
+    g.beginPath();
+    g.arc(16, 16, radius, 0, Math.PI * 2);
+    g.fill();
+    if (state === 'approval') {
+      // A ring around it, so the more urgent of the two is not distinguished by color alone.
+      g.lineWidth = 2;
+      g.beginPath();
+      g.arc(16, 16, 11, 0, Math.PI * 2);
+      g.stroke();
+    }
+    return canvas.toDataURL('image/png');
+  }
+
+  // A terminal prompt caret, which reads at 16 px far better than a glyph would.
   g.beginPath();
   g.moveTo(9, 11);
   g.lineTo(15, 16);

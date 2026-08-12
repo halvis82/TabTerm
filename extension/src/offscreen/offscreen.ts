@@ -38,6 +38,7 @@ function start(token: string, clientId: string): void {
             title: msg.title,
             body: msg.body,
             target: msg.target,
+            suppressIfVisible: msg.suppressIfVisible,
           })
           .catch(() => {
             /* the worker may be mid-restart; a dropped notification is not worth retrying */

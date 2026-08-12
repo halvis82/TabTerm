@@ -1,4 +1,5 @@
 import { mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { PROTOCOL_VERSION, VERSION } from '@tabterm/shared';
 import { initAuth, verifyToken } from './auth.js';
 import { AgentBridge } from './agent-bridge.js';
@@ -17,6 +18,7 @@ import { PluginHost } from './plugin-api.js';
 import { loadPlugins } from './plugin-loader.js';
 import { CommandTracker } from './command-tracker.js';
 import { ProjectTrust } from './project-trust.js';
+import { TurnTracker } from './agent-turns.js';
 
 /**
  * The daemon owns every PTY. No terminal process is ever tied to a Chrome page's lifetime,
@@ -171,7 +173,7 @@ async function main(): Promise<void> {
       // The OS does not report an exit code for a process that is already gone, so this records
       // the command without claiming to know how it ended. A wrong exit code would be worse
       // than an absent one: `exit:fail` has to mean something.
-      events.onCommand?.(s, command, 0, durationMs);
+      events.onCommand?.(s, command, undefined, durationMs);
       events.onTitle?.(s);
     },
   });
@@ -189,24 +191,35 @@ async function main(): Promise<void> {
     });
   };
   events.onCommand = (s, command, exitCode, durationMs) => {
-    archive.end(s.id, exitCode);
+    archive.end(s.id, exitCode ?? 0);
     plugins.notify({
       type: 'command-end',
-      session: { sessionId: s.id, cwd: s.cwd, command, exitCode },
+      session: {
+        sessionId: s.id,
+        cwd: s.cwd,
+        command,
+        ...(exitCode !== undefined ? { exitCode } : {}),
+      },
     });
     server.notifySession(s, {
       t: 'command-end',
       sessionId: s.id,
       commandId: String(Date.now()),
-      exitCode,
+      ...(exitCode !== undefined ? { exitCode } : {}),
       completedAt: Date.now(),
       interrupted: exitCode === 130,
     });
-    launcher.recordCommand({ command, cwd: s.cwd, exitCode, durationMs, sessionId: s.id });
+    launcher.recordCommand({
+      command,
+      cwd: s.cwd,
+      ...(exitCode !== undefined ? { exitCode } : {}),
+      durationMs,
+      sessionId: s.id,
+    });
     const ws = workspaces.findBySession(s.id);
     // Long enough that you tabbed away from it, which is the only case worth interrupting for.
     server.notifyFinished(
-      { kind: 'command', command, durationMs, exitCode },
+      { kind: 'command', command, durationMs, ...(exitCode !== undefined ? { exitCode } : {}) },
       shortPlace(s.cwd),
       ws ? { workspaceId: ws.id } : undefined,
     );
@@ -229,8 +242,7 @@ async function main(): Promise<void> {
     });
   };
 
-  /** When each session's current agent turn began, so its duration can be reported. */
-  const turnStartedAt = new Map<string, number>();
+  const turns = new TurnTracker();
 
   // Agent state arrives over its own loopback endpoint rather than the socket, because hooks
   // are separate processes that cannot hold a WebSocket. Same token, same boundary.
@@ -263,31 +275,15 @@ async function main(): Promise<void> {
         );
       }
 
-      /**
-       * A turn, bounded by the hooks that report its ends.
-       *
-       * This is the event a shell command boundary cannot see: the command is `claude` and it
-       * runs for an hour, so `command-end` fires when the agent CLI is quit rather than when it
-       * finished thinking. Timed from the first working event, which is where a person stopped
-       * being able to do anything but wait.
-       */
-      if (state === 'working' || state === 'starting') {
-        if (previous !== 'working') turnStartedAt.set(sessionId, Date.now());
-      } else if (state === 'idle' || state === 'failed') {
-        const startedAt = turnStartedAt.get(sessionId);
-        turnStartedAt.delete(sessionId);
-        if (startedAt !== undefined) {
-          const where = workspaces.findBySession(sessionId);
-          server.notifyFinished(
-            {
-              kind: 'agent-turn',
-              durationMs: Date.now() - startedAt,
-              ...(state === 'failed' ? { failed: true } : {}),
-            },
-            shortPlace(session.cwd),
-            where ? { workspaceId: where.id } : undefined,
-          );
-        }
+      // A turn, bounded by the hooks that report its ends. See agent-turns.ts.
+      const turn = turns.observe(sessionId, state, previous, Date.now());
+      if (turn) {
+        const where = workspaces.findBySession(sessionId);
+        server.notifyFinished(
+          { kind: 'agent-turn', durationMs: turn.durationMs, failed: turn.failed },
+          shortPlace(session.cwd),
+          where ? { workspaceId: where.id } : undefined,
+        );
       }
     },
   });
@@ -400,8 +396,15 @@ async function main(): Promise<void> {
 
 void main();
 
-/** The last path segment, which is what a person calls the place they are working in. */
+/**
+ * The last path segment, which is what a person calls the place they are working in.
+ *
+ * Home is the exception and is called `~`. Its last segment is the account name, so "in
+ * halvis82" is what a notification from the home directory would otherwise say, which reads as
+ * though it happened to somebody else.
+ */
 function shortPlace(cwd: string): string | undefined {
   const trimmed = cwd.replace(/\/+$/, '');
+  if (trimmed === homedir().replace(/\/+$/, '')) return '~';
   return trimmed.slice(trimmed.lastIndexOf('/') + 1) || undefined;
 }
