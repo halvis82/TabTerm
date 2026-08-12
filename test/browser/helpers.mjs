@@ -45,8 +45,18 @@ export async function type(client, text, { submit = true } = {}) {
  *
  * modifiers: 1 alt, 2 ctrl, 4 meta, 8 shift.
  */
-export async function press(client, key, code, modifiers = 0, keyCode = 0) {
-  await focusPane(client);
+export async function press(
+  client,
+  key,
+  code,
+  modifiers = 0,
+  keyCode = 0,
+  { focus = 'pane' } = {},
+) {
+  // Focus decides where the key lands. Terminal keys need the pane; palette keys must not steal
+  // focus away from the palette input, or they are delivered to the shell instead and the
+  // palette looks unresponsive.
+  if (focus === 'pane') await focusPane(client);
   for (const type_ of ['rawKeyDown', 'keyUp']) {
     await client.send('Input.dispatchKeyEvent', {
       type: type_,
@@ -64,6 +74,10 @@ export const interrupt = (client) => press(client, 'c', 'KeyC', 2, 67);
 
 /** Open the command palette. */
 export const openPalette = (client) => press(client, 'k', 'KeyK', 4, 75);
+
+/** A key aimed at the palette, which owns focus while it is open. */
+export const pressInPalette = (client, key, code, modifiers = 0, keyCode = 0) =>
+  press(client, key, code, modifiers, keyCode, { focus: 'none' });
 
 /** Read the terminal buffer, which WebGL rendering puts out of the DOM's reach. */
 export const readScreen = (client, paneId) =>
