@@ -18,6 +18,9 @@ import { PaneStatus } from './pane-status.js';
 import { describeTime, isLongRunning, type TimeState } from './elapsed.js';
 import { applyFavicon, composeTitle, drawFavicon, type FaviconState } from './titles.js';
 import { Launcher } from '../launcher/launcher.js';
+import { CommandPanel } from '../launcher/panel-view.js';
+import { DEFAULT_PLACEMENT, type PanelPlacement } from '../launcher/command-panel.js';
+import { buildSettings } from '../launcher/settings-view.js';
 import { Palette, type PaletteAction } from '../launcher/palette.js';
 
 /**
@@ -888,6 +891,61 @@ function paletteActions(): PaletteAction[] {
   return actions;
 }
 
+let commandPanel: CommandPanel | null = null;
+
+/**
+ * The command panel, and the button that opens it.
+ *
+ * Its position and last tab are remembered in extension storage rather than in the database:
+ * they are properties of a view, not of the data, and they should differ per machine.
+ */
+function buildCommandPanel(): void {
+  const overlay = document.getElementById('overlays') as HTMLElement;
+
+  commandPanel = new CommandPanel({
+    root: overlay,
+    onPaste: (text) => sendToFocusedPane(text),
+    onCopy: (text) => void navigator.clipboard.writeText(text),
+    onSearch: (query) => {
+      const sessionId = focusedSessionId();
+      client?.send({
+        t: 'list-history',
+        query,
+        scope: 'global',
+        limit: 100,
+        ...(sessionId ? { sessionId } : {}),
+      });
+    },
+    onKeep: (text) => client?.send({ t: 'save-item', title: text.slice(0, 60), body: text }),
+    onStar: (entry) =>
+      client?.send({ t: 'save-item', title: entry.command.slice(0, 60), body: entry.command }),
+    onEdit: (id, changes) => client?.send({ t: 'update-saved', id, ...changes }),
+    onDelete: (id) => client?.send({ t: 'delete-saved', id }),
+    onCreate: (fields) => client?.send({ t: 'save-item', title: fields.title, body: fields.body }),
+    onClose: () => panesHost?.focus(splitView?.focused ?? ''),
+    onPlacement: (placement) => {
+      void chrome.storage.local.set({ 'tabterm.panel': placement });
+    },
+    actions: () => paletteActions(),
+    settings: () => buildSettings({ onChangeTheme: applyTheme }),
+  });
+
+  void chrome.storage.local.get('tabterm.panel').then((stored) => {
+    const placement = (stored['tabterm.panel'] as PanelPlacement | undefined) ?? DEFAULT_PLACEMENT;
+    commandPanel?.setPlacement(placement);
+  });
+
+  document.getElementById('cmd-button')?.addEventListener('click', () => {
+    commandPanel?.toggle({ focusSearch: false });
+  });
+}
+
+/** Theme is applied to the document root, so every surface follows it at once. */
+function applyTheme(theme: string): void {
+  document.documentElement.dataset['theme'] = theme;
+  void chrome.storage.local.set({ 'tabterm.theme': theme });
+}
+
 function installShortcuts(): void {
   window.addEventListener(
     'keydown',
@@ -902,7 +960,7 @@ function installShortcuts(): void {
       }
       // Command+K toggles the palette. Chrome does not reserve it and no shell needs it.
       if (e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
-        palette?.toggle();
+        commandPanel?.toggle({ focusSearch: true });
         e.preventDefault();
         return;
       }
@@ -1091,6 +1149,7 @@ function onControl(msg: ServerMessage): void {
       launcher?.setState(msg.state);
       savedItems = [...msg.state.saved];
       palette?.setSaved(savedItems);
+      commandPanel?.setFavorites(savedItems);
       // Asked for alongside launcher state, so the chips are there when the panel first draws.
       client?.send({ t: 'list-resumable', limit: 5 });
       client?.send({ t: 'list-servers' });
@@ -1138,6 +1197,7 @@ function onControl(msg: ServerMessage): void {
 
     case 'history-page': {
       palette?.setHistoryPage(msg);
+      commandPanel?.setRecent(msg.entries);
       return;
     }
 
@@ -1153,6 +1213,7 @@ function onControl(msg: ServerMessage): void {
     case 'saved-updated': {
       savedItems = [...msg.saved];
       palette?.setSaved(savedItems);
+      commandPanel?.setFavorites(savedItems);
       client?.send({ t: 'list-history', query: '', limit: 100 });
       return;
     }
@@ -1426,6 +1487,7 @@ async function start(): Promise<void> {
 
   buildHosts();
   buildLauncher();
+  buildCommandPanel();
   installTestHook();
   installModifierTracking();
   installShortcuts();
