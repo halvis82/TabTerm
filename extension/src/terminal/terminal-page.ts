@@ -864,7 +864,7 @@ function paletteActions(): PaletteAction[] {
     {
       id: 'new-terminal',
       title: 'New terminal tab',
-      hint: '⇧⌘O',
+      hint: '⌥⇧T',
       run: () => {
         void chrome.tabs.create({ url: chrome.runtime.getURL('terminal.html'), active: true });
       },

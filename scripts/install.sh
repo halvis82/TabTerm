@@ -145,7 +145,7 @@ Next, once:
   1. Chrome, chrome://extensions, enable Developer mode
   2. Load unpacked, choose:
        $REPO/extension/dist
-  3. Open a terminal with Command+Shift+O, or click the toolbar icon
+  3. Open a terminal with Option+Shift+T, or click the toolbar icon
 
 The daemon now starts at login. It is running already.
 

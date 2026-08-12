@@ -36,13 +36,13 @@
   "commands": {
     "new-terminal": {
       "suggested_key": {
-        "mac": "Command+Shift+O"
+        "mac": "Alt+Shift+T"
       },
       "description": "Open a new terminal tab"
     },
     "new-terminal-alt": {
       "suggested_key": {
-        "mac": "Alt+Shift+T"
+        "mac": "Command+Shift+Period"
       },
       "description": "Open a new terminal tab (alternate binding)"
     },

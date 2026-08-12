@@ -128,8 +128,13 @@ three states apart.
 
 ### 6. Open a terminal
 
-`Command+Shift+O`. `Control+Shift+T` and `Option+Shift+T` also work, and all three are
+`Option+Shift+T`. `Shift+Command+.` and `Control+Shift+T` also work, and all three are
 rebindable at `chrome://extensions/shortcuts`.
+
+An extension shortcut is handled by the browser before the page sees it, so whatever it is bound
+to is taken away from every site you visit. That is why the default is an Option combination:
+web applications bind Command, so Option is nearly empty, and a terminal shortcut should not cost
+you a shortcut in an application you already use.
 
 ### 7. Check it
 

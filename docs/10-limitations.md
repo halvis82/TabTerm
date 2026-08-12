@@ -141,8 +141,8 @@ and there is no error when it does.
 
 | Command | Offered | Bound |
 |---|---|---|
-| `new-terminal` | `Command+Shift+O` | ⇧⌘O |
-| `new-terminal-alt` | `Alt+Shift+T` | ⌥⇧T |
+| `new-terminal` | `Alt+Shift+T` | ⌥⇧T |
+| `new-terminal-alt` | `Command+Shift+Period` | ⇧⌘. |
 | `_execute_action` | `MacCtrl+Shift+T` | ⌃⇧T |
 
 Read back with `chrome.commands.getAll()` from an extension page, not from the service worker,
