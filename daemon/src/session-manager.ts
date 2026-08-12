@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import type { AgentState, SessionState, TitleFields } from '@tabterm/shared';
 import type { Config } from './config.js';
 import { debug, info, warn } from './log.js';
-import { killPty, spawnPty, type PtyHandle } from './pty-manager.js';
+import type { PtyBackend } from './pty-backend.js';
 import { OscScanner } from './osc.js';
 import { decideReap, describeReap, reapInputFor } from './cleanup.js';
 import { listeningPorts } from './server-detect.js';
@@ -54,7 +54,15 @@ export interface Session {
    */
   shellIntegration?: boolean;
   titleFields: TitleFields;
-  handle: PtyHandle;
+  /** Shell integration scanner, fed from the one output path. */
+  osc?: OscScanner;
+  /**
+   * How many output bytes this session has produced, as counted by whatever owns the PTY.
+   *
+   * Kept so a restarted daemon can ask for exactly the bytes it missed rather than the whole
+   * buffer. See docs/adr/0017.
+   */
+  seq: number;
   vt: VtState;
   clients: Map<string, AttachedClient>;
   reapTimer?: NodeJS.Timeout;
@@ -99,10 +107,54 @@ export class SessionManager {
   readonly #sessions = new Map<string, Session>();
   readonly #config: Config;
   readonly #events: SessionEvents;
+  readonly #pty: PtyBackend;
 
-  constructor(config: Config, events: SessionEvents) {
+  constructor(config: Config, events: SessionEvents, pty: PtyBackend) {
     this.#config = config;
     this.#events = events;
+    this.#pty = pty;
+
+    // One pair of listeners for every session, because the backend is a single connection
+    // rather than a handle per process.
+    this.#pty.onData((sessionId, data) => this.#ingest(sessionId, data));
+    this.#pty.onExit((sessionId, exitCode, signal) => this.#ended(sessionId, exitCode, signal));
+    this.#pty.onSpawned((sessionId, pid) => {
+      const session = this.#sessions.get(sessionId);
+      if (session) session.pid = pid;
+    });
+  }
+
+  /** Output arriving from wherever the PTY lives. Always accepted, never paused: invariant 3. */
+  #ingest(sessionId: string, data: Buffer): void {
+    const session = this.#sessions.get(sessionId);
+    if (!session) return;
+    session.seq += data.length;
+    session.vt.write(data);
+    const text = data.toString('utf8');
+    session.osc?.feed(text);
+    this.#events.onOutput?.(session, text);
+    for (const client of session.clients.values()) client.onOutput(data);
+  }
+
+  #ended(sessionId: string, exitCode: number, signal?: number): void {
+    const session = this.#sessions.get(sessionId);
+    if (!session) return;
+    session.exitCode = exitCode;
+    if (signal !== undefined) session.signal = signal;
+
+    // A pane that ran a declared command keeps its output, so the notice goes into the
+    // terminal state itself rather than being drawn by whoever happens to be attached.
+    // Reattaching later shows the same thing. See docs/04-session-lifecycle.md §9.
+    if (session.command?.length) {
+      const notice = `\r\n\x1b[2m[${describeExit(exitCode, signal)}]\x1b[0m\r\n`;
+      const buf = Buffer.from(notice, 'utf8');
+      session.vt.write(buf);
+      for (const client of session.clients.values()) client.onOutput(buf);
+    }
+
+    this.#transition(session, 'exited');
+    info('session.exited', { sessionId, exitCode, signal });
+    this.#events.onExit(session);
   }
 
   get all(): Session[] {
@@ -116,15 +168,6 @@ export class SessionManager {
   create(opts: { cwd?: string; command?: readonly string[]; cols: number; rows: number }): Session {
     const id = randomUUID();
     const cwd = opts.cwd ?? homedir();
-    const handle = spawnPty({
-      shell: this.#config.shell,
-      cwd,
-      cols: opts.cols,
-      rows: opts.rows,
-      sessionId: id,
-      ...(opts.command ? { command: opts.command } : {}),
-    });
-
     const vt = new VtState(opts.cols, opts.rows, this.#config.scrollbackLines);
 
     const session: Session = {
@@ -134,19 +177,54 @@ export class SessionManager {
       lastAttachedAt: Date.now(),
       cwd,
       shell: this.#config.shell,
-      pid: handle.pid,
+      // Filled in when whatever owns the PTY reports it, which is a round trip away when that
+      // is another process. Nothing here needs it sooner.
+      pid: 0,
       pinned: false,
       persistent: false,
       titleFields: { cwd },
-      handle,
+      seq: 0,
       vt,
       clients: new Map(),
       commandRunning: false,
     };
     if (opts.command) session.command = opts.command;
 
-    // Shell integration reports meaning the daemon cannot infer from bytes alone.
-    const osc = new OscScanner({
+    const osc = this.#buildOsc(session);
+    session.osc = osc;
+    // Registered before the PTY is asked for, not after. The pid and the first bytes are both
+    // addressed by session id, and an in-process backend delivers them during the spawn call
+    // itself, so a session that is not in the map yet loses them silently.
+    this.#sessions.set(id, session);
+    this.#pty.spawn({
+      shell: this.#config.shell,
+      cwd,
+      cols: opts.cols,
+      rows: opts.rows,
+      sessionId: id,
+      ...(opts.command ? { command: opts.command } : {}),
+    });
+    this.#events.onCreated?.(session);
+    info('session.created', { sessionId: id });
+    return session;
+  }
+
+  /**
+   * Take over a session that was already running when this daemon started.
+   *
+   * Built exactly like a created one except that nothing is spawned, because the process is
+   * already there. The screen is rebuilt by the caller replaying what the host buffered, which
+   * arrives through the ordinary output path and lands in this VT.
+   */
+  /**
+   * Shell integration reports meaning the daemon cannot infer from bytes alone.
+   *
+   * Shared by created and adopted sessions, because a session taken over after a restart needs
+   * exactly the same scanner as one that was just started. Two copies of this would drift, and
+   * the drift would look like shell integration working in some tabs and not others.
+   */
+  #buildOsc(session: Session): OscScanner {
+    return new OscScanner({
       onCwd: (cwd) => {
         if (cwd === session.cwd) return;
         session.cwd = cwd;
@@ -188,38 +266,40 @@ export class SessionManager {
         session.commandRunning = false;
       },
     });
+  }
 
-    // The daemon always drains. This listener is never removed while the session lives.
-    handle.pty.onData((chunk) => {
-      const buf = Buffer.from(chunk, 'utf8');
-      vt.write(buf);
-      osc.feed(chunk);
-      this.#events.onOutput?.(session, chunk);
-      for (const client of session.clients.values()) client.onOutput(buf);
-    });
-
-    handle.pty.onExit(({ exitCode, signal }) => {
-      session.exitCode = exitCode;
-      if (signal !== undefined) session.signal = signal;
-
-      // A pane that ran a declared command keeps its output, so the notice goes into the
-      // terminal state itself rather than being drawn by whoever happens to be attached.
-      // Reattaching later shows the same thing. See docs/04-session-lifecycle.md §9.
-      if (session.command?.length) {
-        const notice = `\r\n\x1b[2m[${describeExit(exitCode, signal)}]\x1b[0m\r\n`;
-        const buf = Buffer.from(notice, 'utf8');
-        vt.write(buf);
-        for (const client of session.clients.values()) client.onOutput(buf);
-      }
-
-      this.#transition(session, 'exited');
-      info('session.exited', { sessionId: id, exitCode, signal });
-      this.#events.onExit(session);
-    });
-
-    this.#sessions.set(id, session);
-    this.#events.onCreated?.(session);
-    info('session.created', { sessionId: id, pid: handle.pid });
+  adopt(info_: {
+    sessionId: string;
+    pid: number;
+    cwd: string;
+    shell: string;
+    command?: readonly string[];
+    cols: number;
+    rows: number;
+  }): Session {
+    const vt = new VtState(info_.cols, info_.rows, this.#config.scrollbackLines);
+    const session: Session = {
+      id: info_.sessionId,
+      // Live with nobody attached, which is exactly what an adopted session is until a tab
+      // reconnects to it.
+      state: 'detached',
+      createdAt: Date.now(),
+      lastAttachedAt: Date.now(),
+      cwd: info_.cwd,
+      shell: info_.shell,
+      pid: info_.pid,
+      pinned: false,
+      persistent: false,
+      titleFields: { cwd: info_.cwd },
+      seq: 0,
+      vt,
+      clients: new Map(),
+      commandRunning: false,
+    };
+    if (info_.command) session.command = info_.command;
+    session.osc = this.#buildOsc(session);
+    this.#sessions.set(session.id, session);
+    info('session.adopted', { sessionId: session.id, pid: info_.pid });
     return session;
   }
 
@@ -277,7 +357,7 @@ export class SessionManager {
     // The fallback command tracker needs to know when Enter was pressed. It ignores everything
     // else, so this costs a substring check per keystroke.
     this.#events.onInputWritten?.(session, text);
-    session.handle.pty.write(text);
+    this.#pty.write(session.id, text);
   }
 
   /**
@@ -308,7 +388,7 @@ export class SessionManager {
   }
 
   async kill(session: Session): Promise<void> {
-    await killPty(session.handle, session.id);
+    await this.#pty.kill(session.id);
     this.#reap(session);
   }
 
@@ -329,7 +409,7 @@ export class SessionManager {
     if (cols === session.vt.cols && rows === session.vt.rows) return;
     session.vt.resize(cols, rows);
     try {
-      session.handle.pty.resize(cols, rows);
+      this.#pty.resize(session.id, cols, rows);
     } catch (e) {
       warn('session.resize.failed', { sessionId: session.id, error: String(e) });
     }
@@ -441,8 +521,17 @@ export class SessionManager {
     info('session.reaped', { sessionId: session.id });
   }
 
+  /**
+   * The daemon is stopping.
+   *
+   * This used to kill every PTY, which meant every update destroyed every terminal and every
+   * screen of output. It now hands the decision to the backend: the host keeps them running,
+   * and only the in-process fallback ends them, because those are children of a process that is
+   * about to not exist. See docs/adr/0017.
+   */
   async shutdown(): Promise<void> {
-    await Promise.all(this.all.map((s) => killPty(s.handle, s.id)));
+    this.#pty.close();
+    await Promise.resolve();
   }
 }
 

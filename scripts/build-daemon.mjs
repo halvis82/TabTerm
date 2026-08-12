@@ -7,6 +7,29 @@ import { build } from 'esbuild';
 const NATIVE = ['node-pty', 'better-sqlite3'];
 const watch = process.argv.includes('--watch');
 
+/**
+ * The PTY host is its own executable, and that is the point.
+ *
+ * It is a separate process so that replacing the daemon does not end anybody's terminal, which
+ * means it also has to be a separate build artifact: bundling it into the daemon would put the
+ * thing that must not restart inside the thing that restarts. Same native externals, since it
+ * is the half that actually uses node-pty.
+ */
+const hostOptions = {
+  entryPoints: ['daemon/src/pty-host/host-main.ts'],
+  outfile: 'daemon/dist/pty-host.js',
+  bundle: true,
+  platform: 'node',
+  target: 'node20',
+  format: 'esm',
+  sourcemap: true,
+  external: NATIVE,
+  logLevel: 'warning',
+  banner: {
+    js: "import { createRequire as __cr } from 'module'; const require = __cr(import.meta.url);",
+  },
+};
+
 const options = {
   entryPoints: ['daemon/src/main.ts'],
   outfile: 'daemon/dist/main.js',
@@ -54,8 +77,11 @@ if (watch) {
   await ctx.watch();
   const redactCtx = await esbuild.context(redactOptions);
   await redactCtx.watch();
+  const hostCtx = await esbuild.context(hostOptions);
+  await hostCtx.watch();
   console.log('daemon: watching');
 } else {
   await build(options);
+  await build(hostOptions);
   await build(redactOptions);
 }

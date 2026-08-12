@@ -278,6 +278,31 @@ paths are supported; which one happens depends on the user's Chrome setting, whi
 
 ---
 
+## 10.5 The daemon restarting
+
+Updating TabTerm restarts the daemon, and so does any crash. **Neither ends a session.**
+
+PTYs live in a separate host process that is not stopped when the daemon is replaced, so the shell,
+anything it is running, and anything it backgrounded all keep going. See `adr/0017`.
+
+A daemon that starts and finds live sessions **adopts** them:
+
+1. Ask the host what is still running
+2. Read each session's directory, shell and workspace from `session_meta`
+3. Read the workspace layout, dropping panes whose session did not survive, because a pane that
+   can never produce output is worse than an absent pane
+4. Replay the host's output buffer to rebuild each screen
+5. Serve, so a reconnecting tab attaches to the session it had
+
+Verified end to end against `kill -9` of the daemon, which is the worst case because nothing gets
+to run on the way out: the process survived, the tab reconnected without an expiry page, the
+earlier output was on screen, and the session still accepted commands.
+
+What this does **not** cover is the host itself being replaced or killed. That is rare by design,
+and when it happens the sessions are genuinely gone and the tab falls back to §8.
+
+---
+
 ## 11. macOS reboot
 
 A process cannot survive a reboot. Nothing can change that.

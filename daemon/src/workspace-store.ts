@@ -23,6 +23,19 @@ import { info } from './log.js';
  */
 export class WorkspaceStore {
   readonly #workspaces = new Map<string, Workspace>();
+  #onChange: (workspace: Workspace) => void = () => {};
+
+  /**
+   * Called whenever a workspace comes into existence.
+   *
+   * Layout changes were already persisted, but creation was not, so a workspace with one pane
+   * that never got split existed only in memory until shutdown. If the daemon was killed rather
+   * than stopped, it was gone, and a tab whose processes were still running was told its session
+   * had expired. State that is only written on a clean exit is not persisted state.
+   */
+  onCreate(fn: (workspace: Workspace) => void): void {
+    this.#onChange = fn;
+  }
 
   get all(): Workspace[] {
     return [...this.#workspaces.values()];
@@ -30,6 +43,23 @@ export class WorkspaceStore {
 
   get(id: string): Workspace | undefined {
     return this.#workspaces.get(id);
+  }
+
+  /**
+   * Put back a workspace that existed before this daemon started.
+   *
+   * Workspaces live in memory during normal operation and are written to the database as they
+   * change, so a restart has everything it needs to rebuild them. Without this, a tab whose
+   * processes are still running would still be told its session expired, because the daemon
+   * would not know which sessions the workspace was made of. See daemon/src/adopt.ts.
+   */
+  hydrate(workspace: Workspace): void {
+    this.#workspaces.set(workspace.id, workspace);
+  }
+
+  #announce(workspace: Workspace): Workspace {
+    this.#onChange(workspace);
+    return workspace;
   }
 
   create(sessionId: string): { workspace: Workspace; paneId: string } {
@@ -44,6 +74,7 @@ export class WorkspaceStore {
     };
     this.#workspaces.set(workspace.id, workspace);
     info('workspace.created', { workspaceId: workspace.id, sessionId });
+    this.#announce(workspace);
     return { workspace, paneId };
   }
 

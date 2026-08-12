@@ -3,6 +3,7 @@ import { DEFAULTS, type Config } from './config.js';
 import { Database } from './database.js';
 import { initLog } from './log.js';
 import { OutputArchive } from './output-archive.js';
+import { LocalPtyBackend } from './pty-backend.js';
 import { SessionManager } from './session-manager.js';
 
 /**
@@ -21,11 +22,15 @@ let archive: OutputArchive;
 beforeAll(() => {
   initLog('error');
   archive = new OutputArchive(new Database(':memory:'), true);
-  sessions = new SessionManager(config, {
-    onExit: () => {},
-    onStateChange: () => {},
-    onOutput: (session, chunk) => archive.write(session.id, chunk),
-  });
+  sessions = new SessionManager(
+    config,
+    {
+      onExit: () => {},
+      onStateChange: () => {},
+      onOutput: (session, chunk) => archive.write(session.id, chunk),
+    },
+    new LocalPtyBackend(),
+  );
 });
 
 afterAll(async () => {

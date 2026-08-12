@@ -206,6 +206,8 @@ needs its own copy.
 2. Create `~/.config/tabterm/` and `~/.local/state/tabterm/{scrollback,logs}`
 3. Generate the token at mode 0600 if absent. **Never regenerate an existing one**
 4. Initialize the database, run migrations
+4.5 Stage the PTY host beside the daemon. It is a separate executable because it is the half that
+   keeps running while the daemon is replaced, see `adr/0017`
 5. Write the LaunchAgent plist, `launchctl bootstrap`
 6. Write the native messaging host manifest with the permanent extension ID
 7. Offer shell integration. Print the exact `.zshrc` line. **Never edit dotfiles automatically**,

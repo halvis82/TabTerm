@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULTS, type Config } from './config.js';
 import { initLog } from './log.js';
+import { LocalPtyBackend } from './pty-backend.js';
 import { SessionManager } from './session-manager.js';
 
 /**
@@ -19,7 +20,11 @@ let sessions: SessionManager;
 
 beforeAll(() => {
   initLog('error');
-  sessions = new SessionManager(config, { onExit: () => {}, onStateChange: () => {} });
+  sessions = new SessionManager(
+    config,
+    { onExit: () => {}, onStateChange: () => {} },
+    new LocalPtyBackend(),
+  );
 });
 
 afterAll(async () => {

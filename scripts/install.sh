@@ -84,6 +84,9 @@ echo "  built daemon and extension"
 # Named .mjs so Node treats it as ESM without needing a package.json alongside. The bundle
 # uses import.meta, which a .js file outside a "type": "module" package would reject.
 cp "$REPO/daemon/dist/main.js" "$LIBEXEC/daemon.mjs"
+# The PTY host is staged as its own executable beside the daemon, because it is the half that
+# must keep running while the daemon is replaced. See docs/adr/0017.
+cp "$REPO/daemon/dist/pty-host.js" "$LIBEXEC/pty-host.mjs"
 # Standalone so it runs before, and independently of, a working daemon.
 cp "$REPO/daemon/dist/agent-hooks-cli.js" "$LIBEXEC/agent-hooks.mjs"
 # node-pty is a native module and cannot be bundled, so it ships beside the daemon.

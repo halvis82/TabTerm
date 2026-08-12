@@ -3,6 +3,7 @@ import { CommandTracker } from './command-tracker.js';
 import { DEFAULTS, type Config } from './config.js';
 import { foregroundOf } from './foreground.js';
 import { initLog } from './log.js';
+import { LocalPtyBackend } from './pty-backend.js';
 import { SessionManager } from './session-manager.js';
 
 /**
@@ -25,12 +26,16 @@ beforeAll(() => {
     onStart: (_id, command) => starts.push({ command }),
     onEnd: (_id, command, durationMs) => ends.push({ command, durationMs }),
   });
-  sessions = new SessionManager(config, {
-    onExit: () => {},
-    onStateChange: () => {},
-    onCreated: (s) => tracker.add(s.id, s.pid),
-    onInputWritten: (s, data) => tracker.onInput(s.id, data),
-  });
+  sessions = new SessionManager(
+    config,
+    {
+      onExit: () => {},
+      onStateChange: () => {},
+      onCreated: (s) => tracker.add(s.id, s.pid),
+      onInputWritten: (s, data) => tracker.onInput(s.id, data),
+    },
+    new LocalPtyBackend(),
+  );
 });
 
 afterAll(async () => {

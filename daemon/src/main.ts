@@ -1,5 +1,7 @@
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { PROTOCOL_VERSION, VERSION } from '@tabterm/shared';
 import { initAuth, verifyToken } from './auth.js';
 import { AgentBridge } from './agent-bridge.js';
@@ -19,6 +21,11 @@ import { loadPlugins } from './plugin-loader.js';
 import { CommandTracker } from './command-tracker.js';
 import { ProjectTrust } from './project-trust.js';
 import { TurnTracker } from './agent-turns.js';
+import { LocalPtyBackend } from './pty-backend.js';
+import { PtyHostClient } from './pty-host/client.js';
+import { HostPtyBackend } from './pty-host/backend.js';
+import { HOST_SOCKET } from './pty-host/paths.js';
+import { planAdoption, prunePanes } from './adopt.js';
 
 /**
  * The daemon owns every PTY. No terminal process is ever tied to a Chrome page's lifetime,
@@ -54,7 +61,24 @@ async function main(): Promise<void> {
   // The manager and the server reference each other, so the event handlers are installed
   // after both exist. SessionManager holds this object by reference.
   const events: SessionEvents = { onExit: () => {}, onStateChange: () => {} };
-  const sessions = new SessionManager(config, events);
+
+  /**
+   * Where the PTYs live.
+   *
+   * The host is a separate process that outlives this one, so replacing the daemon does not end
+   * anybody's terminal. If it cannot be started, everything still works with the PTYs in this
+   * process, and the only thing lost is surviving an update. A TabTerm that runs without that
+   * beats one that does not run. See docs/adr/0017.
+   */
+  const hostClient = new PtyHostClient({
+    socketPath: HOST_SOCKET,
+    hostScript: hostScriptPath(),
+  });
+  const usingHost = await hostClient.connect();
+  const ptyBackend = usingHost ? new HostPtyBackend(hostClient) : new LocalPtyBackend();
+  if (!usingHost) warn('pty-host.falling-back', { detail: 'PTYs will not survive a restart' });
+
+  const sessions = new SessionManager(config, events, ptyBackend);
   const workspaces = new WorkspaceStore();
   const db = new Database();
   const launcher = new LauncherData(db);
@@ -289,6 +313,53 @@ async function main(): Promise<void> {
   });
   await agentBridge.listen();
 
+  /**
+   * Take over anything that was already running.
+   *
+   * This is the half of the PTY host that a person actually sees. The host keeping processes
+   * alive is invisible if every tab still says the session expired, so the daemon rebuilds its
+   * own view from what the host has and what the database remembers, and the tab reconnects to
+   * the same terminal it had. See docs/adr/0017.
+   */
+  if (usingHost) {
+    try {
+      const live = await ptyBackend.adoptable();
+      if (live.length > 0) {
+        const plan = planAdoption(live, db, config.shell);
+        const adopted = new Set<string>();
+        for (const entry of plan.sessions) {
+          const session = sessions.adopt({ ...entry, cols: 80, rows: 24 });
+          adopted.add(session.id);
+        }
+        for (const workspace of plan.workspaces) {
+          const layout = prunePanes(workspace.layout, adopted);
+          if (layout) {
+            const now = Date.now();
+            workspaces.hydrate({
+              id: workspace.id,
+              layout,
+              pinned: true,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
+        }
+        // Replay after the sessions exist, so the bytes land in a VT that is listening.
+        for (const entry of plan.sessions) {
+          await (ptyBackend as HostPtyBackend).replay(entry.sessionId, 0);
+        }
+        info('adopt.complete', {
+          sessions: adopted.size,
+          workspaces: plan.workspaces.length,
+        });
+      }
+    } catch (e: unknown) {
+      // Adoption is an optimization over "the session expired". Failing it must never stop the
+      // daemon from serving, because then a bad row would cost you every terminal.
+      warn('adopt.failed', { error: String(e) });
+    }
+  }
+
   await server.listen();
   info('daemon.ready', { version: VERSION, protocol: PROTOCOL_VERSION, pid: process.pid });
   console.error(`tabtermd ${VERSION} listening on 127.0.0.1:${String(config.port)}`);
@@ -407,4 +478,19 @@ function shortPlace(cwd: string): string | undefined {
   const trimmed = cwd.replace(/\/+$/, '');
   if (trimmed === homedir().replace(/\/+$/, '')) return '~';
   return trimmed.slice(trimmed.lastIndexOf('/') + 1) || undefined;
+}
+
+/**
+ * Where the host executable is.
+ *
+ * Beside this file, whether that is the staged copy in `~/.local/libexec/tabterm` or a build
+ * output in a working tree. Resolved from `import.meta.url` rather than a configured path so an
+ * install and a checkout both work without either knowing about the other.
+ */
+function hostScriptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  for (const candidate of [join(here, 'pty-host.mjs'), join(here, 'pty-host.js')]) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return join(here, 'pty-host.js');
 }

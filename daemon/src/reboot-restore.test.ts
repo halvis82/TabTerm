@@ -22,6 +22,7 @@ import { OutputArchive } from './output-archive.js';
 import { PluginHost } from './plugin-api.js';
 import { RestoreStore } from './restore-store.js';
 import { DaemonServer } from './server.js';
+import { LocalPtyBackend } from './pty-backend.js';
 import { SessionManager } from './session-manager.js';
 import { WorkspaceStore } from './workspace-store.js';
 
@@ -84,7 +85,11 @@ interface Daemon {
 }
 
 async function startDaemon(): Promise<Daemon> {
-  const sessions = new SessionManager(config, { onExit: () => {}, onStateChange: () => {} });
+  const sessions = new SessionManager(
+    config,
+    { onExit: () => {}, onStateChange: () => {} },
+    new LocalPtyBackend(),
+  );
   const workspaces = new WorkspaceStore();
   sessions.isInWorkspace = (id) => workspaces.findBySession(id) !== undefined;
   const server = new DaemonServer(

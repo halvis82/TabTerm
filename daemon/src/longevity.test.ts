@@ -8,6 +8,7 @@ import { LauncherData } from './launcher-data.js';
 import { initLog } from './log.js';
 import { OutputArchive } from './output-archive.js';
 import { RestoreStore } from './restore-store.js';
+import { LocalPtyBackend } from './pty-backend.js';
 import { SessionManager } from './session-manager.js';
 
 /**
@@ -66,7 +67,11 @@ describe('the process can always exit', () => {
   it('does not let a pending reap timer hold it open', async () => {
     // A reap wait is minutes long. Un-unref'd, it is the reason a daemon told to stop sits
     // there until a timer nobody is waiting for fires.
-    const sessions = new SessionManager(config, { onExit: () => {}, onStateChange: () => {} });
+    const sessions = new SessionManager(
+      config,
+      { onExit: () => {}, onStateChange: () => {} },
+      new LocalPtyBackend(),
+    );
     const session = sessions.create({ cols: 80, rows: 24 });
     await sleep(500);
 

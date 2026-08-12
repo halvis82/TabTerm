@@ -114,6 +114,9 @@ export class DaemonServer {
     this.#restore = restore;
     this.#archive = archive;
     this.#plugins = plugins;
+    // A workspace is written the moment it is created, not only when it changes or when the
+    // daemon stops cleanly.
+    this.#workspaces.onCreate((workspace) => this.#persistWorkspace(workspace.id));
     this.#http = createServer((_req, res) => {
       res.writeHead(426);
       res.end('websocket only');
@@ -1290,7 +1293,7 @@ export class DaemonServer {
     if (!workspace) return;
     // Every layout change is also the moment the restore snapshot is worth updating. Saving on
     // the event rather than on a timer means a workspace that has not changed is never written.
-    this.snapshotWorkspace(workspaceId);
+    this.#persistWorkspace(workspaceId);
     for (const c of this.#clients) {
       if (c === except || !c.authed) continue;
       const holdsIt = this.#workspaces.sessionIds(workspace).some((id) => c.streams.has(id));
@@ -1437,6 +1440,30 @@ export class DaemonServer {
    * Public because shutdown needs it too: a clean stop is the one moment every screen is worth
    * capturing, and a machine restarting is exactly the case this exists for.
    */
+  /**
+   * Persist a workspace the moment it exists, and record which sessions belong to it.
+   *
+   * Both were previously written only on a layout change or a clean shutdown, which meant a
+   * single pane workspace that was never split survived a stop and not a crash. Adoption after
+   * a restart reads exactly these two things. See daemon/src/adopt.ts.
+   */
+  #persistWorkspace(workspaceId: string): void {
+    this.snapshotWorkspace(workspaceId);
+    const workspace = this.#workspaces.get(workspaceId);
+    if (!workspace) return;
+    for (const sessionId of this.#workspaces.sessionIds(workspace)) {
+      const session = this.#sessions.get(sessionId);
+      if (!session) continue;
+      this.#launcher.rememberSession({
+        id: session.id,
+        cwd: session.cwd,
+        shell: session.shell,
+        workspaceId,
+        ...(session.command ? { command: session.command } : {}),
+      });
+    }
+  }
+
   snapshotWorkspace(workspaceId: string): void {
     const workspace = this.#workspaces.get(workspaceId);
     if (!workspace) return;

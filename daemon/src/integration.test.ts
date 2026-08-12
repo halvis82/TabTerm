@@ -16,6 +16,7 @@ import { PluginHost } from './plugin-api.js';
 import { RestoreStore } from './restore-store.js';
 import { ProjectTrust } from './project-trust.js';
 import { DaemonServer } from './server.js';
+import { LocalPtyBackend } from './pty-backend.js';
 import { SessionManager } from './session-manager.js';
 import { initAuth } from './auth.js';
 import { WorkspaceStore } from './workspace-store.js';
@@ -33,7 +34,11 @@ let token: string;
 beforeAll(async () => {
   initLog('error');
   token = initAuth();
-  sessions = new SessionManager(config, { onExit: () => {}, onStateChange: () => {} });
+  sessions = new SessionManager(
+    config,
+    { onExit: () => {}, onStateChange: () => {} },
+    new LocalPtyBackend(),
+  );
   workspaces = new WorkspaceStore();
   server = new DaemonServer(
     config,

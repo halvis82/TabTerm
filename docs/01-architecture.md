@@ -13,11 +13,27 @@
 
 ## The invariant that shapes everything
 
-> The daemon owns processes. Chrome owns views. A view can vanish at any moment.
+> Processes are owned by something nobody restarts. Chrome owns views. A view can vanish at any
+> moment.
 
 Chrome can and will destroy a terminal page without warning: tab close, tab discard under memory
 pressure, renderer crash, Chrome quit. None of those may affect a PTY. Every frontend is therefore
 treated as a cache of daemon state, never as the authority.
+
+**The daemon is a view too, in the way that matters.** It is the part of this system that changes,
+so it is the part that gets restarted, and for a long time it killed every PTY when it did. That
+made shipping an update indistinguishable from closing every terminal. So PTYs live in a separate
+**PTY host** process which is deliberately boring, has no reason to change when a feature is
+added, and is not stopped when the daemon is replaced. See `adr/0017`.
+
+| Process | Owns | Restarted when |
+|---|---|---|
+| PTY host | Every PTY, and a recent output buffer per session | Almost never. Only its own code changing |
+| Daemon | Protocol, database, workspaces, policy, terminal emulation | Every update, and any crash |
+
+A daemon that starts and finds sessions already running **adopts** them: it rebuilds each screen
+from the host's buffer and the workspace layout from the database, so a tab reconnects to the
+terminal it had rather than being told the session expired.
 
 The consequence that people get wrong: the daemon cannot simply forward bytes. If it only forwarded,
 a reattaching view would have no idea what the screen looks like. The daemon must maintain a full
