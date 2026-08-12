@@ -391,7 +391,7 @@ copying it has no meaning worth inventing.
 
 ### The command palette is the primary surface
 
-`Command+K`. Every pane, workspace, and session action is in it, filtered by the same
+`Shift+Command+P`. Every pane, workspace, and session action is in it, filtered by the same
 subsequence match the history search uses, so `sp` finds "Split right" the way `gco` finds
 `git checkout`.
 

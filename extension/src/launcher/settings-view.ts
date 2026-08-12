@@ -20,10 +20,12 @@ const THEMES: [value: string, label: string][] = [
 /** Shortcuts the page handles itself, as opposed to the ones Chrome owns. */
 const PAGE_KEYS: [keys: string, does: string][] = [
   ['⌘K', 'Open this panel'],
+  ['⇧⌘P', 'Open the command palette'],
   ['⌘D', 'Split right'],
   ['⇧⌘D', 'Split down'],
   ['⌘W', 'Close pane (in focus mode)'],
   ['⇧⌘A', 'Launch an agent'],
+  ['⇧⌘K', 'Clear the screen'],
   ['⌘C / ⌘V', 'Copy and paste'],
   ['Esc', 'Restore a maximized pane'],
 ];

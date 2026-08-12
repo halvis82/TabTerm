@@ -56,7 +56,10 @@ export function classifyKey(e: KeyInput): KeyAction {
       case 'a':
         return { kind: 'select-all' };
       case 'k':
-        return { kind: 'clear' };
+        // The command panel. It used to clear the terminal, and when the panel took the same
+        // key both still fired: opening the panel wiped the scrollback behind it, while opening
+        // it from the button did not. Clearing moved to Shift+Command+K.
+        return e.shiftKey ? { kind: 'clear' } : { kind: 'browser' };
       case 'f':
         return { kind: 'search' };
       default:

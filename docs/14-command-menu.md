@@ -17,13 +17,19 @@ Opened from a button in the top right of a terminal tab, or with `Command+K`.
 | The button | The tab you were last on |
 | `Command+K` | The search box, focused |
 
-Two tabs, plus one for actions that used to live in the old palette:
-
 | Tab | Contents |
 |---|---|
 | **Favorites** | Commands you kept, with a display name and an optional hotstring |
 | **Recent** | Command history, newest first, searchable |
 | **Actions** | Split, close, detach, maximize, launch an agent, and the rest |
+| **Stats** | What this session has run, how long each took, and when |
+
+Settings are a gear in the footer rather than a fifth tab. They are not a list of commands, and
+putting them in the row of things you select from would mean one tab that does not answer the
+question the others do.
+
+The search box empties every time the panel opens. A filter left over from last time is a list
+that looks empty for a reason nothing on screen explains.
 
 ### It is a panel, not a dialog
 
@@ -47,14 +53,27 @@ Selection is a step of its own. Nothing in the list acts because the pointer pas
 | `Enter` | Paste into the terminal |
 | `Command+Enter` | Copy to the clipboard |
 | `e` or right-click (Favorites) | Edit |
-| `Escape` | Close |
+| `Escape` | Close, from anywhere |
 
 **The footer names the operations for whatever is selected**, so the keys are never something
 you have to remember or discover. It changes with the row: an action row has nothing to copy,
 and says so by not offering it.
 
+**Pasting closes the panel.** You came here to get a command to the prompt, and once it is there
+the panel is in the way of the thing you are about to do.
+
 Pasting stages the command at the prompt. It does not run it. The commands worth keeping are the
 ones worth reading before running, and that has been true of every surface in this product.
+
+### Only one surface has the keyboard
+
+The panel sits over a live terminal, and both accepting keys at once would mean typing that
+lands in whichever place happened to be focused last. So the panel takes the keyboard outright:
+while it is open the terminal is marked inert and its cursor stops blinking, and closing it hands
+focus straight back to the pane that had it. Both stay visible. Only one is listening.
+
+This is also why `Escape` is handled on the document in the capture phase. Wherever focus has
+ended up, the key that closes the panel has to work.
 
 ---
 
@@ -136,7 +155,26 @@ rather than papered over.
 
 ---
 
-## 6. Storage
+## 6. Statistics
+
+Built from the `command-start` and `command-end` events the page already receives, so it costs
+nothing extra to collect and reports what the daemon observed rather than what the screen happens
+to show.
+
+The tab shows commands run, how many failed, how many are still running, total time, the median
+duration and the longest command, then every command with its start time and duration.
+
+**Median, not mean.** One `npm install` should not describe a session of quick commands, and an
+average is exactly what would let it. Records are matched to their completion by session key
+rather than by command text, because the same command run twice is two runs and matching on text
+would attribute the second one's timing to the first.
+
+Statistics are per page and are not persisted. They describe this session, and a number that
+survived the session it described would be a different feature.
+
+---
+
+## 7. Storage
 
 Favorites are `saved_items` rows of kind `command`, with `title` as the display name and a
 `hotstring` column. Panel position and the last tab live in extension storage, since they are

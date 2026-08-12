@@ -60,10 +60,19 @@ describe('command keys never reach the shell', () => {
     expect(kind({ key: 'v', metaKey: true })).toBe('paste');
   });
 
-  it('selects all, clears, and searches', () => {
+  it('selects all and searches', () => {
     expect(kind({ key: 'a', metaKey: true })).toBe('select-all');
-    expect(kind({ key: 'k', metaKey: true })).toBe('clear');
     expect(kind({ key: 'f', metaKey: true })).toBe('search');
+  });
+
+  it('leaves Command+K to the page, because that opens the command panel', () => {
+    // It used to clear the terminal. When the panel took the same key both fired, so opening
+    // the panel wiped the scrollback behind it while the button did not.
+    expect(kind({ key: 'k', metaKey: true })).toBe('browser');
+  });
+
+  it('clears on Shift+Command+K instead', () => {
+    expect(kind({ key: 'k', metaKey: true, shiftKey: true })).toBe('clear');
   });
 
   it('leaves the rest to Chrome rather than swallowing it', () => {

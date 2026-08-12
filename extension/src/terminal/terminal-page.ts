@@ -21,6 +21,8 @@ import { Launcher } from '../launcher/launcher.js';
 import { CommandPanel } from '../launcher/panel-view.js';
 import { DEFAULT_PLACEMENT, type PanelPlacement } from '../launcher/command-panel.js';
 import { buildSettings } from '../launcher/settings-view.js';
+import { buildStats } from '../launcher/stats-view.js';
+import { SessionStats } from '../launcher/session-stats.js';
 import { Palette, type PaletteAction } from '../launcher/palette.js';
 
 /**
@@ -392,9 +394,27 @@ function installAmbientFocus(): void {
     return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
   };
 
+  // Escape closes the panel wherever focus happens to be. Clicking into the terminal while it
+  // is open is a reasonable thing to do, and it should not leave the panel with no way out
+  // except reaching for the mouse.
   document.addEventListener(
     'keydown',
     (e) => {
+      if (e.key === 'Escape' && commandPanel?.isOpen) {
+        e.preventDefault();
+        commandPanel.close();
+      }
+    },
+    true,
+  );
+
+  document.addEventListener(
+    'keydown',
+    (e) => {
+      // The command panel takes the keyboard while it is open. Two surfaces cannot both be
+      // active, and a terminal that keeps accepting keystrokes behind an open list is the
+      // clearest way to type into the wrong one.
+      if (commandPanel?.isOpen) return;
       if (isTextField(document.activeElement)) return;
       // Browser and system shortcuts are not typing, and stealing focus for them would move the
       // cursor for something that never reaches the page anyway.
@@ -409,7 +429,9 @@ function installAmbientFocus(): void {
   // type goes where it would have gone if you had never touched the mouse.
   document.addEventListener('click', (e) => {
     if (isTextField(e.target)) return;
-    if (palette?.isOpen) return;
+    if (palette?.isOpen || commandPanel?.isOpen) return;
+    // A click inside the panel belongs to the panel.
+    if (e.target instanceof HTMLElement && e.target.closest('.cmd-panel, .cmd-puck')) return;
     // A click inside a pane is already handled by the pane itself, which focuses the right one.
     if (e.target instanceof HTMLElement && e.target.closest('.pane')) return;
     const paneId = splitView?.focused ?? panesHost?.all[0]?.paneId;
@@ -894,6 +916,14 @@ function paletteActions(): PaletteAction[] {
 let commandPanel: CommandPanel | null = null;
 
 /**
+ * Timing for this tab, built from the events the page already receives.
+ *
+ * Per page rather than per daemon: "this session" means the terminal in front of you, and a
+ * figure covering every tab you have open would answer a question nobody asked.
+ */
+const sessionStats = new SessionStats();
+
+/**
  * The command panel, and the button that opens it.
  *
  * Its position and last tab are remembered in extension storage rather than in the database:
@@ -922,12 +952,23 @@ function buildCommandPanel(): void {
     onEdit: (id, changes) => client?.send({ t: 'update-saved', id, ...changes }),
     onDelete: (id) => client?.send({ t: 'delete-saved', id }),
     onCreate: (fields) => client?.send({ t: 'save-item', title: fields.title, body: fields.body }),
-    onClose: () => panesHost?.focus(splitView?.focused ?? ''),
+    onClose: () => {
+      // The terminal takes the keyboard back, and its cursor starts blinking again.
+      root.classList.remove('panel-has-keyboard');
+      panesHost?.focus(splitView?.focused ?? '');
+    },
+    onOpen: () => {
+      // Blurring the terminal is what stops its cursor: a blinking caret in a pane that is not
+      // listening says the opposite of what is true.
+      root.classList.add('panel-has-keyboard');
+      panesHost?.blurAll();
+    },
     onPlacement: (placement) => {
       void chrome.storage.local.set({ 'tabterm.panel': placement });
     },
     actions: () => paletteActions(),
     settings: () => buildSettings({ onChangeTheme: applyTheme }),
+    stats: () => buildStats(sessionStats),
   });
 
   void chrome.storage.local.get('tabterm.panel').then((stored) => {
@@ -936,7 +977,7 @@ function buildCommandPanel(): void {
   });
 
   document.getElementById('cmd-button')?.addEventListener('click', () => {
-    commandPanel?.toggle({ focusSearch: false });
+    commandPanel?.toggle();
   });
 }
 
@@ -958,9 +999,9 @@ function installShortcuts(): void {
         e.preventDefault();
         return;
       }
-      // Command+K toggles the palette. Chrome does not reserve it and no shell needs it.
+      // Command+K toggles the command panel. Chrome does not reserve it and no shell needs it.
       if (e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
-        commandPanel?.toggle({ focusSearch: true });
+        commandPanel?.toggle();
         e.preventDefault();
         return;
       }
@@ -981,6 +1022,13 @@ function installShortcuts(): void {
           break;
         case 'x':
           detachFocused();
+          e.preventDefault();
+          break;
+        case 'p':
+          // The palette. It had Command+K until the command panel took that key, and a surface
+          // reachable only by mouse is not a command palette, so it moved here rather than
+          // sharing. Shift+Command+P is what every other editor uses for the same thing.
+          palette?.toggle();
           e.preventDefault();
           break;
         case 'm':
@@ -1233,6 +1281,7 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'command-start': {
+      sessionStats.begin(msg.sessionId, msg.command, msg.startedAt);
       const pane = panesHost?.all.find((p) => p.sessionId === msg.sessionId);
       if (pane) {
         const state = timeStateFor(pane.paneId);
@@ -1247,6 +1296,14 @@ function onControl(msg: ServerMessage): void {
 
     case 'command-end': {
       const pane = panesHost?.all.find((p) => p.sessionId === msg.sessionId);
+      if (pane) {
+        const started = timeStateFor(pane.paneId).commandStartedAt;
+        sessionStats.end(
+          msg.sessionId,
+          started === undefined ? 0 : msg.completedAt - started,
+          msg.exitCode,
+        );
+      }
       if (pane) {
         const state = timeStateFor(pane.paneId);
         const startedAt = state.commandStartedAt;

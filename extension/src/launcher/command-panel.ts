@@ -13,7 +13,7 @@ import type { CommandEntry, SavedItem } from '@tabterm/shared';
  * furniture rather than a prompt.
  */
 
-export type PanelTab = 'favorites' | 'recent' | 'actions';
+export type PanelTab = 'favorites' | 'recent' | 'actions' | 'stats';
 
 export interface PanelAction {
   id: string;

@@ -33,9 +33,11 @@ export interface PanelOptions {
   onDelete: (id: string) => void;
   onCreate: (fields: { title: string; body: string; hotstring: string }) => void;
   onClose: () => void;
+  onOpen: () => void;
   onPlacement: (placement: PanelPlacement) => void;
   actions: () => PanelAction[];
   settings: () => HTMLElement;
+  stats: () => HTMLElement;
 }
 
 const PANEL_WIDTH = 460;
@@ -77,6 +79,7 @@ export class CommandPanel {
       ['favorites', 'Favorites'],
       ['recent', 'Recent'],
       ['actions', 'Actions'],
+      ['stats', 'Stats'],
     ] as [PanelTab, string][]) {
       const button = document.createElement('button');
       button.className = 'cmd-tab';
@@ -100,10 +103,6 @@ export class CommandPanel {
     this.#search.type = 'text';
     this.#search.placeholder = 'Search';
     this.#search.spellcheck = false;
-    this.#search.addEventListener('keydown', (e) => {
-      e.stopPropagation();
-      this.#onKey(e);
-    });
     this.#search.addEventListener('input', () => {
       this.#selected = 0;
       this.#opts.onSearch(this.#search.value);
@@ -119,6 +118,14 @@ export class CommandPanel {
 
     this.#footer = document.createElement('div');
     this.#footer.className = 'cmd-footer';
+
+    // The panel owns the keyboard while it is open, so the handler is on the panel rather than
+    // only on the search box. Otherwise a click on a row left focus somewhere with no key
+    // handling at all, and Escape went to the terminal underneath instead of closing this.
+    this.#el.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      this.#onKey(e);
+    });
 
     this.#el.append(header, this.#search, this.#body, this.#footer);
     opts.root.append(this.#el);
@@ -152,20 +159,28 @@ export class CommandPanel {
     if (this.#open) this.render();
   }
 
-  /** Open on the last tab, or straight into search when asked for by keyboard. */
-  open(options: { focusSearch?: boolean } = {}): void {
+  /** Open on the last tab. Focus always comes to the panel; see the note below. */
+  open(): void {
     this.#open = true;
     this.#placement.minimized = false;
     this.#showingSettings = false;
     this.#editing = null;
     this.#puck.hidden = true;
     this.#el.hidden = false;
+    // A fresh query every time. Reopening to find last time's filter still applied is a list
+    // that appears empty for a reason nothing on screen explains.
+    this.#search.value = '';
+    this.#selected = 0;
     this.#applyPlacement();
+    this.#opts.onOpen();
     // Ask for history every time it opens, so Recent is current rather than whatever arrived
     // last time the panel happened to be looking.
     this.#opts.onSearch(this.#search.value);
     this.render();
-    if (options.focusSearch !== false) this.#search.focus();
+    // Focus always comes here, even when opened by the button: the panel and the terminal can
+    // never both be active, and leaving focus on the button meant keystrokes fell through to
+    // the shell while a list was plainly on screen waiting to be used.
+    this.#search.focus();
     this.#save();
   }
 
@@ -186,12 +201,12 @@ export class CommandPanel {
   }
 
   restore(): void {
-    this.open({ focusSearch: false });
+    this.open();
   }
 
-  toggle(options: { focusSearch?: boolean } = {}): void {
+  toggle(): void {
     if (this.isOpen) this.close();
-    else this.open(options);
+    else this.open();
   }
 
   #setTab(tab: PanelTab): void {
@@ -277,6 +292,14 @@ export class CommandPanel {
 
     if (this.#showingSettings) {
       this.#body.replaceChildren(this.#opts.settings());
+      this.#renderFooter(undefined);
+      return;
+    }
+    if (this.#placement.tab === 'stats') {
+      // Not a list of rows: nothing here is selectable or pasteable, so it does not pretend to
+      // be by rendering as one.
+      this.#rows = [];
+      this.#body.replaceChildren(this.#opts.stats());
       this.#renderFooter(undefined);
       return;
     }
@@ -544,7 +567,7 @@ export class CommandPanel {
   }
 
   #cycleTab(delta: number): void {
-    const order: PanelTab[] = ['favorites', 'recent', 'actions'];
+    const order: PanelTab[] = ['favorites', 'recent', 'actions', 'stats'];
     const at = order.indexOf(this.#placement.tab);
     this.#setTab(order[(at + delta + order.length) % order.length] as PanelTab);
   }

@@ -107,6 +107,11 @@ export class PaneHost {
     this.#panes.get(paneId)?.controller.focus();
   }
 
+  /** Stop every pane listening, for when another surface has taken the keyboard. */
+  blurAll(): void {
+    for (const pane of this.#panes.values()) pane.controller.blur();
+  }
+
   refreshLinks(): void {
     for (const pane of this.#panes.values()) pane.controller.refreshLinks();
   }

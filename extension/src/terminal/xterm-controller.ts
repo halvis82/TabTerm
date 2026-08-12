@@ -237,6 +237,10 @@ export class XtermController {
     this.term.focus();
   }
 
+  blur(): void {
+    this.term.blur();
+  }
+
   /**
    * Release the WebGL context while nobody is looking at the pane.
    *

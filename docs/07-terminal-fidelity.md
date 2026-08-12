@@ -159,8 +159,14 @@ headless run.
 | `Cmd+C` | Copies the selection. With nothing selected it goes to Chrome rather than being swallowed |
 | `Cmd+V` | Pastes through xterm's `paste()`, so bracketed paste applies where the application asked for it |
 | `Cmd+A` | Selects the terminal buffer |
-| `Cmd+K` | Clears the terminal |
+| `Cmd+K` | Opens the command menu |
+| `Shift+Cmd+K` | Clears the terminal |
 | Everything else with `Cmd` | Chrome's. In a normal tab those never reach the page at all |
+
+`Cmd+K` clears the screen in most terminals, and it did here too until the command menu wanted
+the same key. Both fired: opening the menu wiped the scrollback behind it, while opening it from
+the button did not, which is the kind of difference nobody can explain from the outside. Clearing
+moved to `Shift+Cmd+K` and the menu owns `Cmd+K` alone.
 | Anything else | To the PTY |
 
 `to-pty` is the default on purpose: a terminal that silently swallows keys is worse than one
