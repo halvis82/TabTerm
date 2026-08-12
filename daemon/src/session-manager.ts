@@ -377,10 +377,15 @@ export class SessionManager {
       return;
     }
 
-    session.reapTimer = setTimeout(() => {
+    const timer = setTimeout(() => {
       info('session.reaping', { sessionId: session.id, reason: decision.reason });
       void this.kill(session);
     }, decision.afterSeconds * 1000);
+    // Unref'd: a session waiting to be reaped must not be the reason the process stays alive.
+    // The wait is minutes long, so without this a daemon told to stop would sit there until a
+    // timer nobody is waiting for happened to fire.
+    timer.unref();
+    session.reapTimer = timer;
     this.#transition(session, 'expiring');
     debug('session.reap.scheduled', { sessionId: session.id, policy: describeReap(decision) });
   }
