@@ -183,3 +183,19 @@ Every error carries a machine-readable `code`. The frontend never parses `messag
 | `not-trusted` | Project config requires an explicit trust grant |
 | `rate-limited` | Auth backoff active |
 | `internal` | Bug. Logged with context, never leaks a stack to the page |
+
+---
+
+## Who receives a broadcast
+
+Two audiences, and confusing them is silent.
+
+| Method | Reaches | For |
+|---|---|---|
+| `broadcast` | The control connection only | Things only the offscreen document can act on, such as a desktop notification |
+| `broadcastAll` | Every authenticated connection | Shared state that terminal pages render |
+
+Terminal pages connect with role `data`. Sending page state to the control role alone means the
+one context that cannot draw anything receives the update and every context that can does not.
+There is no error: the change simply never appears. A favorite edited in one tab stayed stale in
+all of them, and a page asking for the memory mode never heard back at all.

@@ -290,6 +290,14 @@ export type ClientMessage =
       sessionId?: string;
     }
   | { t: 'pin-saved'; id: string; pinned: boolean }
+  | {
+      /** Edit a favorite. Omitted fields are left alone; a null hotstring clears it. */
+      t: 'update-saved';
+      id: string;
+      title?: string;
+      body?: string;
+      hotstring?: string | null;
+    }
   | { t: 'delete-saved'; id: string }
   | { t: 'use-saved'; id: string }
   | { t: 'clear-history' }
@@ -450,6 +458,7 @@ export type ServerMessage =
       scope: HistoryScope;
     }
   | { t: 'saved-updated'; saved: readonly SavedItem[] }
+  | { t: 'save-rejected'; id: string; reason: string }
   | {
       /**
        * Something that must reach the user even with no terminal tab on screen.

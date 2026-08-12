@@ -400,7 +400,7 @@ export class LauncherData {
 
     const rows = this.#db.handle
       .prepare(
-        `SELECT id, kind, title, body, tags, created_at, last_used_at, use_count, pinned, git_root
+        `SELECT id, kind, title, body, tags, created_at, last_used_at, use_count, pinned, git_root, hotstring
          FROM saved_items ${where}
          ORDER BY pinned DESC, last_used_at DESC LIMIT 500`,
       )
@@ -415,6 +415,7 @@ export class LauncherData {
       use_count: number;
       pinned: number;
       git_root: string | null;
+      hotstring: string | null;
     }[];
 
     return rows.map((r) => {
@@ -431,6 +432,7 @@ export class LauncherData {
         pinned: r.pinned === 1,
         ...(r.git_root !== null ? { gitRoot: r.git_root } : {}),
         ...(placeholders.length ? { placeholders } : {}),
+        ...(r.hotstring ? { hotstring: r.hotstring } : {}),
       };
     });
   }
@@ -475,6 +477,57 @@ export class LauncherData {
         entry.gitRoot ?? null,
       );
     return entry;
+  }
+
+  /**
+   * Edit a favorite: its display name, its command, or its hotstring.
+   *
+   * A hotstring is refused rather than stolen if another favorite already claims it. Silently
+   * moving a trigger between commands would mean an abbreviation someone relies on quietly
+   * starts doing something else.
+   */
+  updateSaved(
+    id: string,
+    changes: { title?: string; body?: string; hotstring?: string | null },
+  ): { ok: true } | { ok: false; reason: string } {
+    const existing = this.#db.handle.prepare('SELECT id FROM saved_items WHERE id = ?').get(id) as
+      { id: string } | undefined;
+    if (!existing) return { ok: false, reason: 'no such item' };
+
+    const hotstring = normalizeHotstring(changes.hotstring);
+    if (hotstring.error) return { ok: false, reason: hotstring.error };
+
+    if (hotstring.value) {
+      const clash = this.#db.handle
+        .prepare('SELECT id FROM saved_items WHERE hotstring = ? AND id != ?')
+        .get(hotstring.value, id) as { id: string } | undefined;
+      if (clash) return { ok: false, reason: `another favorite already uses ${hotstring.value}` };
+    }
+
+    this.#db.handle
+      .prepare(
+        `UPDATE saved_items SET
+           title = COALESCE(?, title),
+           body = COALESCE(?, body),
+           hotstring = CASE WHEN ? THEN ? ELSE hotstring END
+         WHERE id = ?`,
+      )
+      .run(
+        changes.title?.slice(0, 200) ?? null,
+        changes.body?.slice(0, 4000) ?? null,
+        changes.hotstring === undefined ? 0 : 1,
+        hotstring.value,
+        id,
+      );
+    return { ok: true };
+  }
+
+  /** Every hotstring currently defined, for the frontend to match against. */
+  hotstrings(): { trigger: string; command: string }[] {
+    const rows = this.#db.handle
+      .prepare('SELECT hotstring, body FROM saved_items WHERE hotstring IS NOT NULL')
+      .all() as { hotstring: string; body: string }[];
+    return rows.map((r) => ({ trigger: r.hotstring, command: r.body }));
   }
 
   deleteSaved(id: string): void {
@@ -572,6 +625,29 @@ export class LauncherData {
   flush(): void {
     /* nothing to flush */
   }
+}
+
+/**
+ * Validate a hotstring.
+ *
+ * Whitespace is refused because a space is what *ends* an abbreviation: a trigger containing one
+ * could never be completed. An empty value clears it rather than being an error, since that is
+ * how a hotstring is removed.
+ */
+function normalizeHotstring(raw: string | null | undefined): {
+  value: string | null;
+  error?: string;
+} {
+  if (raw === undefined) return { value: null };
+  if (raw === null) return { value: null };
+  const trimmed = raw.trim();
+  if (!trimmed) return { value: null };
+  if (/\s/.test(trimmed)) {
+    return { value: null, error: 'a hotstring cannot contain spaces' };
+  }
+  if (trimmed.length > 64)
+    return { value: null, error: 'a hotstring that long is not an abbreviation' };
+  return { value: trimmed };
 }
 
 /** Recency with a frequency bonus, so a favorite directory does not fall off after one busy day. */

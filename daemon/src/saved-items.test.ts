@@ -130,3 +130,74 @@ describe('recent directories', () => {
     expect(data.recentDirs().map((d) => d.path)).toEqual(['/var/folders-of-mine/project']);
   });
 });
+
+describe('hotstrings on favorites', () => {
+  it('stores and reports one', () => {
+    const data = fresh();
+    const item = data.save({ title: 'Build', body: 'npm run build' });
+    expect(data.updateSaved(item.id, { hotstring: 'runbuild!' })).toEqual({ ok: true });
+    expect(data.saved()[0]?.hotstring).toBe('runbuild!');
+    expect(data.hotstrings()).toEqual([{ trigger: 'runbuild!', command: 'npm run build' }]);
+  });
+
+  it('refuses a trigger another favorite already claims', () => {
+    // Silently moving it would mean an abbreviation someone relies on quietly starts doing
+    // something else.
+    const data = fresh();
+    const a = data.save({ title: 'A', body: 'command a' });
+    const b = data.save({ title: 'B', body: 'command b' });
+    data.updateSaved(a.id, { hotstring: 'x!' });
+
+    const result = data.updateSaved(b.id, { hotstring: 'x!' });
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.reason).toContain('already uses');
+    expect(data.hotstrings()).toHaveLength(1);
+  });
+
+  it('lets a favorite keep its own trigger when edited', () => {
+    const data = fresh();
+    const item = data.save({ title: 'A', body: 'command a' });
+    data.updateSaved(item.id, { hotstring: 'x!' });
+    expect(data.updateSaved(item.id, { hotstring: 'x!', title: 'Renamed' })).toEqual({ ok: true });
+    expect(data.saved()[0]?.title).toBe('Renamed');
+  });
+
+  it('refuses a trigger containing a space', () => {
+    // A space is what ends an abbreviation, so one containing a space could never be completed.
+    const data = fresh();
+    const item = data.save({ title: 'A', body: 'a' });
+    const result = data.updateSaved(item.id, { hotstring: 'two words' });
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.reason).toContain('spaces');
+  });
+
+  it('clears the trigger when given an empty value', () => {
+    const data = fresh();
+    const item = data.save({ title: 'A', body: 'a' });
+    data.updateSaved(item.id, { hotstring: 'x!' });
+    data.updateSaved(item.id, { hotstring: '' });
+    expect(data.saved()[0]?.hotstring).toBeUndefined();
+    expect(data.hotstrings()).toEqual([]);
+  });
+
+  it('leaves the trigger alone when the edit does not mention it', () => {
+    const data = fresh();
+    const item = data.save({ title: 'A', body: 'a' });
+    data.updateSaved(item.id, { hotstring: 'x!' });
+    data.updateSaved(item.id, { title: 'Renamed only' });
+    expect(data.saved()[0]?.hotstring).toBe('x!');
+  });
+
+  it('edits the display name and the command independently', () => {
+    const data = fresh();
+    const item = data.save({ title: 'Old name', body: 'old command' });
+    data.updateSaved(item.id, { title: 'New name' });
+    expect(data.saved()[0]).toMatchObject({ title: 'New name', body: 'old command' });
+    data.updateSaved(item.id, { body: 'new command' });
+    expect(data.saved()[0]).toMatchObject({ title: 'New name', body: 'new command' });
+  });
+
+  it('reports a missing item rather than pretending', () => {
+    expect(fresh().updateSaved('nope', { title: 'x' }).ok).toBe(false);
+  });
+});

@@ -222,6 +222,13 @@ export interface SavedItem {
   gitRoot?: string;
   /** Placeholder names found in the body, so the UI can prompt without re-parsing. */
   placeholders?: readonly string[];
+  /**
+   * An abbreviation that expands to this command while typing.
+   *
+   * See docs/14-command-menu.md §4. Unique across favorites: two claiming the same trigger have
+   * no defensible resolution, so the second is refused rather than silently shadowed.
+   */
+  hotstring?: string;
 }
 
 /** A plugin the launcher can offer. None exist yet; the list is empty and renders nothing. */

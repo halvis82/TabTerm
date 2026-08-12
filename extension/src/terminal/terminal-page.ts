@@ -12,6 +12,7 @@ import { getToken } from '../transport/token.js';
 import { SplitView, collectPanes } from '../layout/split-view.js';
 import { PaneHost } from './panes.js';
 import { findCandidates } from './path-links.js';
+import { TypedBuffer, backspaces } from './hotstrings.js';
 import { chooseOpenAction, describeOpen } from './open-action.js';
 import { PaneStatus } from './pane-status.js';
 import { describeTime, isLongRunning, type TimeState } from './elapsed.js';
@@ -429,6 +430,18 @@ function installModifierTracking(): void {
 
 /** Counts bytes xterm has emitted, so a dead input path can be told apart from a dead renderer. */
 let inputBytesSeen = 0;
+/** Why the last edit was refused, so a test or a panel can report it. */
+let lastSaveRejection = '';
+
+/** What has been typed in each pane, for hotstring expansion. One per pane, never shared. */
+const typedBuffers = new Map<string, TypedBuffer>();
+
+/** Hotstrings come from the favorites the page already has. No separate message for them. */
+function hotstrings(): { trigger: string; command: string }[] {
+  return savedItems
+    .filter((item) => item.hotstring)
+    .map((item) => ({ trigger: item.hotstring as string, command: item.body }));
+}
 let lastStatus = 'unknown';
 
 function buildHosts(): void {
@@ -437,6 +450,24 @@ function buildHosts(): void {
       inputBytesSeen += data.length;
       const pane = panesHost?.get(paneId);
       if (!pane) return;
+
+      // Hotstrings act on the keystroke before it reaches the shell. Suspended while a
+      // full-screen program owns the terminal, because the deletions this sends would be edits
+      // there rather than corrections. See docs/14-command-menu.md §4.
+      let typed = typedBuffers.get(paneId);
+      if (!typed) {
+        typed = new TypedBuffer();
+        typedBuffers.set(paneId, typed);
+      }
+      typed.setSuspended(pane.controller.term.buffer.active.type === 'alternate');
+
+      const expansion = typed.consume(data, hotstrings());
+      if (expansion) {
+        launcher?.dismiss();
+        const rewritten = backspaces(expansion.deleteCount) + expansion.insert;
+        client?.write(pane.streamId, new TextEncoder().encode(rewritten));
+        return;
+      }
       // The panel survives typing and goes when a command is actually sent. It is not a page
       // you leave to reach the terminal: the terminal is already underneath it, and what is
       // drawn on top is only there because there is no output yet. Dismissing on the first
@@ -1110,6 +1141,15 @@ function onControl(msg: ServerMessage): void {
       return;
     }
 
+    case 'save-rejected': {
+      // A refused hotstring has to be seen. Believing an abbreviation is set when it never
+      // fires is worse than being told why it was not accepted.
+      lastSaveRejection = msg.reason;
+      setStatus(msg.reason, 'warn');
+      setTimeout(() => setStatus('', 'hidden'), 4000);
+      return;
+    }
+
     case 'saved-updated': {
       savedItems = [...msg.saved];
       palette?.setSaved(savedItems);
@@ -1278,6 +1318,13 @@ declare global {
       transport: () => string;
       /** Drive input through the same path a keystroke takes, without a synthetic key event. */
       sendInput: (paneId: string, data: string) => void;
+      savedItems: () => readonly SavedItem[];
+      lastSaveRejection: () => string;
+      deleteSaved: (id: string) => void;
+      updateSaved: (
+        id: string,
+        changes: { title?: string; body?: string; hotstring?: string | null },
+      ) => void;
       mergeSession: (sessionId: string) => void;
       listMergeable: () => MergeableSession[];
       focus: (paneId: string) => void;
@@ -1339,6 +1386,10 @@ function installTestHook(): void {
       const pane = panesHost?.get(paneId);
       if (pane) client?.write(pane.streamId, new TextEncoder().encode(data));
     },
+    savedItems: () => savedItems,
+    lastSaveRejection: () => lastSaveRejection,
+    deleteSaved: (id) => client?.send({ t: 'delete-saved', id }),
+    updateSaved: (id, changes) => client?.send({ t: 'update-saved', id, ...changes }),
     saveItem: (body, title) => {
       client?.send({ t: 'save-item', title: title ?? body.slice(0, 60), body });
     },

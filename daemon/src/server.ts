@@ -142,9 +142,29 @@ export class DaemonServer {
     this.broadcast({ t: 'notify', priority, title, body, ...(target ? { target } : {}) });
   }
 
+  /**
+   * To the control connection only.
+   *
+   * That is the offscreen document, and it is the right audience for things only it can act on:
+   * a desktop notification, for instance, which no terminal page can raise.
+   */
   broadcast(message: ServerMessage): void {
     for (const c of this.#clients) {
       if (c.authed && c.role === 'control') send(c.socket, controlFrame(message));
+    }
+  }
+
+  /**
+   * To every connection, including terminal pages.
+   *
+   * Shared state that pages render belongs here. Sending it to the control role alone means the
+   * one context that cannot draw anything gets the update and every context that can does not,
+   * which presents as a change simply not appearing: a favorite edited in one tab stayed stale
+   * in all of them, and a page asking for the memory mode never heard back.
+   */
+  broadcastAll(message: ServerMessage): void {
+    for (const c of this.#clients) {
+      if (c.authed) send(c.socket, controlFrame(message));
     }
   }
 
@@ -797,6 +817,25 @@ export class DaemonServer {
         return;
       }
 
+      case 'update-saved': {
+        const result = this.#launcher.updateSaved(msg.id, {
+          ...(msg.title !== undefined ? { title: msg.title } : {}),
+          ...(msg.body !== undefined ? { body: msg.body } : {}),
+          ...(msg.hotstring !== undefined ? { hotstring: msg.hotstring } : {}),
+        });
+        if (!result.ok) {
+          // Reported rather than swallowed: a refused hotstring is something the user has to
+          // see, or they will believe an abbreviation is set that never fires.
+          send(
+            client.socket,
+            controlFrame({ t: 'save-rejected', id: msg.id, reason: result.reason }),
+          );
+          return;
+        }
+        this.broadcastAll({ t: 'saved-updated', saved: this.#launcher.saved() });
+        return;
+      }
+
       case 'pin-saved': {
         this.#launcher.pinSaved(msg.id, msg.pinned);
         send(client.socket, controlFrame({ t: 'saved-updated', saved: this.#launcher.saved() }));
@@ -1000,7 +1039,7 @@ export class DaemonServer {
           info('memory-mode.changed', { mode: msg.mode });
         }
         const mode = this.#config.memoryMode;
-        this.broadcast({ t: 'memory-mode', mode, ...frontendSettings(mode) });
+        this.broadcastAll({ t: 'memory-mode', mode, ...frontendSettings(mode) });
         return;
       }
 
@@ -1039,7 +1078,7 @@ export class DaemonServer {
       case 'set-archive-enabled': {
         if (msg.t === 'set-archive-enabled') this.#archive.setEnabled(msg.enabled);
         const usage = this.#archive.usage();
-        this.broadcast({
+        this.broadcastAll({
           t: 'archive-status',
           enabled: this.#archive.enabled,
           rows: usage.rows,
@@ -1073,7 +1112,7 @@ export class DaemonServer {
       case 'clear-output-archive': {
         this.#archive.clear();
         const usage = this.#archive.usage();
-        this.broadcast({ t: 'archive-status', enabled: this.#archive.enabled, ...usage });
+        this.broadcastAll({ t: 'archive-status', enabled: this.#archive.enabled, ...usage });
         return;
       }
 

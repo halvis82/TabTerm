@@ -174,6 +174,16 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       CREATE INDEX idx_output_command ON command_output(command, started_at DESC);
     `,
   },
+  {
+    version: 8,
+    sql: `
+      -- An abbreviation that expands to the command while typing. Unique, because two
+      -- favorites claiming the same trigger have no defensible resolution.
+      ALTER TABLE saved_items ADD COLUMN hotstring TEXT;
+      CREATE UNIQUE INDEX idx_saved_hotstring
+        ON saved_items(hotstring) WHERE hotstring IS NOT NULL;
+    `,
+  },
 ];
 
 export class Database {
