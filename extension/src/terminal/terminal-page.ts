@@ -364,9 +364,14 @@ function installModifierTracking(): void {
 // Panes and layout
 // ---------------------------------------------------------------------------
 
+/** Counts bytes xterm has emitted, so a dead input path can be told apart from a dead renderer. */
+let inputBytesSeen = 0;
+let lastStatus = 'unknown';
+
 function buildHosts(): void {
   panesHost = new PaneHost({
     onData: (paneId, data) => {
+      inputBytesSeen += data.length;
       const pane = panesHost?.get(paneId);
       if (!pane) return;
       // Anything reaching the shell means the user has started working, so the panel goes.
@@ -825,6 +830,7 @@ function installShortcuts(): void {
 // ---------------------------------------------------------------------------
 
 function statusFor(s: ConnectionStatus): void {
+  lastStatus = s;
   switch (s) {
     case 'connecting':
     case 'authenticating':
@@ -1162,6 +1168,12 @@ declare global {
       detachPane: () => void;
       launchAgent: (where: 'new-tab' | 'split') => void;
       saveItem: (body: string, title?: string) => void;
+      /** Bytes xterm has handed us, for diagnosing an input path that looks dead. */
+      inputSeen: () => number;
+      /** Stream bindings and socket state, for diagnosing input that goes nowhere. */
+      transport: () => string;
+      /** Drive input through the same path a keystroke takes, without a synthetic key event. */
+      sendInput: (paneId: string, data: string) => void;
       mergeSession: (sessionId: string) => void;
       listMergeable: () => MergeableSession[];
       focus: (paneId: string) => void;
@@ -1209,6 +1221,20 @@ function installTestHook(): void {
       });
     },
     launchAgent: (where) => launchAgent(where),
+    inputSeen: () => inputBytesSeen,
+    transport: () =>
+      JSON.stringify({
+        panes: (panesHost?.all ?? []).map((p) => ({
+          paneId: p.paneId.slice(0, 8),
+          sessionId: p.sessionId.slice(0, 8),
+          streamId: p.streamId,
+        })),
+        status: lastStatus,
+      }),
+    sendInput: (paneId, data) => {
+      const pane = panesHost?.get(paneId);
+      if (pane) client?.write(pane.streamId, new TextEncoder().encode(data));
+    },
     saveItem: (body, title) => {
       client?.send({ t: 'save-item', title: title ?? body.slice(0, 60), body });
     },

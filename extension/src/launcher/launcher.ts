@@ -45,6 +45,13 @@ export class Launcher {
   #dismissed = false;
   /** Per directory, what the daemon reported. Absent means not asked or nothing there. */
   readonly #projects = new Map<string, ProjectConfigInfo>();
+  /**
+   * Directories already asked about, including the ones that answered "nothing here".
+   *
+   * Separate from #projects precisely because a negative answer stores nothing, and "stores
+   * nothing" and "never asked" have to be distinguishable or the question repeats forever.
+   */
+  readonly #asked = new Set<string>();
   #expanded: string | null = null;
   #resumable: readonly ResumableAgentSession[] = [];
   #servers: readonly LocalServer[] = [];
@@ -411,6 +418,12 @@ export class Launcher {
 
   /** Record what a directory declares, and show it. */
   projectConfig(cwd: string, config: ProjectConfigInfo | null): void {
+    // A directory with no config is recorded as asked-and-answered, not forgotten. Deleting it
+    // meant the next render asked again, the answer triggered another render, and so on: a
+    // busy loop that sent thousands of messages a second. Nothing looked broken, because the
+    // loop is invisible; what showed was every other message being starved behind it, which
+    // presents as typing doing nothing.
+    this.#asked.add(cwd);
     if (config) this.#projects.set(cwd, config);
     else this.#projects.delete(cwd);
     if (!this.#dismissed) this.render();
@@ -527,9 +540,12 @@ export class Launcher {
 
     row.append(main, pin, forget);
 
-    // Ask about each listed directory once. Bounded by what is on screen, so this is a handful
-    // of stat calls on tab open rather than a scan.
-    if (!this.#projects.has(dir.path)) this.#opts.onInspectProject(dir.path);
+    // Ask about each listed directory once, ever. Bounded by what is on screen, so this is a
+    // handful of stat calls on tab open rather than a scan.
+    if (!this.#asked.has(dir.path)) {
+      this.#asked.add(dir.path);
+      this.#opts.onInspectProject(dir.path);
+    }
 
     const info = this.#projects.get(dir.path);
     if (!info || info.action === 'ignore') return row;
