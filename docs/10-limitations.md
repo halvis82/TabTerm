@@ -162,11 +162,22 @@ Node changes that path and **silently invalidates every grant**. Terminal and iT
 bundle identifier, which survives updates. That difference is the entire argument for shipping a
 signed app bundle.
 
-**The failure mode is a hang, not a denial.** Reading an ungranted directory does not return
-`Operation not permitted`. macOS raises a blocking consent prompt and the call waits indefinitely.
-In a terminal that presents as a **frozen session with no error and no output**, while a system
-dialog sits somewhere the user may never look. This is the worst possible failure shape for a
-terminal emulator and it must be handled explicitly, not left to chance.
+**Three states, and only the middle one is dangerous.**
+
+| State | What a command does |
+|---|---|
+| Not yet decided | macOS raises a consent prompt and **the call blocks until it is answered**. In a terminal that presents as a frozen session with no error and no output, while a dialog sits somewhere the user may never look |
+| Denied | The call fails immediately with `Operation not permitted`. Not a hang: the decision is recorded, so nothing prompts again |
+| Allowed | Normal |
+
+So the worst shape is the *undecided* one, not the denied one. A denial is a clean, ordinary
+error that a shell reports the way it reports any permission problem. It is also reversible:
+System Settings, Privacy & Security, Files and Folders (or Full Disk Access), then restart the
+daemon so the new grant is picked up.
+
+Because grants attach to the daemon, denying affects **every terminal**, not just the one that
+asked. `doctor.sh` probes all three folders and distinguishes the three states, with a timeout,
+since a probe that hangs would be the same failure it is trying to detect.
 
 **Fix:** ship the daemon in a signed app bundle with a stable identifier, and pre-warm consent at
 install time rather than letting the first `ls ~/Downloads` hang. Retrofitting forces every grant to be redone.
