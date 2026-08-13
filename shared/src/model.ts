@@ -291,3 +291,26 @@ export interface ShellIntegrationStatus {
   /** Sourced by some other route, so nothing needs adding. */
   sourcedElsewhere: boolean;
 }
+
+/**
+ * A session as the new tab page shows it.
+ *
+ * The path alone is not enough to recognise a terminal you left running, so this carries the
+ * last lines of what it actually printed. Somebody with four shells in the same repository can
+ * only tell them apart by what is on them.
+ */
+export interface LiveSession {
+  sessionId: string;
+  workspaceId?: string;
+  cwd: string;
+  /** What is running, when that is known. */
+  process?: string;
+  lastCommand?: string;
+  /** Whether a tab is currently showing it, as opposed to it merely being alive. */
+  attached: boolean;
+  startedAt: number;
+  /** The last few lines of its screen, trimmed. Empty for a session that printed nothing. */
+  preview: readonly string[];
+  /** A command is in flight right now. */
+  busy: boolean;
+}

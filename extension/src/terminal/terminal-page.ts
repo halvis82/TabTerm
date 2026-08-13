@@ -52,6 +52,8 @@ const params = new URLSearchParams(location.search);
  * would otherwise stop telling the two cases apart.
  */
 const reattaching = params.has('workspace');
+/** Opened from the toolbar icon's settings entry, so the panel starts on that pane. */
+const openPanelAt = params.get('panel');
 
 const root = document.getElementById('terminal') as HTMLElement;
 const statusEl = document.getElementById('status') as HTMLElement;
@@ -647,6 +649,29 @@ function buildLauncher(): void {
       // Re-read rather than assume: the daemon is the authority on what the decision means,
       // and the file may have changed between the prompt and the click.
       client?.send({ t: 'inspect-project', cwd: info.path.replace(/\/[^/]+$/, '') });
+    },
+    onOpenSession: (session) => {
+      /**
+       * Go to the session, wherever it is.
+       *
+       * A session already shown in a tab is focused rather than attached again, because two
+       * views of one terminal is a thing people create by accident and never on purpose.
+       */
+      if (session.workspaceId) {
+        void chrome.runtime.sendMessage({
+          t: 'tabterm:focus-workspace',
+          workspaceId: session.workspaceId,
+          attachHere: !session.attached,
+        });
+      }
+      launcher?.dismiss();
+    },
+    onCloseSession: (session) => {
+      client?.send({ t: 'kill-session', sessionId: session.sessionId });
+      client?.send({ t: 'list-live-sessions' });
+      // Asked for from the toolbar icon. Opened once the daemon has answered, so the pane is
+      // not blank for a moment while its values arrive.
+      if (openPanelAt === 'settings') setTimeout(() => commandPanel?.openSettings(), 500);
     },
     onRestore: (workspaceId, replayCommands) => {
       const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
@@ -1274,6 +1299,7 @@ function onControl(msg: ServerMessage): void {
       client?.send({ t: 'get-agent-hooks' });
       client?.send({ t: 'get-shell-integration' });
       client?.send({ t: 'get-scrollback-budget' });
+      client?.send({ t: 'list-live-sessions' });
       client?.send({ t: 'list-restorable' });
       return;
     }
@@ -1294,6 +1320,11 @@ function onControl(msg: ServerMessage): void {
     case 'agent-hooks': {
       agentHooks = msg.status;
       commandPanel?.refreshSettings();
+      return;
+    }
+
+    case 'live-sessions': {
+      launcher?.setLiveSessions(msg.sessions);
       return;
     }
 

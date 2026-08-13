@@ -19,6 +19,7 @@ import type {
   SessionSnapshot,
   SavedKind,
   TitleFields,
+  LiveSession,
   NotifyPolicy,
   AgentHooksStatus,
   ShellIntegrationStatus,
@@ -352,6 +353,8 @@ export type ClientMessage =
   /** How much output to keep per session, in bytes, across every copy of it. */
   | { t: 'set-scrollback-budget'; bytes: number }
   | { t: 'get-scrollback-budget' }
+  /** Every session the daemon holds, with enough of its screen to recognise it. */
+  | { t: 'list-live-sessions' }
   | { t: 'get-agent-hooks' }
   | { t: 'set-agent-hooks'; enabled: boolean }
   // Sourcing the shell integration, without which there are no exit codes at all.
@@ -512,6 +515,7 @@ export type ServerMessage =
   | { t: 'notify-policy'; policy: NotifyPolicy }
   | { t: 'agent-hooks'; status: AgentHooksStatus }
   | { t: 'scrollback-budget'; bytes: number }
+  | { t: 'live-sessions'; sessions: readonly LiveSession[] }
   | { t: 'shell-integration'; status: ShellIntegrationStatus }
   | {
       /** What a tab can offer after its session is gone. */

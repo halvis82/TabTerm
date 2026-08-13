@@ -72,6 +72,7 @@ Rules, all enforced:
 | `get-notify-policy` / `set-notify-policy` | `policy{}` | Partial. Threshold clamped to 5s..10m |
 | `get-agent-hooks` / `set-agent-hooks` | `enabled` | Writes agent CLI settings. See `09-agent-integration.md` |
 | `clear-scrollback` | `sessionId` | Drops every stored copy, not just the screen |
+| `list-live-sessions` | | Sessions with a preview of their screen |
 | `get-scrollback-budget` / `set-scrollback-budget` | `bytes` | Clamped to 1 MB..50 MB |
 
 ---
@@ -99,6 +100,7 @@ Rules, all enforced:
 | `notify-policy` | `policy{}` | After a get or a set |
 | `agent-hooks` | `status{}` | `installed`, per-target detail, `lastEventAt?` |
 | `scrollback-budget` | `bytes` | After a get or a set |
+| `live-sessions` | `sessions[]` | Each with `attached`, `busy` and a `preview` |
 | `error` | `code`, `message`, `context?` | Never a bare string |
 
 ---

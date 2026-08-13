@@ -299,6 +299,15 @@ export class SessionManager {
     if (info_.command) session.command = info_.command;
     session.osc = this.#buildOsc(session);
     this.#sessions.set(session.id, session);
+    /**
+     * An adopted session has no client, and never had one in this daemon's lifetime.
+     *
+     * The reap timer is normally scheduled when the last client detaches, an event that will
+     * never fire for one of these, so without this they live forever. Before the PTY host that
+     * was impossible, because a daemon restart killed everything. Now it leaks: measured at 28
+     * abandoned shells after a day of development.
+     */
+    this.#scheduleReap(session);
     info('session.adopted', { sessionId: session.id, pid: info_.pid });
     return session;
   }

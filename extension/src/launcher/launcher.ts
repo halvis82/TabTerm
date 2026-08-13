@@ -1,4 +1,6 @@
+import { buildSessions } from './sessions-view.js';
 import type {
+  LiveSession,
   LauncherState,
   LocalServer,
   RestorableSummary,
@@ -31,6 +33,9 @@ export interface LauncherOptions {
   onOpenProject: (path: string) => void;
   onResumeAgent: (session: ResumableAgentSession) => void;
   onRestore: (workspaceId: string, replayCommands: boolean) => void;
+  /** Open a session that already exists, wherever it currently is. */
+  onOpenSession: (session: LiveSession) => void;
+  onCloseSession: (session: LiveSession) => void;
   onForgetRestorable: (workspaceId: string) => void;
   onOpenServer: (port: number) => void;
   onAttachServer: (server: LocalServer) => void;
@@ -83,6 +88,12 @@ export class Launcher {
     return this.#dismissed;
   }
 
+  /** Sessions the daemon says exist, refreshed whenever it tells us. */
+  setLiveSessions(sessions: readonly LiveSession[]): void {
+    this.#liveSessions = [...sessions];
+    if (!this.#dismissed) this.render();
+  }
+
   setState(state: LauncherState): void {
     this.#state = state;
     if (!this.#dismissed) this.render();
@@ -102,11 +113,30 @@ export class Launcher {
     this.#opts.onDismiss();
   }
 
+  #liveSessions: LiveSession[] = [];
+
   render(): void {
     if (this.#dismissed || !this.#state) return;
     const state = this.#state;
 
     const sections: HTMLElement[] = [];
+
+    /**
+     * What is already running comes first.
+     *
+     * A session with no tab showing it is invisible everywhere else in the product, and it is
+     * the thing most worth seeing on a page whose whole job is "what do you want to do".
+     */
+    if (this.#liveSessions.length > 0) {
+      sections.push(
+        buildSessions({
+          sessions: () => this.#liveSessions,
+          onOpen: (session) => this.#opts.onOpenSession(session),
+          onClose: (session) => this.#opts.onCloseSession(session),
+          home: state.home,
+        }),
+      );
+    }
 
     // --- new layout in a directory ---------------------------------------
     sections.push(this.#layoutSection(state));

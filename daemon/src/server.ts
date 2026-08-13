@@ -42,6 +42,7 @@ import type { PluginHost } from './plugin-api.js';
 import type { ProjectIndex } from './project-index.js';
 import type { WorkspaceStore } from './workspace-store.js';
 import type { Session, SessionManager } from './session-manager.js';
+import type { LiveSession } from '@tabterm/shared';
 import { agentHooksStatus, setAgentHooks } from './agent-hooks.js';
 import { setShellIntegration, shellIntegrationStatus } from './shell-integration.js';
 import { clampPolicy, decide, type Finished, type NotifyPolicy } from './notify-policy.js';
@@ -74,6 +75,30 @@ const GRACEFUL_CLOSE_MS = 2000;
 
 /** And how long the forced path waits for the server to finish once sockets are destroyed. */
 const FORCED_CLOSE_MS = 2000;
+
+/**
+ * Terminal output as readable lines.
+ *
+ * Colors, cursor moves and mode switches are all meaningful to a terminal and noise in a
+ * preview, so they are removed rather than rendered. Anything non-printable left over goes
+ * too, because a stray control character in a preview reads as a rendering bug.
+ */
+/* eslint-disable no-control-regex -- the whole job here is matching control sequences. */
+export function plainText(screen: string): string[] {
+  return (
+    screen
+      // OSC, terminated by BEL or ST. Titles and cwd reports live here.
+      .replace(/\u001b\][\s\S]*?(?:\u0007|\u001b\\)/g, '')
+      // CSI: colors, cursor movement, and mode switches such as bracketed paste.
+      .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '')
+      // The two-character escapes.
+      .replace(/\u001b[@-Z\\-_]/g, '')
+      .split('\n')
+      .map((line) => line.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+$/, ''))
+      .filter((line) => line.length > 0)
+  );
+}
+/* eslint-enable no-control-regex */
 
 export class DaemonServer {
   readonly #http: Server;
@@ -144,6 +169,35 @@ export class DaemonServer {
         resolve(this.#config.port);
       });
     });
+  }
+
+  /**
+   * Every session, with the last lines of its screen.
+   *
+   * The preview is taken from the daemon's own terminal state rather than asked of a tab,
+   * because the interesting sessions are exactly the ones no tab is showing.
+   */
+  #liveSessions(): LiveSession[] {
+    return this.#sessions.all
+      .filter((s) => s.state !== 'exited' && s.state !== 'reaped')
+      .map((session) => {
+        const workspace = this.#workspaces.findBySession(session.id);
+        // The serialized screen carries the escape sequences that produced it, and a preview
+        // showing "[?2004h" beside a prompt looks like a bug in whatever is displaying it.
+        const lines = plainText(session.vt.snapshot(0).screen);
+        return {
+          sessionId: session.id,
+          ...(workspace ? { workspaceId: workspace.id } : {}),
+          cwd: session.cwd,
+          ...(session.titleFields.process ? { process: session.titleFields.process } : {}),
+          ...(session.pendingCommand ? { lastCommand: session.pendingCommand } : {}),
+          attached: session.clients.size > 0,
+          startedAt: session.createdAt,
+          preview: lines.slice(-6),
+          busy: session.commandRunning,
+        };
+      })
+      .sort((a, b) => b.startedAt - a.startedAt);
   }
 
   get scrollbackBytes(): number {
@@ -1135,6 +1189,11 @@ export class DaemonServer {
           info('notify-policy.changed', { policy: this.#notifyPolicy });
         }
         this.broadcastAll({ t: 'notify-policy', policy: this.#notifyPolicy });
+        return;
+      }
+
+      case 'list-live-sessions': {
+        send(client.socket, controlFrame({ t: 'live-sessions', sessions: this.#liveSessions() }));
         return;
       }
 

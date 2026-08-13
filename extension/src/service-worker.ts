@@ -141,6 +141,29 @@ interface NotifyMessage {
   body?: string;
   target?: { workspaceId?: string; paneId?: string };
   suppressIfVisible?: boolean;
+  workspaceId?: string;
+  attachHere?: boolean;
+}
+
+/**
+ * Show a workspace, without ever creating a second view of one.
+ *
+ * A tab already holding it is focused. Only a workspace with no tab gets a new one, which is the
+ * case the session list exists for.
+ */
+async function focusOrOpenWorkspace(workspaceId: string, attachHere: boolean): Promise<void> {
+  const base = chrome.runtime.getURL('terminal.html');
+  const tabs = await chrome.tabs.query({ url: `${base}*` });
+  const existing = tabs.find((t) => t.url?.includes(workspaceId));
+  if (existing?.id !== undefined) {
+    await chrome.tabs.update(existing.id, { active: true });
+    if (existing.windowId !== undefined) {
+      await chrome.windows.update(existing.windowId, { focused: true });
+    }
+    return;
+  }
+  if (!attachHere) return;
+  await chrome.tabs.create({ url: `${base}?workspace=${workspaceId}`, active: true });
 }
 
 chrome.runtime.onMessage.addListener((msg: NotifyMessage, _sender, sendResponse) => {
@@ -156,6 +179,13 @@ chrome.runtime.onMessage.addListener((msg: NotifyMessage, _sender, sendResponse)
     };
     // Being told about a command you watched finish is how people turn notifications off.
     void workspaceIsOnScreen(msg.target?.workspaceId).then((visible) => notify(request, visible));
+    sendResponse({ ok: true });
+    return false;
+  }
+
+  if (msg.t === 'tabterm:focus-workspace' && msg.workspaceId) {
+    // Only the worker can move between tabs, so the page asks it to.
+    void focusOrOpenWorkspace(msg.workspaceId, msg.attachHere === true);
     sendResponse({ ok: true });
     return false;
   }
@@ -214,6 +244,23 @@ function installContextMenus(): void {
       title: 'Fetch this link in a terminal',
       contexts: ['link'],
     });
+    /**
+     * Settings, from a right click on the toolbar icon.
+     *
+     * It opens a terminal tab with the panel already on settings rather than a page of its own,
+     * because every setting here is about how a terminal behaves and is worth changing while
+     * looking at one.
+     */
+    chrome.contextMenus.create({
+      id: 'open-settings',
+      title: 'TabTerm settings',
+      contexts: ['action'],
+    });
+    chrome.contextMenus.create({
+      id: 'open-sessions',
+      title: 'Running sessions',
+      contexts: ['action'],
+    });
     // A menu id that failed to register is worth knowing about, and is otherwise invisible.
     if (chrome.runtime.lastError) {
       console.warn('TabTerm: context menus', chrome.runtime.lastError.message);
@@ -223,6 +270,14 @@ function installContextMenus(): void {
 
 chrome.contextMenus.onClicked.addListener((info) => {
   const id = String(info.menuItemId);
+  if (id === 'open-settings' || id === 'open-sessions') {
+    const base = chrome.runtime.getURL('terminal.html');
+    void chrome.tabs.create({
+      url: id === 'open-settings' ? `${base}?panel=settings` : base,
+      active: true,
+    });
+    return;
+  }
   if (id !== 'send-selection' && id !== 'clone-repo' && id !== 'open-url') return;
   const action = buildAction(id, {
     ...(info.selectionText ? { selectionText: info.selectionText } : {}),

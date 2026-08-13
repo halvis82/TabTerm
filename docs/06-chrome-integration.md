@@ -269,6 +269,33 @@ with bracketed paste.
 
 ---
 
+## 6.5 What a new tab shows
+
+A tab opened with no session shows what already exists, before anything else.
+
+Every running session appears as a card with **the last lines of its actual screen**, because a
+path does not identify a terminal: four shells in the same repository are identical by directory,
+and the one you want is the one that printed the thing you remember. The preview is text taken
+from the daemon's terminal state, with escape sequences removed, rather than an image. It stays
+readable at any zoom and can never be a stale picture of a terminal that has moved on.
+
+| State | Shown as |
+|---|---|
+| A tab is showing it | Blue dot, "open in a tab" |
+| Alive with no tab | Grey dot, "no tab" |
+| Running a command | Green pulsing dot, and the command |
+
+The second row is the one this exists for. A session nobody is looking at is invisible everywhere
+else in the product, and since a session now survives a daemon restart, sessions accumulate until
+somebody can see and end them. Each card ends its session from a control that only appears on
+hover, because ending one is not something to invite.
+
+Sessions are also reachable from a right click on the toolbar icon, alongside settings, which
+opens a terminal tab with the panel already on that pane rather than a separate settings page.
+Every setting there is about how a terminal behaves and is worth changing while looking at one.
+
+---
+
 ## 7. Notifications
 
 `chrome.notifications`, fired from the offscreen document so they work with every terminal tab

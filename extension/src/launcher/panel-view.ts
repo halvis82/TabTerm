@@ -291,6 +291,13 @@ export class CommandPanel {
    * The daemon answers a moment after the panel opens, and a switch that appears in the wrong
    * position and then corrects itself reads as the switch having been flipped by something.
    */
+  /** Open straight onto settings, for the entry on the toolbar icon. */
+  openSettings(): void {
+    this.open();
+    this.#showingSettings = true;
+    this.render();
+  }
+
   refreshSettings(): void {
     if (this.#showingSettings && this.isOpen) this.render();
   }
