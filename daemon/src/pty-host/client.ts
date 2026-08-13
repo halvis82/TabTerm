@@ -46,6 +46,8 @@ export class PtyHostClient {
   #dataListeners: DataListener[] = [];
   #exitListeners: ExitListener[] = [];
   #spawnListeners: ((sessionId: string, pid: number) => void)[] = [];
+  #reconnecting = false;
+  #onReconnect: (() => void) | undefined;
   readonly #waiting = new Map<string, (msg: Record<string, unknown>) => void>();
   readonly #socketPath: string;
   readonly #hostScript: string;
@@ -190,8 +192,47 @@ export class PtyHostClient {
     socket.on('close', () => {
       this.#socket = null;
       warn('pty-host.disconnected', {});
+      /**
+       * Get it back.
+       *
+       * Without this, a host that died took the whole product with it: the daemon kept running,
+       * every send went to a closed socket, and no new terminal could be created until the
+       * daemon itself was restarted. The sessions the host was holding are genuinely gone, which
+       * cannot be helped, but everything after that must keep working.
+       */
+      this.#scheduleReconnect();
     });
     socket.on('error', () => socket.destroy());
+  }
+
+  /**
+   * Reconnect, restarting the host if nothing is serving.
+   *
+   * Backed off so a host that cannot start does not become a spawn loop, and capped rather than
+   * unbounded because a person waiting on a terminal will not wait minutes for one.
+   */
+  #scheduleReconnect(): void {
+    if (this.#reconnecting) return;
+    this.#reconnecting = true;
+    const attempt = (delay: number): void => {
+      setTimeout(() => {
+        void this.connect(4000).then((ok) => {
+          if (ok) {
+            this.#reconnecting = false;
+            info('pty-host.reconnected', {});
+            this.#onReconnect?.();
+            return;
+          }
+          attempt(Math.min(delay * 2, 10_000));
+        });
+      }, delay);
+    };
+    attempt(300);
+  }
+
+  /** Told when a new host is serving, since every session the old one held is gone. */
+  onReconnect(fn: () => void): void {
+    this.#onReconnect = fn;
   }
 
   #send(message: unknown): void {

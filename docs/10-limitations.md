@@ -327,3 +327,29 @@ Recorded so they are not reintroduced.
 | Missing: macOS TCC | ❌ Not mentioned at all. Now tier 2.1, on the critical path |
 | Missing: tab discarding | ❌ Not mentioned at all. Now tier 1.2, forces the notification architecture |
 
+
+
+---
+
+## What survives what
+
+Measured, not assumed. Each row was produced by killing the thing named and observing the result.
+
+| Failure | Process | Screen | Usable after |
+|---|---|---|---|
+| Tab closed and reopened | ✅ survives | ✅ | Immediately |
+| Chrome killed with `SIGKILL` | ✅ survives | ✅ restored | Reopen the tab |
+| Daemon updated or restarted | ✅ survives | ✅ | Immediately, adopted |
+| Daemon killed with `SIGKILL` mid-command | ✅ keeps running to completion | ✅ | Immediately, no reload |
+| Daemon absent, then returning | ✅ survives | ✅ | Reconnects itself, no reload |
+| PTY host killed with `SIGKILL` | ❌ **cannot survive** | ✅ on disk | A new host starts automatically |
+| Machine reboot | ❌ cannot survive | ✅ on disk | Restore offers the layout back |
+
+The host is the one process whose death takes sessions with it, which is the price of it being
+the only thing holding them. What was fixed after measuring: the daemon used to keep a dead
+socket and never reconnect, so a killed host meant no terminal could be created again until the
+daemon itself was restarted. It now reconnects, starts a replacement, and lets go of the sessions
+that died with the old one so their tabs say so plainly instead of hanging.
+
+**The network is not a factor.** Everything is local: a unix socket to the host and a loopback
+WebSocket to the daemon. Losing internet connectivity does not affect a running terminal.

@@ -386,6 +386,20 @@ async function main(): Promise<void> {
   }
 
   if (usingHost) {
+    /**
+     * A new host means every session the old one held is gone.
+     *
+     * Their processes died with it and cannot be recovered, so the daemon lets go of them
+     * rather than holding sessions whose PTYs do not exist. A tab on one then gets the page
+     * that says the session expired, which is true, instead of a terminal that never responds.
+     */
+    hostClient.onReconnect(() => {
+      const orphaned = sessions.all;
+      warn('pty-host.sessions-lost', { count: orphaned.length });
+      for (const session of orphaned) void sessions.kill(session, true);
+      hostClient.setBudget(server.scrollbackBytes);
+    });
+
     // Clearing and the memory budget both have to reach the process that holds the buffers.
     server.hostClear = (sessionId) => hostClient.clear(sessionId);
     server.hostBudget = (bytes) => hostClient.setBudget(bytes);
