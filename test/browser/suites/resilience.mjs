@@ -4,7 +4,7 @@
 // worth testing are the ones nobody schedules: a browser killed outright, a daemon killed
 // mid-command, and the process holding the PTYs killed, which no session can survive.
 import { execFileSync } from 'node:child_process';
-import { openTerminal, evaluate, readScreen, sleep, type, finish } from '../helpers.mjs';
+import { openTerminal, readScreen, sleep, type, finish } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
