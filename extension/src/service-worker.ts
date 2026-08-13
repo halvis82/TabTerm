@@ -151,6 +151,14 @@ interface NotifyMessage {
  * A tab already holding it is focused. Only a workspace with no tab gets a new one, which is the
  * case the session list exists for.
  */
+/** Every terminal tab except the one asking, which is showing the result. */
+async function closeOtherTerminalTabs(keep?: number): Promise<void> {
+  const base = chrome.runtime.getURL('terminal.html');
+  const tabs = await chrome.tabs.query({ url: `${base}*` });
+  const ids = tabs.map((t) => t.id).filter((id): id is number => id !== undefined && id !== keep);
+  if (ids.length > 0) await chrome.tabs.remove(ids);
+}
+
 async function focusOrOpenWorkspace(workspaceId: string, attachHere: boolean): Promise<void> {
   const base = chrome.runtime.getURL('terminal.html');
   const tabs = await chrome.tabs.query({ url: `${base}*` });
@@ -179,6 +187,27 @@ chrome.runtime.onMessage.addListener((msg: NotifyMessage, _sender, sendResponse)
     };
     // Being told about a command you watched finish is how people turn notifications off.
     void workspaceIsOnScreen(msg.target?.workspaceId).then((visible) => notify(request, visible));
+    sendResponse({ ok: true });
+    return false;
+  }
+
+  if (msg.t === 'tabterm:close-other-terminals') {
+    // Closing tabs is the worker's job: a page cannot close its siblings.
+    void closeOtherTerminalTabs(_sender.tab?.id);
+    sendResponse({ ok: true });
+    return false;
+  }
+
+  if (msg.t === 'tabterm:count-terminal-tabs') {
+    void chrome.tabs
+      .query({ url: `${chrome.runtime.getURL('terminal.html')}*` })
+      .then((tabs) => sendResponse({ count: tabs.length }));
+    return true;
+  }
+
+  if (msg.t === 'tabterm:reload-extension') {
+    // Last step of a reset, and the reason it is last: nothing after this runs.
+    setTimeout(() => chrome.runtime.reload(), 300);
     sendResponse({ ok: true });
     return false;
   }
@@ -261,6 +290,18 @@ function installContextMenus(): void {
       title: 'Running sessions',
       contexts: ['action'],
     });
+    /**
+     * The way out when something has gone wrong.
+     *
+     * The ellipsis is doing real work: this opens a confirmation rather than acting, because it
+     * sits next to Settings on the same icon and the cost of a misclick is somebody's running
+     * work.
+     */
+    chrome.contextMenus.create({
+      id: 'reset-tabterm',
+      title: 'Reset TabTerm...',
+      contexts: ['action'],
+    });
     // A menu id that failed to register is worth knowing about, and is otherwise invisible.
     if (chrome.runtime.lastError) {
       console.warn('TabTerm: context menus', chrome.runtime.lastError.message);
@@ -270,6 +311,10 @@ function installContextMenus(): void {
 
 chrome.contextMenus.onClicked.addListener((info) => {
   const id = String(info.menuItemId);
+  if (id === 'reset-tabterm') {
+    void chrome.tabs.create({ url: `${chrome.runtime.getURL('terminal.html')}?panel=reset` });
+    return;
+  }
   if (id === 'open-settings' || id === 'open-sessions') {
     const base = chrome.runtime.getURL('terminal.html');
     void chrome.tabs.create({

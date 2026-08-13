@@ -21,7 +21,13 @@ import { Launcher } from '../launcher/launcher.js';
 import { CommandPanel } from '../launcher/panel-view.js';
 import { DEFAULT_PLACEMENT, type PanelPlacement } from '../launcher/command-panel.js';
 import { buildSettings } from '../launcher/settings-view.js';
-import type { AgentHooksStatus, NotifyPolicy, ShellIntegrationStatus } from '@tabterm/shared';
+import { buildReset, buildResetDone } from '../launcher/reset-view.js';
+import type {
+  AgentHooksStatus,
+  LiveSession,
+  NotifyPolicy,
+  ShellIntegrationStatus,
+} from '@tabterm/shared';
 import { buildStats } from '../launcher/stats-view.js';
 import { SessionStats } from '../launcher/session-stats.js';
 import { Palette, type PaletteAction } from '../launcher/palette.js';
@@ -200,6 +206,29 @@ function dismissClearUndo(paneId?: string): void {
   const button = document.getElementById('clear-undo');
   if (button instanceof HTMLButtonElement) button.hidden = true;
   if (paneId) panesHost?.get(paneId)?.controller.forgetUndo();
+}
+
+/**
+ * Ask before ending everything.
+ *
+ * Replaces the whole page rather than opening a dialog over a terminal: this tab exists only to
+ * ask the question, and a confirmation drawn over a working terminal invites answering it while
+ * looking at something else.
+ */
+function showResetConfirmation(sessions: readonly LiveSession[]): void {
+  void chrome.runtime.sendMessage({ t: 'tabterm:count-terminal-tabs' }).then((reply: unknown) => {
+    const tabCount = Number((reply as { count?: number } | undefined)?.count ?? 1);
+    document.body.replaceChildren(
+      buildReset({
+        sessions,
+        tabCount,
+        onCancel: () => window.close(),
+        onConfirm: (restartDaemon) => {
+          client?.send({ t: 'reset-everything', restartDaemon });
+        },
+      }),
+    );
+  });
 }
 
 function setFavicon(state: FaviconState): void {
@@ -1325,6 +1354,15 @@ function onControl(msg: ServerMessage): void {
 
     case 'live-sessions': {
       launcher?.setLiveSessions(msg.sessions);
+      // The counts, once they are known. The confirmation is already on screen by now.
+      if (openPanelAt === 'reset') showResetConfirmation(msg.sessions);
+      return;
+    }
+
+    case 'reset-done': {
+      document.body.replaceChildren(buildResetDone(msg.sessionsEnded, msg.restarting));
+      void chrome.runtime.sendMessage({ t: 'tabterm:close-other-terminals' });
+      if (msg.restarting) void chrome.runtime.sendMessage({ t: 'tabterm:reload-extension' });
       return;
     }
 
@@ -1737,6 +1775,15 @@ async function start(): Promise<void> {
     }
   });
 }
+
+/**
+ * The reset confirmation draws before anything is connected.
+ *
+ * Waiting for the daemon to report its sessions first meant a blank page whenever the daemon was
+ * unreachable, which is precisely the situation somebody reaches for a reset in. It draws now
+ * with what it knows, and fills in the counts if they arrive.
+ */
+if (openPanelAt === 'reset') showResetConfirmation([]);
 
 // Lazy attach: do nothing until the tab is actually looked at.
 if (document.visibilityState === 'visible') {

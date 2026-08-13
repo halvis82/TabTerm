@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,7 +24,7 @@ import { TurnTracker } from './agent-turns.js';
 import { LocalPtyBackend } from './pty-backend.js';
 import { PtyHostClient } from './pty-host/client.js';
 import { HostPtyBackend } from './pty-host/backend.js';
-import { HOST_SOCKET } from './pty-host/paths.js';
+import { HOST_LOCK, HOST_SOCKET } from './pty-host/paths.js';
 import { planAdoption, prunePanes } from './adopt.js';
 
 /**
@@ -366,6 +366,46 @@ async function main(): Promise<void> {
     server.hostBudget = (bytes) => hostClient.setBudget(bytes);
     hostClient.setBudget(server.scrollbackBytes);
   }
+
+  /**
+   * The reset path, which needs things only this scope holds: the history directory and the
+   * ability to end this process.
+   */
+  server.setResetHooks({
+    history: () => {
+      let removed = 0;
+      try {
+        for (const name of readdirSync(paths.scrollback)) {
+          if (!name.endsWith('.log')) continue;
+          unlinkSync(join(paths.scrollback, name));
+          removed++;
+        }
+      } catch {
+        // Nothing to remove, or a directory somebody already cleared.
+      }
+      return removed;
+    },
+    restart: () => {
+      /**
+       * Replace both processes.
+       *
+       * The host is stopped first and deliberately: it is the thing that keeps PTYs alive, so a
+       * reset that left it running would be a reset that changed nothing. Exiting non-zero is
+       * what asks launchd to start a new daemon, since the agent is KeepAlive on failure.
+       */
+      try {
+        if (existsSync(HOST_LOCK)) {
+          const pid = Number(readFileSync(HOST_LOCK, 'utf8').trim());
+          if (Number.isFinite(pid) && pid > 0) process.kill(pid, 'SIGTERM');
+        }
+      } catch {
+        // A host that is already gone is a host that needs no stopping.
+      }
+      warn('daemon.reset-restart', {});
+      releaseLock();
+      process.exit(1);
+    },
+  });
 
   await server.listen();
   info('daemon.ready', { version: VERSION, protocol: PROTOCOL_VERSION, pid: process.pid });

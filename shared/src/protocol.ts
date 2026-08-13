@@ -355,6 +355,14 @@ export type ClientMessage =
   | { t: 'get-scrollback-budget' }
   /** Every session the daemon holds, with enough of its screen to recognise it. */
   | { t: 'list-live-sessions' }
+  /**
+   * End everything and start clean.
+   *
+   * For the case where something has gone wrong in a way nobody wants to diagnose. Destructive
+   * on purpose, so it is only ever sent after the user has confirmed it, and the daemon reports
+   * what it did rather than assuming. See docs/04-session-lifecycle.md.
+   */
+  | { t: 'reset-everything'; restartDaemon: boolean }
   | { t: 'get-agent-hooks' }
   | { t: 'set-agent-hooks'; enabled: boolean }
   // Sourcing the shell integration, without which there are no exit codes at all.
@@ -516,6 +524,7 @@ export type ServerMessage =
   | { t: 'agent-hooks'; status: AgentHooksStatus }
   | { t: 'scrollback-budget'; bytes: number }
   | { t: 'live-sessions'; sessions: readonly LiveSession[] }
+  | { t: 'reset-done'; sessionsEnded: number; historyFilesRemoved: number; restarting: boolean }
   | { t: 'shell-integration'; status: ShellIntegrationStatus }
   | {
       /** What a tab can offer after its session is gone. */

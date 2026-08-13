@@ -169,6 +169,107 @@
   body.cmd-held .xterm-screen {
     cursor: pointer;
   }
+  /* --- reset confirmation ------------------------------------------------ */
+
+  .reset {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 24px;
+  }
+  .reset-card {
+    width: min(440px, 100%);
+    padding: 22px 22px 18px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 138, 122, 0.28);
+    background: rgba(24, 26, 35, 0.92);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  }
+  .reset-title {
+    margin: 0 0 8px;
+    font-size: 16px;
+    font-weight: 600;
+    color: #e8e8e8;
+  }
+  .reset-body {
+    margin: 0 0 10px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #cdd2dd;
+  }
+  .reset-warning {
+    margin: 0 0 10px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    background: rgba(255, 200, 87, 0.1);
+    color: #ffc857;
+    font-size: 12px;
+  }
+  .reset-list {
+    margin: 0 0 14px;
+    padding-left: 18px;
+    color: #9aa0a6;
+    font-size: 12px;
+    line-height: 1.7;
+  }
+  .reset-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 16px;
+    color: #cdd2dd;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .reset-option span {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .reset-option small {
+    color: #7d8496;
+    font-size: 11px;
+  }
+  .reset-option input {
+    margin-top: 2px;
+    width: 15px;
+    height: 15px;
+    accent-color: #3d6ba8;
+  }
+  .reset-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .reset-cancel,
+  .reset-confirm {
+    padding: 7px 14px;
+    border-radius: 8px;
+    font: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .reset-cancel {
+    border: 1px solid rgba(90, 100, 130, 0.4);
+    background: transparent;
+    color: #cdd2dd;
+  }
+  .reset-cancel:hover {
+    border-color: #3d6ba8;
+    color: #e8e8e8;
+  }
+  /* The destructive one is never the default, and it looks like what it does. */
+  .reset-confirm {
+    border: 1px solid rgba(255, 138, 122, 0.45);
+    background: rgba(255, 138, 122, 0.14);
+    color: #ff8a7a;
+  }
+  .reset-confirm:hover {
+    background: rgba(255, 138, 122, 0.24);
+    color: #ffb3a8;
+  }
+
   /* --- running sessions, on the start screen ----------------------------- */
 
   .sessions {

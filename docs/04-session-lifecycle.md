@@ -303,6 +303,28 @@ and when it happens the sessions are genuinely gone and the tab falls back to §
 
 ---
 
+## 10.6 Reset
+
+Sessions now genuinely persist, which means they also accumulate, and a system that survives
+everything needs a deliberate way to stop surviving.
+
+A right click on the toolbar icon offers **Reset TabTerm**. It opens a confirmation rather than
+acting, because the entry sits beside Settings and the cost of a misclick is somebody's running
+work. The confirmation states the damage in numbers, warns separately when a session is mid
+command, puts focus on Cancel, and styles the destructive button as destructive.
+
+Confirming ends every session, deletes every history file, closes every TabTerm tab, and
+optionally replaces the daemon and the PTY host. The host is stopped first and deliberately: it
+is what keeps PTYs alive, so a reset that left it running would be a reset that changed nothing.
+The daemon then exits non-zero, which is what asks launchd to start a new one.
+
+**The confirmation draws before anything is connected.** Waiting for the daemon to report its
+sessions first produced a blank page whenever the daemon was unreachable, which is precisely the
+situation somebody reaches for a reset in. It renders with what it knows and fills in the counts
+if they arrive.
+
+---
+
 ## 11. macOS reboot
 
 A process cannot survive a reboot. Nothing can change that.

@@ -125,6 +125,14 @@ export class DaemonServer {
   /** Set by main, since only it holds the host client. Absent with the in-process fallback. */
   hostClear?: (sessionId: string) => void;
   hostBudget?: (bytes: number) => void;
+  /** Set by main. Drops every history file and returns how many went. */
+  #resetHistory?: () => number;
+  #restart?: () => void;
+
+  setResetHooks(hooks: { history: () => number; restart: () => void }): void {
+    this.#resetHistory = hooks.history;
+    this.#restart = hooks.restart;
+  }
 
   constructor(
     config: Config,
@@ -1194,6 +1202,36 @@ export class DaemonServer {
 
       case 'list-live-sessions': {
         send(client.socket, controlFrame({ t: 'live-sessions', sessions: this.#liveSessions() }));
+        return;
+      }
+
+      case 'reset-everything': {
+        /**
+         * The button for when everything has gone wrong.
+         *
+         * Ends every session, drops every byte of history, and optionally replaces the daemon
+         * itself. Nothing here is recoverable, which is why the interface confirms first and why
+         * the reply says what actually happened rather than "ok".
+         */
+        const sessions = this.#sessions.all;
+        const ended = sessions.length;
+        for (const session of sessions) void this.#sessions.kill(session);
+        const removed = this.#resetHistory?.() ?? 0;
+        info('reset', { sessionsEnded: ended, historyFilesRemoved: removed });
+        send(
+          client.socket,
+          controlFrame({
+            t: 'reset-done',
+            sessionsEnded: ended,
+            historyFilesRemoved: removed,
+            restarting: msg.restartDaemon,
+          }),
+        );
+        if (msg.restartDaemon) {
+          // Exiting non-zero is what asks launchd to replace this process, since the LaunchAgent
+          // is KeepAlive{SuccessfulExit:false}. Delayed so the reply reaches the page first.
+          setTimeout(() => this.#restart?.(), 400);
+        }
         return;
       }
 
