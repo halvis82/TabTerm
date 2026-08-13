@@ -116,6 +116,22 @@ export class SessionManager {
    */
   keepBackgroundSeconds: number | null = 15 * 60;
 
+  /**
+   * Re-apply the reap policy to every detached session.
+   *
+   * Called when the timeout changes, because somebody who just shortened it means the sessions
+   * they can see, not only the ones that detach afterwards.
+   */
+  rescheduleReaps(): void {
+    for (const session of this.#sessions.values()) {
+      if (session.clients.size === 0 && session.state !== 'exited') {
+        clearTimeout(session.reapTimer);
+        delete session.reapTimer;
+        this.#scheduleReap(session);
+      }
+    }
+  }
+
   constructor(config: Config, events: SessionEvents, pty: PtyBackend) {
     this.#config = config;
     this.#events = events;

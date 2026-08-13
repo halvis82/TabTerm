@@ -71,6 +71,9 @@ export function isSensitive(command: string): boolean {
   return SECRET_PATTERNS.some((re) => re.test(command));
 }
 
+/** How many recovery rows are worth keeping. Nothing looks further back than this. */
+const MAX_SESSION_META = 500;
+
 export class LauncherData {
   readonly #db: Database;
   #projects: ProjectIndex | null = null;
@@ -561,6 +564,20 @@ export class LauncherData {
 
   // --- session metadata, for recovery after expiry or a daemon restart ----
 
+  #pruneSessionMeta(): void {
+    try {
+      this.#db.handle
+        .prepare(
+          `DELETE FROM session_meta WHERE id NOT IN (
+             SELECT id FROM session_meta ORDER BY last_seen_at DESC LIMIT ?
+           )`,
+        )
+        .run(MAX_SESSION_META);
+    } catch {
+      // A prune that fails costs disk, not correctness.
+    }
+  }
+
   rememberSession(meta: {
     id: string;
     workspaceId?: string;
@@ -588,6 +605,15 @@ export class LauncherData {
         Date.now(),
         meta.lastCommand ?? null,
       );
+
+    /**
+     * Keep this table bounded.
+     *
+     * These rows exist so an expired tab can say where it was and what it last ran. They are
+     * written on every prompt and never removed, so a machine that has been up for months
+     * accumulates a row per session forever. Recovery only ever looks at recent ones.
+     */
+    this.#pruneSessionMeta();
   }
 
   /**

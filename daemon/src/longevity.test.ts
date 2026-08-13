@@ -117,3 +117,17 @@ describe('logging cannot fill the disk', () => {
 });
 
 initLog('error');
+
+describe('recovery metadata does not grow forever', () => {
+  it('keeps only the most recent sessions', () => {
+    // Written on every prompt and never removed, this used to be a row per session for the life
+    // of the machine. Recovery never looks further back than the recent ones.
+    const db = new Database(':memory:');
+    const data = new LauncherData(db);
+    for (let i = 0; i < 620; i++) {
+      data.rememberSession({ id: `s${String(i)}`, cwd: '/w', shell: '/bin/zsh' });
+    }
+    const rows = db.handle.prepare('SELECT count(*) as n FROM session_meta').get() as { n: number };
+    expect(rows.n).toBeLessThanOrEqual(500);
+  });
+});

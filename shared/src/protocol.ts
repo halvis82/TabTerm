@@ -353,6 +353,14 @@ export type ClientMessage =
   /** How much output to keep per session, in bytes, across every copy of it. */
   | { t: 'set-scrollback-budget'; bytes: number }
   | { t: 'get-scrollback-budget' }
+  /**
+   * How long a session with no tab is kept, in seconds, or null to keep it forever.
+   *
+   * A pane used to be kept indefinitely, which was safe while a daemon restart ended everything
+   * anyway. See docs/adr/0012.
+   */
+  | { t: 'set-background-timeout'; seconds: number | null }
+  | { t: 'get-background-timeout' }
   /** Every session the daemon holds, with enough of its screen to recognise it. */
   | { t: 'list-live-sessions' }
   /**
@@ -523,6 +531,7 @@ export type ServerMessage =
   | { t: 'notify-policy'; policy: NotifyPolicy }
   | { t: 'agent-hooks'; status: AgentHooksStatus }
   | { t: 'scrollback-budget'; bytes: number }
+  | { t: 'background-timeout'; seconds: number | null }
   | { t: 'live-sessions'; sessions: readonly LiveSession[] }
   | { t: 'reset-done'; sessionsEnded: number; historyFilesRemoved: number; restarting: boolean }
   | { t: 'shell-integration'; status: ShellIntegrationStatus }

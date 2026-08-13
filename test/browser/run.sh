@@ -35,6 +35,11 @@ for suite in "$SUITES"/*.mjs; do
   printf "  %-18s %s\n" "$name" "$(printf '%s\n' "$out" | tail -1 | xargs)"
 done
 
+# Anything a suite could not clean up itself, usually because it reloaded the page and lost the
+# connection that would have done it. Sessions outlive the daemon now, so a leak here is a shell
+# running on the machine until somebody notices.
+node "$ROOT/test/browser/sweep.mjs" || true
+
 pkill -f "http.server 87" 2>/dev/null
 echo "  -----  $pass passed, $fail failed"
 exit "$fail"

@@ -26,6 +26,7 @@ import { PtyHostClient } from './pty-host/client.js';
 import { HostPtyBackend } from './pty-host/backend.js';
 import { HOST_LOCK, HOST_SOCKET } from './pty-host/paths.js';
 import { planAdoption, prunePanes } from './adopt.js';
+import { readUserSettings } from './user-settings.js';
 
 /**
  * The daemon owns every PTY. No terminal process is ever tied to a Chrome page's lifetime,
@@ -79,6 +80,11 @@ async function main(): Promise<void> {
   if (!usingHost) warn('pty-host.falling-back', { detail: 'PTYs will not survive a restart' });
 
   const sessions = new SessionManager(config, events, ptyBackend);
+  // A preference the user set, which has to outlive the daemon that was told about it.
+  const storedTimeout = readUserSettings()['keepBackgroundSeconds'];
+  if (storedTimeout === null || typeof storedTimeout === 'number') {
+    sessions.keepBackgroundSeconds = storedTimeout;
+  }
   const workspaces = new WorkspaceStore();
   const db = new Database();
   const launcher = new LauncherData(db);

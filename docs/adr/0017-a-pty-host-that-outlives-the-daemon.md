@@ -79,8 +79,11 @@ guaranteed by the socket instead, and the pid arrives through a callback.
   it: a daemon that is restarting, wedged, or absent can no longer apply backpressure to a build.
 - **A second process to reason about**, with a lock so only one runs, and a fallback path when it
   cannot be started at all.
-- **Updating the host itself still restarts terminals.** It is small and changes rarely, and the
-  installer can compare it before restarting it, but this is not solved, only made rare.
+- **Updating the host itself still ends terminals**, when it is eventually restarted. The
+  installer now compares the staged file and leaves it alone when the bytes are identical, so an
+  ordinary update that changes only the daemon or the extension does not touch it at all. That
+  makes it rare rather than solved: a release that genuinely changes the host still costs the
+  sessions it is holding.
 - Two things that were previously written only at shutdown are now written when they happen: a
   workspace row on creation, and the session-to-workspace link. State written only on a clean exit
   is not persisted state, and adoption reads exactly those two things.

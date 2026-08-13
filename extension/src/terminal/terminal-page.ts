@@ -91,6 +91,7 @@ let notifyPolicy: NotifyPolicy | null = null;
 let agentHooks: AgentHooksStatus | null = null;
 let shellIntegration: ShellIntegrationStatus | null = null;
 let scrollbackBytes: number | null = null;
+let backgroundTimeout: number | null | undefined;
 
 /**
  * Per-pane timing, driven entirely by discrete events from the daemon.
@@ -1103,6 +1104,9 @@ function buildCommandPanel(): void {
         onChangeNotify: (policy) => client?.send({ t: 'set-notify-policy', policy }),
         agentHooks: () => agentHooks,
         onChangeAgentHooks: (enabled) => client?.send({ t: 'set-agent-hooks', enabled }),
+        backgroundTimeout: () => backgroundTimeout,
+        onChangeBackgroundTimeout: (seconds) =>
+          client?.send({ t: 'set-background-timeout', seconds }),
         scrollbackBytes: () => scrollbackBytes,
         onChangeScrollback: (bytes) => client?.send({ t: 'set-scrollback-budget', bytes }),
         shellIntegration: () => shellIntegration,
@@ -1349,6 +1353,7 @@ function onControl(msg: ServerMessage): void {
       client?.send({ t: 'get-agent-hooks' });
       client?.send({ t: 'get-shell-integration' });
       client?.send({ t: 'get-scrollback-budget' });
+      client?.send({ t: 'get-background-timeout' });
       client?.send({ t: 'list-live-sessions' });
       client?.send({ t: 'list-restorable' });
       return;
@@ -1384,6 +1389,12 @@ function onControl(msg: ServerMessage): void {
       document.body.replaceChildren(buildResetDone(msg.sessionsEnded, msg.restarting));
       void chrome.runtime.sendMessage({ t: 'tabterm:close-other-terminals' });
       if (msg.restarting) void chrome.runtime.sendMessage({ t: 'tabterm:reload-extension' });
+      return;
+    }
+
+    case 'background-timeout': {
+      backgroundTimeout = msg.seconds;
+      commandPanel?.refreshSettings();
       return;
     }
 

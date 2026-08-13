@@ -86,7 +86,15 @@ echo "  built daemon and extension"
 cp "$REPO/daemon/dist/main.js" "$LIBEXEC/daemon.mjs"
 # The PTY host is staged as its own executable beside the daemon, because it is the half that
 # must keep running while the daemon is replaced. See docs/adr/0017.
-cp "$REPO/daemon/dist/pty-host.js" "$LIBEXEC/pty-host.mjs"
+# Replaced only when it actually changed. This is the process holding every terminal, so
+# copying over it unconditionally would mean the next restart of it ends everybody's work for
+# no reason. See docs/adr/0017.
+if [ -f "$LIBEXEC/pty-host.mjs" ] && cmp -s "$REPO/daemon/dist/pty-host.js" "$LIBEXEC/pty-host.mjs"; then
+  echo "  pty host unchanged, left running"
+else
+  cp "$REPO/daemon/dist/pty-host.js" "$LIBEXEC/pty-host.mjs"
+  echo "  pty host updated (running terminals keep going until it is next restarted)"
+fi
 # Standalone so it runs before, and independently of, a working daemon.
 cp "$REPO/daemon/dist/agent-hooks-cli.js" "$LIBEXEC/agent-hooks.mjs"
 # node-pty is a native module and cannot be bundled, so it ships beside the daemon.

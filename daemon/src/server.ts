@@ -129,6 +129,20 @@ export function plainText(screen: string): string[] {
 }
 /* eslint-enable no-control-regex */
 
+/**
+ * Keep a timeout usable in both directions.
+ *
+ * Null means forever, which is a real answer. Anything positive is clamped to at least a minute,
+ * because a timeout shorter than the time it takes to switch tabs would delete sessions out from
+ * under somebody still using them. Zero and negatives read as forever rather than as instant,
+ * since the harmless interpretation of a bad stored value is the right one.
+ */
+export function clampTimeout(seconds: number | null): number | null {
+  if (seconds === null) return null;
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return Math.min(24 * 60 * 60, Math.max(60, Math.floor(seconds)));
+}
+
 export class DaemonServer {
   readonly #http: Server;
   readonly #wss: WebSocketServer;
@@ -1275,6 +1289,23 @@ export class DaemonServer {
         const workspace = this.#workspaces.findBySession(msg.sessionId);
         if (workspace) this.snapshotWorkspace(workspace.id);
         info('scrollback.cleared', { sessionId: msg.sessionId });
+        return;
+      }
+
+      case 'get-background-timeout':
+      case 'set-background-timeout': {
+        if (msg.t === 'set-background-timeout') {
+          this.#sessions.keepBackgroundSeconds = clampTimeout(msg.seconds);
+          updateUserSetting('keepBackgroundSeconds', this.#sessions.keepBackgroundSeconds);
+          // Applied to what is already detached, not only to what detaches next: a person who
+          // just shortened this expects it to affect the sessions they were looking at.
+          this.#sessions.rescheduleReaps();
+          info('background-timeout.changed', { seconds: this.#sessions.keepBackgroundSeconds });
+        }
+        this.broadcastAll({
+          t: 'background-timeout',
+          seconds: this.#sessions.keepBackgroundSeconds,
+        });
         return;
       }
 

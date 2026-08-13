@@ -20,7 +20,25 @@ export interface SettingsOptions {
   /** Bytes of output kept per session, across every copy of it. Null until the daemon answers. */
   scrollbackBytes: () => number | null;
   onChangeScrollback: (bytes: number) => void;
+  /** Seconds a session with no tab is kept, null for forever, undefined until the daemon says. */
+  backgroundTimeout: () => number | null | undefined;
+  onChangeBackgroundTimeout: (seconds: number | null) => void;
 }
+
+/**
+ * How long a terminal with no tab is kept.
+ *
+ * Forever is last rather than first: it is a real answer and was the old behaviour, but it is
+ * the one that quietly accumulates hundreds of shells, so it should be chosen rather than
+ * arrived at.
+ */
+const TIMEOUT_CHOICES: [seconds: number | null, label: string][] = [
+  [5 * 60, '5 minutes'],
+  [15 * 60, '15 minutes'],
+  [60 * 60, '1 hour'],
+  [4 * 60 * 60, '4 hours'],
+  [null, 'Keep forever'],
+];
 
 /** Megabytes, because that is what a person budgeting memory is actually budgeting. */
 const SCROLLBACK_CHOICES: [bytes: number, label: string][] = [
@@ -101,6 +119,30 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
     }
     select.value = String(scrollback);
     select.addEventListener('change', () => options.onChangeScrollback(Number(select.value)));
+    field.append(label, select);
+    wrap.append(field);
+  }
+
+  const timeout = options.backgroundTimeout();
+  if (timeout !== undefined) {
+    const field = document.createElement('label');
+    field.className = 'cmd-field';
+    const label = document.createElement('span');
+    label.textContent = 'Keep a terminal with no tab for';
+    const note = document.createElement('small');
+    note.textContent = 'Anything running a server, or open in a tab, is never ended on a timer';
+    label.append(note);
+    const select = document.createElement('select');
+    for (const [seconds, text] of TIMEOUT_CHOICES) {
+      const option = document.createElement('option');
+      option.value = seconds === null ? 'forever' : String(seconds);
+      option.textContent = text;
+      select.append(option);
+    }
+    select.value = timeout === null ? 'forever' : String(timeout);
+    select.addEventListener('change', () =>
+      options.onChangeBackgroundTimeout(select.value === 'forever' ? null : Number(select.value)),
+    );
     field.append(label, select);
     wrap.append(field);
   }
