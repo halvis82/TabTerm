@@ -396,25 +396,41 @@
     color: #9ec5ff;
   }
 
-  /* The screen itself, small. Text rather than a picture, so it can never be stale. */
-  .session-preview {
-    margin: 0;
+  /**
+   * A miniature of the screen.
+   *
+   * Bottom aligned, because a terminal's newest line is at the bottom and a preview that grew
+   * downward from the top would show the oldest thing it knows.
+   */
+  .session-screen {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    height: 88px;
     padding: 8px 10px;
-    max-height: 74px;
     overflow: hidden;
-    background: rgba(12, 13, 18, 0.5);
+    background: #0c0d12;
     border-top: 1px solid rgba(90, 100, 130, 0.14);
     border-bottom: 1px solid rgba(90, 100, 130, 0.14);
     color: #9aa4bd;
     font-family: inherit;
-    font-size: 10.5px;
-    line-height: 1.45;
-    white-space: pre;
-    /* The last line is the interesting one, so the fade is at the top. */
-    mask-image: linear-gradient(to bottom, transparent, #000 18px);
-    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px);
+    font-size: 10px;
+    line-height: 1.5;
+    /* Faded at the top, so the miniature reads as a window onto something longer. */
+    mask-image: linear-gradient(to bottom, transparent, #000 22px);
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 22px);
   }
-  .session-preview.is-empty {
+  .session-line {
+    overflow: hidden;
+    white-space: pre;
+    text-overflow: clip;
+  }
+  /* The last line is the one that says what happened, so it reads as the live one. */
+  .session-line:last-child {
+    color: #cdd2dd;
+  }
+  .session-screen.is-empty {
+    justify-content: center;
     color: #5b6070;
     font-style: italic;
     mask-image: none;

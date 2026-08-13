@@ -106,14 +106,28 @@ function buildCard(session: LiveSession, options: SessionsOptions): HTMLElement 
   /**
    * The screen, small.
    *
-   * Rendered as text rather than an image: it stays readable at any zoom, costs nothing to
-   * produce, and cannot be a stale picture of a terminal that has since moved on.
+   * A miniature of the terminal rather than a paragraph of its text: monospaced, dark, aligned
+   * on its own left edge, with the last line at the bottom where a terminal keeps it. The point
+   * is recognition at a glance, and a screen you recognise looks like a screen.
+   *
+   * Text rather than an image, still. It stays sharp at any zoom, costs nothing to produce, and
+   * cannot be a photograph of a terminal that has since moved on.
    */
-  const preview = document.createElement('pre');
-  preview.className = 'session-preview';
-  preview.textContent =
-    session.preview.length > 0 ? session.preview.join('\n') : 'Nothing on screen yet';
-  if (session.preview.length === 0) preview.classList.add('is-empty');
+  const preview = document.createElement('div');
+  preview.className = 'session-screen';
+  if (session.preview.length === 0) {
+    preview.classList.add('is-empty');
+    preview.textContent = 'Nothing on screen yet';
+  } else {
+    for (const line of session.preview) {
+      const row = document.createElement('div');
+      row.className = 'session-line';
+      // A blank line still occupies a row, or the miniature closes up and stops looking like
+      // the screen it is a picture of.
+      row.textContent = line === '' ? '\u00a0' : line;
+      preview.append(row);
+    }
+  }
   card.append(preview);
 
   const foot = document.createElement('footer');

@@ -25,7 +25,7 @@ r.ok('the start screen lists sessions that already exist', cards > 0, `${String(
 const previews = String(
   await evaluate(
     viewer.client,
-    `[...document.querySelectorAll('.session-preview')].map(p => p.textContent).join('\\n')`,
+    `[...document.querySelectorAll('.session-screen')].map(p => p.textContent).join('\\n')`,
   ),
 );
 r.ok(
