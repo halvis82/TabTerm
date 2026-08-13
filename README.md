@@ -236,7 +236,11 @@ Plus a floating command menu with favorites, history, hotstrings and session sta
 status in the favicon and title, and desktop notifications when a long command or an agent turn
 finishes.
 
-619 unit tests and 113 browser checks. `npm run verify` gates every change.
+Terminals survive an update. PTYs live in a separate host process, so replacing the daemon does
+not end anything running, and a restarted daemon adopts the sessions it finds. History is kept on
+disk per session, bounded by a budget you set in megabytes.
+
+664 unit tests and 124 browser checks. `npm run verify` gates every change.
 
 Read [limitations](docs/10-limitations.md) before filing anything: what Chrome and macOS will
 not permit is documented there with measurements, including the things that cannot be fixed.
