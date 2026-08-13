@@ -31,10 +31,10 @@ export class HostPtyBackend implements PtyBackend {
     this.#client.resize(sessionId, cols, rows);
   }
 
-  kill(sessionId: string): Promise<void> {
+  kill(sessionId: string, keepHistory = false): Promise<void> {
     // Killing is still explicit and still happens: a session that expires, or that somebody
     // closes, is ended. What changed is that stopping the daemon is no longer one of those.
-    this.#client.kill(sessionId);
+    this.#client.kill(sessionId, keepHistory);
     return Promise.resolve();
   }
 

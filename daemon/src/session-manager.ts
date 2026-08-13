@@ -419,8 +419,14 @@ export class SessionManager {
     }
   }
 
-  async kill(session: Session): Promise<void> {
-    await this.#pty.kill(session.id);
+  /**
+   * End a session.
+   *
+   * `keepHistory` when this was a timeout rather than a person: nobody asked for it, a tab may
+   * still be open on it, and its output is what that tab has left to show.
+   */
+  async kill(session: Session, keepHistory = false): Promise<void> {
+    await this.#pty.kill(session.id, keepHistory);
     this.#reap(session);
   }
 
@@ -506,7 +512,7 @@ export class SessionManager {
 
     const timer = setTimeout(() => {
       info('session.reaping', { sessionId: session.id, reason: decision.reason });
-      void this.kill(session);
+      void this.kill(session, true);
     }, decision.afterSeconds * 1000);
     // Unref'd: a session waiting to be reaped must not be the reason the process stays alive.
     // The wait is minutes long, so without this a daemon told to stop would sit there until a

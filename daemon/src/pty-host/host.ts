@@ -273,9 +273,15 @@ export class PtyHost {
         if (!live) return;
         this.#sessions.delete(id);
         void killPty(live.handle, id);
-        // The process is gone on purpose, so its history goes with it. Ending a session and
-        // leaving its output on disk would be a surprise in the wrong direction.
-        this.#store.clear(id);
+        /**
+         * Whether the output goes with it depends on who ended it.
+         *
+         * Somebody who closes a session meant to be rid of it, so leaving its output on disk
+         * would be a surprise in the wrong direction. A session ended by a timeout was not
+         * closed by anybody, and its tab may still be open, so its history is what that tab has
+         * left to show. See docs/07-terminal-fidelity.md.
+         */
+        if (msg['keepHistory'] !== true) this.#store.clear(id);
         return;
       }
 

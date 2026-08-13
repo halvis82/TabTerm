@@ -346,6 +346,7 @@ function renderRecoveryActions(recall: {
   cwd?: string;
   lastCommand?: string;
   lastSeenAt?: number;
+  lastScreen?: readonly string[];
 }): void {
   const detail = document.getElementById('recovery-detail') as HTMLElement;
   const actions = document.getElementById('recovery-actions') as HTMLElement;
@@ -367,6 +368,30 @@ function renderRecoveryActions(recall: {
       v.textContent = value;
       row.append(k, v);
       detail.append(row);
+    }
+
+    /**
+     * What was on the screen when it ended.
+     *
+     * The processes are gone and cannot come back, but the output is still here, so the tab can
+     * show what happened rather than only where it happened. Without this the history is
+     * written, bounded, pruned and never seen by anybody.
+     */
+    if (recall.lastScreen && recall.lastScreen.length > 0) {
+      const heading = document.createElement('div');
+      heading.className = 'recovery-key';
+      heading.textContent = 'Last output';
+      detail.append(heading);
+
+      const screen = document.createElement('div');
+      screen.className = 'session-screen recovery-screen';
+      for (const line of recall.lastScreen) {
+        const lineEl = document.createElement('div');
+        lineEl.className = 'session-line';
+        lineEl.textContent = line === '' ? '\u00a0' : line;
+        screen.append(lineEl);
+      }
+      detail.append(screen);
     }
   }
 

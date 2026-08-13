@@ -624,16 +624,19 @@ export class LauncherData {
    */
   recallWorkspace(
     workspaceId: string,
-  ): { cwd: string; lastCommand?: string; lastSeenAt: number } | null {
+  ): { cwd: string; lastCommand?: string; lastSeenAt: number; sessionId: string } | null {
     const row = this.#db.handle
       .prepare(
-        `SELECT cwd, last_command, last_seen_at FROM session_meta
+        `SELECT id, cwd, last_command, last_seen_at FROM session_meta
          WHERE workspace_id = ? ORDER BY last_seen_at DESC LIMIT 1`,
       )
       .get(workspaceId) as
-      { cwd: string; last_command: string | null; last_seen_at: number } | undefined;
+      { id: string; cwd: string; last_command: string | null; last_seen_at: number } | undefined;
     if (!row) return null;
     return {
+      // Carried so the caller can find this session's history on disk, which is the only thing
+      // a tab whose processes are gone still has to show.
+      sessionId: row.id,
       cwd: row.cwd,
       lastSeenAt: row.last_seen_at,
       ...(row.last_command ? { lastCommand: row.last_command } : {}),

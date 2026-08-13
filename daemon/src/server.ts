@@ -44,6 +44,9 @@ import type { WorkspaceStore } from './workspace-store.js';
 import type { Session, SessionManager } from './session-manager.js';
 import type { LiveSession } from '@tabterm/shared';
 import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { paths } from './config.js';
 import { agentHooksStatus, setAgentHooks } from './agent-hooks.js';
 import { setShellIntegration, shellIntegrationStatus } from './shell-integration.js';
 import { clampPolicy, decide, type Finished, type NotifyPolicy } from './notify-policy.js';
@@ -137,6 +140,26 @@ export function plainText(screen: string): string[] {
  * under somebody still using them. Zero and negatives read as forever rather than as instant,
  * since the harmless interpretation of a bad stored value is the right one.
  */
+/**
+ * The tail of a session's history, from the file the PTY host wrote.
+ *
+ * Read here rather than asked of the host, because the interesting case is a session whose host
+ * is gone too, which is exactly when a tab has nothing else left to show.
+ */
+function historyTail(sessionId: string, lines = 12): string[] {
+  try {
+    const safe = sessionId.replace(/[^a-zA-Z0-9-]/g, '');
+    const path = join(paths.scrollback, `${safe}.log`);
+    if (!existsSync(path)) return [];
+    const raw = readFileSync(path);
+    // Only the end is ever wanted, and these files run to megabytes.
+    const tail = raw.subarray(Math.max(0, raw.length - 64 * 1024)).toString('utf8');
+    return plainText(tail).slice(-lines);
+  } catch {
+    return [];
+  }
+}
+
 export function clampTimeout(seconds: number | null): number | null {
   if (seconds === null) return null;
   if (!Number.isFinite(seconds) || seconds <= 0) return null;
@@ -228,6 +251,10 @@ export class DaemonServer {
    * The preview is taken from the daemon's own terminal state rather than asked of a tab,
    * because the interesting sessions are exactly the ones no tab is showing.
    */
+  #historyTail(sessionId: string): string[] {
+    return historyTail(sessionId);
+  }
+
   #liveSessions(): LiveSession[] {
     return this.#sessions.all
       .filter((s) => s.state !== 'exited' && s.state !== 'reaped')
@@ -929,6 +956,9 @@ export class DaemonServer {
                   cwd: recalled.cwd,
                   lastSeenAt: recalled.lastSeenAt,
                   ...(recalled.lastCommand ? { lastCommand: recalled.lastCommand } : {}),
+                  ...(recalled.sessionId
+                    ? { lastScreen: this.#historyTail(recalled.sessionId) }
+                    : {}),
                 }
               : {}),
           }),

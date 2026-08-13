@@ -40,7 +40,8 @@ export interface PtyBackend {
   onSpawned(fn: (sessionId: string, pid: number) => void): void;
   write(sessionId: string, data: string): void;
   resize(sessionId: string, cols: number, rows: number): void;
-  kill(sessionId: string): Promise<void>;
+  /** `keepHistory` when nobody asked for this, so a tab still open has something to show. */
+  kill(sessionId: string, keepHistory?: boolean): Promise<void>;
   /** Output. Always delivered, never paused: invariant 3. */
   onData(fn: (sessionId: string, data: Buffer) => void): void;
   onExit(fn: (sessionId: string, exitCode: number, signal?: number) => void): void;

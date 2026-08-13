@@ -299,9 +299,14 @@ host and with the machine. **History is also written to disk as it arrives**, at
 | Size | Bounded by the same per-session budget, compacted by rewriting through a temporary file and renaming, so a crash leaves either the old history or the new one |
 | Pruned | Files untouched for thirty days |
 | Removed | On clear, and when a session is deliberately ended |
+| Kept | When a timeout ends a session, since nobody asked for that and a tab may still be open on it |
 
 Ending a session takes its history with it. Leaving a terminal's output on disk after somebody
 closed it is a surprise in the wrong direction.
+
+**A timeout is not somebody closing it.** A session reaped for sitting in the background was not
+ended by anyone, and its tab may still be open, so its history stays and the tab shows the last
+lines of it instead of only saying where the session was. That is what the history is for.
 
 This is the most revealing thing the product stores, since it is literally everything a terminal
 printed. That is why it is owner-only, bounded, pruned, and gone the moment you clear.

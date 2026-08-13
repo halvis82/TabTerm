@@ -543,6 +543,13 @@ export type ServerMessage =
       cwd?: string;
       lastCommand?: string;
       lastSeenAt?: number;
+      /**
+       * The last lines this session printed, from the history on disk.
+       *
+       * A tab whose processes are gone can at least still show what happened in it. Without
+       * this the history is written, bounded and pruned, and never seen by anybody.
+       */
+      lastScreen?: readonly string[];
     }
   | { t: 'mergeable-sessions'; sessions: readonly MergeableSession[] }
   | {

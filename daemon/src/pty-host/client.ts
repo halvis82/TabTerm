@@ -271,8 +271,8 @@ export class PtyHostClient {
     this.#send({ t: 'budget', bytes });
   }
 
-  kill(sessionId: string): void {
-    this.#send({ t: 'kill', sessionId });
+  kill(sessionId: string, keepHistory = false): void {
+    this.#send({ t: 'kill', sessionId, keepHistory });
   }
 
   /** Hand over screen state, so the next daemon can restore it exactly rather than approximately. */

@@ -41,5 +41,6 @@ done
 node "$ROOT/test/browser/sweep.mjs" || true
 
 pkill -f "http.server 87" 2>/dev/null
+echo ""
 echo "  -----  $pass passed, $fail failed"
 exit "$fail"
