@@ -57,6 +57,14 @@ export interface Session {
   /** Shell integration scanner, fed from the one output path. */
   osc?: OscScanner;
   /**
+   * Whether this session's ending has been announced.
+   *
+   * A session can reach its end twice: reaped by the daemon, and reported by whatever owned the
+   * PTY. Both must announce it, since either can happen first, and between them they must
+   * announce it exactly once.
+   */
+  exitAnnounced?: boolean;
+  /**
    * How many output bytes this session has produced, as counted by whatever owns the PTY.
    *
    * Kept so a restarted daemon can ask for exactly the bytes it missed rather than the whole
@@ -177,7 +185,7 @@ export class SessionManager {
 
     this.#transition(session, 'exited');
     info('session.exited', { sessionId, exitCode, signal });
-    this.#events.onExit(session);
+    this.#announceExit(session);
   }
 
   get all(): Session[] {
@@ -538,6 +546,13 @@ export class SessionManager {
     this.#events.onStateChange(session);
   }
 
+  /** Exactly once, whichever end arrives first. */
+  #announceExit(session: Session): void {
+    if (session.exitAnnounced === true) return;
+    session.exitAnnounced = true;
+    this.#events.onExit(session);
+  }
+
   #reap(session: Session): void {
     if (session.reapTimer) clearTimeout(session.reapTimer);
     if (session.state !== 'reaped') {
@@ -557,6 +572,18 @@ export class SessionManager {
     session.vt.dispose();
     session.clients.clear();
     this.#sessions.delete(session.id);
+
+    /**
+     * Tell everyone else, exactly as a process ending does.
+     *
+     * This was missing, and the consequence was not obvious: reaping removed the session from
+     * the map, so the exit event that arrives later from the PTY host found nothing and did
+     * nothing, and the workspace was never told its pane had gone. The workspace then outlived
+     * its session, and a tab reopened on it attached to a session that did not exist and
+     * rendered nothing at all: no terminal, no start screen, and not even the page that says
+     * the session expired.
+     */
+    this.#announceExit(session);
     info('session.reaped', { sessionId: session.id });
   }
 

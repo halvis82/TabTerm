@@ -150,6 +150,26 @@ describe('durability', () => {
     expect(session?.state).toBe('detached');
   });
 
+  it('tells the workspace when a session is reaped, not only when a process exits', async () => {
+    /**
+     * Reaping removed the session from the map and never fired the exit event, so the workspace
+     * was never told its pane had gone. It then outlived its session, and a tab reopened on it
+     * attached to a session that did not exist and rendered nothing at all: no terminal, no
+     * start screen, not even the page saying the session had expired.
+     */
+    let exited = 0;
+    const watched = new SessionManager(
+      config,
+      { onExit: () => (exited += 1), onStateChange: () => {} },
+      new LocalPtyBackend(),
+    );
+    const session = watched.create({ cols: 80, rows: 24 });
+    await sleep(400);
+    await watched.kill(session);
+    expect(exited, 'a reaped session must announce its exit').toBe(1);
+    await watched.shutdown();
+  });
+
   it('reaps a pane with no tab once the background timeout passes', async () => {
     sessions.keepBackgroundSeconds = 1;
     const { c, sessionId } = await makeSession('dur-bg');
