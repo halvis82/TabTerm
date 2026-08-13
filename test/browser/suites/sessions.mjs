@@ -68,5 +68,32 @@ r.ok(
   `${String(before)} -> ${String(after)}`,
 );
 
+/**
+ * A workspace whose session ended still says what happened in it.
+ *
+ * Killing the session here stands in for the timeout, which takes minutes. What is being checked
+ * is the same path: a workspace whose pane is gone must report that plainly rather than attaching
+ * to a session that no longer exists, which used to render an entirely blank page.
+ */
+const gone = await openTerminal();
+await sleep(1500);
+await type(gone.client, `echo gone-marker-${TAG}`);
+await sleep(1200);
+const goneWorkspace = await evaluate(
+  gone.client,
+  `new URL(location.href).searchParams.get('workspace')`,
+);
+await evaluate(gone.client, `window.__tabterm.endSessions()`);
+await sleep(2500);
+
+const revisit = await openTerminal(`?workspace=${String(goneWorkspace)}`);
+await sleep(5000);
+const revisited = String(await evaluate(revisit.client, `document.body.innerText`));
+r.ok(
+  'a workspace whose session ended says so, rather than rendering nothing',
+  revisited.includes('expired'),
+  revisited.slice(0, 60).replace(/\n+/g, ' | '),
+);
+
 await finish();
 r.done();
