@@ -697,10 +697,15 @@ function buildLauncher(): void {
     },
     onCloseSession: (session) => {
       client?.send({ t: 'kill-session', sessionId: session.sessionId });
-      client?.send({ t: 'list-live-sessions' });
-      // Asked for from the toolbar icon. Opened once the daemon has answered, so the pane is
-      // not blank for a moment while its values arrive.
-      if (openPanelAt === 'settings') setTimeout(() => commandPanel?.openSettings(), 500);
+      // A tab showing a session that no longer exists is a tab showing an apology, so it goes
+      // with the session it was showing.
+      if (session.workspaceId) {
+        void chrome.runtime.sendMessage({
+          t: 'tabterm:close-workspace-tab',
+          workspaceId: session.workspaceId,
+        });
+      }
+      setTimeout(() => client?.send({ t: 'list-live-sessions' }), 400);
     },
     onRestore: (workspaceId, replayCommands) => {
       const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
@@ -1042,6 +1047,20 @@ const sessionStats = new SessionStats();
 function buildCommandPanel(): void {
   const overlay = document.getElementById('overlays') as HTMLElement;
 
+  /**
+   * Opened from the toolbar icon's settings entry.
+   *
+   * Done here, right after the panel exists, rather than when the daemon reports something. It
+   * was previously attached to a message that only arrives when a session is closed, so the
+   * entry opened a tab and did nothing, which is exactly what it looked like.
+   */
+  const openSettingsIfAsked = (): void => {
+    if (openPanelAt !== 'settings') return;
+    // The start screen sits over the panel, so it goes: this tab was opened to change a setting.
+    launcher?.dismiss();
+    commandPanel?.openSettings();
+  };
+
   commandPanel = new CommandPanel({
     root: overlay,
     onPaste: (text) => sendToFocusedPane(text),
@@ -1092,6 +1111,8 @@ function buildCommandPanel(): void {
       }),
     stats: () => buildStats(sessionStats),
   });
+
+  openSettingsIfAsked();
 
   void chrome.storage.local.get('tabterm.panel').then((stored) => {
     const placement = (stored['tabterm.panel'] as PanelPlacement | undefined) ?? DEFAULT_PLACEMENT;

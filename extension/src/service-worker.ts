@@ -162,6 +162,17 @@ interface NotifyMessage {
  * A tab already holding it is focused. Only a workspace with no tab gets a new one, which is the
  * case the session list exists for.
  */
+/** The tab showing one workspace, closed because its session has just been ended. */
+async function closeWorkspaceTab(workspaceId: string, asking?: number): Promise<void> {
+  const base = chrome.runtime.getURL('terminal.html');
+  const tabs = await chrome.tabs.query({ url: `${base}*` });
+  const ids = tabs
+    .filter((t) => t.url?.includes(workspaceId))
+    .map((t) => t.id)
+    .filter((id): id is number => id !== undefined && id !== asking);
+  if (ids.length > 0) await chrome.tabs.remove(ids);
+}
+
 /** Every terminal tab except the one asking, which is showing the result. */
 async function closeOtherTerminalTabs(keep?: number): Promise<void> {
   const base = chrome.runtime.getURL('terminal.html');
@@ -198,6 +209,12 @@ chrome.runtime.onMessage.addListener((msg: NotifyMessage, _sender, sendResponse)
     };
     // Being told about a command you watched finish is how people turn notifications off.
     void workspaceIsOnScreen(msg.target?.workspaceId).then((visible) => notify(request, visible));
+    sendResponse({ ok: true });
+    return false;
+  }
+
+  if (msg.t === 'tabterm:close-workspace-tab' && msg.workspaceId) {
+    void closeWorkspaceTab(msg.workspaceId, _sender.tab?.id);
     sendResponse({ ok: true });
     return false;
   }
@@ -296,11 +313,7 @@ function installContextMenus(): void {
       title: 'TabTerm settings',
       contexts: ['action'],
     });
-    chrome.contextMenus.create({
-      id: 'open-sessions',
-      title: 'Running sessions',
-      contexts: ['action'],
-    });
+
     /**
      * The way out when something has gone wrong.
      *
@@ -310,7 +323,7 @@ function installContextMenus(): void {
      */
     chrome.contextMenus.create({
       id: 'reset-tabterm',
-      title: 'Reset TabTerm...',
+      title: 'End all sessions and close tabs...',
       contexts: ['action'],
     });
     // A menu id that failed to register is worth knowing about, and is otherwise invisible.
@@ -326,10 +339,9 @@ chrome.contextMenus.onClicked.addListener((info) => {
     void chrome.tabs.create({ url: `${chrome.runtime.getURL('terminal.html')}?panel=reset` });
     return;
   }
-  if (id === 'open-settings' || id === 'open-sessions') {
-    const base = chrome.runtime.getURL('terminal.html');
+  if (id === 'open-settings') {
     void chrome.tabs.create({
-      url: id === 'open-settings' ? `${base}?panel=settings` : base,
+      url: `${chrome.runtime.getURL('terminal.html')}?panel=settings`,
       active: true,
     });
     return;

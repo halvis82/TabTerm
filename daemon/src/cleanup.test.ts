@@ -11,6 +11,7 @@ const base: ReapInput = {
   inWorkspace: false,
   exited: false,
   hasExplicitCommand: false,
+  keepBackgroundSeconds: null,
 };
 
 const decide = (over: Partial<ReapInput>) => decideReap({ ...base, ...over }, config);
@@ -111,5 +112,44 @@ describe('reap policy', () => {
       decideReap({ ...base, foregroundProgram: 'vim', hasExplicitCommand: true }, custom)
         .afterSeconds,
     ).toBe(11);
+  });
+});
+
+describe('a pane whose tab was closed', () => {
+  it('is kept forever when that is what was chosen', () => {
+    // ADR-0012's original behaviour, still available by choosing it.
+    const decision = decideReap(
+      { ...base, inWorkspace: true, keepBackgroundSeconds: null },
+      DEFAULTS,
+    );
+    expect(decision.afterSeconds).toBe(null);
+    expect(decision.reason).toBe('in-a-workspace');
+  });
+
+  it('expires after the configured time by default', () => {
+    // Sessions survive restarts now, so "forever" became literal and they accumulated.
+    const decision = decideReap(
+      { ...base, inWorkspace: true, keepBackgroundSeconds: 900 },
+      DEFAULTS,
+    );
+    expect(decision.afterSeconds).toBe(900);
+    expect(decision.reason).toBe('background-timeout');
+  });
+
+  it('is still kept while a tab is showing it', () => {
+    const decision = decideReap(
+      { ...base, inWorkspace: true, attachedClients: 1, keepBackgroundSeconds: 900 },
+      DEFAULTS,
+    );
+    expect(decision.afterSeconds).toBe(null);
+  });
+
+  it('is still kept when it holds a listening server', () => {
+    // Killing somebody's dev server on a timer would be the worst version of this feature.
+    const decision = decideReap(
+      { ...base, inWorkspace: false, listeningPort: 3000, keepBackgroundSeconds: 900 },
+      DEFAULTS,
+    );
+    expect(decision.afterSeconds).toBe(null);
   });
 });

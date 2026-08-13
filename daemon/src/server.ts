@@ -43,6 +43,7 @@ import type { ProjectIndex } from './project-index.js';
 import type { WorkspaceStore } from './workspace-store.js';
 import type { Session, SessionManager } from './session-manager.js';
 import type { LiveSession } from '@tabterm/shared';
+import { execFileSync } from 'node:child_process';
 import { agentHooksStatus, setAgentHooks } from './agent-hooks.js';
 import { setShellIntegration, shellIntegrationStatus } from './shell-integration.js';
 import { clampPolicy, decide, type Finished, type NotifyPolicy } from './notify-policy.js';
@@ -83,6 +84,34 @@ const FORCED_CLOSE_MS = 2000;
  * preview, so they are removed rather than rendered. Anything non-printable left over goes
  * too, because a stray control character in a preview reads as a rendering bug.
  */
+/**
+ * Resident memory for a session's process tree, from the operating system.
+ *
+ * The shell plus whatever it is running, which is the part TabTerm can actually measure. A tab
+ * showing the session costs more on top, in a Chrome renderer, and that is deliberately not
+ * added in: `chrome.processes` is not available outside the dev channel, so any total would be
+ * a guess presented as a measurement.
+ */
+function memoryOf(pid: number): number {
+  if (!pid) return 0;
+  try {
+    // Reading the whole tree, since a shell running a build is mostly the build.
+    const out = execFileSync('ps', ['-o', 'rss=', '-g', String(pid)], {
+      encoding: 'utf8',
+      timeout: 500,
+    });
+    let kilobytes = 0;
+    for (const line of out.split('\n')) {
+      const value = Number(line.trim());
+      if (Number.isFinite(value)) kilobytes += value;
+    }
+    return kilobytes * 1024;
+  } catch {
+    // A process that ended between the listing and the measurement.
+    return 0;
+  }
+}
+
 /* eslint-disable no-control-regex -- the whole job here is matching control sequences. */
 export function plainText(screen: string): string[] {
   return (
@@ -195,6 +224,7 @@ export class DaemonServer {
         const lines = plainText(session.vt.snapshot(0).screen);
         return {
           sessionId: session.id,
+          memoryBytes: memoryOf(session.pid),
           ...(workspace ? { workspaceId: workspace.id } : {}),
           cwd: session.cwd,
           ...(session.titleFields.process ? { process: session.titleFields.process } : {}),

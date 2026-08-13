@@ -98,7 +98,7 @@ function buildCard(session: LiveSession, options: SessionsOptions): HTMLElement 
   const badge = document.createElement('span');
   badge.className = 'session-badge';
   // Said plainly, because "attached" is jargon for something people think of as "open".
-  badge.textContent = session.attached ? 'open in a tab' : 'no tab';
+  badge.textContent = session.attached ? 'open in a tab' : 'background';
   head.append(badge);
 
   card.append(head);
@@ -123,6 +123,15 @@ function buildCard(session: LiveSession, options: SessionsOptions): HTMLElement 
   what.className = 'session-what';
   what.textContent = describe(session);
   foot.append(what);
+
+  const memory = document.createElement('span');
+  memory.className = 'session-memory';
+  memory.textContent = formatBytes(session.memoryBytes);
+  // Said in full where there is room for it, because the number is only half the story.
+  memory.title = session.attached
+    ? 'Memory used by this session outside Chrome. The tab showing it costs more on top.'
+    : 'Memory used by this session';
+  foot.append(memory);
 
   const when = document.createElement('span');
   when.className = 'session-when';
@@ -151,4 +160,13 @@ function buildCard(session: LiveSession, options: SessionsOptions): HTMLElement 
   });
 
   return card;
+}
+
+/** Bytes as a person reads them. Nothing here needs more than one decimal. */
+export function formatBytes(bytes: number): string {
+  if (!bytes) return '';
+  const mb = bytes / (1024 * 1024);
+  if (mb < 1) return `${String(Math.round(bytes / 1024))} KB`;
+  if (mb < 100) return `${(Math.round(mb * 10) / 10).toString()} MB`;
+  return `${String(Math.round(mb))} MB`;
 }

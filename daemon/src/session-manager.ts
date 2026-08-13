@@ -108,6 +108,13 @@ export class SessionManager {
   readonly #config: Config;
   readonly #events: SessionEvents;
   readonly #pty: PtyBackend;
+  /**
+   * How long a pane with no tab is kept, in seconds, or null for forever.
+   *
+   * Set from the user's preference. Fifteen minutes by default, because sessions now genuinely
+   * survive everything and "forever" turned out to mean it.
+   */
+  keepBackgroundSeconds: number | null = 15 * 60;
 
   constructor(config: Config, events: SessionEvents, pty: PtyBackend) {
     this.#config = config;
@@ -471,6 +478,7 @@ export class SessionManager {
       reapInputFor(session, {
         inWorkspace: this.#inWorkspace(session.id),
         listeningPort: session.listeningPort,
+        keepBackgroundSeconds: this.keepBackgroundSeconds,
       }),
       this.#config,
     );

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describe as describeSession, shortPath, since } from './sessions-view.js';
+import { describe as describeSession, formatBytes, shortPath, since } from './sessions-view.js';
 import type { LiveSession } from '@tabterm/shared';
 
 const base: LiveSession = {
@@ -9,6 +9,7 @@ const base: LiveSession = {
   startedAt: 0,
   preview: [],
   busy: false,
+  memoryBytes: 0,
 };
 
 describe('paths as a person reads them', () => {
@@ -49,5 +50,18 @@ describe('what a session is doing', () => {
   it('says shell rather than zsh, which is not what people call it', () => {
     expect(describeSession({ ...base, process: 'zsh' })).toBe('shell');
     expect(describeSession(base)).toBe('shell');
+  });
+});
+
+describe('memory as a person reads it', () => {
+  it('says nothing when there is nothing to say', () => {
+    expect(formatBytes(0)).toBe('');
+  });
+  it('uses kilobytes below a megabyte', () => {
+    expect(formatBytes(200 * 1024)).toBe('200 KB');
+  });
+  it('keeps one decimal where it matters and drops it where it does not', () => {
+    expect(formatBytes(3.45 * 1024 * 1024)).toBe('3.5 MB');
+    expect(formatBytes(512 * 1024 * 1024)).toBe('512 MB');
   });
 });

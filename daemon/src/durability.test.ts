@@ -132,8 +132,15 @@ async function makeSession(clientId: string): Promise<{ c: C; sessionId: string 
 
 describe('durability', () => {
   it('keeps a workspace pane alive well past the idle grace period', async () => {
-    // Every session lives in a workspace, and workspaces are pinned by default, so closing a
-    // tab must never destroy one. See ADR-0012.
+    /**
+     * Closing a tab must not destroy a session, which is the whole of ADR-0012 and still holds.
+     *
+     * What changed is the far end: a pane with no tab is now reaped after a background timeout
+     * rather than kept literally forever, because sessions survive daemon restarts and the old
+     * behaviour accumulated hundreds of them. Keeping them forever is still available by
+     * choosing it, which is what this test now pins.
+     */
+    sessions.keepBackgroundSeconds = null;
     const { c, sessionId } = await makeSession('dur-1');
     c.close();
     await sleep(2500); // comfortably longer than the 1s idle policy
@@ -141,6 +148,17 @@ describe('durability', () => {
     const session = sessions.get(sessionId);
     expect(session, 'a workspace pane must outlive its client').toBeTruthy();
     expect(session?.state).toBe('detached');
+  });
+
+  it('reaps a pane with no tab once the background timeout passes', async () => {
+    sessions.keepBackgroundSeconds = 1;
+    const { c, sessionId } = await makeSession('dur-bg');
+    c.close();
+    await sleep(2500);
+
+    const session = sessions.get(sessionId);
+    expect(session === undefined || session.state !== 'detached').toBe(true);
+    sessions.keepBackgroundSeconds = null;
   });
 
   it('declines to schedule a reap and says why', async () => {

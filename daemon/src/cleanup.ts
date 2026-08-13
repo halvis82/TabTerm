@@ -10,6 +10,7 @@ import type { Session } from './session-manager.js';
  */
 
 export type ReapReason =
+  | 'background-timeout'
   | 'pinned'
   | 'persistent'
   | 'still-attached'
@@ -37,6 +38,8 @@ export interface ReapInput {
   listeningPort?: number | undefined;
   foregroundProgram?: string | undefined;
   hasExplicitCommand: boolean;
+  /** How long a pane with no tab is kept, or null to keep it forever. */
+  keepBackgroundSeconds: number | null;
 }
 
 export function decideReap(input: ReapInput, config: Config): ReapDecision {
@@ -44,7 +47,21 @@ export function decideReap(input: ReapInput, config: Config): ReapDecision {
   if (input.pinned) return { afterSeconds: null, reason: 'pinned' };
   if (input.persistent) return { afterSeconds: null, reason: 'persistent' };
   if (input.attachedClients > 0) return { afterSeconds: null, reason: 'still-attached' };
-  if (input.inWorkspace) return { afterSeconds: null, reason: 'in-a-workspace' };
+
+  /**
+   * A pane in a workspace, with no tab showing it.
+   *
+   * This used to be kept forever, from ADR-0012, so that closing a tab could never destroy
+   * work. That was right when a daemon restart cleaned house anyway. Sessions now survive
+   * restarts, crashes and updates, so "forever" became literal and they accumulated into the
+   * hundreds. It is a setting instead, and keeping them forever is still available by choosing
+   * it rather than by default.
+   */
+  if (input.inWorkspace) {
+    return input.keepBackgroundSeconds === null
+      ? { afterSeconds: null, reason: 'in-a-workspace' }
+      : { afterSeconds: input.keepBackgroundSeconds, reason: 'background-timeout' };
+  }
 
   // A process that already ended holds nothing worth keeping, so its metadata goes quickly.
   if (input.exited) return { afterSeconds: 5, reason: 'process-exited' };
@@ -74,7 +91,11 @@ export function describeReap(decision: ReapDecision): string {
 
 export function reapInputFor(
   session: Session,
-  opts: { inWorkspace: boolean; listeningPort?: number | undefined },
+  opts: {
+    inWorkspace: boolean;
+    listeningPort?: number | undefined;
+    keepBackgroundSeconds?: number | null;
+  },
 ): ReapInput {
   return {
     pinned: session.pinned,
@@ -83,6 +104,8 @@ export function reapInputFor(
     inWorkspace: opts.inWorkspace,
     exited: session.state === 'exited',
     listeningPort: opts.listeningPort,
+    keepBackgroundSeconds:
+      opts.keepBackgroundSeconds === undefined ? null : opts.keepBackgroundSeconds,
     foregroundProgram: session.foregroundProcess ?? session.command?.[0],
     hasExplicitCommand: Boolean(session.command),
   };

@@ -313,4 +313,11 @@ export interface LiveSession {
   preview: readonly string[];
   /** A command is in flight right now. */
   busy: boolean;
+  /**
+   * Resident memory of this session's process tree, in bytes.
+   *
+   * What the daemon side costs. A tab showing the session costs more in a Chrome renderer, which
+   * is not measurable from an extension outside the dev channel, so it is said rather than added.
+   */
+  memoryBytes: number;
 }
