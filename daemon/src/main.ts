@@ -132,6 +132,25 @@ async function main(): Promise<void> {
     // its pane with it. A pane that was given a command is different: its output is the
     // reason it existed, and closing it the instant the command finishes would throw away
     // exactly what the user was waiting for. Those stay until they are closed deliberately.
+    /**
+     * Keep the record before the workspace forgets the session.
+     *
+     * A workspace whose last pane ends is dropped, which is right: there is nothing left to lay
+     * out. But a tab may still be open on it, and once the workspace is gone there is nothing to
+     * recall, so that tab could only say the session expired and not what happened in it. The
+     * recovery row is written first, while the mapping still exists.
+     */
+    const workspaceBefore = workspaces.findBySession(s.id);
+    if (workspaceBefore) {
+      launcher.rememberSession({
+        id: s.id,
+        cwd: s.cwd,
+        shell: s.shell,
+        workspaceId: workspaceBefore.id,
+        ...(s.pendingCommand ? { lastCommand: s.pendingCommand } : {}),
+      });
+    }
+
     const surviving = s.command?.length ? undefined : workspaces.forgetSession(s.id);
     if (surviving) {
       server.broadcast({
