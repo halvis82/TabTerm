@@ -3,7 +3,7 @@
 // Only the parts that destroy nothing are exercised here: the confirmation itself, what it says,
 // and cancelling. Actually resetting ends every terminal on the machine, which is not something a
 // test run should do to somebody's session. See docs/04-session-lifecycle.md.
-import { openTerminal, evaluate, sleep } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, finish } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -56,4 +56,5 @@ r.ok(
 // Leave without touching anything.
 await evaluate(page.client, `document.querySelector('.reset-cancel')?.click()`);
 
+await finish();
 r.done();

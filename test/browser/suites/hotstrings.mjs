@@ -2,7 +2,7 @@
 //
 // The unit tests decide when expansion should fire. This proves the rewriting works: the
 // deletions land, the command replaces the abbreviation, and Enter still submits.
-import { openTerminal, evaluate, readScreen, sleep } from '../helpers.mjs';
+import { openTerminal, evaluate, readScreen, sleep, finish } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -104,4 +104,5 @@ for (const each of [id, second]) {
 }
 await sleep(500);
 
+await finish();
 r.done();

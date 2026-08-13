@@ -7,7 +7,7 @@
 // The panel over the empty output is part of the same idea: it is drawn on top because there is
 // no output yet, not a page you have to leave. It survives typing and goes when a command is
 // actually sent.
-import { openTerminal, readScreen, evaluate, sleep } from '../helpers.mjs';
+import { openTerminal, readScreen, evaluate, sleep, finish } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -84,4 +84,5 @@ r.ok(
 );
 r.ok('and nothing leaked into the terminal', !(await readScreen(second.client)).includes('/tmp'));
 
+await finish();
 r.done();

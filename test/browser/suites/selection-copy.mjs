@@ -5,7 +5,7 @@
 // selection and greyed out Copy in the menu the same click had just opened. Selecting a whole
 // line worked, selecting text and right-clicking beside it did not, which from the outside is
 // simply "sometimes I can't copy".
-import { openTerminal, evaluate, sleep, type } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, type, finish } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -87,4 +87,5 @@ r.ok(
   JSON.stringify(String(clip).slice(0, 40)),
 );
 
+await finish();
 r.done();

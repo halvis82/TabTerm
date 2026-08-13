@@ -123,11 +123,22 @@ export async function groupByProject(tabId: number, projectName: string): Promis
   await chrome.tabGroups.update(groupId, { title: projectName, color: colorFor(projectName) });
 }
 
+/**
+ * Open a terminal at the end of the strip, the way Command+T does.
+ *
+ * It used to open beside the current tab, which is what "open a related thing" should do and is
+ * wrong here: a terminal is not related to the page you happened to be reading. Chrome puts a new
+ * tab at the end, and a terminal that behaves like a tab has to mean this too.
+ *
+ * A tab inside a group is the exception. There, the end of the strip is outside the group, and
+ * being torn out of a group is a bigger surprise than not being last.
+ */
 async function openTerminal(): Promise<void> {
   const [current] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const grouped = current?.groupId !== undefined && current.groupId !== -1;
   const created = await chrome.tabs.create({
     url: chrome.runtime.getURL('terminal.html'),
-    index: current ? current.index + 1 : undefined,
+    ...(grouped ? { index: current.index + 1 } : {}),
     active: true,
   });
   if (created.id !== undefined) await placeInGroup(created.id, current?.groupId);
@@ -350,6 +361,8 @@ async function openTerminalWithStaged(action: {
   const url = new URL(chrome.runtime.getURL('terminal.html'));
   url.searchParams.set('staged', action.text);
   url.searchParams.set('stagedFrom', action.source);
+  // This one keeps its position beside the current tab on purpose: it was opened *about* that
+  // page, unlike a plain new terminal.
   const created = await chrome.tabs.create({
     url: url.toString(),
     index: current ? current.index + 1 : undefined,

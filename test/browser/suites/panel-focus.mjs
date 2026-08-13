@@ -12,6 +12,7 @@ import {
   type,
   press,
   pressInPalette,
+  finish,
 } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
@@ -140,4 +141,5 @@ r.ok(
     (await evaluate(client, `!!document.querySelector('.cmd-empty')`)) === true,
 );
 
+await finish();
 r.done();

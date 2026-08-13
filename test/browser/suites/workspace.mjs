@@ -1,5 +1,5 @@
 // Splits, and the layout surviving a tab being closed and reopened.
-import { openTerminal, evaluate, paneCount, sleep, newTab, connect } from '../helpers.mjs';
+import { openTerminal, evaluate, paneCount, sleep, newTab, connect, finish } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -46,4 +46,5 @@ r.ok(
   (await evaluate(restored, `JSON.stringify(window.__tabterm.paneIds())`)) === pids,
 );
 
+await finish();
 r.done();

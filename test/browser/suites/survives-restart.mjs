@@ -4,7 +4,7 @@
 // screen of output. This is the check that would have caught that, so it runs against the real
 // daemon and restarts it for real. See docs/adr/0017.
 import { execFileSync } from 'node:child_process';
-import { openTerminal, evaluate, readScreen, sleep, type } from '../helpers.mjs';
+import { openTerminal, evaluate, readScreen, sleep, type, finish } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -76,4 +76,5 @@ await type(client, 'kill %1 2>/dev/null');
 await sleep(500);
 void workspace;
 
+await finish();
 r.done();

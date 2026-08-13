@@ -1589,6 +1589,8 @@ declare global {
   interface Window {
     __tabterm?: {
       readScreen: (paneId?: string) => string;
+      /** End every session in this tab, so a test does not abandon them. */
+      endSessions: () => void;
       workspaceId: () => string;
       paneIds: () => string[];
       attached: () => boolean;
@@ -1628,6 +1630,17 @@ declare global {
  */
 function installTestHook(): void {
   window.__tabterm = {
+    /**
+     * End every session in this tab. For tests, which would otherwise abandon them.
+     *
+     * Sessions survive a daemon restart now, so a test run that opened twenty terminals and walked
+     * away left twenty shells running forever. Measured: 468 abandoned sessions after a week.
+     */
+    endSessions: () => {
+      for (const pane of panesHost?.all ?? []) {
+        if (pane.sessionId) client?.send({ t: 'kill-session', sessionId: pane.sessionId });
+      }
+    },
     readScreen: (paneId) => {
       const target = paneId ?? splitView?.focused ?? panesHost?.all[0]?.paneId;
       const pane = target ? panesHost?.get(target) : undefined;

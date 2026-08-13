@@ -4,7 +4,7 @@
 // its parent was a block, so it resolved to zero height and the tab looked simply dark. Splits
 // were unaffected because a split inserts a flex wrapper, and every existing suite split a pane
 // before looking at anything -- so all of them passed while the common case was broken.
-import { openTerminal, evaluate, sleep } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, finish } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -74,4 +74,5 @@ r.ok(
   `${String(after.term?.h ?? 0)}px`,
 );
 
+await finish();
 r.done();

@@ -4,7 +4,7 @@
 // output yet. After a reload the session already exists and may have a screenful of output, and
 // that output used to end up crammed into the small strip the panel leaves behind, which is
 // what a reload looked like from the outside: the menu comes back and everything is squashed.
-import { openTerminal, evaluate, readScreen, sleep } from '../helpers.mjs';
+import { openTerminal, evaluate, readScreen, sleep, finish } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -55,4 +55,5 @@ r.ok(
   (await readScreen(client)).includes('RELOAD-MARKER'),
 );
 
+await finish();
 r.done();

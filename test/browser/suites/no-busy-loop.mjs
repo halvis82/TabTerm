@@ -8,7 +8,7 @@
 // Nothing looked broken. The loop is invisible, and what showed instead was every other message
 // starved behind it: typing appeared to do nothing at all. It also grew worse the more the
 // product was used, because each additional recent folder added another question per render.
-import { openTerminal, evaluate, sleep, type, readScreen } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, type, readScreen, finish } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -37,4 +37,5 @@ await type(client, 'echo NOT-STARVED');
 await sleep(1500);
 r.ok('typing reaches the shell', (await readScreen(client)).includes('NOT-STARVED'));
 
+await finish();
 r.done();

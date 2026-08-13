@@ -2,7 +2,7 @@
 //
 // A path is not enough to recognise a terminal, so this checks the preview carries the actual
 // output, and that "open in a tab" is told apart from "no tab".
-import { openTerminal, evaluate, sleep, type } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, type, finish } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -68,4 +68,5 @@ r.ok(
   `${String(before)} -> ${String(after)}`,
 );
 
+await finish();
 r.done();

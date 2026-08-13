@@ -7,6 +7,28 @@ export const EXT_ID = JSON.parse(readFileSync(new URL('package.json', root), 'ut
   .extensionId;
 
 /** Open a terminal page and wait for it to attach to a session. */
+/**
+ * Every terminal a suite opened, so it can end them.
+ *
+ * Sessions outlive the daemon now, so a suite that walks away leaves shells running on the
+ * machine forever. They accumulated into the hundreds before anybody noticed, because nothing
+ * in a passing test run says "and twenty processes are still here".
+ */
+const opened = [];
+
+/** End every session these tests started, and close their tabs. */
+export async function finish() {
+  for (const client of opened) {
+    try {
+      await evaluate(client, `window.__tabterm?.endSessions?.()`);
+    } catch {
+      // A tab that already went away has nothing left to clean up.
+    }
+  }
+  opened.length = 0;
+  await sleep(400);
+}
+
 export async function openTerminal(query = '') {
   const tab = await newTab(`chrome-extension://${EXT_ID}/terminal.html${query}`);
   const client = connect(tab.webSocketDebuggerUrl);
@@ -18,6 +40,7 @@ export async function openTerminal(query = '') {
   // the page looks perfectly healthy and simply never receives anything.
   await client.send('Page.bringToFront');
   await sleep(4000);
+  opened.push(client);
   return { client, tab };
 }
 

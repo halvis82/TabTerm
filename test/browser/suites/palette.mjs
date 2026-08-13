@@ -6,6 +6,7 @@ import {
   evaluate,
   sleep,
   paneCount,
+  finish,
 } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
@@ -84,4 +85,5 @@ r.ok(
   `${String(await paneCount(client))} panes`,
 );
 
+await finish();
 r.done();

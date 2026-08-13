@@ -11,6 +11,7 @@ import {
   sleep,
   readScreen,
   type,
+  finish,
 } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
@@ -146,4 +147,5 @@ r.ok(
   'no output line for it',
 );
 
+await finish();
 r.done();

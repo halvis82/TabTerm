@@ -1,5 +1,14 @@
 // The premise: a Chrome tab is a real terminal.
-import { openTerminal, type, readScreen, paneCount, interrupt, press, sleep } from '../helpers.mjs';
+import {
+  openTerminal,
+  type,
+  readScreen,
+  paneCount,
+  interrupt,
+  press,
+  sleep,
+  finish,
+} from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -32,4 +41,5 @@ r.ok(
 await interrupt(client);
 await sleep(600);
 
+await finish();
 r.done();

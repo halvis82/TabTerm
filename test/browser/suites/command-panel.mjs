@@ -3,7 +3,7 @@
 // Selection and action are separate steps everywhere in this product, and this is the surface
 // where that matters most: the list sits over a live terminal, and a click that pasted would
 // mean you could never read a command before choosing it.
-import { openTerminal, evaluate, readScreen, sleep, type } from '../helpers.mjs';
+import { openTerminal, evaluate, readScreen, sleep, type, finish } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -186,4 +186,5 @@ r.ok(
   Number(await evaluate(client, `document.querySelectorAll('.cmd-key-row').length`)) > 3,
 );
 
+await finish();
 r.done();

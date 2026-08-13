@@ -3,7 +3,7 @@
 // The favicon is the only part of a terminal visible from another tab, so what it shows and how
 // long it keeps showing it is the whole feature. Checked against the real daemon, because the
 // threshold is enforced there and a page-side test would be checking nothing.
-import { openTerminal, evaluate, sleep, type } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, type, finish } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -173,4 +173,5 @@ r.ok(
   afterFailure,
 );
 
+await finish();
 r.done();

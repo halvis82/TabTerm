@@ -1,5 +1,5 @@
 // A cloned repository can declare a workspace. Nothing about it runs without a decision.
-import { openTerminal, type, evaluate, sleep } from '../helpers.mjs';
+import { openTerminal, type, evaluate, sleep, finish } from '../helpers.mjs';
 import { reporter, connect } from '../cdp.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -92,4 +92,5 @@ if (fresh[0]) {
   r.ok('and the declared command ran', String(screen).includes('PROJECT-LEFT'));
 }
 
+await finish();
 r.done();
