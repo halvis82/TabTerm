@@ -2,6 +2,7 @@ import { existsSync, openSync, closeSync, writeFileSync, readFileSync, unlinkSyn
 import { error, info, initLog } from '../log.js';
 import { PtyHost } from './host.js';
 import { HOST_LOCK, HOST_SOCKET } from './paths.js';
+import { paths } from '../config.js';
 
 /**
  * The PTY host, as a process.
@@ -55,7 +56,7 @@ async function main(): Promise<void> {
 
   for (const signal of IGNORED) process.on(signal, () => {});
 
-  const host = new PtyHost(HOST_SOCKET);
+  const host = new PtyHost(HOST_SOCKET, paths.scrollback);
   await host.listen();
   info('pty-host.listening', { socket: HOST_SOCKET, pid: process.pid });
 

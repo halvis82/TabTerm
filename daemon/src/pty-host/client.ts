@@ -256,6 +256,11 @@ export class PtyHostClient {
     this.#send({ t: 'resize', sessionId, cols, rows });
   }
 
+  /** Everything kept on disk for a session, including one whose process has ended. */
+  async history(sessionId: string): Promise<void> {
+    await this.#request({ t: 'history', sessionId }, 'history-end');
+  }
+
   /** Drop a session's buffered output. Part of clear actually clearing. */
   clear(sessionId: string): void {
     this.#send({ t: 'clear', sessionId });

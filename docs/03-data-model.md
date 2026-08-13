@@ -521,3 +521,15 @@ command end.
 | Logs | 7 days, rotated | 3 days | 30 days |
 
 Nothing syncs off the machine. Ever. There is no remote endpoint in the codebase.
+
+
+---
+
+## Scrollback files
+
+`~/.local/state/tabterm/scrollback/<session>.log`, one per session, owner-readable only.
+
+Not in SQLite deliberately. This is an append-only byte stream with no queries run against it,
+and putting it in the database would mean a write amplification on every keystroke of output for
+a lookup nobody performs. It is also the thing most worth being able to delete by removing a
+file. See `07-terminal-fidelity.md`.

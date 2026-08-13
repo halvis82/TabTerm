@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { killPty, spawnPty, type PtyHandle, type PtyOptions } from '../pty-manager.js';
 import { controlFrame, decodeFrames, outputFrame } from './framing.js';
+import { ScrollbackStore } from './scrollback-store.js';
 
 /**
  * The process that owns every PTY, and nothing else.
@@ -56,10 +57,18 @@ export class PtyHost {
   readonly #clients = new Set<Socket>();
   readonly #server: Server;
   readonly #socketPath: string;
+  readonly #store: ScrollbackStore;
 
-  constructor(socketPath: string) {
+  constructor(socketPath: string, scrollbackDirectory: string) {
     this.#socketPath = socketPath;
     this.#server = createServer((socket) => this.#accept(socket));
+    // The ring redraws a screen after the daemon restarts. This survives the host restarting
+    // and the machine rebooting, which is the difference between a session and its history.
+    this.#store = new ScrollbackStore({
+      directory: scrollbackDirectory,
+      budgetBytes: this.#ringBytes,
+    });
+    this.#store.prune();
   }
 
   listen(): Promise<void> {
@@ -227,6 +236,8 @@ export class PtyHost {
           live.ringBytes = 0;
           delete live.stash;
         }
+        // On disk too, or clearing is only true until something reads the history back.
+        this.#store.clear(id);
         return;
       }
 
@@ -234,7 +245,26 @@ export class PtyHost {
         // One number governs every copy of the scrollback, so raising it means more history
         // actually survives an update rather than only more being visible now.
         const bytes = Number(msg['bytes']);
-        if (Number.isFinite(bytes) && bytes > 0) this.#ringBytes = Math.floor(bytes);
+        if (Number.isFinite(bytes) && bytes > 0) {
+          this.#ringBytes = Math.floor(bytes);
+          this.#store.setBudget(this.#ringBytes);
+        }
+        return;
+      }
+
+      case 'history': {
+        // Everything kept for a session, even one whose process is long gone. This is what an
+        // expired tab can offer instead of an apology.
+        const data = this.#store.read(id);
+        if (!socket.destroyed && data.length > 0) {
+          socket.write(outputFrame({ sessionId: id, seq: 0, data }));
+        }
+        this.#send(socket, { t: 'history-end', sessionId: id, bytes: data.length });
+        return;
+      }
+
+      case 'usage': {
+        this.#send(socket, { t: 'usage', ...this.#store.usage() });
         return;
       }
 
@@ -243,6 +273,9 @@ export class PtyHost {
         if (!live) return;
         this.#sessions.delete(id);
         void killPty(live.handle, id);
+        // The process is gone on purpose, so its history goes with it. Ending a session and
+        // leaving its output on disk would be a surprise in the wrong direction.
+        this.#store.clear(id);
         return;
       }
 
@@ -256,6 +289,7 @@ export class PtyHost {
       const data = Buffer.from(chunk, 'binary');
       live.seq += data.length;
       const copy = new Uint8Array(data);
+      this.#store.append(live.id, copy);
       live.ring.push({ seq: live.seq, data: copy });
       live.ringBytes += copy.length;
       // Dropped from the front, because the recent past is what redraws a screen.

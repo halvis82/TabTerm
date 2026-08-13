@@ -278,8 +278,30 @@ figure.
 |---|---|
 | Default | 5 MB per session |
 | Range | 1 MB to 50 MB |
-| Applies to | The tab's buffer, the daemon's terminal state, and the PTY host's buffer |
+| Applies to | The tab's buffer, the daemon's terminal state, the PTY host's buffer, and the history on disk |
 
 The last one matters more than it looks: the host's buffer is what survives a daemon restart, so
 raising this means more of your history comes back after an update, not merely more of it being
 visible now. See `adr/0017`.
+
+---
+
+## History on disk
+
+The host's ring redraws a screen after the daemon restarts. It is memory, so it dies with the
+host and with the machine. **History is also written to disk as it arrives**, at
+`~/.local/state/tabterm/scrollback/<session>.log`, which is what survives everything else.
+
+| | |
+|---|---|
+| Written | As output arrives, append only |
+| Mode | `0600`, in a `0700` directory |
+| Size | Bounded by the same per-session budget, compacted by rewriting through a temporary file and renaming, so a crash leaves either the old history or the new one |
+| Pruned | Files untouched for thirty days |
+| Removed | On clear, and when a session is deliberately ended |
+
+Ending a session takes its history with it. Leaving a terminal's output on disk after somebody
+closed it is a surprise in the wrong direction.
+
+This is the most revealing thing the product stores, since it is literally everything a terminal
+printed. That is why it is owner-only, bounded, pruned, and gone the moment you clear.
