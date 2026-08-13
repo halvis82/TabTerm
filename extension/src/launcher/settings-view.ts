@@ -139,10 +139,34 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
       option.textContent = text;
       select.append(option);
     }
-    select.value = timeout === null ? 'forever' : String(timeout);
-    select.addEventListener('change', () =>
-      options.onChangeBackgroundTimeout(select.value === 'forever' ? null : Number(select.value)),
-    );
+    /**
+     * A stored value that is not one of the offered choices still has to select something.
+     *
+     * Otherwise the select sits with no selection, and the next change event reads as an empty
+     * string, which becomes 0, which the daemon reads as "keep forever". That is how choosing a
+     * timeout could silently turn the timeout off, which is the opposite of what was clicked.
+     */
+    const wanted = timeout === null ? 'forever' : String(timeout);
+    if (
+      !TIMEOUT_CHOICES.some(
+        ([seconds]) => (seconds === null ? 'forever' : String(seconds)) === wanted,
+      )
+    ) {
+      const custom = document.createElement('option');
+      custom.value = wanted;
+      custom.textContent = `${String(Math.round((timeout ?? 0) / 60))} minutes`;
+      select.append(custom);
+    }
+    select.value = wanted;
+    select.addEventListener('change', () => {
+      if (select.value === 'forever') {
+        options.onChangeBackgroundTimeout(null);
+        return;
+      }
+      const seconds = Number(select.value);
+      // Never send a zero. Only an explicit "keep forever" should turn the timeout off.
+      if (Number.isFinite(seconds) && seconds > 0) options.onChangeBackgroundTimeout(seconds);
+    });
     field.append(label, select);
     wrap.append(field);
   }
