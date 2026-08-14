@@ -1147,6 +1147,14 @@
     flex-direction: column;
     gap: 8px;
   }
+  /* A drop that carries a path, and one that does not. */
+  .launcher-input.is-drop-target {
+    border-color: #7aa2f7;
+    background: rgba(61, 107, 168, 0.12);
+  }
+  .launcher-input.is-drop-refused {
+    border-color: #ff8a7a;
+  }
   .launcher-input {
     width: 100%;
     box-sizing: border-box;
@@ -1171,22 +1179,48 @@
     flex-wrap: wrap;
   }
   .launcher-chip {
-    background: #262a38;
-    border: 1px solid #343a4d;
-    color: #d5d8e2;
-    border-radius: 6px;
     padding: 5px 11px;
+    border-radius: 7px;
+    border: 1px solid rgba(90, 100, 130, 0.38);
+    background: rgba(26, 28, 38, 0.7);
+    color: #cdd2dd;
+    font: inherit;
     font-size: 12px;
     cursor: pointer;
+    transition:
+      border-color 120ms ease,
+      color 120ms ease;
   }
+  .launcher-chip:hover {
+    border-color: #3d6ba8;
+    color: #e8e8e8;
+  }
+  /**
+   * The one Return will run.
+   *
+   * This blue used to mark "Open agent here", which made the least common action look like the
+   * default. It marks the selection now, so what a keystroke will do is always the thing that
+   * looks chosen.
+   */
+  .launcher-chip.is-selected {
+    border-color: #7aa2f7;
+    box-shadow: 0 0 0 1px rgba(122, 162, 247, 0.55);
+    color: #e8e8e8;
+    background: rgba(61, 107, 168, 0.18);
+  }
+  .launcher-chip:focus-visible {
+    outline: none;
+    border-color: #7aa2f7;
+  }
+  .launcher-add-template {
+    padding: 5px 10px;
+    color: #7d8496;
+    border-style: dashed;
+  }
+
   .launcher-chip:hover {
     background: #2f3547;
     border-color: #4a5573;
-  }
-  .launcher-chip.agent {
-    background: #24384a;
-    border-color: #3c5a76;
-    color: #a8cbf0;
   }
   .launcher-chip.agent:hover {
     background: #2d4459;

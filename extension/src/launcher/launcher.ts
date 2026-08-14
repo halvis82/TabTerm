@@ -1,5 +1,6 @@
 import { buildSessions } from './sessions-view.js';
 import type {
+  LayoutShape,
   LiveSession,
   LauncherState,
   LocalServer,
@@ -24,7 +25,16 @@ export interface LauncherOptions {
   root: HTMLElement;
   onLaunchAgent: (path: string) => void;
   onChooseDir: (path: string) => void;
-  onCreateLayout: (path: string, panes: number, direction: 'horizontal' | 'vertical') => void;
+  onCreateLayout: (
+    path: string,
+    panes: number,
+    direction: 'horizontal' | 'vertical',
+    shape?: LayoutShape,
+  ) => void;
+  /** Save the current folder as a template that runs a command in each pane. */
+  onAddTemplate: (path: string) => void;
+  /** A drop carried no path, which is what a Finder drag does. See ADR-0014. */
+  onDropRejected?: () => void;
   onPinDir: (path: string, pinned: boolean) => void;
   onForgetDir: (path: string) => void;
   /** Ask the daemon what a directory declares. Answers arrive via projectConfig(). */
@@ -117,6 +127,8 @@ export class Launcher {
 
   #liveSessions: LiveSession[] = [];
   #dirInput: HTMLInputElement | null = null;
+  /** Which layout Return will run. Open, because that is what almost everybody wants. */
+  #selectedAction = 0;
   #completionList: HTMLElement | null = null;
 
   /**
@@ -272,34 +284,130 @@ export class Launcher {
     // A new keystroke makes any pending suggestion stale.
     input.addEventListener('input', () => this.#clearCompletion());
 
+    /**
+     * Dropping a path in.
+     *
+     * `text/uri-list` and `text/plain` are what another application hands over when it drags
+     * something it thinks of as a path, and they carry a real one. A file dragged from Finder
+     * does **not**: HTML5 drag and drop yields a `File` with a name and no path, which ADR-0014
+     * cut the feature over. So this takes what is genuinely offered and says plainly when a drop
+     * carried nothing usable, rather than failing silently and looking broken.
+     */
+    input.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      input.classList.add('is-drop-target');
+    });
+    input.addEventListener('dragleave', () => input.classList.remove('is-drop-target'));
+    input.addEventListener('drop', (e) => {
+      e.preventDefault();
+      input.classList.remove('is-drop-target');
+      const path = pathFromDrop(e.dataTransfer);
+      if (path) {
+        input.value = path;
+        input.focus();
+        this.#clearCompletion();
+        return;
+      }
+      // Nothing usable, which is what a Finder drag produces. Say so where it was dropped.
+      input.classList.add('is-drop-refused');
+      setTimeout(() => input.classList.remove('is-drop-refused'), 1200);
+      this.#opts.onDropRejected?.();
+    });
+
     const buttons = document.createElement('div');
     buttons.className = 'launcher-buttons';
 
-    const agent = document.createElement('button');
-    agent.className = 'launcher-chip agent';
-    agent.textContent = 'Open agent here';
-    agent.addEventListener('click', () => {
-      this.#opts.onLaunchAgent(input.value.trim() || state.home);
-    });
-
-    const presets: { label: string; panes: number; dir: 'horizontal' | 'vertical' }[] = [
-      { label: 'Open', panes: 1, dir: 'horizontal' },
-      { label: 'Split in 2', panes: 2, dir: 'horizontal' },
-      { label: '3 panes', panes: 3, dir: 'horizontal' },
-      { label: '3 stacked', panes: 3, dir: 'vertical' },
+    /**
+     * The layouts, with one selected.
+     *
+     * Choosing a folder no longer starts anything: it sets the path, and a layout button starts
+     * it. `Open` is selected from the outset because it is what almost everybody wants, and the
+     * selection moves with Tab so the whole box can be driven from the keyboard. The selected
+     * one carries the outline, which is why `Open agent here` no longer looks like a default it
+     * never was.
+     */
+    const actions: {
+      label: string;
+      run: (path: string) => void;
+      title: string;
+    }[] = [
+      {
+        label: 'Open',
+        title: 'One terminal in this folder',
+        run: (path) => this.#opts.onChooseDir(path),
+      },
+      {
+        label: 'Split in 2',
+        title: 'Two side by side',
+        run: (path) => this.#opts.onCreateLayout(path, 2, 'horizontal', 'columns'),
+      },
+      {
+        label: '1 + 2',
+        title: 'One on the left, two stacked on the right',
+        run: (path) => this.#opts.onCreateLayout(path, 3, 'horizontal', 'one-plus-two'),
+      },
+      {
+        label: '4 panes',
+        title: 'One in each corner',
+        run: (path) => this.#opts.onCreateLayout(path, 4, 'horizontal', 'quad'),
+      },
+      {
+        label: 'Open agent here',
+        title: 'Start an agent CLI in this folder',
+        run: (path) => this.#opts.onLaunchAgent(path),
+      },
     ];
-    for (const preset of presets) {
-      const b = document.createElement('button');
-      b.className = 'launcher-chip';
-      b.textContent = preset.label;
-      b.addEventListener('click', () => {
-        const path = input.value.trim() || state.home;
-        if (preset.panes === 1) this.#opts.onChooseDir(path);
-        else this.#opts.onCreateLayout(path, preset.panes, preset.dir);
+
+    const chips: HTMLButtonElement[] = [];
+    const select = (index: number): void => {
+      this.#selectedAction = (index + actions.length) % actions.length;
+      chips.forEach((chip, i) => chip.classList.toggle('is-selected', i === this.#selectedAction));
+    };
+
+    for (const [index, action] of actions.entries()) {
+      const chip = document.createElement('button');
+      chip.className = 'launcher-chip';
+      chip.textContent = action.label;
+      chip.title = action.title;
+      chip.addEventListener('click', () => {
+        select(index);
+        action.run(input.value.trim() || state.home);
       });
-      buttons.append(b);
+      // Clicking or tabbing to a chip selects it, so what Return will do is always visible.
+      chip.addEventListener('focus', () => select(index));
+      chips.push(chip);
+      buttons.append(chip);
     }
-    buttons.append(agent);
+
+    const addTemplate = document.createElement('button');
+    addTemplate.className = 'launcher-chip launcher-add-template';
+    addTemplate.textContent = '+';
+    addTemplate.title = 'Save this layout as a template that runs a command in each pane';
+    addTemplate.addEventListener('click', () => {
+      this.#opts.onAddTemplate(input.value.trim() || state.home);
+    });
+    buttons.append(addTemplate);
+
+    select(this.#selectedAction);
+
+    /**
+     * Tab moves between the layouts, Return runs the selected one.
+     *
+     * Handled on the input, because that is where somebody is typing when they decide. Tab in a
+     * text field would otherwise move focus out of the box entirely, and the completion handler
+     * above has first claim on it while there is a path fragment to complete.
+     */
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || (e.key === 'Tab' && e.shiftKey)) {
+        e.preventDefault();
+        select(this.#selectedAction + (e.shiftKey ? -1 : 1));
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        actions[this.#selectedAction]?.run(input.value.trim() || state.home);
+      }
+    });
 
     const note = document.createElement('div');
     note.className = 'launcher-note';
@@ -721,4 +829,26 @@ function relativeAge(at: number): string {
 
 export function shorten(path: string, home: string): string {
   return path.startsWith(home) ? `~${path.slice(home.length)}` : path;
+}
+
+/**
+ * A usable path out of a drop, or nothing.
+ *
+ * `file://` URLs need decoding, since a dragged path with a space arrives percent encoded and
+ * would otherwise open a directory that does not exist.
+ */
+export function pathFromDrop(data: DataTransfer | null): string {
+  if (!data) return '';
+  const uri = data.getData('text/uri-list').split('\n')[0]?.trim() ?? '';
+  if (uri.startsWith('file://')) {
+    try {
+      return decodeURIComponent(new URL(uri).pathname);
+    } catch {
+      return '';
+    }
+  }
+  const text = data.getData('text/plain').trim();
+  // A path, not a sentence somebody happened to drag.
+  if (text.startsWith('/') || text.startsWith('~/')) return text.split('\n')[0] ?? '';
+  return '';
 }

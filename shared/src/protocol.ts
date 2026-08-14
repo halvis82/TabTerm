@@ -20,6 +20,7 @@ import type {
   SavedKind,
   TitleFields,
   LiveSession,
+  LayoutShape,
   NotifyPolicy,
   AgentHooksStatus,
   ShellIntegrationStatus,
@@ -313,6 +314,14 @@ export type ClientMessage =
       path: string;
       panes: number;
       direction: 'horizontal' | 'vertical';
+      /**
+       * The arrangement, when it is not a simple row or column.
+       *
+       * `panes` and `direction` alone can only describe splitting the same way repeatedly, which
+       * cannot express one pane beside two stacked ones, or four in the corners. Absent means the
+       * old behaviour, so nothing that already worked has to change.
+       */
+      shape?: LayoutShape;
       createIfMissing: boolean;
       cols: number;
       rows: number;

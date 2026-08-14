@@ -668,13 +668,23 @@ function buildLauncher(): void {
       sendToFocusedPane(`cd ${quote(path)}\r`);
       launcher?.dismiss();
     },
-    onCreateLayout: (path, panesWanted, direction) => {
+    onAddTemplate: (path) => {
+      // Not built yet. Saying so is better than a button that appears to work.
+      setStatus(`Layout templates are not built yet (${path})`, 'warn');
+      setTimeout(() => setStatus('', 'hidden'), 3000);
+    },
+    onDropRejected: () => {
+      setStatus('That drop carried no path. Finder cannot provide one, see the docs.', 'warn');
+      setTimeout(() => setStatus('', 'hidden'), 4000);
+    },
+    onCreateLayout: (path, panesWanted, direction, shape) => {
       const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
       client?.send({
         t: 'create-layout',
         path,
         panes: panesWanted,
         direction,
+        ...(shape ? { shape } : {}),
         createIfMissing: true,
         ...size,
       });

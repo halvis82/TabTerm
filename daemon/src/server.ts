@@ -42,7 +42,7 @@ import type { PluginHost } from './plugin-api.js';
 import type { ProjectIndex } from './project-index.js';
 import type { WorkspaceStore } from './workspace-store.js';
 import type { Session, SessionManager } from './session-manager.js';
-import type { LiveSession } from '@tabterm/shared';
+import type { LayoutShape, LiveSession } from '@tabterm/shared';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -1826,6 +1826,7 @@ export class DaemonServer {
       path: string;
       panes: number;
       direction: 'horizontal' | 'vertical';
+      shape?: LayoutShape;
       createIfMissing: boolean;
       cols: number;
       rows: number;
@@ -1854,13 +1855,33 @@ export class DaemonServer {
     const count = Math.min(6, Math.max(1, Math.floor(msg.panes)));
     const first = this.#sessions.create({ cwd: target, cols: msg.cols, rows: msg.rows });
     const { workspace } = this.#workspaces.create(first.id);
+    const rootPane = this.#workspaces.paneFor(workspace, first.id) as string;
 
-    let anchor = this.#workspaces.paneFor(workspace, first.id) as string;
-    for (let i = 1; i < count; i++) {
-      const session = this.#sessions.create({ cwd: target, cols: msg.cols, rows: msg.rows });
-      const result = this.#workspaces.split(workspace.id, anchor, msg.direction, session.id);
-      // Chain from the newest pane, so three panes come out evenly rather than nested one deep.
-      anchor = result.paneId;
+    /** Another shell in the same directory, for a pane that is about to exist. */
+    const spawn = (): string =>
+      this.#sessions.create({ cwd: target, cols: msg.cols, rows: msg.rows }).id;
+    const split = (pane: string, direction: 'horizontal' | 'vertical'): string =>
+      this.#workspaces.split(workspace.id, pane, direction, spawn()).paneId;
+
+    /**
+     * Arrangements that repeated splitting cannot describe.
+     *
+     * One beside two stacked, and four in the corners, both need a particular pane split rather
+     * than always the newest one. Everything else chains from the newest, which is what makes
+     * three panes come out evenly rather than nested one deep.
+     */
+    if (msg.shape === 'one-plus-two') {
+      const right = split(rootPane, 'horizontal');
+      split(right, 'vertical');
+    } else if (msg.shape === 'quad') {
+      const right = split(rootPane, 'horizontal');
+      split(rootPane, 'vertical');
+      split(right, 'vertical');
+    } else {
+      let anchor = rootPane;
+      for (let i = 1; i < count; i++) {
+        anchor = split(anchor, msg.direction);
+      }
     }
 
     this.#launcher.recordDir(target);

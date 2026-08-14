@@ -321,3 +321,11 @@ export interface LiveSession {
    */
   memoryBytes: number;
 }
+
+/**
+ * Named arrangements the start screen can ask for.
+ *
+ * `columns` and `rows` are the repeated split that `panes` and `direction` used to describe on
+ * their own. The other two cannot be expressed that way, which is why this exists.
+ */
+export type LayoutShape = 'single' | 'columns' | 'rows' | 'one-plus-two' | 'quad';
