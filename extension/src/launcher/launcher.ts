@@ -269,6 +269,15 @@ export class Launcher {
 
   render(): void {
     if (this.#dismissed || !this.#state) return;
+    /**
+     * Keep what was typed.
+     *
+     * This rebuilds the whole panel, and it runs whenever the daemon reports anything, including
+     * the session list refreshing on its own. Somebody halfway through typing a path would watch
+     * it vanish for no reason they could see.
+     */
+    const typed = this.#dirInput?.value ?? '';
+    const hadFocus = document.activeElement === this.#dirInput;
     const state = this.#state;
 
     const sections: HTMLElement[] = [];
@@ -343,6 +352,11 @@ export class Launcher {
 
     this.#el.replaceChildren(body, hint);
     this.#el.hidden = false;
+
+    if (typed && this.#dirInput) {
+      this.#dirInput.value = typed;
+      if (hadFocus) this.#dirInput.focus();
+    }
   }
 
   #layoutSection(state: LauncherState): HTMLElement {

@@ -8,6 +8,22 @@ import { openTerminal, evaluate, readScreen, sleep, type, finish } from '../help
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
+
+/**
+ * Wait for the start screen rather than guessing at how long it takes.
+ *
+ * A fixed sleep is enough when this suite runs alone and not when fifteen tabs are already open,
+ * which is exactly the difference between passing here and failing in a full run.
+ */
+// eslint-disable-next-line no-unused-vars
+async function launcherReady(client) {
+  for (let i = 0; i < 40; i++) {
+    if (await evaluate(client, `!!document.querySelector('.launcher-input')`)) return true;
+    await sleep(250);
+  }
+  return false;
+}
+
 const { client } = await openTerminal();
 await sleep(800);
 
@@ -93,10 +109,15 @@ for (const [chip, wanted] of [
   );
   await evaluate(
     fresh.client,
-    `[...document.querySelectorAll('.launcher-chip')].find((c) => c.textContent === ${JSON.stringify(chip)})?.click()`,
+    `[...document.querySelectorAll('.launcher-chip')].find((c) => c.firstChild?.textContent === ${JSON.stringify(chip)})?.click()`,
   );
-  await sleep(6500);
-  const panes = Number(await evaluate(fresh.client, `window.__tabterm?.paneIds().length ?? 0`));
+  // Panes arrive over a socket, so wait for the count rather than for a duration.
+  let panes = 0;
+  for (let i = 0; i < 40; i++) {
+    panes = Number(await evaluate(fresh.client, `window.__tabterm?.paneIds().length ?? 0`));
+    if (panes >= wanted) break;
+    await sleep(300);
+  }
   r.ok(
     `${chip} builds ${String(wanted)} panes in the tab it was chosen from`,
     panes === wanted,
@@ -119,7 +140,7 @@ await evaluate(
 );
 await evaluate(
   opener.client,
-  `[...document.querySelectorAll('.launcher-chip')].find((c) => c.textContent === 'Open')?.click()`,
+  `[...document.querySelectorAll('.launcher-chip')].find((c) => c.firstChild?.textContent === 'Open')?.click()`,
 );
 await sleep(2500);
 await type(opener.client, 'pwd');
