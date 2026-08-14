@@ -1,4 +1,5 @@
 import { buildSessions } from './sessions-view.js';
+import { panesFor, type LayoutTemplate } from './templates.js';
 import type {
   LayoutShape,
   LiveSession,
@@ -31,8 +32,9 @@ export interface LauncherOptions {
     direction: 'horizontal' | 'vertical',
     shape?: LayoutShape,
   ) => void;
-  /** Save the current folder as a template that runs a command in each pane. */
-  onAddTemplate: (path: string) => void;
+  onSaveTemplate: (template: LayoutTemplate) => void;
+  onRunTemplate: (template: LayoutTemplate) => void;
+  onDeleteTemplate: (id: string) => void;
   /** A drop carried no path, which is what a Finder drag does. See ADR-0014. */
   onDropRejected?: () => void;
   onPinDir: (path: string, pinned: boolean) => void;
@@ -138,6 +140,14 @@ export class Launcher {
   #browsing = false;
   #browsePath = '~/';
   #browserEl: HTMLElement | null = null;
+  #templateFormEl: HTMLElement | null = null;
+  #templates: LayoutTemplate[] = [];
+
+  /** Templates the daemon-independent store gave us. Rendered as chips of their own. */
+  setTemplates(templates: readonly LayoutTemplate[]): void {
+    this.#templates = [...templates];
+    if (!this.#dismissed) this.render();
+  }
 
   /**
    * The answer to a Tab press.
@@ -260,6 +270,76 @@ export class Launcher {
 
     input.parentElement?.append(panel);
     this.#browserEl = panel;
+  }
+
+  /**
+   * Saving a template: a name, and a command for each pane the shape will make.
+   *
+   * Inline rather than a dialog, because everything it needs is already on this screen and the
+   * folder it is about is in the box above it.
+   */
+  #showTemplateForm(path: string, shape: LayoutShape = 'single'): void {
+    this.#templateFormEl?.remove();
+    const panes = panesFor(shape);
+
+    const form = document.createElement('div');
+    form.className = 'launcher-template-form';
+
+    const name = document.createElement('input');
+    name.className = 'launcher-input';
+    name.placeholder = `Name this layout (${String(panes)} pane${panes === 1 ? '' : 's'} in ${path})`;
+    name.spellcheck = false;
+    name.addEventListener('keydown', (e) => e.stopPropagation());
+    form.append(name);
+
+    const commandInputs: HTMLInputElement[] = [];
+    for (let i = 0; i < panes; i++) {
+      const command = document.createElement('input');
+      command.className = 'launcher-input launcher-template-command';
+      command.placeholder = `Pane ${String(i + 1)} command, staged not run`;
+      command.spellcheck = false;
+      command.addEventListener('keydown', (e) => e.stopPropagation());
+      commandInputs.push(command);
+      form.append(command);
+    }
+
+    const row = document.createElement('div');
+    row.className = 'launcher-buttons';
+
+    const save = document.createElement('button');
+    save.className = 'launcher-chip is-selected';
+    save.textContent = 'Save template';
+    save.addEventListener('click', () => {
+      const label = name.value.trim();
+      if (!label) {
+        name.focus();
+        return;
+      }
+      void this.#opts.onSaveTemplate({
+        id: `t-${String(Date.now())}`,
+        name: label,
+        path,
+        shape,
+        panes,
+        commands: commandInputs.map((c) => c.value.trim()),
+      });
+      form.remove();
+      this.#templateFormEl = null;
+    });
+
+    const cancel = document.createElement('button');
+    cancel.className = 'launcher-chip';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', () => {
+      form.remove();
+      this.#templateFormEl = null;
+    });
+
+    row.append(save, cancel);
+    form.append(row);
+    this.#dirInput?.parentElement?.append(form);
+    this.#templateFormEl = form;
+    name.focus();
   }
 
   #clearCompletion(): void {
@@ -463,25 +543,30 @@ export class Launcher {
       label: string;
       run: (path: string) => void;
       title: string;
+      shape?: LayoutShape;
     }[] = [
       {
         label: 'Open',
         title: 'One terminal in this folder',
+        shape: 'single',
         run: (path) => this.#opts.onChooseDir(path),
       },
       {
         label: 'Split in 2',
         title: 'Two side by side',
+        shape: 'columns',
         run: (path) => this.#opts.onCreateLayout(path, 2, 'horizontal', 'columns'),
       },
       {
         label: '1 + 2',
         title: 'One on the left, two stacked on the right',
+        shape: 'one-plus-two',
         run: (path) => this.#opts.onCreateLayout(path, 3, 'horizontal', 'one-plus-two'),
       },
       {
         label: '4 panes',
         title: 'One in each corner',
+        shape: 'quad',
         run: (path) => this.#opts.onCreateLayout(path, 4, 'horizontal', 'quad'),
       },
       {
@@ -526,7 +611,10 @@ export class Launcher {
     addTemplate.textContent = '+';
     addTemplate.title = 'Save this layout as a template that runs a command in each pane';
     addTemplate.addEventListener('click', () => {
-      this.#opts.onAddTemplate(input.value.trim() || state.home);
+      this.#showTemplateForm(
+        input.value.trim() || state.home,
+        actions[this.#selectedAction]?.shape,
+      );
     });
     buttons.append(addTemplate);
 
@@ -568,6 +656,30 @@ export class Launcher {
         actions[this.#selectedAction]?.run(input.value.trim() || state.home);
       }
     });
+
+    if (this.#templates.length > 0) {
+      const saved = document.createElement('div');
+      saved.className = 'launcher-buttons launcher-templates';
+      for (const template of this.#templates) {
+        const chip = document.createElement('button');
+        chip.className = 'launcher-chip launcher-template';
+        chip.textContent = template.name;
+        chip.title = `${String(template.panes)} panes in ${template.path}`;
+        chip.addEventListener('click', () => this.#opts.onRunTemplate(template));
+        const remove = document.createElement('span');
+        remove.className = 'launcher-template-remove';
+        remove.textContent = '×';
+        remove.title = 'Forget this template';
+        remove.addEventListener('click', (e) => {
+          // Without this the click also runs the template it just removed.
+          e.stopPropagation();
+          this.#opts.onDeleteTemplate(template.id);
+        });
+        chip.append(remove);
+        saved.append(chip);
+      }
+      form.append(saved);
+    }
 
     const note = document.createElement('div');
     note.className = 'launcher-note';

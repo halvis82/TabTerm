@@ -23,6 +23,7 @@ import { DEFAULT_PLACEMENT, type PanelPlacement } from '../launcher/command-pane
 import { buildSettings } from '../launcher/settings-view.js';
 import { buildReset, buildResetDone } from '../launcher/reset-view.js';
 import { quotePath } from './quote-path.js';
+import { loadTemplates, saveTemplates, type LayoutTemplate } from '../launcher/templates.js';
 import type {
   AgentHooksStatus,
   LiveSession,
@@ -95,6 +96,8 @@ let scrollbackBytes: number | null = null;
 let backgroundTimeout: number | null | undefined;
 /** A layout was asked for from this tab's start screen, so its panes belong here. */
 let layoutRequestedHere = false;
+/** A template whose commands are waiting for its panes to exist. */
+let pendingTemplate: LayoutTemplate | null = null;
 
 /**
  * Per-pane timing, driven entirely by discrete events from the daemon.
@@ -671,10 +674,42 @@ function buildLauncher(): void {
       sendToFocusedPane(`cd ${quote(path)}\r`);
       launcher?.dismiss();
     },
-    onAddTemplate: (path) => {
-      // Not built yet. Saying so is better than a button that appears to work.
-      setStatus(`Layout templates are not built yet (${path})`, 'warn');
-      setTimeout(() => setStatus('', 'hidden'), 3000);
+    onSaveTemplate: (template) => {
+      void loadTemplates().then(async (existing) => {
+        const next = [...existing.filter((t) => t.name !== template.name), template];
+        await saveTemplates(next);
+        launcher?.setTemplates(next);
+        setStatus(`Saved "${template.name}"`, 'ok');
+        setTimeout(() => setStatus('', 'hidden'), 2500);
+      });
+    },
+    onDeleteTemplate: (id) => {
+      void loadTemplates().then(async (existing) => {
+        const next = existing.filter((t) => t.id !== id);
+        await saveTemplates(next);
+        launcher?.setTemplates(next);
+      });
+    },
+    onRunTemplate: (template) => {
+      /**
+       * Build the layout, then stage each command in its pane.
+       *
+       * Staged rather than run, the same as every other saved thing here. A template that
+       * executed on click is how somebody deploys by mis-clicking a menu.
+       */
+      pendingTemplate = template;
+      layoutRequestedHere = true;
+      const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
+      client?.send({
+        t: 'create-layout',
+        path: template.path,
+        panes: template.panes,
+        direction: 'horizontal',
+        shape: template.shape,
+        createIfMissing: true,
+        ...size,
+      });
+      launcher?.dismiss();
     },
     onDropRejected: () => {
       setStatus('That drop carried no path. Finder cannot provide one, see the docs.', 'warn');
@@ -1324,6 +1359,18 @@ function onControl(msg: ServerMessage): void {
       }
       applyLayout(msg.layout);
       attached = true;
+
+      // The panes a template asked for now exist, so its commands can be typed into them.
+      if (pendingTemplate) {
+        const template = pendingTemplate;
+        pendingTemplate = null;
+        msg.panes.forEach((pane, index) => {
+          const command = template.commands[index]?.trim();
+          // No trailing return: the command is left at the prompt for a person to run.
+          const target = panesHost?.get(pane.paneId);
+          if (command && target) client?.write(target.streamId, new TextEncoder().encode(command));
+        });
+      }
       for (const p of msg.panes) {
         paneStatus.set(p.paneId, 'idle');
         const state = timeStateFor(p.paneId);
@@ -1411,6 +1458,9 @@ function onControl(msg: ServerMessage): void {
       client?.send({ t: 'get-scrollback-budget' });
       client?.send({ t: 'get-background-timeout' });
       client?.send({ t: 'list-live-sessions' });
+      // Templates live in extension storage rather than the daemon: they are about how somebody
+      // likes to start work, not about anything the daemon owns.
+      void loadTemplates().then((saved) => launcher?.setTemplates(saved));
       client?.send({ t: 'list-restorable' });
       return;
     }
