@@ -23,7 +23,13 @@ r.ok(
 const body = String(
   await evaluate(page.client, `document.querySelector('.reset-body')?.textContent`),
 );
-r.ok('and says how much it will destroy, in numbers', /\d+ terminal session/.test(body), body);
+// Either a count or "nothing is running", both of which are concrete. Which one appears depends
+// on what else the run left alive, so demanding a number made this fail against correct text.
+r.ok(
+  'and says how much it will destroy, in concrete terms',
+  /\d+ terminal session/.test(body) || /Nothing is running/i.test(body),
+  body,
+);
 
 r.ok(
   'it spells out what goes',
