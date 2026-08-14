@@ -54,6 +54,14 @@ describe('completing a folder the way a shell does', () => {
     expect(() => completePath('/dev/null/nope', home)).not.toThrow();
   });
 
+  it('lists home itself, rather than the folder containing it', () => {
+    // `~/` lost its trailing slash when expanded, so it read as the fragment "someone" inside
+    // "/Users" and listed the parent of home. The folder browser showed exactly one entry.
+    const out = completePath('~/', home);
+    expect(out.matches).toContain('Documents');
+    expect(out.matches).toContain('Downloads');
+  });
+
   it('keeps the tilde it was given', () => {
     expect(completePath('~/Documen', home).completed.startsWith('~')).toBe(true);
   });

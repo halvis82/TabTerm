@@ -35,7 +35,19 @@ export function commonPrefix(values: readonly string[]): string {
 
 export function expandHome(path: string, home = homedir()): string {
   if (path === '~') return home;
-  if (path.startsWith('~/')) return join(home, path.slice(2));
+  if (path.startsWith('~/')) {
+    const rest = path.slice(2);
+    /**
+     * A trailing slash has to survive.
+     *
+     * `join` drops it for an empty remainder, so `~/` became the home directory with no slash,
+     * which reads as "the fragment `halvis82` inside `/Users`" and listed the parent of home
+     * rather than home. The slash is the whole difference between listing a directory and
+     * matching its name.
+     */
+    if (rest === '') return `${home}/`;
+    return join(home, rest);
+  }
   return path;
 }
 

@@ -135,6 +135,9 @@ export class Launcher {
   /** Which layout Return will run. Open, because that is what almost everybody wants. */
   #selectedAction = 0;
   #completionList: HTMLElement | null = null;
+  #browsing = false;
+  #browsePath = '~/';
+  #browserEl: HTMLElement | null = null;
 
   /**
    * The answer to a Tab press.
@@ -143,6 +146,11 @@ export class Launcher {
    * which is what a shell does and what stops the list being permanent furniture.
    */
   pathCompletion(reply: { partial: string; completed: string; matches: readonly string[] }): void {
+    // While browsing, a reply is a directory listing rather than a suggestion for the box.
+    if (this.#browsing && reply.partial === this.#browsePath) {
+      this.#renderBrowser(reply.matches);
+      return;
+    }
     const input = this.#dirInput;
     // A reply to a keystroke that has since been replaced is not an answer to anything.
     if (!input || input.value.trim() !== reply.partial) return;
@@ -167,6 +175,91 @@ export class Launcher {
     }
     input.parentElement?.append(list);
     this.#completionList = list;
+  }
+
+  /**
+   * The folder browser.
+   *
+   * Kept deliberately small: where you are, what is inside it, a way up, and a way to accept.
+   * It reads through the same `complete-path` the box uses, so there is one implementation of
+   * "what folders are in here" rather than two that can disagree.
+   */
+  #openBrowser(): void {
+    const input = this.#dirInput;
+    if (!input) return;
+    const at = input.value.trim() || '~/';
+    this.#browsePath = at.endsWith('/') ? at : `${at}/`;
+    this.#opts.onCompletePath(this.#browsePath);
+  }
+
+  #closeBrowser(): void {
+    this.#browsing = false;
+    this.#browserEl?.remove();
+    this.#browserEl = null;
+  }
+
+  /** Draw the listing for wherever the browser currently is. */
+  #renderBrowser(entries: readonly string[]): void {
+    const input = this.#dirInput;
+    if (!input) return;
+    this.#browserEl?.remove();
+
+    const panel = document.createElement('div');
+    panel.className = 'launcher-browser';
+
+    const header = document.createElement('div');
+    header.className = 'launcher-browser-path';
+    header.textContent = this.#browsePath;
+    panel.append(header);
+
+    const list = document.createElement('div');
+    list.className = 'launcher-browser-list';
+
+    const go = (path: string): void => {
+      this.#browsePath = path.endsWith('/') ? path : `${path}/`;
+      this.#opts.onCompletePath(this.#browsePath);
+    };
+
+    // Up first, since it is the one entry that is always there and always in the same place.
+    if (this.#browsePath !== '/' && this.#browsePath !== '~/') {
+      const up = document.createElement('button');
+      up.className = 'launcher-browser-item is-up';
+      up.textContent = '..';
+      up.addEventListener('click', () => {
+        const trimmed = this.#browsePath.replace(/\/$/, '');
+        const parent = trimmed.slice(0, trimmed.lastIndexOf('/'));
+        go(parent === '' ? '/' : parent);
+      });
+      list.append(up);
+    }
+
+    for (const name of entries) {
+      const item = document.createElement('button');
+      item.className = 'launcher-browser-item';
+      item.textContent = name;
+      item.addEventListener('click', () => go(`${this.#browsePath}${name}`));
+      list.append(item);
+    }
+    if (entries.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'launcher-browser-empty';
+      empty.textContent = 'No folders in here';
+      list.append(empty);
+    }
+    panel.append(list);
+
+    const use = document.createElement('button');
+    use.className = 'launcher-chip is-selected';
+    use.textContent = 'Use this folder';
+    use.addEventListener('click', () => {
+      input.value = this.#browsePath.replace(/\/$/, '') || '/';
+      this.#closeBrowser();
+      input.focus();
+    });
+    panel.append(use);
+
+    input.parentElement?.append(panel);
+    this.#browserEl = panel;
   }
 
   #clearCompletion(): void {
@@ -260,12 +353,33 @@ export class Launcher {
     const form = document.createElement('div');
     form.className = 'launcher-form';
 
+    /**
+     * Browse for a folder.
+     *
+     * Not a native dialog: a Chrome extension cannot learn an absolute path from one, since
+     * `webkitdirectory` reports paths relative to whatever was chosen and the File System Access
+     * API returns an opaque handle. This asks the daemon instead, which can read the filesystem,
+     * and reuses the same completion the box already uses: a path ending in a slash lists what
+     * is inside it.
+     */
+    const browse = document.createElement('button');
+    browse.className = 'launcher-browse';
+    browse.type = 'button';
+    browse.title = 'Browse for a folder';
+    browse.textContent = 'Browse';
+    browse.addEventListener('click', () => {
+      this.#browsing = !this.#browsing;
+      if (this.#browsing) this.#openBrowser();
+      else this.#closeBrowser();
+    });
+
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'launcher-input';
     input.placeholder = '~/Projects/something';
     input.spellcheck = false;
     this.#dirInput = input;
+
     // Typing a path here must not reach the shell underneath.
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
@@ -373,7 +487,16 @@ export class Launcher {
       const chip = document.createElement('button');
       chip.className = 'launcher-chip';
       chip.textContent = action.label;
-      chip.title = action.title;
+      /**
+       * The number is shown, not just bound.
+       *
+       * A shortcut nobody can see is a shortcut nobody uses, and this is the one place where
+       * the whole set is visible at once.
+       */
+      const key = document.createElement('kbd');
+      key.textContent = String(index + 1);
+      chip.append(key);
+      chip.title = `${action.title}  (Control ${String(index + 1)})`;
       chip.addEventListener('click', () => {
         select(index);
         action.run(input.value.trim() || state.home);
@@ -403,6 +526,24 @@ export class Launcher {
      * above has first claim on it while there is a path fragment to complete.
      */
     input.addEventListener('keydown', (e) => {
+      /**
+       * Control and a number runs a layout directly.
+       *
+       * Tab belongs to path completion in this box and cannot also cycle these. Command is
+       * Chrome's, which takes Command and a number for switching tabs and never delivers it to
+       * a page. Option would work but types a character on macOS, so it only behaves if every
+       * handler remembers to suppress it. Control is claimed by nothing here and produces
+       * nothing on its own, which makes it the one that stays correct by default.
+       */
+      if (e.ctrlKey && !e.metaKey && !e.altKey && /^[1-9]$/.test(e.key)) {
+        const index = Number(e.key) - 1;
+        if (index < actions.length) {
+          e.preventDefault();
+          select(index);
+          actions[index]?.run(input.value.trim() || state.home);
+        }
+        return;
+      }
       if (e.key === 'ArrowRight' || (e.key === 'Tab' && e.shiftKey)) {
         e.preventDefault();
         select(this.#selectedAction + (e.shiftKey ? -1 : 1));
@@ -418,7 +559,7 @@ export class Launcher {
     note.className = 'launcher-note';
     note.textContent = 'The folder is created if it does not exist.';
 
-    form.append(input, buttons);
+    form.append(browse, input, buttons);
     wrap.append(form, note);
     return wrap;
   }
