@@ -101,6 +101,11 @@ export class Launcher {
   }
 
   /** Sessions the daemon says exist, refreshed whenever it tells us. */
+  /** Whether the start screen is on screen, which means this tab has not been used yet. */
+  get isShowing(): boolean {
+    return !this.#dismissed && !this.#el.hidden;
+  }
+
   setLiveSessions(sessions: readonly LiveSession[]): void {
     this.#liveSessions = [...sessions];
     if (!this.#dismissed) this.render();

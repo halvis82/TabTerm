@@ -74,5 +74,35 @@ r.ok(
   `${String(after.term?.h ?? 0)}px`,
 );
 
+/**
+ * A layout chosen on the start screen is built in that tab.
+ *
+ * It used to open a second tab and leave this one on the menu, which read as the layout having
+ * failed. The panes were there, in a tab nobody was looking at.
+ */
+for (const [chip, wanted] of [
+  ['Split in 2', 2],
+  ['1 + 2', 3],
+  ['4 panes', 4],
+]) {
+  const fresh = await openTerminal();
+  await sleep(3500);
+  await evaluate(
+    fresh.client,
+    `(() => { document.querySelector('.launcher-input').value = '~'; })()`,
+  );
+  await evaluate(
+    fresh.client,
+    `[...document.querySelectorAll('.launcher-chip')].find((c) => c.textContent === ${JSON.stringify(chip)})?.click()`,
+  );
+  await sleep(6500);
+  const panes = Number(await evaluate(fresh.client, `window.__tabterm?.paneIds().length ?? 0`));
+  r.ok(
+    `${chip} builds ${String(wanted)} panes in the tab it was chosen from`,
+    panes === wanted,
+    `${String(panes)} panes`,
+  );
+}
+
 await finish();
 r.done();

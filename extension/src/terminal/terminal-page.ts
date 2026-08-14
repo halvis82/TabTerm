@@ -92,6 +92,8 @@ let agentHooks: AgentHooksStatus | null = null;
 let shellIntegration: ShellIntegrationStatus | null = null;
 let scrollbackBytes: number | null = null;
 let backgroundTimeout: number | null | undefined;
+/** A layout was asked for from this tab's start screen, so its panes belong here. */
+let layoutRequestedHere = false;
 
 /**
  * Per-pane timing, driven entirely by discrete events from the daemon.
@@ -678,6 +680,7 @@ function buildLauncher(): void {
       setTimeout(() => setStatus('', 'hidden'), 4000);
     },
     onCreateLayout: (path, panesWanted, direction, shape) => {
+      layoutRequestedHere = true;
       const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
       client?.send({
         t: 'create-layout',
@@ -1284,8 +1287,23 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'session-created': {
-      // A session created for a different workspace means it was launched into a new tab.
-      if (attached && workspaceId && msg.workspaceId !== workspaceId) {
+      /**
+       * A session for a different workspace usually belongs in a new tab.
+       *
+       * Not when the start screen is showing. That tab is empty by definition: its own shell has
+       * never been used, it is displaying a list of ways to begin, and choosing one of them
+       * plainly means "begin here". Opening a second tab left the chosen layout somewhere else
+       * and this tab still sitting on the menu, which looked like the layout had failed.
+       */
+      /**
+       * Asked for from this tab's start screen, so it belongs in this tab.
+       *
+       * The flag rather than asking whether the start screen is showing, because choosing a
+       * layout dismisses it immediately and the daemon's answer arrives after that.
+       */
+      const wanted = layoutRequestedHere;
+      layoutRequestedHere = false;
+      if (!wanted && attached && workspaceId && msg.workspaceId !== workspaceId) {
         const url = chrome.runtime.getURL(`terminal.html?workspace=${msg.workspaceId}`);
         void chrome.tabs.create({ url, active: true });
         return;
