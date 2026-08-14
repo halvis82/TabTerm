@@ -52,6 +52,7 @@ import { setShellIntegration, shellIntegrationStatus } from './shell-integration
 import { clampPolicy, decide, type Finished, type NotifyPolicy } from './notify-policy.js';
 import { readUserSettings, updateUserSetting } from './user-settings.js';
 import { clampBudget, DEFAULT_SCROLLBACK_BYTES, linesForBytes } from './scrollback-budget.js';
+import { completePath } from './complete-path.js';
 
 interface Client {
   id: string;
@@ -1284,6 +1285,15 @@ export class DaemonServer {
           info('notify-policy.changed', { policy: this.#notifyPolicy });
         }
         this.broadcastAll({ t: 'notify-policy', policy: this.#notifyPolicy });
+        return;
+      }
+
+      case 'complete-path': {
+        const { completed, matches } = completePath(msg.partial);
+        send(
+          client.socket,
+          controlFrame({ t: 'path-completion', partial: msg.partial, completed, matches }),
+        );
         return;
       }
 

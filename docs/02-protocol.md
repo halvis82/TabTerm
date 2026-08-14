@@ -73,6 +73,7 @@ Rules, all enforced:
 | `get-agent-hooks` / `set-agent-hooks` | `enabled` | Writes agent CLI settings. See `09-agent-integration.md` |
 | `clear-scrollback` | `sessionId` | Drops every stored copy, not just the screen |
 | `list-live-sessions` | | Sessions that have run something, with a preview of their screen |
+| `complete-path` | `partial` | Directory completion. The daemon reads the filesystem; a page cannot |
 | `get-scrollback-budget` / `set-scrollback-budget` | `bytes` | Clamped to 1 MB..50 MB |
 
 ---
@@ -101,6 +102,7 @@ Rules, all enforced:
 | `agent-hooks` | `status{}` | `installed`, per-target detail, `lastEventAt?` |
 | `scrollback-budget` | `bytes` | After a get or a set |
 | `live-sessions` | `sessions[]` | Each with `attached`, `busy` and a `preview`. See §4.1 |
+| `path-completion` | `partial`, `completed`, `matches[]` | `partial` is echoed so a stale answer can be dropped |
 | `error` | `code`, `message`, `context?` | Never a bare string |
 
 ### 4.1 Which sessions are live

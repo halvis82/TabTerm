@@ -290,6 +290,16 @@ else in the product, and since a session now survives a daemon restart, sessions
 somebody can see and end them. Each card ends its session from a control that only appears on
 hover, because ending one is not something to invite.
 
+**Clicking a session that a tab is already showing focuses that tab.** It does not attach a
+second view, and it deliberately leaves the tab you clicked from alone: dismissing its start
+screen would reveal its own empty terminal at the moment focus moves away, which looks exactly
+like the click opened a duplicate.
+
+The folder box completes with Tab, the way a shell does. The daemon reads the filesystem, since a
+page cannot, and offers directories only, because a file is not something this box can open. One
+match completes with a trailing slash so the next Tab goes deeper; several show the alternatives
+until Tab can decide.
+
 Sessions are also reachable from a right click on the toolbar icon, alongside settings, which
 opens a terminal tab with the panel already on that pane rather than a separate settings page.
 Every setting there is about how a terminal behaves and is worth changing while looking at one.

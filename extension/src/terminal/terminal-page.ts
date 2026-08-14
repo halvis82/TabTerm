@@ -705,21 +705,26 @@ function buildLauncher(): void {
       // and the file may have changed between the prompt and the click.
       client?.send({ t: 'inspect-project', cwd: info.path.replace(/\/[^/]+$/, '') });
     },
+    onCompletePath: (partial) => client?.send({ t: 'complete-path', partial }),
     onOpenSession: (session) => {
       /**
        * Go to the session, wherever it is.
        *
        * A session already shown in a tab is focused rather than attached again, because two
-       * views of one terminal is a thing people create by accident and never on purpose.
+       * views of one terminal is something people create by accident and never on purpose.
+       *
+       * The tab doing the clicking is deliberately left alone when the session lives elsewhere.
+       * Dismissing its start screen would reveal its own empty terminal at the same moment
+       * focus moves away, so coming back to it later looks exactly like the click opened a
+       * second copy. It did not; this tab simply stopped showing the list.
        */
-      if (session.workspaceId) {
-        void chrome.runtime.sendMessage({
-          t: 'tabterm:focus-workspace',
-          workspaceId: session.workspaceId,
-          attachHere: !session.attached,
-        });
-      }
-      launcher?.dismiss();
+      if (!session.workspaceId) return;
+      void chrome.runtime.sendMessage({
+        t: 'tabterm:focus-workspace',
+        workspaceId: session.workspaceId,
+        attachHere: !session.attached,
+      });
+      if (!session.attached) launcher?.dismiss();
     },
     onCloseSession: (session) => {
       client?.send({ t: 'kill-session', sessionId: session.sessionId });
@@ -1400,6 +1405,11 @@ function onControl(msg: ServerMessage): void {
     case 'agent-hooks': {
       agentHooks = msg.status;
       commandPanel?.refreshSettings();
+      return;
+    }
+
+    case 'path-completion': {
+      launcher?.pathCompletion(msg);
       return;
     }
 

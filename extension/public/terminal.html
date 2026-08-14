@@ -1106,21 +1106,30 @@
     /* Stops short of the bottom, leaving the prompt visible underneath. */
     bottom: 4.5rem;
     padding: 14px 18px 0;
-    overflow: hidden;
     display: flex;
     flex-direction: column;
     gap: 2px;
     background: transparent;
     border: 0;
-    /* Fades out where it meets the prompt rather than ending in a hard edge. */
-    -webkit-mask-image: linear-gradient(
-      to bottom,
-      #000 0,
-      #000 calc(100% - 36px),
-      transparent 100%
-    );
-    mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 36px), transparent 100%);
+    overflow: hidden;
   }
+  /**
+   * The part that scrolls, and the part that fades.
+   *
+   * Both used to be on the panel itself, which meant the last thing rendered was always the
+   * thing being faded out, and a long list pushed it past the edge entirely.
+   */
+  .launcher-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding-bottom: 6px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(90, 100, 130, 0.45) transparent;
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent);
+  }
+
   .launcher-section {
     margin-bottom: 10px;
   }
@@ -1298,11 +1307,36 @@
   .launcher-icon.on {
     color: #e8c26a;
   }
+  /* Shown only when Tab could not decide, so it is never permanent furniture. */
+  .launcher-completions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+  }
+  .launcher-completion {
+    padding: 3px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(90, 100, 130, 0.32);
+    background: rgba(26, 28, 38, 0.7);
+    color: #9ec5ff;
+    font: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+  .launcher-completion:hover {
+    border-color: #3d6ba8;
+    color: #e8e8e8;
+  }
+
+  /* Outside the scrolling area, so it is never the thing that gets cut off. */
   .launcher-hint {
+    flex: none;
     color: #6f758a;
     font-size: 11.5px;
     border-top: 1px solid #262a38;
-    padding-top: 10px;
+    padding: 8px 0 10px;
+    background: linear-gradient(to top, rgba(16, 18, 22, 0.92), transparent);
   }
 
   .palette {

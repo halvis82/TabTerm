@@ -35,6 +35,8 @@ export interface LauncherOptions {
   onRestore: (workspaceId: string, replayCommands: boolean) => void;
   /** Open a session that already exists, wherever it currently is. */
   onOpenSession: (session: LiveSession) => void;
+  /** Ask the daemon to complete a folder path. The answer arrives via pathCompletion(). */
+  onCompletePath: (partial: string) => void;
   onCloseSession: (session: LiveSession) => void;
   onForgetRestorable: (workspaceId: string) => void;
   onOpenServer: (port: number) => void;
@@ -114,6 +116,46 @@ export class Launcher {
   }
 
   #liveSessions: LiveSession[] = [];
+  #dirInput: HTMLInputElement | null = null;
+  #completionList: HTMLElement | null = null;
+
+  /**
+   * The answer to a Tab press.
+   *
+   * The completion is filled in, and the alternatives are shown only when Tab could not decide,
+   * which is what a shell does and what stops the list being permanent furniture.
+   */
+  pathCompletion(reply: { partial: string; completed: string; matches: readonly string[] }): void {
+    const input = this.#dirInput;
+    // A reply to a keystroke that has since been replaced is not an answer to anything.
+    if (!input || input.value.trim() !== reply.partial) return;
+
+    if (reply.completed !== reply.partial) input.value = reply.completed;
+    this.#clearCompletion();
+    if (reply.matches.length < 2) return;
+
+    const list = document.createElement('div');
+    list.className = 'launcher-completions';
+    for (const match of reply.matches) {
+      const item = document.createElement('button');
+      item.className = 'launcher-completion';
+      item.textContent = match;
+      item.addEventListener('click', () => {
+        const base = input.value.slice(0, input.value.lastIndexOf('/') + 1);
+        input.value = `${base}${match}/`;
+        this.#clearCompletion();
+        input.focus();
+      });
+      list.append(item);
+    }
+    input.parentElement?.append(list);
+    this.#completionList = list;
+  }
+
+  #clearCompletion(): void {
+    this.#completionList?.remove();
+    this.#completionList = null;
+  }
 
   render(): void {
     if (this.#dismissed || !this.#state) return;
@@ -177,7 +219,19 @@ export class Launcher {
     hint.className = 'launcher-hint';
     hint.textContent = 'Start typing to use the shell. Command+K for history and saved commands.';
 
-    this.#el.replaceChildren(...sections, hint);
+    /**
+     * The sections scroll, the hint does not.
+     *
+     * They used to be siblings inside a panel that clips and fades at its bottom edge, so the
+     * hint was always the thing being faded out, and a long list of folders pushed it into the
+     * part that is cut off entirely. Putting the scrolling and the fade on the body leaves the
+     * hint readable wherever the list ends.
+     */
+    const body = document.createElement('div');
+    body.className = 'launcher-body';
+    body.replaceChildren(...sections);
+
+    this.#el.replaceChildren(body, hint);
     this.#el.hidden = false;
   }
 
@@ -194,6 +248,7 @@ export class Launcher {
     input.className = 'launcher-input';
     input.placeholder = '~/Projects/something';
     input.spellcheck = false;
+    this.#dirInput = input;
     // Typing a path here must not reach the shell underneath.
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
@@ -202,7 +257,20 @@ export class Launcher {
         if (path) this.#opts.onChooseDir(path);
       }
       if (e.key === 'Escape') this.dismiss();
+      /**
+       * Tab completes the folder, the way it does in a terminal.
+       *
+       * Answered by the daemon, since a page cannot read a disk. `preventDefault` matters as
+       * much as the completion: Tab in a text field moves focus, and losing the box you were
+       * typing in is a worse outcome than not completing.
+       */
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        this.#opts.onCompletePath(input.value.trim() || '~/');
+      }
     });
+    // A new keystroke makes any pending suggestion stale.
+    input.addEventListener('input', () => this.#clearCompletion());
 
     const buttons = document.createElement('div');
     buttons.className = 'launcher-buttons';

@@ -364,6 +364,14 @@ export type ClientMessage =
   /** Every session the daemon holds, with enough of its screen to recognise it. */
   | { t: 'list-live-sessions' }
   /**
+   * Complete a directory path, the way a shell would.
+   *
+   * Answered by the daemon reading the filesystem, because the extension cannot: a browser page
+   * has no view of the disk, and asking a real shell would mean running something to find out
+   * what somebody is about to type.
+   */
+  | { t: 'complete-path'; partial: string }
+  /**
    * End everything and start clean.
    *
    * For the case where something has gone wrong in a way nobody wants to diagnose. Destructive
@@ -533,6 +541,15 @@ export type ServerMessage =
   | { t: 'scrollback-budget'; bytes: number }
   | { t: 'background-timeout'; seconds: number | null }
   | { t: 'live-sessions'; sessions: readonly LiveSession[] }
+  | {
+      t: 'path-completion';
+      /** Echoed back, so a stale answer to an earlier keystroke can be ignored. */
+      partial: string;
+      /** The longest common prefix of every match, which is what Tab fills in. */
+      completed: string;
+      /** Every match, for showing when Tab cannot decide. Bounded. */
+      matches: readonly string[];
+    }
   | { t: 'reset-done'; sessionsEnded: number; historyFilesRemoved: number; restarting: boolean }
   | { t: 'shell-integration'; status: ShellIntegrationStatus }
   | {
