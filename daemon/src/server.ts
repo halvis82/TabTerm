@@ -255,9 +255,22 @@ export class DaemonServer {
     return historyTail(sessionId);
   }
 
+  /**
+   * The sessions worth telling someone about.
+   *
+   * Not every live session: a shell that has printed a prompt and nothing else is a session to
+   * the daemon and an empty tab to the person who opened it. Listing those is what turns
+   * "running now" into a list of things nobody recognises, and it counts the tab you are
+   * reading it in. A session enters this list when a command runs in it, and never leaves
+   * while it is alive, so going idle again does not make it disappear.
+   *
+   * Sessions started with an explicit command are in from the start, since the command is the
+   * whole reason they exist and it may still be running.
+   */
   #liveSessions(): LiveSession[] {
     return this.#sessions.all
       .filter((s) => s.state !== 'exited' && s.state !== 'reaped')
+      .filter((s) => s.hasRun === true || s.command !== undefined)
       .map((session) => {
         const workspace = this.#workspaces.findBySession(session.id);
         // The serialized screen carries the escape sequences that produced it, and a preview

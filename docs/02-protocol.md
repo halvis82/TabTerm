@@ -72,7 +72,7 @@ Rules, all enforced:
 | `get-notify-policy` / `set-notify-policy` | `policy{}` | Partial. Threshold clamped to 5s..10m |
 | `get-agent-hooks` / `set-agent-hooks` | `enabled` | Writes agent CLI settings. See `09-agent-integration.md` |
 | `clear-scrollback` | `sessionId` | Drops every stored copy, not just the screen |
-| `list-live-sessions` | | Sessions with a preview of their screen |
+| `list-live-sessions` | | Sessions that have run something, with a preview of their screen |
 | `get-scrollback-budget` / `set-scrollback-budget` | `bytes` | Clamped to 1 MB..50 MB |
 
 ---
@@ -100,8 +100,24 @@ Rules, all enforced:
 | `notify-policy` | `policy{}` | After a get or a set |
 | `agent-hooks` | `status{}` | `installed`, per-target detail, `lastEventAt?` |
 | `scrollback-budget` | `bytes` | After a get or a set |
-| `live-sessions` | `sessions[]` | Each with `attached`, `busy` and a `preview` |
+| `live-sessions` | `sessions[]` | Each with `attached`, `busy` and a `preview`. See §4.1 |
 | `error` | `code`, `message`, `context?` | Never a bare string |
+
+### 4.1 Which sessions are live
+
+`live-sessions` is not every session the daemon holds. A session appears once a command has run
+in it, and stays for as long as it is alive, including after that command finishes. A session
+started with an explicit command is included from the moment it exists, since the command is the
+reason it was spawned and may still be running.
+
+A shell that has printed a prompt and nothing else is deliberately absent. It is a session in the
+daemon's bookkeeping and an empty tab to the person who opened it, and including those makes the
+list read as terminals they do not recognise.
+
+`attached` means a client connection is reading the session, which is not quite the same as a tab
+being on screen. A client showing a session should filter its own out of the list before
+presenting it, because the daemon serves one list to every connection and cannot tell which tab
+is asking.
 
 ---
 

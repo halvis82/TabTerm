@@ -75,6 +75,16 @@ export interface Session {
   clients: Map<string, AttachedClient>;
   reapTimer?: NodeJS.Timeout;
   serverCheckTimer?: NodeJS.Timeout;
+  /**
+   * A command has been run in this session at least once.
+   *
+   * A shell that has only ever printed a prompt is a session in the bookkeeping sense and
+   * nothing at all to the person who opened the tab. Listing those is what makes "running now"
+   * read as a list of things they have never seen before. Set from whichever path notices a
+   * command first, integrated or fallback, and never cleared: a session that has done work
+   * stays real even when it goes idle again.
+   */
+  hasRun?: boolean;
   /** Set while a command is running, so the title can show it rather than the shell. */
   commandRunning: boolean;
   commandStartedAt?: number;
@@ -277,7 +287,9 @@ export class SessionManager {
         // pane showing "running" without saying what is more alarming than useful.
         const startedAt = session.commandStartedAt ?? Date.now();
         this.#events.onCommandStarted?.(session, command, startedAt);
-        this.#checkForServer(session);
+        // Through the shared hook rather than straight to the server check, so that both this
+        // path and the fallback tracker mark the session the same way.
+        this.noteCommandStarted(session);
       },
       onCommandEnd: (exitCode) => {
         const startedAt = session.commandStartedAt;
@@ -326,6 +338,9 @@ export class SessionManager {
       vt,
       clients: new Map(),
       commandRunning: false,
+      // A session that outlived the daemon has plainly been used for something, and the
+      // evidence of what was lost with the process that watched it happen.
+      hasRun: true,
     };
     if (info_.command) session.command = info_.command;
     session.osc = this.#buildOsc(session);
@@ -481,6 +496,7 @@ export class SessionManager {
    * reaching into private state to do it.
    */
   noteCommandStarted(session: Session): void {
+    session.hasRun = true;
     this.#checkForServer(session);
   }
 

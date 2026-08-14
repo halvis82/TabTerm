@@ -1404,7 +1404,15 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'live-sessions': {
-      launcher?.setLiveSessions(msg.sessions);
+      /**
+       * Everything except what this tab is already showing.
+       *
+       * The panes in front of you are not news, and counting them is what made the list say
+       * five when four of them were elsewhere. The daemon cannot make this cut because it is
+       * the same list for every tab, so the tab that knows its own panes makes it.
+       */
+      const mine = new Set((panesHost?.all ?? []).map((p) => p.sessionId));
+      launcher?.setLiveSessions(msg.sessions.filter((s) => !mine.has(s.sessionId)));
       // The counts, once they are known. The confirmation is already on screen by now.
       if (openPanelAt === 'reset') showResetConfirmation(msg.sessions);
       return;
