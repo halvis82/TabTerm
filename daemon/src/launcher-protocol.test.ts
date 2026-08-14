@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import {
@@ -126,21 +127,27 @@ describe('launcher protocol', () => {
   });
 
   it('records directories and offers them back, most useful first', async () => {
-    launcher.recordDir('/Users/someone/Projects/alpha');
-    launcher.recordDir('/Users/someone/Projects/beta');
-    launcher.recordDir('/Users/someone/Projects/beta');
+    /**
+     * Real directories, because the launcher no longer offers folders that are gone.
+     *
+     * The repository itself, which exists wherever these tests run and is not one of the
+     * locations excluded from recent folders.
+     */
+    const alpha = join(process.cwd(), 'docs');
+    const beta = join(process.cwd(), 'daemon');
+    launcher.recordDir(alpha);
+    launcher.recordDir(beta);
+    launcher.recordDir(beta);
 
     const c = await Client.connect();
     c.send({ t: 'list-launcher' });
     const msg = (await c.waitFor('launcher-state')) as unknown as { state: LauncherState };
     const paths = msg.state.recentDirs.map((d) => d.path);
 
-    expect(paths).toContain('/Users/someone/Projects/alpha');
-    expect(paths).toContain('/Users/someone/Projects/beta');
+    expect(paths).toContain(alpha);
+    expect(paths).toContain(beta);
     // Visited twice, so it outranks the one visited once.
-    expect(paths.indexOf('/Users/someone/Projects/beta')).toBeLessThan(
-      paths.indexOf('/Users/someone/Projects/alpha'),
-    );
+    expect(paths.indexOf(beta)).toBeLessThan(paths.indexOf(alpha));
     c.close();
   });
 

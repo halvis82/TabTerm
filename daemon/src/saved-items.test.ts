@@ -120,14 +120,20 @@ describe('recent directories', () => {
 
   it('still records real project directories', () => {
     const data = fresh();
+    // Recording, not display: these paths are deliberately not on this disk, and the display
+    // path drops folders that no longer exist.
     data.recordDir('/Users/someone/Projects/app');
-    expect(data.recentDirs().map((d) => d.path)).toEqual(['/Users/someone/Projects/app']);
+    expect(data.recentDirs(12, { requireExists: false }).map((d) => d.path)).toEqual([
+      '/Users/someone/Projects/app',
+    ]);
   });
 
   it('does not confuse a real path that merely starts similarly', () => {
     const data = fresh();
     data.recordDir('/var/folders-of-mine/project');
-    expect(data.recentDirs().map((d) => d.path)).toEqual(['/var/folders-of-mine/project']);
+    expect(data.recentDirs(12, { requireExists: false }).map((d) => d.path)).toEqual([
+      '/var/folders-of-mine/project',
+    ]);
   });
 });
 
@@ -199,5 +205,26 @@ describe('hotstrings on favorites', () => {
 
   it('reports a missing item rather than pretending', () => {
     expect(fresh().updateSaved('nope', { title: 'x' }).ok).toBe(false);
+  });
+});
+
+describe('folders that are no longer there', () => {
+  it('stops offering a directory once it is gone', () => {
+    // Test fixtures created real directories and deleted them, and the rows stayed forever, so
+    // the list filled with paths that could not be opened. Offering one is offering nothing.
+    const db = new Database(':memory:');
+    const data = new LauncherData(db);
+    data.recordDir('/Users/someone/deleted-project');
+    expect(data.recentDirs(12, { requireExists: false })).toHaveLength(1);
+    expect(data.recentDirs()).toHaveLength(0);
+  });
+
+  it('keeps a pinned folder even when it cannot be seen right now', () => {
+    // Somebody who pinned a path meant it, and a disk that is not mounted today may be tomorrow.
+    const db = new Database(':memory:');
+    const data = new LauncherData(db);
+    data.recordDir('/Volumes/external/work');
+    data.pinDir('/Volumes/external/work', true);
+    expect(data.recentDirs().map((d) => d.path)).toEqual(['/Volumes/external/work']);
   });
 });

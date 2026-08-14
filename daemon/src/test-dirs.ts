@@ -25,3 +25,15 @@ export async function removeTestDir(path: string): Promise<void> {
   if (!path.startsWith(BASE)) return;
   await rm(path, { recursive: true, force: true });
 }
+
+/**
+ * Remove every scratch directory this helper has made.
+ *
+ * They live in a real location deliberately, which is exactly why they cannot be left behind:
+ * a directory here is indistinguishable from a folder somebody actually works in, and the
+ * launcher offers it as one. Twenty six of them accumulated before anybody noticed, and the
+ * list of recent folders read as debris.
+ */
+export async function removeAllTestDirs(): Promise<void> {
+  await rm(BASE, { recursive: true, force: true });
+}

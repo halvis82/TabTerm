@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { basename } from 'node:path';
@@ -167,7 +168,15 @@ export class LauncherData {
     });
   }
 
-  recentDirs(limit = 12): RecentDir[] {
+  /**
+   * Directories worth offering, most useful first.
+   *
+   * `requireExists` is on for everything a person sees and off for tests of the recording layer,
+   * which deliberately use paths that are not on this disk. It is a seam rather than a setting:
+   * offering a folder that is not there is never right in the product.
+   */
+  recentDirs(limit = 12, opts: { requireExists?: boolean } = {}): RecentDir[] {
+    const requireExists = opts.requireExists !== false;
     const rows = this.#db.handle
       .prepare(
         `SELECT d.path, d.name, d.last_used_at, d.use_count, d.pinned, d.git_root, p.name AS project_name
@@ -184,9 +193,31 @@ export class LauncherData {
       project_name: string | null;
     }[];
 
+    /**
+     * A folder that is no longer there is not a recent folder.
+     *
+     * Rows were written when a directory was used and never removed when it stopped existing, so
+     * the list filled with temporary directories that had long since been deleted. Offering to
+     * open one is offering something that cannot work, and it made the whole list read as
+     * debris. Unpinned only: somebody who pinned a path meant it, even across a disk that is not
+     * mounted right now.
+     */
+    const present = requireExists ? rows.filter((r) => r.pinned === 1 || existsSync(r.path)) : rows;
+    if (requireExists && present.length !== rows.length) {
+      const gone = rows.filter((r) => r.pinned !== 1 && !existsSync(r.path)).map((r) => r.path);
+      try {
+        const drop = this.#db.handle.prepare(
+          'DELETE FROM recent_dirs WHERE path = ? AND pinned = 0',
+        );
+        for (const path of gone) drop.run(path);
+      } catch {
+        // Showing the right list matters more than succeeding at tidying the table.
+      }
+    }
+
     // Recency alone would drop a directory you live in after one busy day elsewhere, so the
     // final ranking applies a frequency bonus in code where it is easy to read and tune.
-    return rows
+    return present
       .map((r) => ({
         path: r.path,
         name: r.name,

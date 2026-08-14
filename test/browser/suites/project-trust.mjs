@@ -4,6 +4,7 @@ import { reporter, connect } from '../cdp.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { rmSync } from 'node:fs';
 
 const r = reporter();
 
@@ -90,6 +91,14 @@ if (fresh[0]) {
     `window.__tabterm?.readScreen(window.__tabterm.paneIds()[0]) ?? ''`,
   );
   r.ok('and the declared command ran', String(screen).includes('PROJECT-LEFT'));
+}
+
+// The fixtures here are real directories in a real place, so the launcher would offer them as
+// folders somebody works in. They go with the run that made them.
+try {
+  rmSync(base, { recursive: true, force: true });
+} catch {
+  /* already gone */
 }
 
 await finish();

@@ -1,10 +1,15 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import { Database } from './database.js';
 import { LauncherData } from './launcher-data.js';
 import { ProjectIndex } from './project-index.js';
-import { makeTestDir } from './test-dirs.js';
+import { makeTestDir, removeAllTestDirs } from './test-dirs.js';
+
+// Real directories in a real place, so they cannot be left lying around.
+afterAll(async () => {
+  await removeAllTestDirs();
+});
 
 /** Discovery against a real filesystem, wired the way the daemon wires it. */
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
