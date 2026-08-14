@@ -4,7 +4,7 @@
 // its parent was a block, so it resolved to zero height and the tab looked simply dark. Splits
 // were unaffected because a split inserts a flex wrapper, and every existing suite split a pane
 // before looking at anything -- so all of them passed while the common case was broken.
-import { openTerminal, evaluate, sleep, finish } from '../helpers.mjs';
+import { openTerminal, evaluate, readScreen, sleep, type, finish } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -103,6 +103,33 @@ for (const [chip, wanted] of [
     `${String(panes)} panes`,
   );
 }
+
+/**
+ * Open lands in the folder that was typed.
+ *
+ * The path was shell-quoted whole, and a quoted tilde is a literal character rather than home,
+ * so `cd '~/Documents'` failed for a folder plainly there. Almost every path typed into that box
+ * starts with a tilde, so the box appeared not to work at all.
+ */
+const opener = await openTerminal();
+await sleep(3500);
+await evaluate(
+  opener.client,
+  `(() => { document.querySelector('.launcher-input').value = '~/Documents'; })()`,
+);
+await evaluate(
+  opener.client,
+  `[...document.querySelectorAll('.launcher-chip')].find((c) => c.textContent === 'Open')?.click()`,
+);
+await sleep(2500);
+await type(opener.client, 'pwd');
+await sleep(1800);
+const landed = String(await readScreen(opener.client));
+r.ok(
+  'Open changes to the folder that was typed, tilde and all',
+  landed.includes('/Documents') && !/no such file/i.test(landed),
+  landed.split('\n').filter(Boolean).slice(-2)[0] ?? '',
+);
 
 await finish();
 r.done();

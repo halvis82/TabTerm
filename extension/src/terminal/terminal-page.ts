@@ -22,6 +22,7 @@ import { CommandPanel } from '../launcher/panel-view.js';
 import { DEFAULT_PLACEMENT, type PanelPlacement } from '../launcher/command-panel.js';
 import { buildSettings } from '../launcher/settings-view.js';
 import { buildReset, buildResetDone } from '../launcher/reset-view.js';
+import { quotePath } from './quote-path.js';
 import type {
   AgentHooksStatus,
   LiveSession,
@@ -853,10 +854,7 @@ function buildLauncher(): void {
   });
 }
 
-/** Shell-quote a path so a folder with a space or a quote in it still works. */
-function quote(path: string): string {
-  return `'${path.replaceAll("'", `'\\''`)}'`;
-}
+const quote = quotePath;
 
 /** The session behind the focused pane, which is what a scoped search resolves against. */
 /**
