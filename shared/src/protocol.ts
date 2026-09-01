@@ -247,7 +247,27 @@ export type ClientMessage =
       direction: 'horizontal' | 'vertical';
     }
   | { t: 'detach-pane-to-tab'; workspaceId: string; paneId: string }
+  | {
+      /**
+       * Print a landmark into a session's output.
+       *
+       * Output, never input: it reaches the screen and the scrollback and never the shell, so it
+       * cannot run in whatever program happens to be in the foreground.
+       */
+      t: 'insert-marker';
+      sessionId: string;
+      label: string;
+      color?: string;
+    }
   | { t: 'list-mergeable'; workspaceId: string }
+  | {
+      /** Name a pane, or clear the name by sending an empty label. */
+      t: 'set-pane-label';
+      workspaceId: string;
+      paneId: string;
+      label: string;
+      color?: string;
+    }
   | { t: 'set-ratio'; workspaceId: string; paneId: string; ratio: number }
   | { t: 'swap-panes'; workspaceId: string; a: string; b: string }
   | { t: 'resize-pane'; workspaceId: string; paneId: string; cols: number; rows: number }
@@ -319,7 +339,7 @@ export type ClientMessage =
        *
        * `panes` and `direction` alone can only describe splitting the same way repeatedly, which
        * cannot express one pane beside two stacked ones, or four in the corners. Absent means the
-       * old behaviour, so nothing that already worked has to change.
+       * old behavior, so nothing that already worked has to change.
        */
       shape?: LayoutShape;
       createIfMissing: boolean;
@@ -370,7 +390,7 @@ export type ClientMessage =
    */
   | { t: 'set-background-timeout'; seconds: number | null }
   | { t: 'get-background-timeout' }
-  /** Every session the daemon holds, with enough of its screen to recognise it. */
+  /** Every session the daemon holds, with enough of its screen to recognize it. */
   | { t: 'list-live-sessions' }
   /**
    * Complete a directory path, the way a shell would.
@@ -441,6 +461,16 @@ export interface MergeableSession {
   title: string;
   cwd: string;
   paneCount: number;
+  /**
+   * A tab is showing this session right now.
+   *
+   * Taking it moves it, because a session lives in exactly one workspace, so the tab it came
+   * from is left with nothing. Knowing which ones those are is what lets the interface say so
+   * before doing it rather than afterwards.
+   */
+  attached: boolean;
+  /** Something has actually been run in it, so an untouched shell can be told apart. */
+  hasRun: boolean;
 }
 
 export interface ResolvedPath {
@@ -578,6 +608,18 @@ export type ServerMessage =
       lastScreen?: readonly string[];
     }
   | { t: 'mergeable-sessions'; sessions: readonly MergeableSession[] }
+  | {
+      /**
+       * A workspace's last session was taken into another one.
+       *
+       * Distinct from expiry, which is what this used to be reported as. Nothing ended: the
+       * session is alive and somewhere else, and the tab that used to show it has nothing left.
+       * Saying "this expired" there is untrue and offers to restore something that moved.
+       */
+      t: 'workspace-taken-over';
+      workspaceId: string;
+      sessionId: string;
+    }
   | {
       /** A pane left this workspace. The frontend opens a tab at this URL to pick it up. */
       t: 'pane-detached';

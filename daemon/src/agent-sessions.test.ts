@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { decodeStoreDir, encodeStoreDir, listResumable } from './agent-sessions.js';
 
@@ -63,5 +66,44 @@ describe('listing resumable sessions', () => {
     for (const session of await listResumable({ limit: 6 })) {
       if (session.summary !== undefined) expect(session.summary).not.toMatch(/[\r\n]/);
     }
+  });
+});
+
+describe('which store files are actually resumable', () => {
+  it('offers a conversation and skips a summary sidecar beside it', async () => {
+    // Not every `.jsonl` next to a conversation is one. A sidecar carries only `summary`
+    // records and no `sessionId`, and the agent CLI refuses it with "No conversation found",
+    // which read as resume being broken rather than as that row not being a session.
+    const home = await mkdtemp(join(tmpdir(), 'tt-store-'));
+    const project = await mkdtemp(join(tmpdir(), 'tt-proj-'));
+    const dir = join(home, project.replaceAll('/', '-'));
+    await mkdir(dir, { recursive: true });
+
+    await writeFile(
+      join(dir, 'aaaaaaaa-0000-0000-0000-000000000001.jsonl'),
+      `${JSON.stringify({ type: 'user', sessionId: 'aaaaaaaa-0000-0000-0000-000000000001' })}\n`,
+    );
+    await writeFile(
+      join(dir, 'bbbbbbbb-0000-0000-0000-000000000002.jsonl'),
+      `${JSON.stringify({ type: 'summary', summary: 'a sidecar, not a session' })}\n`,
+    );
+
+    const rows = await listResumable({ store: home, knownDirs: [project], limit: 10 });
+    expect(rows.map((r) => r.sessionId)).toEqual(['aaaaaaaa-0000-0000-0000-000000000001']);
+  });
+
+  it('uses the id the file records rather than its name', async () => {
+    // A store that ever renames a file must not make every row resume the wrong thing.
+    const home = await mkdtemp(join(tmpdir(), 'tt-store-'));
+    const project = await mkdtemp(join(tmpdir(), 'tt-proj-'));
+    const dir = join(home, project.replaceAll('/', '-'));
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, 'named-one-thing.jsonl'),
+      `${JSON.stringify({ type: 'user', sessionId: 'recorded-as-another' })}\n`,
+    );
+
+    const rows = await listResumable({ store: home, knownDirs: [project], limit: 10 });
+    expect(rows[0]?.sessionId).toBe('recorded-as-another');
   });
 });

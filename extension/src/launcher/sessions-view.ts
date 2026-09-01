@@ -108,7 +108,7 @@ function buildCard(session: LiveSession, options: SessionsOptions): HTMLElement 
    *
    * A miniature of the terminal rather than a paragraph of its text: monospaced, dark, aligned
    * on its own left edge, with the last line at the bottom where a terminal keeps it. The point
-   * is recognition at a glance, and a screen you recognise looks like a screen.
+   * is recognition at a glance, and a screen you recognize looks like a screen.
    *
    * Text rather than an image, still. It stays sharp at any zoom, costs nothing to produce, and
    * cannot be a photograph of a terminal that has since moved on.

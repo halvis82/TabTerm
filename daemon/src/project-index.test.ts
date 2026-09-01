@@ -23,7 +23,7 @@ describe('project index', () => {
     expect(found?.name).toBe('app');
   });
 
-  it('recognises a worktree, where .git is a file', async () => {
+  it('recognizes a worktree, where .git is a file', async () => {
     const { index } = fs(`${HOME}/code/wt/.git`);
     expect((await index.find(`${HOME}/code/wt/src`))?.root).toBe(`${HOME}/code/wt`);
   });

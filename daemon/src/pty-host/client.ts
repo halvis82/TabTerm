@@ -40,6 +40,24 @@ export interface SpawnRequest {
 type DataListener = (sessionId: string, data: Buffer, seq: number) => void;
 type ExitListener = (sessionId: string, exitCode: number, signal?: number) => void;
 
+/**
+ * A spawn failure a person can act on.
+ *
+ * Node wraps the underlying failure in its own text, and the useful part is usually one clause
+ * of it. Anything unrecognized is passed through rather than replaced, because a message nobody
+ * predicted is still better than a generic one.
+ */
+export function readableSpawnError(raw: string): string {
+  const text = raw.replace(/^Error:\s*/, '').trim();
+  if (/command not found/i.test(text)) {
+    return `TabTerm: ${text}. It is not on the PATH your login shell provides.`;
+  }
+  if (/ENOENT/i.test(text)) return `TabTerm: that program could not be found. ${text}`;
+  if (/EACCES/i.test(text)) return `TabTerm: that program is not executable. ${text}`;
+  if (/ENOTDIR|ENOENT.*chdir/i.test(text)) return `TabTerm: that directory does not exist. ${text}`;
+  return text === '' ? 'TabTerm: the program could not be started.' : `TabTerm: ${text}`;
+}
+
 export class PtyHostClient {
   #socket: Socket | null = null;
   #pending = new Uint8Array(0);
@@ -171,10 +189,27 @@ export class PtyHostClient {
           }
         }
         if (t === 'spawn-failed') {
-          // Nothing is running, so the session has effectively already ended. Reported as an
-          // exit rather than silently: a pane that will never produce output must say so.
-          warn('pty-host.spawn-failed', { sessionId: msg['sessionId'], error: msg['error'] });
-          for (const fn of this.#exitListeners) fn(String(msg['sessionId']), 1);
+          /**
+           * Nothing is running, so the session has effectively already ended.
+           *
+           * The reason is written into the session's own output before the exit, which is how a
+           * shell reports a command it could not find. It reaches the screen, the scrollback,
+           * and any tab that reattaches later, and it says which command and why. A tab that
+           * showed "exit 1" and nothing else left somebody with no way to tell a missing agent
+           * CLI from a crash.
+           */
+          const sessionId = String(msg['sessionId']);
+          const raw = msg['error'];
+          const reason = readableSpawnError(typeof raw === 'string' ? raw : '');
+          warn('pty-host.spawn-failed', { sessionId, error: msg['error'] });
+          const notice = Buffer.from(`\r\n\u001b[31m${reason}\u001b[0m\r\n`, 'utf8');
+          for (const fn of this.#dataListeners) fn(sessionId, notice, 0);
+          for (const fn of this.#exitListeners) fn(sessionId, 1);
+        }
+        if (t === 'message-failed') {
+          // The host could not act on something we asked for. Recorded, because a request that
+          // silently did nothing is the hardest kind of failure to find later.
+          warn('pty-host.message-failed', { error: msg['message'], about: msg['about'] });
         }
         if (t === 'exited') {
           for (const fn of this.#exitListeners) {
@@ -291,6 +326,16 @@ export class PtyHostClient {
 
   write(sessionId: string, data: string): void {
     this.#send({ t: 'write', sessionId, data });
+  }
+
+  /**
+   * Put something on a session's screen without sending it to the shell.
+   *
+   * The distinction matters: `write` is input and reaches whatever program is in the foreground.
+   * This is output, and reaches only the screen and the scrollback.
+   */
+  inject(sessionId: string, data: string): void {
+    this.#send({ t: 'inject', sessionId, data });
   }
 
   resize(sessionId: string, cols: number, rows: number): void {

@@ -11,6 +11,10 @@ import { DaemonClient, type ConnectionStatus } from '../transport/daemon-client.
 import { getToken } from '../transport/token.js';
 import { SplitView, collectPanes } from '../layout/split-view.js';
 import { PaneHost } from './panes.js';
+import { PaneChooser } from './pane-chooser.js';
+import { openLabelForm } from './label-form.js';
+import { describeError } from './describe-error.js';
+import type { PaneMenuAction } from './xterm-controller.js';
 import { findCandidates } from './path-links.js';
 import { TypedBuffer, backspaces } from './hotstrings.js';
 import { chooseOpenAction, describeOpen } from './open-action.js';
@@ -476,6 +480,74 @@ function lookupPath(candidate: string): ResolvedPath | undefined {
 // Modifier tracking
 // ---------------------------------------------------------------------------
 
+/**
+ * The chooser drawn over a pane that has nothing in it.
+ *
+ * Only for a workspace with more than one pane. A single pane already has the start screen over
+ * it, and two panels saying the same thing would be worse than one.
+ */
+const paneChoosers = new Map<string, PaneChooser>();
+
+function syncPaneChoosers(): void {
+  const paneIds = layout ? collectPanes(layout) : [];
+  for (const [paneId, chooser] of paneChoosers) {
+    if (!paneIds.includes(paneId)) {
+      chooser.dismiss();
+      paneChoosers.delete(paneId);
+    }
+  }
+  if (paneIds.length < 2) return;
+
+  for (const paneId of paneIds) {
+    if (paneChoosers.has(paneId)) continue;
+    const pane = panesHost?.get(paneId);
+    if (!pane) continue;
+    paneChoosers.set(
+      paneId,
+      new PaneChooser({
+        container: pane.element,
+        paneId,
+        home: launcherHome,
+        onChooseDir: (id, path) => {
+          const target = panesHost?.get(id);
+          if (!target) return;
+          splitView?.focus(id);
+          client?.write(target.streamId, new TextEncoder().encode(`cd ${quotePath(path)}\r`));
+          paneChoosers.get(id)?.dismiss();
+        },
+        onCompletePath: (partial) => {
+          completingPane = paneId;
+          client?.send({ t: 'complete-path', partial });
+        },
+        onTakeSession: (id, session) => {
+          if (!workspaceId) return;
+          // Moving it, not copying it: a session lives in exactly one workspace, so the tab it
+          // came from is asked to close rather than left showing a workspace with nothing in it.
+          takingOverFrom.add(session.workspaceId);
+          client?.send({
+            t: 'merge-into',
+            workspaceId,
+            targetPaneId: id,
+            sessionId: session.sessionId,
+            direction: 'horizontal',
+          });
+          paneChoosers.get(id)?.dismiss();
+        },
+        onRefreshSessions: () => {
+          if (workspaceId) client?.send({ t: 'list-mergeable', workspaceId });
+        },
+      }),
+    );
+  }
+}
+
+/** Workspaces this tab has just taken a session from, so their tabs know to close. */
+const takingOverFrom = new Set<string>();
+/** Which pane asked for a completion, since the answer comes back on one channel. */
+let completingPane: string | null = null;
+/** Home, as the daemon reports it, for shortening paths in a pane chooser. */
+let launcherHome = '';
+
 function setCmdHeld(held: boolean): void {
   if (held === cmdHeld) return;
   cmdHeld = held;
@@ -556,7 +628,10 @@ function installAmbientFocus(): void {
 function installModifierTracking(): void {
   window.addEventListener('keydown', (e) => setCmdHeld(e.metaKey), { capture: true });
   window.addEventListener('keyup', (e) => setCmdHeld(e.metaKey), { capture: true });
-  window.addEventListener('mousemove', (e) => setCmdHeld(e.metaKey));
+  // Capture, so the modifier is known before xterm asks its link providers about the line
+  // under the pointer. Bubbling ran after that question was already answered, and xterm caches
+  // the answer per line, so moving along a path never asked again and the link stayed inert.
+  window.addEventListener('mousemove', (e) => setCmdHeld(e.metaKey), { capture: true });
   window.addEventListener('blur', () => setCmdHeld(false));
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') setCmdHeld(false);
@@ -585,6 +660,7 @@ let lastStatus = 'unknown';
 
 function buildHosts(): void {
   panesHost = new PaneHost({
+    menuActions: (paneId) => paneMenuActions(paneId),
     onData: (paneId, data) => {
       inputBytesSeen += data.length;
       const pane = panesHost?.get(paneId);
@@ -612,7 +688,10 @@ function buildHosts(): void {
       // drawn on top is only there because there is no output yet. Dismissing on the first
       // keystroke made a half-typed command the moment everything disappeared, which is both
       // startling and useless, since that is exactly when you might still want the list.
-      if (submitsCommand(data)) launcher?.dismiss();
+      if (submitsCommand(data)) {
+        launcher?.dismiss();
+        paneChoosers.get(paneId)?.dismiss();
+      }
       client?.write(pane.streamId, new TextEncoder().encode(data));
     },
     onResize: (paneId, cols, rows) => {
@@ -968,6 +1047,7 @@ function applyLayout(next: LayoutNode): void {
   for (const id of [...paneTime.keys()]) if (!live.includes(id)) paneTime.delete(id);
   setFavicon(paneStatus.effective());
   refreshTitle();
+  syncPaneChoosers();
 }
 
 function splitFocused(direction: 'horizontal' | 'vertical'): void {
@@ -1010,6 +1090,105 @@ function closeFocused(): void {
   // Closing the only pane would close the workspace, which is what closing the tab is for.
   if (layout && collectPanes(layout).length <= 1) return;
   client?.send({ t: 'close-pane', workspaceId, paneId });
+}
+
+/**
+ * What the right-click menu offers for one pane.
+ *
+ * Asked for at the moment of the click, so it describes the pane as it is: a pane with no
+ * siblings cannot be detached or closed, and saying so greyed out is clearer than an entry that
+ * silently does nothing.
+ *
+ * Every entry targets the pane that was clicked rather than the focused one, by focusing it
+ * first. Right-clicking a pane and having the action land somewhere else would be a trap.
+ */
+/** What a pane is currently called, read from the layout, which is where it lives. */
+function paneLabel(paneId: string): { label: string; color?: string } {
+  const walk = (node: LayoutNode): { label: string; color?: string } | null => {
+    if (node.type === 'terminal') {
+      if (node.paneId !== paneId) return null;
+      return { label: node.label ?? '', ...(node.labelColor ? { color: node.labelColor } : {}) };
+    }
+    return walk(node.children[0]) ?? walk(node.children[1]);
+  };
+  return (layout ? walk(layout) : null) ?? { label: '' };
+}
+
+function paneMenuActions(paneId: string): PaneMenuAction[] {
+  const paneCount = layout ? collectPanes(layout).length : 1;
+  const hasSiblings = paneCount > 1;
+  const session = panesHost?.get(paneId)?.sessionId ?? '';
+  const target = (run: () => void) => () => {
+    splitView?.focus(paneId);
+    run();
+  };
+
+  const named = paneLabel(paneId);
+
+  return [
+    {
+      label: named.label === '' ? 'Name this pane' : 'Rename this pane',
+      run: () => {
+        splitView?.focus(paneId);
+        const pane = panesHost?.get(paneId);
+        if (!pane || !workspaceId) return;
+        openLabelForm({
+          container: pane.element,
+          current: named.label,
+          ...(named.color ? { currentColor: named.color } : {}),
+          onSubmit: (label, color) => {
+            document.querySelector('.pane-label-form')?.remove();
+            client?.send({ t: 'set-pane-label', workspaceId, paneId, label, color });
+          },
+          onCancel: () => document.querySelector('.pane-label-form')?.remove(),
+        });
+      },
+    },
+    {
+      // A landmark to scroll back to. Printed into the output rather than typed at the shell,
+      // so it cannot run in whatever program is in the foreground.
+      label: 'Add a marker here',
+      enabled: session !== '',
+      run: () => {
+        splitView?.focus(paneId);
+        const pane = panesHost?.get(paneId);
+        if (!pane) return;
+        openLabelForm({
+          container: pane.element,
+          current: '',
+          onSubmit: (label, color) => {
+            document.querySelector('.pane-label-form')?.remove();
+            client?.send({ t: 'insert-marker', sessionId: pane.sessionId, label, color });
+          },
+          onCancel: () => document.querySelector('.pane-label-form')?.remove(),
+        });
+      },
+    },
+    { label: 'Split right', separated: true, run: target(() => splitFocused('horizontal')) },
+    { label: 'Split down', run: target(() => splitFocused('vertical')) },
+    {
+      label: 'Move to its own tab',
+      enabled: hasSiblings,
+      run: target(() => detachFocused()),
+    },
+    {
+      label: 'Close pane',
+      separated: true,
+      enabled: hasSiblings,
+      run: target(() => closeFocused()),
+    },
+    {
+      // Distinct from closing: this ends the process rather than the view of it. Offered
+      // because a pane holding something runaway is exactly when somebody wants it gone and
+      // does not want to go looking for where that lives.
+      label: 'Kill session',
+      danger: true,
+      enabled: session !== '',
+      run: () => {
+        if (session) client?.send({ t: 'kill-session', sessionId: session });
+      },
+    },
+  ];
 }
 
 /**
@@ -1407,9 +1586,21 @@ function onControl(msg: ServerMessage): void {
       return;
     }
 
+    case 'workspace-taken-over': {
+      // This tab's session is alive in another tab now, so there is nothing here to show and
+      // nothing to restore. Closing is the honest outcome, and it is what keeps the rule that a
+      // session is never open in two places from leaving an empty tab behind.
+      if (msg.workspaceId === workspaceId) {
+        attached = false;
+        window.close();
+      }
+      return;
+    }
+
     case 'mergeable-sessions': {
       mergeable = [...msg.sessions];
       palette?.setMergeable(mergeable);
+      for (const chooser of paneChoosers.values()) chooser.setSessions(mergeable);
       return;
     }
 
@@ -1445,6 +1636,7 @@ function onControl(msg: ServerMessage): void {
         refitAllPanes();
       }
       launcher?.setState(msg.state);
+      launcherHome = msg.state.home;
       savedItems = [...msg.state.saved];
       palette?.setSaved(savedItems);
       commandPanel?.setFavorites(savedItems);
@@ -1485,7 +1677,11 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'path-completion': {
-      launcher?.pathCompletion(msg);
+      // One channel, two possible askers. The pane that asked last owns the answer.
+      const chooser = completingPane ? paneChoosers.get(completingPane) : undefined;
+      completingPane = null;
+      if (chooser) chooser.setCompletion(msg);
+      else launcher?.pathCompletion(msg);
       return;
     }
 
@@ -1700,10 +1896,20 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'error': {
+      /**
+       * An error about a workspace concerns the tab showing that workspace, and nobody else.
+       *
+       * The daemon tells every client when a workspace ends, because the tab that needs to hear
+       * it is not necessarily attached at that moment. This ignored the context entirely, so
+       * one workspace ending put "this terminal session expired" over every open tab, including
+       * ones whose own session was alive and running.
+       */
+      if (msg.context !== undefined && msg.context !== '' && msg.context !== workspaceId) return;
+
       if (msg.code === 'session-expired' || msg.code === 'session-not-found') {
         showRecovery('This terminal session expired.');
       } else {
-        setStatus(msg.message, 'error');
+        setStatus(describeError(msg.code, msg.message), 'error');
       }
       return;
     }
@@ -1740,6 +1946,25 @@ declare global {
   interface Window {
     __tabterm?: {
       readScreen: (paneId?: string) => string;
+      /** What is selected, which the WebGL renderer paints on a canvas nothing can query. */
+      selection: () => string;
+      /** Print a landmark, and read where the view is, without going through the menu. */
+      insertMarker: (label: string, color?: string) => void;
+      viewportY: () => number;
+      /** Landmarks the focused pane can see. */
+      markers: () => readonly { row: number; color: number }[];
+      scrollToLine: (row: number) => void;
+      /** Name a pane without going through its menu. */
+      setPaneLabel: (paneId: string, label: string, color?: string) => void;
+      /** Cell geometry, so a test can aim a real mouse event at a known character. */
+      geometry: () => {
+        cols: number;
+        rows: number;
+        left: number;
+        top: number;
+        cellWidth: number;
+        cellHeight: number;
+      } | null;
       /** End every session in this tab, so a test does not abandon them. */
       endSessions: () => void;
       workspaceId: () => string;
@@ -1781,6 +2006,56 @@ declare global {
  */
 function installTestHook(): void {
   window.__tabterm = {
+    geometry: () => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
+      const screen = pane?.element.querySelector('.xterm-screen');
+      if (!pane || !screen) return null;
+      const rect = screen.getBoundingClientRect();
+      return {
+        cols: pane.controller.term.cols,
+        rows: pane.controller.term.rows,
+        left: rect.left,
+        top: rect.top,
+        cellWidth: rect.width / pane.controller.term.cols,
+        cellHeight: rect.height / pane.controller.term.rows,
+      };
+    },
+    selection: () => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
+      return pane?.controller.term.getSelection() ?? '';
+    },
+    insertMarker: (label, color) => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
+      if (!pane) return;
+      client?.send({
+        t: 'insert-marker',
+        sessionId: pane.sessionId,
+        label,
+        ...(color === undefined ? {} : { color }),
+      });
+    },
+    markers: () => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
+      return pane?.controller.markers ?? [];
+    },
+    scrollToLine: (row) => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
+      pane?.controller.term.scrollToLine(row);
+    },
+    viewportY: () => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
+      return pane?.controller.term.buffer.active.viewportY ?? -1;
+    },
+    setPaneLabel: (paneId, label, color) => {
+      if (!workspaceId) return;
+      client?.send({
+        t: 'set-pane-label',
+        workspaceId,
+        paneId,
+        label,
+        ...(color === undefined ? {} : { color }),
+      });
+    },
     /**
      * End every session in this tab. For tests, which would otherwise abandon them.
      *
@@ -1906,6 +2181,11 @@ async function start(): Promise<void> {
       panesHost?.write(streamId, data, (bytes) => client?.ack(streamId, bytes));
     },
     onStatus: statusFor,
+    onProtocolError: (detail) => {
+      // Said out loud rather than logged. A tab that quietly stops updating is the worst
+      // possible failure, because nothing distinguishes it from a session with nothing to say.
+      setStatus(`TabTerm hit a problem: ${detail}`, 'error');
+    },
   });
   client.connect();
 

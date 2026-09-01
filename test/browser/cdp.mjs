@@ -88,6 +88,21 @@ export async function newTab(url) {
   return response.json();
 }
 
+/**
+ * Close a tab.
+ *
+ * Sessions outliving a suite was fixed by ending them; the tabs were left open, and a run of
+ * two dozen suites therefore ended with dozens of live pages competing for the same machine.
+ * The suites that run last then failed on timing that was fine when they ran alone.
+ */
+export async function closeTab(id) {
+  try {
+    await fetch(`${BASE}/json/close/${id}`);
+  } catch {
+    // Already gone, which is the outcome this wanted anyway.
+  }
+}
+
 /** Shared assertion reporting, so every suite prints the same shape. */
 export function reporter() {
   let failures = 0;

@@ -175,6 +175,56 @@ that passes through something the page might have wanted.
 Drag selects, double-click selects a word or path, triple-click selects a line, and shift-click
 extends, all from xterm.
 
+### Landmarks
+
+A pane can print a landmark: a solid colored bar with a label, from its own menu. It is written
+into the session's **output**, never to the PTY. That distinction is the whole design. Output is
+what the terminal has already printed, so a landmark scrolls with the work it marks and survives
+a reload and a daemon restart because it sits in the ring and on disk with everything else.
+
+Sending `echo` to the shell instead would put a command in somebody's history, run in whatever
+program happened to be in the foreground, and be impossible while a command was already running.
+
+A landmark is **found by what it looks like** rather than by a hidden sentinel: a solid bar of one
+explicit 24-bit background, which no ordinary output produces. So it is found again after a
+reload with nothing having to remember where it was, and it stops being found the moment its
+lines fall off the end of the scrollback, which is exactly when it stops being reachable.
+
+Two details that were wrong first:
+
+- The bar stops **one column short** of the terminal. A line written to the last column wraps by
+  itself, and the newline after it then produced a blank line between every bar, so one landmark
+  arrived as three.
+- The colors are sampled near the **start** of the line, not at the last column. A bar is printed
+  at the width the session had at the time, so a terminal widened afterwards leaves the far
+  columns untouched.
+
+The rail of markers is drawn by TabTerm rather than by xterm's overview ruler, which paints on
+top of the native scrollbar. Chrome handles a scrollbar click itself and dispatches no DOM event,
+so markers there could be seen and never clicked.
+
+---
+
+**A path shows it is clickable only while the pointer is on it.** The cursor used to change for
+the whole screen the moment the modifier went down, which announced that something was clickable
+without saying what, and said it over blank space too. Pointer and underline are xterm's own and
+apply per link; the color is a decoration over the link's cells, which is what makes it
+unmistakable which run of characters will open.
+
+**Paths are resolved as they are printed, not when one is hovered.** xterm caches what a link
+provider answered for a line and asks again only when the pointer changes line. The first hover
+therefore arrived before the daemon had confirmed the path, was told there were no links, and
+that answer stuck until the pointer left the line and came back. The visible rows are scanned on
+render, debounced, so the answer is already in hand by the time anybody hovers.
+
+The modifier is recorded in the **capture** phase of `mousemove`. Bubbling ran after xterm had
+already asked its providers about the line under the pointer, so the first query on a line saw no
+modifier and the cached answer kept the link inert.
+
+**Right-click never follows a link.** A link is activated by a mouse event without regard to
+which button produced it, so right-clicking a URL both opened it and showed the menu: asking what
+the options were was the same gesture as choosing one. Activation now requires button 0.
+
 **Right-click never changes the selection.** xterm's macOS default replaces it with the word
 under the pointer, and over blank space that word is empty, so right-clicking past the end of a
 line silently cleared the selection and greyed out Copy in the menu the same click had just
@@ -183,10 +233,25 @@ which from the outside is simply "sometimes I cannot copy". The selection is als
 the capture phase of the right-click, so the menu reports on what the user had regardless of
 what the terminal does with it afterwards.
 
-The context menu is rendered in the page (`Copy`, `Paste`, `Select all`, `Clear`) rather than
-left to Chrome's, because Chrome's menu has no idea a canvas contains selected text and would
-offer nothing useful. Copy is shown unavailable rather than as a button that silently does
-nothing.
+The context menu is rendered in the page rather than left to Chrome's, because Chrome's menu has
+no idea a canvas contains selected text and would offer nothing useful. It carries the clipboard
+entries, then the actions that belong to the pane itself: split, move to its own tab, close, and
+kill the session. An entry that cannot apply is greyed rather than hidden, so the menu keeps a
+stable shape and says why instead of doing nothing when clicked.
+
+Entries act on **the pane that was right-clicked**, which is focused first. A menu whose actions
+landed on whichever pane happened to be focused would be a trap.
+
+`Select all` focuses the terminal before selecting. A selection made while the helper textarea
+does not have focus is held by xterm and never painted, which is indistinguishable from the entry
+doing nothing.
+
+`Clear` performs the real clear, not `term.clear()`. Wiping only this buffer left the output in
+the daemon and on disk, so it returned on the next reload, which made the entry a lie. See §7.
+
+The menu is measured and then placed: it opens down and to the right of the pointer, and flips to
+the other side when that would put it off screen. Flipping rather than clamping, because a
+clamped menu sits under the cursor and covers the thing that was right-clicked.
 
 Clipboard access uses the `clipboardRead` and `clipboardWrite` permissions. A denial is
 swallowed: there is nothing useful to do about it, and failing loudly would be worse.

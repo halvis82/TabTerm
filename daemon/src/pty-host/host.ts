@@ -111,7 +111,24 @@ export class PtyHost {
       const { frames, consumed } = decoded;
       pending = merged.subarray(consumed);
       for (const f of frames) {
-        if (f.kind === 'control') this.#handle(socket, f.message as Record<string, unknown>);
+        if (f.kind !== 'control') continue;
+        try {
+          this.#handle(socket, f.message as Record<string, unknown>);
+        } catch (e: unknown) {
+          /**
+           * One bad message must not disturb anything else this process is holding.
+           *
+           * There is a guard for uncaught exceptions, but reaching it means unwinding out of a
+           * socket handler with the rest of this batch unprocessed. This process holds the only
+           * handle to everybody's running work, so a message it cannot make sense of is
+           * answered by ignoring that message and nothing more.
+           */
+          this.#send(socket, {
+            t: 'message-failed',
+            message: String(e),
+            about: f.message,
+          });
+        }
       }
     });
   }
@@ -179,6 +196,21 @@ export class PtyHost {
         } catch (e: unknown) {
           this.#send(socket, { t: 'spawn-failed', sessionId: id, error: String(e) });
         }
+        return;
+      }
+
+      case 'inject': {
+        /**
+         * Output that did not come from the process.
+         *
+         * Deliberately not a `write`: this must never reach the shell. It goes through the same
+         * path real output takes, so it lands in the ring, on disk, and on every attached
+         * screen, and therefore survives a reload and a daemon restart like anything else the
+         * terminal has printed. See docs/07-terminal-fidelity.md.
+         */
+        const live = this.#sessions.get(id);
+        if (!live || typeof msg['data'] !== 'string') return;
+        this.#emit(live, Buffer.from(msg['data'], 'utf8'));
         return;
       }
 
@@ -290,21 +322,23 @@ export class PtyHost {
     }
   }
 
+  /** Everything a session has printed goes through here, whatever produced it. */
+  #emit(live: Live, data: Buffer): void {
+    live.seq += data.length;
+    const copy = new Uint8Array(data);
+    this.#store.append(live.id, copy);
+    live.ring.push({ seq: live.seq, data: copy });
+    live.ringBytes += copy.length;
+    // Dropped from the front, because the recent past is what redraws a screen.
+    while (live.ringBytes > this.#ringBytes && live.ring.length > 1) {
+      const dropped = live.ring.shift();
+      live.ringBytes -= dropped?.data.length ?? 0;
+    }
+    this.#broadcast(outputFrame({ sessionId: live.id, seq: live.seq, data: copy }));
+  }
+
   #wire(live: Live): void {
-    live.handle.pty.onData((chunk) => {
-      const data = Buffer.from(chunk, 'binary');
-      live.seq += data.length;
-      const copy = new Uint8Array(data);
-      this.#store.append(live.id, copy);
-      live.ring.push({ seq: live.seq, data: copy });
-      live.ringBytes += copy.length;
-      // Dropped from the front, because the recent past is what redraws a screen.
-      while (live.ringBytes > this.#ringBytes && live.ring.length > 1) {
-        const dropped = live.ring.shift();
-        live.ringBytes -= dropped?.data.length ?? 0;
-      }
-      this.#broadcast(outputFrame({ sessionId: live.id, seq: live.seq, data: copy }));
-    });
+    live.handle.pty.onData((chunk) => this.#emit(live, Buffer.from(chunk, 'binary')));
 
     live.handle.pty.onExit(({ exitCode, signal }) => {
       live.exited = { exitCode, ...(signal !== undefined ? { signal } : {}) };

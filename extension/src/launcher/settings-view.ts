@@ -28,7 +28,7 @@ export interface SettingsOptions {
 /**
  * How long a terminal with no tab is kept.
  *
- * Forever is last rather than first: it is a real answer and was the old behaviour, but it is
+ * Forever is last rather than first: it is a real answer and was the old behavior, but it is
  * the one that quietly accumulates hundreds of shells, so it should be chosen rather than
  * arrived at.
  */

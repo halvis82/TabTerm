@@ -166,9 +166,9 @@
     display: none;
   }
   /* Links only activate while Command is held, so the terminal stays a terminal. */
-  body.cmd-held .xterm-screen {
-    cursor: pointer;
-  }
+  /* The pointer belongs to the link under it, which xterm sets itself. Setting it for the whole
+     screen the moment the modifier went down said "something here is clickable" without saying
+     what, and it said it over blank space too. */
   /* --- reset confirmation ------------------------------------------------ */
 
   .reset {
@@ -940,6 +940,218 @@
   .term-menu-item:disabled {
     color: #5f6368;
     cursor: default;
+  }
+  /* Landmarks beside the scrollbar. Inside it rather than over it: Chrome handles a scrollbar
+     click itself and dispatches no DOM event, so markers drawn on top of one can be seen and
+     never clicked. */
+  .marker-rail {
+    position: absolute;
+    /* Clear of the command button, which sits in the same corner and would swallow the clicks
+       meant for the topmost landmarks. */
+    top: 34px;
+    bottom: 4px;
+    right: 11px;
+    width: 6px;
+    z-index: 5;
+    display: none;
+  }
+  .marker-rail.has-markers {
+    display: block;
+  }
+  .marker-pip {
+    position: absolute;
+    left: 0;
+    width: 6px;
+    height: 4px;
+    border-radius: 2px;
+    cursor: pointer;
+    opacity: 0.85;
+  }
+  .marker-pip:hover {
+    opacity: 1;
+    width: 10px;
+    left: -4px;
+  }
+
+  /* A name somebody gave a pane. Quiet on purpose: it is for telling panes apart, not for
+     reading, and one that competed with the output would be worse than none. */
+  .pane-label {
+    position: absolute;
+    top: 3px;
+    right: 8px;
+    z-index: 4;
+    padding: 0 4px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.28);
+    color: #9aa1b8;
+    font-size: 11px;
+    line-height: 1.5;
+    opacity: 0.62;
+    pointer-events: none;
+    max-width: 45%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .pane-label-form {
+    position: absolute;
+    top: 24px;
+    right: 8px;
+    z-index: 61;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid #333;
+    background: #1a1c20;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  }
+  .pane-label-input {
+    width: 190px;
+    padding: 5px 7px;
+    border-radius: 6px;
+    border: 1px solid #39405a;
+    background: #12141a;
+    color: #e8e8e8;
+    font: inherit;
+    font-size: 12px;
+  }
+  .pane-label-input:focus {
+    outline: none;
+    border-color: #4d7fd0;
+  }
+  .pane-label-colors {
+    display: flex;
+    gap: 5px;
+  }
+  .pane-label-color {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+  }
+  .pane-label-color.on {
+    border-color: #e8e8e8;
+  }
+  .pane-label-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 4px;
+  }
+
+  /* --- the chooser over an empty pane ----------------------------------- */
+  .pane-chooser {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 10px;
+    pointer-events: none;
+  }
+  .pane-chooser-box {
+    pointer-events: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+    max-width: 460px;
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(90, 100, 130, 0.26);
+    background: rgba(20, 23, 33, 0.72);
+    backdrop-filter: blur(14px);
+  }
+  .pane-chooser-input {
+    width: 100%;
+    padding: 7px 9px;
+    border-radius: 7px;
+    border: 1px solid #39405a;
+    background: #171a22;
+    color: #e8e8e8;
+    font: inherit;
+    font-size: 12px;
+  }
+  .pane-chooser-input:focus {
+    outline: none;
+    border-color: #4d7fd0;
+  }
+  .pane-chooser-matches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .pane-chooser-match,
+  .pane-chooser-session {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 5px 8px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: rgba(255, 255, 255, 0.04);
+    color: #d5d8e2;
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .pane-chooser-session {
+    width: 100%;
+  }
+  .pane-chooser-match:hover,
+  .pane-chooser-session:hover {
+    background: rgba(122, 162, 247, 0.16);
+    border-color: rgba(122, 162, 247, 0.4);
+  }
+  .pane-chooser-session.is-confirming {
+    border-color: #c9724f;
+    background: rgba(201, 114, 79, 0.14);
+  }
+  .pane-chooser-session-name {
+    color: #e8e8e8;
+  }
+  .pane-chooser-session-cwd,
+  .pane-chooser-hint {
+    color: #7d8398;
+    font-size: 11px;
+  }
+  .pane-chooser-heading {
+    margin-top: 4px;
+    color: #9aa1b8;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .pane-chooser-badge {
+    margin-left: auto;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: rgba(122, 162, 247, 0.18);
+    color: #9ec5ff;
+    font-size: 10px;
+  }
+  .pane-chooser-warn {
+    width: 100%;
+    color: #f0a98a;
+    font-size: 11px;
+  }
+
+  .term-menu-rule {
+    height: 1px;
+    margin: 4px 6px;
+    background: #33363f;
+  }
+  .term-menu-item.is-danger:not(:disabled) {
+    color: #ff8a7a;
+  }
+  .term-menu-item.is-danger:hover:not(:disabled) {
+    background: #5c2a26;
   }
   #server-offer {
     position: absolute;

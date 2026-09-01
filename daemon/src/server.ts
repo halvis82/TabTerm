@@ -23,6 +23,7 @@ import { authDelayMs, recordFailure, recordSuccess, verifyToken } from './auth.j
 import type { Config } from './config.js';
 import { FlowController } from './flow-control.js';
 import { debug, info, warn } from './log.js';
+import { markerBlock } from './marker-block.js';
 import { openPath, resolvePaths } from './paths.js';
 import { processCwd } from './process-cwd.js';
 import type { LauncherData } from './launcher-data.js';
@@ -167,6 +168,18 @@ export function clampTimeout(seconds: number | null): number | null {
   return Math.min(24 * 60 * 60, Math.max(60, Math.floor(seconds)));
 }
 
+/**
+ * The readable half of a thrown thing.
+ *
+ * A category is not a reason. "could not launch the agent" tells somebody nothing they can do
+ * anything about, while the cause underneath it usually names the command that was missing or
+ * the directory that was not there. The `Error:` prefix goes because it is noise in a sentence.
+ */
+export function causeOf(thrown: unknown): string {
+  const text = thrown instanceof Error ? thrown.message : String(thrown);
+  return text.replace(/^Error:\s*/, '').trim() || 'no reason was given';
+}
+
 export class DaemonServer {
   readonly #http: Server;
   readonly #wss: WebSocketServer;
@@ -261,7 +274,7 @@ export class DaemonServer {
    *
    * Not every live session: a shell that has printed a prompt and nothing else is a session to
    * the daemon and an empty tab to the person who opened it. Listing those is what turns
-   * "running now" into a list of things nobody recognises, and it counts the tab you are
+   * "running now" into a list of things nobody recognizes, and it counts the tab you are
    * reading it in. A session enters this list when a command runs in it, and never leaves
    * while it is alive, so going idle again does not make it disappear.
    *
@@ -649,7 +662,7 @@ export class DaemonServer {
           this.#broadcastLayout(msg.workspaceId);
         })().catch((e: unknown) => {
           warn('workspace.split.failed', { error: String(e) });
-          sendError(client.socket, 'internal', 'could not split');
+          sendError(client.socket, 'internal', causeOf(e));
         });
         return;
       }
@@ -669,6 +682,31 @@ export class DaemonServer {
         return;
       }
 
+      case 'insert-marker': {
+        const session = this.#sessions.get(msg.sessionId);
+        if (!session) return;
+        this.#sessions.inject(
+          session,
+          markerBlock({
+            label: msg.label,
+            ...(msg.color === undefined ? {} : { color: msg.color }),
+            cols: session.vt.cols,
+          }),
+        );
+        return;
+      }
+
+      case 'set-pane-label': {
+        const updated = this.#workspaces.setLabel(
+          msg.workspaceId,
+          msg.paneId,
+          msg.label,
+          msg.color,
+        );
+        if (updated) this.#broadcastLayout(msg.workspaceId);
+        return;
+      }
+
       case 'list-mergeable': {
         const here = this.#workspaces.get(msg.workspaceId);
         const mine = new Set(here ? this.#workspaces.sessionIds(here) : []);
@@ -684,6 +722,8 @@ export class DaemonServer {
                 title: session.titleFields.process ?? session.shell.split('/').pop() ?? 'shell',
                 cwd: session.cwd,
                 paneCount: panes(w.layout).length,
+                attached: session.clients.size > 0,
+                hasRun: session.hasRun === true,
               },
             ];
           }),
@@ -712,6 +752,13 @@ export class DaemonServer {
             // so restoring that tab can pull it back instead of reporting an expiry.
             this.#mergedAway.set(sourceId, { sessionId: msg.sessionId, at: Date.now() });
             this.#pruneMergedAway();
+            // Taken over, not expired. The tab it left can close rather than offering to
+            // restore a session that is alive in another tab.
+            this.#tellEveryone({
+              t: 'workspace-taken-over',
+              workspaceId: sourceId,
+              sessionId: msg.sessionId,
+            });
             this.#notifyWorkspaceGone(sourceId);
           }
           this.#attachWorkspace(client, msg.workspaceId, 80, 24);
@@ -937,7 +984,9 @@ export class DaemonServer {
           );
         })().catch((e: unknown) => {
           warn('agent.launch.failed', { error: String(e) });
-          sendError(client.socket, 'internal', 'could not launch the agent');
+          // The cause, not a category. "could not launch the agent" cannot be acted on; the
+          // reason it could not usually names a missing command or an unreadable directory.
+          sendError(client.socket, 'internal', causeOf(e));
         });
         return;
       }
@@ -1102,7 +1151,7 @@ export class DaemonServer {
       case 'create-layout': {
         void this.#createLayout(client, msg).catch((e: unknown) => {
           warn('layout.create.failed', { error: String(e) });
-          sendError(client.socket, 'path-not-found', 'could not create that layout');
+          sendError(client.socket, 'path-not-found', causeOf(e));
         });
         return;
       }
@@ -1128,7 +1177,7 @@ export class DaemonServer {
       case 'launch-project-template': {
         void this.#launchProjectTemplate(client, msg).catch((e: unknown) => {
           warn('project.launch.failed', { error: String(e) });
-          sendError(client.socket, 'internal', 'could not open that project workspace');
+          sendError(client.socket, 'internal', causeOf(e));
         });
         return;
       }
@@ -1917,6 +1966,18 @@ export class DaemonServer {
     const cutoff = Date.now() - MERGED_AWAY_TTL_MS;
     for (const [workspaceId, record] of this.#mergedAway) {
       if (record.at < cutoff) this.#mergedAway.delete(workspaceId);
+    }
+  }
+
+  /**
+   * Send to every authenticated client, terminal pages included.
+   *
+   * `broadcast` reaches only the control connection, which is the offscreen document, and a
+   * message meant for the tab showing a workspace has to reach the tab.
+   */
+  #tellEveryone(message: ServerMessage): void {
+    for (const c of this.#clients) {
+      if (c.authed) send(c.socket, controlFrame(message));
     }
   }
 

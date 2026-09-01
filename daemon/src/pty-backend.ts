@@ -39,6 +39,8 @@ export interface PtyBackend {
   /** The pid, once whatever owns the PTY has one. */
   onSpawned(fn: (sessionId: string, pid: number) => void): void;
   write(sessionId: string, data: string): void;
+  /** Output that did not come from the process. Never reaches the shell. */
+  inject(sessionId: string, data: string): void;
   resize(sessionId: string, cols: number, rows: number): void;
   /** `keepHistory` when nobody asked for this, so a tab still open has something to show. */
   kill(sessionId: string, keepHistory?: boolean): Promise<void>;
@@ -83,6 +85,17 @@ export class LocalPtyBackend implements PtyBackend {
 
   write(sessionId: string, data: string): void {
     this.#handles.get(sessionId)?.pty.write(data);
+  }
+
+  /**
+   * Straight to the listener, because there is no ring here to put it in.
+   *
+   * The local backend keeps nothing beyond the process, so injected output reaches the screen
+   * and nothing else. That is the honest behavior for a backend whose whole point is that it
+   * does not outlive the daemon.
+   */
+  inject(sessionId: string, data: string): void {
+    this.#onData(sessionId, Buffer.from(data, 'utf8'));
   }
 
   resize(sessionId: string, cols: number, rows: number): void {

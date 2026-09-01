@@ -22,6 +22,8 @@ export interface DaemonClientOptions {
   clientId: string;
   role: 'control' | 'data';
   onControl: (msg: ServerMessage) => void;
+  /** Something arrived that could not be read or handled. Reported, never swallowed. */
+  onProtocolError?: (detail: string) => void;
   onOutput: (streamId: number, data: Uint8Array) => void;
   onStatus: (status: ConnectionStatus) => void;
 }
@@ -68,18 +70,37 @@ export class DaemonClient {
     };
 
     ws.onmessage = (ev: MessageEvent<ArrayBuffer>) => {
-      const frame = decodeFrame(new Uint8Array(ev.data));
-      if (frame.kind === 'control') {
-        if (frame.message.t === 'auth-ok') {
-          this.#ready = true;
-          this.#backoff = BACKOFF_MIN_MS;
-          this.#opts.onStatus('ready');
-        }
-        this.#opts.onControl(frame.message as ServerMessage);
+      /**
+       * One bad message must not take the terminal with it.
+       *
+       * Decoding can throw on a malformed frame, and a handler can throw on a message shape it
+       * did not expect. Neither is a reason to stop rendering a session that is running
+       * perfectly well, so both are contained and reported rather than left to escape into an
+       * event handler where they become an unexplained tab that stopped updating.
+       */
+      let frame;
+      try {
+        frame = decodeFrame(new Uint8Array(ev.data));
+      } catch (e: unknown) {
+        this.#opts.onProtocolError?.(`a message could not be read: ${String(e)}`);
         return;
       }
-      if (frame.kind === 'output') {
-        this.#opts.onOutput(frame.streamId, frame.data);
+
+      try {
+        if (frame.kind === 'control') {
+          if (frame.message.t === 'auth-ok') {
+            this.#ready = true;
+            this.#backoff = BACKOFF_MIN_MS;
+            this.#opts.onStatus('ready');
+          }
+          this.#opts.onControl(frame.message as ServerMessage);
+          return;
+        }
+        if (frame.kind === 'output') {
+          this.#opts.onOutput(frame.streamId, frame.data);
+        }
+      } catch (e: unknown) {
+        this.#opts.onProtocolError?.(`a message could not be handled: ${String(e)}`);
       }
     };
 

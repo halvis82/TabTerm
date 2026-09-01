@@ -162,6 +162,27 @@ Chrome and other extensions may reserve combinations.
 
 ---
 
+## 5.5 The PATH a spawned command gets
+
+A LaunchAgent starts with `PATH=/usr/bin:/bin:/usr/sbin:/sbin`. A terminal never noticed, because
+a shell is spawned with `-l` and rebuilds its own environment on the way up. Anything spawned as a
+**command** did notice, and no agent CLI is in those four directories: `claude` and `codex` live
+in `~/.local/bin` and Homebrew. So launching an agent, resuming one, and every command a project
+template declares failed to spawn at all.
+
+The daemon asks the login shell for its `PATH` once and caches it, which is the same mechanism a
+terminal already depends on, so what a command gets and what a person gets in a shell are the same
+thing by construction. The executable is then resolved against that `PATH` here rather than left
+to the spawn, because `posix_spawnp` searches the PATH of the process doing the spawning, not the
+one being handed to the child.
+
+A command that still cannot be found is reported **into the session's own output**, the way a
+shell reports one, so it reaches the screen, the scrollback, and any tab that reattaches later. A
+pane that showed an exit code and nothing else could not distinguish a missing agent CLI from a
+crash.
+
+---
+
 ## 6. Session resume
 
 The agent CLI keeps its own session records under `~/.claude/projects/`. TabTerm reads them to

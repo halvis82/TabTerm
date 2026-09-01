@@ -85,6 +85,8 @@ export interface Session {
    * stays real even when it goes idle again.
    */
   hasRun?: boolean;
+  /** Where it was opened, so a session that never went anywhere can be told from one that did. */
+  readonly startedIn: string;
   /** Set while a command is running, so the title can show it rather than the shell. */
   commandRunning: boolean;
   commandStartedAt?: number;
@@ -217,6 +219,7 @@ export class SessionManager {
       createdAt: Date.now(),
       lastAttachedAt: Date.now(),
       cwd,
+      startedIn: cwd,
       shell: this.#config.shell,
       // Filled in when whatever owns the PTY reports it, which is a round trip away when that
       // is another process. Nothing here needs it sooner.
@@ -329,6 +332,9 @@ export class SessionManager {
       createdAt: Date.now(),
       lastAttachedAt: Date.now(),
       cwd: info_.cwd,
+      // Adopted, so nobody knows where it began. Its current directory is the honest answer,
+      // and it is marked as having run something anyway, so nothing depends on this.
+      startedIn: info_.cwd,
       shell: info_.shell,
       pid: info_.pid,
       pinned: false,
@@ -404,6 +410,17 @@ export class SessionManager {
     client.cols = cols;
     client.rows = rows;
     this.#applyResize(session);
+  }
+
+  /**
+   * Put something on a session's screen that no process produced.
+   *
+   * Fed to this daemon's own terminal state as well as to the backend, so the screen the daemon
+   * would hand a reattaching tab matches what everyone is looking at right now.
+   */
+  inject(session: Session, text: string): void {
+    if (session.state === 'exited' || session.state === 'reaped') return;
+    this.#pty.inject(session.id, text);
   }
 
   write(session: Session, data: Buffer): void {

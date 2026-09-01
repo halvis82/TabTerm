@@ -306,6 +306,47 @@ Every setting there is about how a terminal behaves and is worth changing while 
 
 ---
 
+## 6.6 What an empty pane shows
+
+Splitting a tab produced two empty shells in the home directory, and the first thing anybody does
+with one is go somewhere. So a pane with nothing in it draws a chooser over itself offering the
+two things worth doing: open a folder, with the same Tab completion the start screen has, or bring
+a session that already exists here.
+
+It sits over the pane rather than replacing it, on the same principle as the start screen: the
+shell underneath is already running and already has the keyboard, so typing goes straight to it
+and the chooser goes away when a command is actually sent. Only a workspace with more than one
+pane gets them, since a single pane already has the start screen over it.
+
+### Naming a pane
+
+A pane can be given a name from its own menu, with a short list of colors rather than a full
+picker. Six distinguishable tints is what telling panes apart actually needs, and a free color
+wheel mostly produces labels nobody can read against the terminal background.
+
+The name lives **on the layout**, so it survives a reload and a daemon restart the way the split
+it belongs to does. It is drawn quietly in a corner at low opacity: a name exists to tell four
+shells apart at a glance, and one that competed with the output would be worse than none.
+
+Both the name and the color are cleaned where they enter storage. Control characters become
+spaces, since a label is drawn on one line and a newline is not a label, and a color that is not
+`#rrggbb` is dropped rather than guessed at.
+
+### A session is never open in two tabs
+
+Bringing a session into a pane **moves** it. A session lives in exactly one workspace, so the tab
+it came from is left with nothing, and that is said before it happens rather than discovered
+afterwards: a session a tab is currently showing is marked, and choosing it asks first.
+
+That tab is then told the workspace was **taken over**, which is distinct from expiry. Nothing
+ended, so offering to restore it would be untrue, and it closes instead.
+
+This does not conflict with ADR-0011, which says a duplicated tab mirrors its session. That is
+about Chrome's own duplicate, which cannot be refused because Chrome does not ask. This rule is
+about the sessions TabTerm itself offers to open, where it can and does.
+
+---
+
 ## 7. Notifications
 
 `chrome.notifications`, fired from the offscreen document so they work with every terminal tab

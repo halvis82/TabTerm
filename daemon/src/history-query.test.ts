@@ -73,7 +73,7 @@ describe('history query parsing', () => {
   });
 
   it('keeps an unknown key as text', () => {
-    expect(parse('colour:red').text).toBe('colour:red');
+    expect(parse('color:red').text).toBe('color:red');
   });
 
   it('does not treat a URL as a filter', () => {

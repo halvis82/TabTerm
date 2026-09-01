@@ -114,7 +114,7 @@ reason it was spawned and may still be running.
 
 A shell that has printed a prompt and nothing else is deliberately absent. It is a session in the
 daemon's bookkeeping and an empty tab to the person who opened it, and including those makes the
-list read as terminals they do not recognise.
+list read as terminals they do not recognize.
 
 `attached` means a client connection is reading the session, which is not quite the same as a tab
 being on screen. A client showing a session should filter its own out of the list before
@@ -195,7 +195,26 @@ lines. It is not JSON if JSON proves too slow.
 
 ## 8. Errors
 
-Every error carries a machine-readable `code`. The frontend never parses `message`.
+Every error carries a machine-readable `code`. The frontend never parses `message`: the code
+chooses the sentence, and `message` is appended as the detail, because that is the half naming
+the folder, the session, or the command.
+
+**An error carries a `context`, and a client acts only on its own.** The daemon tells every
+client when a workspace ends, since the tab that needs to hear it is not necessarily attached at
+that moment. A page that ignored the context put "this terminal session expired" over every open
+tab whenever any one workspace ended, including tabs whose own session was running.
+
+**A message names the cause, not the category.** "could not launch the agent" cannot be acted on;
+the reason underneath it usually names the command that was missing or the directory that was not
+there.
+
+**Nothing is reported as a bare number.** A pane showing an exit code and nothing else cannot
+distinguish a missing program from a crash, so a command that fails to start says so in the
+session's own output, the way a shell does.
+
+**A bad frame does not take the tab with it.** Decoding and handling are both contained, and a
+failure in either is reported rather than left to escape into an event handler, where it presents
+as a tab that quietly stopped updating.
 
 | Code | Meaning |
 |---|---|

@@ -118,7 +118,14 @@ class C {
   }
 }
 
-async function makeSession(clientId: string): Promise<{ c: C; sessionId: string }> {
+/**
+ * A session that represents work.
+ *
+ * Marked as having run something, because these tests are about not destroying what somebody
+ * was doing, and a shell that has only ever printed a prompt is deliberately treated as
+ * disposable. A test that used an untouched shell would be pinning the wrong rule.
+ */
+async function makeSession(clientId: string, used = true): Promise<{ c: C; sessionId: string }> {
   const c = await C.connect(clientId);
   c.send({ t: 'create-session', cols: 80, rows: 24 });
   const created = (await c.wait('session-created')) as unknown as {
@@ -127,6 +134,8 @@ async function makeSession(clientId: string): Promise<{ c: C; sessionId: string 
   };
   c.streamId = created.streamId;
   await sleep(600);
+  const session = sessions.get(created.sessionId);
+  if (session && used) session.hasRun = true;
   return { c, sessionId: created.sessionId };
 }
 
@@ -137,7 +146,7 @@ describe('durability', () => {
      *
      * What changed is the far end: a pane with no tab is now reaped after a background timeout
      * rather than kept literally forever, because sessions survive daemon restarts and the old
-     * behaviour accumulated hundreds of them. Keeping them forever is still available by
+     * behavior accumulated hundreds of them. Keeping them forever is still available by
      * choosing it, which is what this test now pins.
      */
     sessions.keepBackgroundSeconds = null;
@@ -192,6 +201,7 @@ describe('durability', () => {
 
   it('reaps a session that is not in a workspace once its grace period passes', async () => {
     const { c, sessionId } = await makeSession('dur-3');
+    // Outside a workspace the idle-shell rule applies, which is faster than the never-used one.
     // Remove it from its workspace so the protection no longer applies.
     const ws = workspaces.findBySession(sessionId);
     if (ws) {
@@ -433,5 +443,18 @@ describe('startup herd', () => {
     console.warn(`      ${String(COUNT)} simultaneous restores completed in ${String(elapsed)}ms`);
 
     for (const c of clients) c.close();
+  });
+});
+
+describe('a pane nobody used', () => {
+  it('goes soon after its tab closes, rather than lingering', async () => {
+    // The counterpart of the test above: that one pins "never destroy work", this one pins
+    // "an untouched shell is not work". Both matter, and only together.
+    sessions.keepBackgroundSeconds = null;
+    const { c, sessionId } = await makeSession('dur-unused', false);
+    c.close();
+    await sleep(1200);
+    // Scheduled rather than gone: the delay is what makes an accidental close recoverable.
+    expect(sessions.get(sessionId)?.state).toBe('expiring');
   });
 });

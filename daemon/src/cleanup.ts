@@ -10,6 +10,7 @@ import type { Session } from './session-manager.js';
  */
 
 export type ReapReason =
+  | 'never-used'
   | 'background-timeout'
   | 'pinned'
   | 'persistent'
@@ -40,7 +41,18 @@ export interface ReapInput {
   hasExplicitCommand: boolean;
   /** How long a pane with no tab is kept, or null to keep it forever. */
   keepBackgroundSeconds: number | null;
+  /**
+   * Nothing has ever been run here and it never left the directory it opened in.
+   *
+   * A tab opened and closed without being used is not work somebody might come back to, and
+   * keeping it for the background timeout is how a machine ends up holding dozens of identical
+   * shells in the home directory.
+   */
+  neverUsed: boolean;
 }
+
+/** Long enough that reopening an accidentally closed tab still finds it. */
+const NEVER_USED_SECONDS = 30;
 
 export function decideReap(input: ReapInput, config: Config): ReapDecision {
   // Order matters: the first matching rule wins, and the most protective rules come first.
@@ -58,6 +70,17 @@ export function decideReap(input: ReapInput, config: Config): ReapDecision {
    * it rather than by default.
    */
   if (input.inWorkspace) {
+    /**
+     * A pane that was opened and closed without being used holds nothing.
+     *
+     * Inside the workspace branch rather than before it, so it can only ever make a pane go
+     * sooner than the background timeout and never delay one that some other rule would have
+     * ended faster. Not immediate: a few seconds means closing a tab by accident is still
+     * recoverable by reopening it, and nothing accumulates.
+     */
+    if (input.neverUsed && input.listeningPort === undefined && !input.hasExplicitCommand) {
+      return { afterSeconds: NEVER_USED_SECONDS, reason: 'never-used' };
+    }
     return input.keepBackgroundSeconds === null
       ? { afterSeconds: null, reason: 'in-a-workspace' }
       : { afterSeconds: input.keepBackgroundSeconds, reason: 'background-timeout' };
@@ -102,6 +125,10 @@ export function reapInputFor(
     persistent: session.persistent ?? false,
     attachedClients: session.clients.size,
     inWorkspace: opts.inWorkspace,
+    // Never used means never a command, and never anywhere but where it opened. A `cd` on its
+    // own is a shell builtin that spawns nothing, so the directory is checked as well rather
+    // than trusting the command flag alone.
+    neverUsed: session.hasRun !== true && session.cwd === session.startedIn,
     exited: session.state === 'exited',
     listeningPort: opts.listeningPort,
     keepBackgroundSeconds:
