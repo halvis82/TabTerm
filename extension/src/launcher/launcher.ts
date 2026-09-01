@@ -363,11 +363,16 @@ export class Launcher {
     const sections: HTMLElement[] = [];
 
     /**
-     * What is already running comes first.
+     * The folder box first, because it is what this screen is for.
      *
-     * A session with no tab showing it is invisible everywhere else in the product, and it is
-     * the thing most worth seeing on a page whose whole job is "what do you want to do".
+     * Running sessions used to come first, on the argument that a session with no tab is
+     * invisible everywhere else. That was right until the cards grew previews: with a handful
+     * of sessions the layout buttons were pushed **below the fold entirely**, so the primary
+     * action on the page could not be reached without scrolling for it. What is already running
+     * is still worth seeing, and it is worth seeing second.
      */
+    sections.push(this.#layoutSection(state));
+
     if (this.#liveSessions.length > 0) {
       sections.push(
         buildSessions({
@@ -378,9 +383,6 @@ export class Launcher {
         }),
       );
     }
-
-    // --- new layout in a directory ---------------------------------------
-    sections.push(this.#layoutSection(state));
     const restorable = this.#restoreSection(state.home);
     if (restorable) sections.push(restorable);
     const servers = this.#serverSection(state.home);

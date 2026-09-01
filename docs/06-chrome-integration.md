@@ -306,6 +306,15 @@ Every setting there is about how a terminal behaves and is worth changing while 
 
 ---
 
+### What comes first
+
+The folder box leads, and what is already running follows it. Running sessions used to come
+first, on the argument that a session with no tab is invisible everywhere else. That held until
+those cards grew previews: with a handful of sessions the layout buttons were pushed below the
+fold, so the primary control on the page could not be reached without scrolling for it.
+
+---
+
 ## 6.6 What an empty pane shows
 
 Splitting a tab produced two empty shells in the home directory, and the first thing anybody does
@@ -317,6 +326,15 @@ It sits over the pane rather than replacing it, on the same principle as the sta
 shell underneath is already running and already has the keyboard, so typing goes straight to it
 and the chooser goes away when a command is actually sent. Only a workspace with more than one
 pane gets them, since a single pane already has the start screen over it.
+
+**Only a pane that has printed nothing but a prompt.** Every pane in a multi-pane tab used to get
+one, so a session merged into a pane arrived with a panel over its output offering to replace
+what had just been put there.
+
+The panel is bounded by the pane it sits in and scrolls inside it, rather than running past the
+bottom of a short one where its rows cannot be clicked at all. The list is short, so its order
+matters: a session currently open in a tab comes first, because a short list that omits the one
+you meant is worse than no list.
 
 ### Naming a pane
 

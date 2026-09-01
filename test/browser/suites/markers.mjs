@@ -2,7 +2,16 @@
 //
 // A landmark is printed into the session's output, never sent to the shell, so it behaves like
 // the rest of the scrollback: it scrolls with the work it marks and survives a reload.
-import { openTerminal, evaluate, readScreen, sleep, type, finish } from '../helpers.mjs';
+import {
+  openTerminal,
+  evaluate,
+  readScreen,
+  sleep,
+  type,
+  finish,
+  realClick,
+  openPaneMenu,
+} from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -11,10 +20,7 @@ await sleep(4500);
 await type(client, 'echo before-the-landmark\r');
 await sleep(1200);
 
-await evaluate(
-  client,
-  "document.querySelector('.xterm-screen').dispatchEvent(new MouseEvent('contextmenu', { clientX: 60, clientY: 60, bubbles: true }))",
-);
+await openPaneMenu(client, 60, 60);
 await sleep(250);
 r.ok(
   'the pane menu offers a marker',
@@ -23,19 +29,12 @@ r.ok(
     "[...document.querySelectorAll('.term-menu-item')].some((b) => b.textContent === 'Add a marker here')",
   ),
 );
-await evaluate(
-  client,
-  "[...document.querySelectorAll('.term-menu-item')].find((b) => b.textContent === 'Add a marker here')?.click()",
-);
+// A real press and release, since that is what a hand does and what the menu used to ignore.
+await realClick(client, '.term-menu-item', 'Add a marker here');
 await sleep(500);
-await evaluate(
-  client,
-  "(() => { document.querySelector('.pane-label-input').value = 'before the deploy'; document.querySelectorAll('.pane-label-color')[2].click(); })()",
-);
-await evaluate(
-  client,
-  "[...document.querySelectorAll('.pane-label-form .term-menu-item')].find((b) => b.textContent === 'Save')?.click()",
-);
+await evaluate(client, "document.querySelector('.pane-label-input').value = 'before the deploy'");
+await realClick(client, '.pane-label-color:nth-of-type(3)');
+await realClick(client, '.pane-label-form .term-menu-item', 'Save');
 await sleep(2000);
 
 const screen = await readScreen(client);

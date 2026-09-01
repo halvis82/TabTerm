@@ -2,7 +2,15 @@
 //
 // The name lives on the layout rather than in the page, so it survives a reload and a daemon
 // restart the way the split it belongs to does.
-import { openTerminal, evaluate, sleep, finish } from '../helpers.mjs';
+import {
+  openTerminal,
+  evaluate,
+  sleep,
+  type,
+  finish,
+  realClick,
+  openPaneMenu,
+} from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -10,14 +18,12 @@ const { client } = await openTerminal();
 await sleep(4500);
 await evaluate(client, "window.__tabterm.split('horizontal')");
 await sleep(3000);
+// A fresh pane has the chooser over it, which is what an empty pane is for. Use the pane first,
+// the way a person would, so the right click reaches the terminal underneath.
+await type(client, 'echo naming-this-pane\r');
+await sleep(1500);
 
-const openMenu = async () => {
-  await evaluate(
-    client,
-    "document.querySelector('.xterm-screen').dispatchEvent(new MouseEvent('contextmenu', { clientX: 60, clientY: 60, bubbles: true }))",
-  );
-  await sleep(250);
-};
+const openMenu = () => openPaneMenu(client);
 const firstItem = () =>
   evaluate(client, "document.querySelectorAll('.term-menu-item')[4]?.textContent ?? ''");
 
@@ -28,10 +34,9 @@ r.ok(
   String(await firstItem()),
 );
 
-await evaluate(
-  client,
-  "[...document.querySelectorAll('.term-menu-item')].find((b) => b.textContent === 'Name this pane')?.click()",
-);
+// A real press and release, not `.click()`. The menu dismissed itself on mousedown, so every
+// entry was dead to a real mouse while this suite passed.
+await realClick(client, '.term-menu-item', 'Name this pane');
 await sleep(500);
 r.ok('the form opens', await evaluate(client, "!!document.querySelector('.pane-label-form')"));
 r.ok(
@@ -39,14 +44,9 @@ r.ok(
   Number(await evaluate(client, "document.querySelectorAll('.pane-label-color').length")) > 1,
 );
 
-await evaluate(
-  client,
-  "(() => { document.querySelector('.pane-label-input').value = 'build watch'; document.querySelectorAll('.pane-label-color')[1].click(); })()",
-);
-await evaluate(
-  client,
-  "[...document.querySelectorAll('.pane-label-form .term-menu-item')].find((b) => b.textContent === 'Save')?.click()",
-);
+await evaluate(client, "document.querySelector('.pane-label-input').value = 'build watch'");
+await realClick(client, '.pane-label-color:nth-of-type(2)');
+await realClick(client, '.pane-label-form .term-menu-item', 'Save');
 await sleep(1500);
 
 const drawn = JSON.parse(

@@ -2,7 +2,16 @@
 //
 // Every check here is a thing that was reported as broken by hand: the menu ran off the screen
 // near an edge, Select all appeared to do nothing, and Clear only unselected the text.
-import { openTerminal, evaluate, readScreen, sleep, type, finish } from '../helpers.mjs';
+import {
+  openTerminal,
+  evaluate,
+  readScreen,
+  sleep,
+  type,
+  finish,
+  realClick,
+  openPaneMenu,
+} from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -11,19 +20,10 @@ await sleep(4500);
 await type(client, 'echo MENU-SUITE-LINE\r');
 await sleep(1200);
 
-const openMenu = async (x, y) => {
-  await evaluate(
-    client,
-    `document.querySelector('.xterm-screen').dispatchEvent(
-       new MouseEvent('contextmenu', { clientX: ${String(x)}, clientY: ${String(y)}, bubbles: true }))`,
-  );
-  await sleep(250);
-};
-const choose = async (label) =>
-  evaluate(
-    client,
-    `[...document.querySelectorAll('.term-menu-item')].find(b => b.textContent === ${JSON.stringify(label)})?.click()`,
-  );
+const openMenu = (x, y) => openPaneMenu(client, x, y);
+// Pressed and released, not `.click()`: the difference is what made every entry dead to a
+// real mouse while every test passed.
+const choose = (label) => realClick(client, '.term-menu-item', label);
 
 await openMenu(60, 60);
 const items = JSON.parse(
@@ -67,9 +67,17 @@ r.ok(
   await evaluate(client, `!!document.querySelector('#clear-undo:not([hidden])')`),
 );
 
-// The corner is where the menu used to open mostly off screen.
+// The corner is where the menu used to open mostly off screen. Aimed at the terminal's own
+// corner rather than the window's, since a right click outside the terminal opens no menu.
 const view = JSON.parse(await evaluate(client, `JSON.stringify({w: innerWidth, h: innerHeight})`));
-await openMenu(view.w - 6, view.h - 6);
+const corner = JSON.parse(
+  await evaluate(
+    client,
+    `(() => { const b = document.querySelector('.xterm').getBoundingClientRect();
+       return JSON.stringify({ x: Math.round(b.right - 6), y: Math.round(b.bottom - 6) }); })()`,
+  ),
+);
+await openMenu(corner.x, corner.y);
 const rect = JSON.parse(
   await evaluate(
     client,

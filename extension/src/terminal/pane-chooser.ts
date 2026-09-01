@@ -62,9 +62,17 @@ export class PaneChooser {
   }
 
   setSessions(sessions: readonly MergeableSession[]): void {
-    // An untouched shell is not worth offering: taking one gains nothing and costs whoever
-    // opened it their tab.
-    this.#sessions = sessions.filter((s) => s.hasRun);
+    /**
+     * What is worth offering, in the order worth offering it.
+     *
+     * An untouched shell is left out: taking one gains nothing and costs whoever opened it
+     * their tab. The rest are sorted so a session somebody is currently looking at comes first,
+     * because a short list that omits the one you meant is worse than no list.
+     */
+    this.#sessions = sessions
+      .filter((session) => session.hasRun)
+      .slice()
+      .sort((a, b) => Number(b.attached) - Number(a.attached));
     if (!this.#dismissed) this.render();
   }
 
@@ -129,7 +137,9 @@ export class PaneChooser {
       heading.textContent = 'Or bring a session here';
       box.append(heading);
 
-      for (const session of this.#sessions.slice(0, 6)) {
+      // A shortlist, not an inventory. The full list lives on the start screen, and a pane is
+      // a small place to read one.
+      for (const session of this.#sessions.slice(0, 4)) {
         box.append(this.#sessionRow(session));
       }
     }

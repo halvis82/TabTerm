@@ -190,7 +190,7 @@ export class XtermController {
       b.textContent = label;
       b.disabled = !enabled;
       b.addEventListener('click', () => {
-        menu.remove();
+        close();
         run();
       });
       menu.append(b);
@@ -238,8 +238,19 @@ export class XtermController {
     menu.style.left = `${String(at.left)}px`;
     menu.style.top = `${String(at.top)}px`;
     menu.style.visibility = 'visible';
-    // Dismiss on the next interaction anywhere, including a second right-click.
-    const close = () => {
+    /**
+     * Dismiss on the next interaction anywhere **except inside the menu**.
+     *
+     * Without that exception the menu was unusable with a real mouse. This runs on `mousedown`,
+     * in the capture phase, so pressing a menu item removed the button before the release, and
+     * a `click` is only dispatched when press and release land on the same element. So no entry
+     * ever ran: the menu vanished and nothing happened.
+     *
+     * It survived every test because a synthetic `element.click()` dispatches the click
+     * directly and never produces the mousedown that caused this.
+     */
+    const close = (e?: Event) => {
+      if (e && e.target instanceof Node && menu.contains(e.target)) return;
       menu.remove();
       document.removeEventListener('mousedown', close, true);
       document.removeEventListener('contextmenu', close, true);

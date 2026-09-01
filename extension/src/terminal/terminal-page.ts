@@ -502,6 +502,15 @@ function syncPaneChoosers(): void {
     if (paneChoosers.has(paneId)) continue;
     const pane = panesHost?.get(paneId);
     if (!pane) continue;
+    /**
+     * Only a pane with nothing in it.
+     *
+     * Every pane in a multi-pane tab used to get one, so a session merged into a pane arrived
+     * with a chooser drawn over its output, offering to replace what had just been put there.
+     * A fresh shell has printed a prompt and nothing else; anything more means the pane is in
+     * use and has no business being covered.
+     */
+    if (linesWithContent(pane.controller.term) > 1) continue;
     paneChoosers.set(
       paneId,
       new PaneChooser({
@@ -539,6 +548,24 @@ function syncPaneChoosers(): void {
       }),
     );
   }
+}
+
+/** How much a pane has printed, which is how an empty one is told from one in use. */
+function linesWithContent(term: {
+  buffer: {
+    active: {
+      length: number;
+      getLine: (y: number) => { translateToString: (trim: boolean) => string } | undefined;
+    };
+  };
+}): number {
+  const buffer = term.buffer.active;
+  let count = 0;
+  for (let y = 0; y < buffer.length; y++) {
+    if ((buffer.getLine(y)?.translateToString(true) ?? '').trim() !== '') count++;
+    if (count > 1) return count;
+  }
+  return count;
 }
 
 /** Workspaces this tab has just taken a session from, so their tabs know to close. */

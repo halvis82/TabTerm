@@ -49,6 +49,61 @@ export async function openTerminal(query = '') {
   return { client, tab };
 }
 
+/**
+ * Click the way a hand does: press, then release.
+ *
+ * `element.click()` dispatches a click directly and never produces the mousedown before it. The
+ * pane menu dismissed itself on mousedown, so pressing an entry removed the button before the
+ * release, and a click is only dispatched when press and release land on the same element. Every
+ * entry was therefore dead to a real mouse, and every test passed, because they all used
+ * `.click()`.
+ *
+ * Anything driven by a pointer is clicked through here now.
+ */
+export async function realClick(client, selector, text) {
+  // An empty answer rather than the string "null": `JSON.parse('null')` is a valid parse that
+  // yields null, so a not-found check against a string never fired.
+  const answer = String(
+    await evaluate(
+      client,
+      `(() => {
+         const all = [...document.querySelectorAll(${JSON.stringify(selector)})];
+         // Matched on the element's own first text node as well as its whole text, because a
+         // control that carries a badge or a shortcut has more text in it than its label.
+         const el = ${
+           text === undefined
+             ? 'all[0]'
+             : `all.find((x) => x.textContent === ${JSON.stringify(text)} || x.firstChild?.textContent === ${JSON.stringify(text)})`
+         };
+         if (!el) return '';
+         const r = el.getBoundingClientRect();
+         return JSON.stringify({ x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 });
+       })()`,
+    ),
+  );
+  if (answer === '') return false;
+  const where = JSON.parse(answer);
+  for (const type of ['mousePressed', 'mouseReleased']) {
+    await client.send('Input.dispatchMouseEvent', {
+      type,
+      x: Math.round(where.x),
+      y: Math.round(where.y),
+      button: 'left',
+      clickCount: 1,
+    });
+  }
+  await sleep(250);
+  return true;
+}
+
+/** Open a pane's context menu with a real right click. */
+export async function openPaneMenu(client, x = 80, y = 90) {
+  for (const type of ['mousePressed', 'mouseReleased']) {
+    await client.send('Input.dispatchMouseEvent', { type, x, y, button: 'right', clickCount: 1 });
+  }
+  await sleep(350);
+}
+
 export const focusPane = (client) =>
   evaluate(client, `document.querySelector('.pane.focused .xterm-helper-textarea')?.focus()`);
 

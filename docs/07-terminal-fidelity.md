@@ -249,6 +249,13 @@ doing nothing.
 `Clear` performs the real clear, not `term.clear()`. Wiping only this buffer left the output in
 the daemon and on disk, so it returned on the next reload, which made the entry a lie. See §7.
 
+**A press inside the menu never dismisses it.** The menu closes on the next mousedown anywhere
+else, in the capture phase. Without that exception it was unusable: pressing an entry removed the
+button before the release, and a click is only dispatched when press and release land on the same
+element, so no entry ever ran. It survived every test because tests clicked with
+`element.click()`, which dispatches the click directly and never produces the mousedown that
+caused it. Anything driven by a pointer is now tested by pressing and releasing.
+
 The menu is measured and then placed: it opens down and to the right of the pointer, and flips to
 the other side when that would put it off screen. Flipping rather than clamping, because a
 clamped menu sits under the cursor and covers the thing that was right-clicked.

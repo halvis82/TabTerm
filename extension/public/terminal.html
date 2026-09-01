@@ -1061,6 +1061,10 @@
     gap: 6px;
     width: 100%;
     max-width: 460px;
+    /* Bounded by the pane it sits in. Without this the rows ran past the bottom of a short
+       pane and could not be clicked at all, which is indistinguishable from them not working. */
+    max-height: 100%;
+    overflow-y: auto;
     padding: 10px;
     border-radius: 10px;
     border: 1px solid rgba(90, 100, 130, 0.26);

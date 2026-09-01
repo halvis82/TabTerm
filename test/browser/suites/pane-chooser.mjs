@@ -3,7 +3,7 @@
 // Splitting used to produce two empty shells in the home directory, and the first thing anybody
 // does with one is go somewhere. So a pane with nothing in it offers the two things worth doing:
 // pick a folder, or bring a session that already exists here.
-import { openTerminal, evaluate, sleep, type, finish } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, type, finish, realClick } from '../helpers.mjs';
 import { listTargets, reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -20,12 +20,17 @@ const sourceSession = String(
 
 const b = await openTerminal();
 await sleep(4500);
+// Use the tab first, the way a person does. Splitting with the start screen still up leaves the
+// panes in the thin strip it leaves for the terminal, which is not a state anybody reaches.
+await type(b.client, 'echo second-tab\r');
+await sleep(1500);
 await evaluate(b.client, "window.__tabterm.split('horizontal')");
 await sleep(3500);
 
 r.ok(
-  'both panes of a split offer a chooser',
-  Number(await evaluate(b.client, "document.querySelectorAll('.pane-chooser-box').length")) === 2,
+  'the new empty pane offers a chooser',
+  Number(await evaluate(b.client, "document.querySelectorAll('.pane-chooser-box').length")) === 1,
+  'and the pane already in use does not, since covering output would offer to replace it',
 );
 
 // Tab completes a folder, exactly as it does on the start screen.
@@ -69,7 +74,8 @@ const warned = String(
 r.ok('and asks before taking it', warned.includes('close that tab'), warned);
 
 const before = (await listTargets()).filter((t) => t.url.includes('terminal.html')).length;
-await evaluate(b.client, "document.querySelector('.pane-chooser-session.is-confirming')?.click()");
+// Pressed and released, not `.click()`, since that is what a hand does.
+await realClick(b.client, '.pane-chooser-session.is-confirming');
 await sleep(4000);
 
 const after = (await listTargets()).filter((t) => t.url.includes('terminal.html'));
