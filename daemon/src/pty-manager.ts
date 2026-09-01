@@ -1,6 +1,7 @@
 import ptyPkg from 'node-pty';
 import type { IPty } from 'node-pty';
 import { info, warn } from './log.js';
+import { loginPath, resolveExecutable } from './login-path.js';
 
 const { spawn } = ptyPkg;
 
@@ -40,7 +41,23 @@ export function spawnPty(opts: PtyOptions): PtyHandle {
     ? [opts.command[0] as string, opts.command.slice(1)]
     : [opts.shell, ['-l']];
 
-  const pty = spawn(file, args, {
+  /**
+   * Give a command the PATH a person has, and find it on that PATH ourselves.
+   *
+   * A shell does not need this: `-l` rebuilds its own environment. A command does, and without
+   * it every agent CLI and every command a project template declares failed to spawn, because
+   * launchd starts the daemon with four system directories and nothing else.
+   */
+  const path = loginPath();
+  env['PATH'] = path;
+  const resolved = opts.command?.length ? resolveExecutable(file, path) : file;
+  if (resolved === null) {
+    // Said plainly and thrown, rather than left to a spawn error that reports a number. What
+    // reaches the tab should name the command that could not be found.
+    throw new Error(`${file}: command not found`);
+  }
+
+  const pty = spawn(resolved, args, {
     name: 'xterm-256color',
     cols: opts.cols,
     rows: opts.rows,

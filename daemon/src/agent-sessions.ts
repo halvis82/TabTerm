@@ -24,7 +24,7 @@ export interface ResumableSession {
   summary?: string;
 }
 
-const STORE = join(homedir(), '.claude', 'projects');
+const DEFAULT_STORE = join(homedir(), '.claude', 'projects');
 
 /**
  * How much of a session file to read looking for a label.
@@ -79,8 +79,11 @@ export async function listResumable(options?: {
   /** Directories the daemon already knows about, which makes the mapping exact. */
   knownDirs?: readonly string[];
   limit?: number;
+  /** Where the store is, so a test can point at a fixture instead of a real home directory. */
+  store?: string;
 }): Promise<ResumableSession[]> {
   const limit = options?.limit ?? 10;
+  const STORE = options?.store ?? DEFAULT_STORE;
   const byEncoded = new Map<string, string>();
   for (const dir of options?.knownDirs ?? []) byEncoded.set(encodeStoreDir(dir), dir);
   if (options?.cwd) byEncoded.set(encodeStoreDir(options.cwd), options.cwd);
@@ -126,13 +129,28 @@ export async function listResumable(options?: {
   // Only the ones actually being offered get read, so a large store costs a stat per file and
   // a read per visible chip. The store directory is carried along rather than recomputed,
   // because the encoding cannot be trusted to round-trip.
-  await Promise.all(
+  /**
+   * Read the ones being offered, and drop anything that is not a conversation.
+   *
+   * Not every `.jsonl` beside a conversation is one. A summary sidecar carries only `summary`
+   * records, has no `sessionId` anywhere in it, and the agent CLI refuses to resume it: picking
+   * one produced "No conversation found with session ID" and an immediate exit, which read as
+   * resume being broken rather than as that row not being a session.
+   *
+   * The id used is the one recorded inside the file rather than its name, so a store that ever
+   * renames a file cannot make every row resume the wrong thing.
+   */
+  const described = await Promise.all(
     top.map(async ({ session, storeDir }) => {
-      const summary = await readSummary(join(STORE, storeDir, `${session.sessionId}.jsonl`));
+      const path = join(STORE, storeDir, `${session.sessionId}.jsonl`);
+      const [summary, recordedId] = await Promise.all([readSummary(path), readSessionId(path)]);
+      if (recordedId === null) return null;
       if (summary) session.summary = summary;
+      session.sessionId = recordedId;
+      return session;
     }),
   );
-  return top.map((t) => t.session);
+  return described.filter((s): s is ResumableSession => s !== null);
 }
 
 /** A store directory maps to a real path only once that path is confirmed to exist. */
@@ -153,6 +171,32 @@ async function resolveStoreDir(name: string): Promise<string | null> {
  * Reads only the head of the file. These grow to megabytes, and a launcher chip needs a few
  * words, so reading the whole thing to find them would be the wrong trade.
  */
+/**
+ * The conversation id the store itself records, or null when there is not one.
+ *
+ * Null is the answer for a file that is not a conversation, and is what keeps unresumable rows
+ * out of the list rather than leaving them to fail when somebody picks one.
+ */
+async function readSessionId(path: string): Promise<string | null> {
+  try {
+    const head = (await readFile(path, 'utf8')).slice(0, HEAD_BYTES);
+    for (const line of head.split('\n')) {
+      if (!line.startsWith('{')) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const id = (parsed as Record<string, unknown>)['sessionId'];
+      if (typeof id === 'string' && id !== '') return id;
+    }
+  } catch {
+    debug('agent-sessions.id.unreadable', { path });
+  }
+  return null;
+}
+
 async function readSummary(path: string): Promise<string | null> {
   try {
     const head = (await readFile(path, 'utf8')).slice(0, HEAD_BYTES);
