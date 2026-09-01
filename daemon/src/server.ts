@@ -168,6 +168,18 @@ export function clampTimeout(seconds: number | null): number | null {
   return Math.min(24 * 60 * 60, Math.max(60, Math.floor(seconds)));
 }
 
+/**
+ * The readable half of a thrown thing.
+ *
+ * A category is not a reason. "could not launch the agent" tells somebody nothing they can do
+ * anything about, while the cause underneath it usually names the command that was missing or
+ * the directory that was not there. The `Error:` prefix goes because it is noise in a sentence.
+ */
+export function causeOf(thrown: unknown): string {
+  const text = thrown instanceof Error ? thrown.message : String(thrown);
+  return text.replace(/^Error:\s*/, '').trim() || 'no reason was given';
+}
+
 export class DaemonServer {
   readonly #http: Server;
   readonly #wss: WebSocketServer;
@@ -650,7 +662,7 @@ export class DaemonServer {
           this.#broadcastLayout(msg.workspaceId);
         })().catch((e: unknown) => {
           warn('workspace.split.failed', { error: String(e) });
-          sendError(client.socket, 'internal', 'could not split');
+          sendError(client.socket, 'internal', causeOf(e));
         });
         return;
       }
@@ -972,7 +984,9 @@ export class DaemonServer {
           );
         })().catch((e: unknown) => {
           warn('agent.launch.failed', { error: String(e) });
-          sendError(client.socket, 'internal', 'could not launch the agent');
+          // The cause, not a category. "could not launch the agent" cannot be acted on; the
+          // reason it could not usually names a missing command or an unreadable directory.
+          sendError(client.socket, 'internal', causeOf(e));
         });
         return;
       }
@@ -1137,7 +1151,7 @@ export class DaemonServer {
       case 'create-layout': {
         void this.#createLayout(client, msg).catch((e: unknown) => {
           warn('layout.create.failed', { error: String(e) });
-          sendError(client.socket, 'path-not-found', 'could not create that layout');
+          sendError(client.socket, 'path-not-found', causeOf(e));
         });
         return;
       }
@@ -1163,7 +1177,7 @@ export class DaemonServer {
       case 'launch-project-template': {
         void this.#launchProjectTemplate(client, msg).catch((e: unknown) => {
           warn('project.launch.failed', { error: String(e) });
-          sendError(client.socket, 'internal', 'could not open that project workspace');
+          sendError(client.socket, 'internal', causeOf(e));
         });
         return;
       }

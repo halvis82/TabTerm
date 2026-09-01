@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readableSpawnError } from './pty-host/client.js';
 import { resolveExecutable } from './login-path.js';
+import { causeOf } from './server.js';
 
 describe('what a failed spawn tells the person', () => {
   it('names the command and says where it was looked for', () => {
@@ -42,5 +43,21 @@ describe('finding a command on a PATH', () => {
 
   it('refuses a relative path, which would depend on where the daemon happens to be', () => {
     expect(resolveExecutable('./thing', '/usr/bin')).toBeNull();
+  });
+});
+
+describe('what the daemon reports when something throws', () => {
+  it('gives the reason rather than the category', () => {
+    // "could not launch the agent" cannot be acted on. The cause underneath usually names the
+    // command that was missing.
+    expect(causeOf(new Error('claude: command not found'))).toBe('claude: command not found');
+  });
+
+  it('drops the Error prefix, which is noise in a sentence', () => {
+    expect(causeOf('Error: no such directory')).toBe('no such directory');
+  });
+
+  it('still says something when nothing was thrown with a message', () => {
+    expect(causeOf(new Error(''))).toBe('no reason was given');
   });
 });

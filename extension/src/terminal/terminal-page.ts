@@ -13,6 +13,7 @@ import { SplitView, collectPanes } from '../layout/split-view.js';
 import { PaneHost } from './panes.js';
 import { PaneChooser } from './pane-chooser.js';
 import { openLabelForm } from './label-form.js';
+import { describeError } from './describe-error.js';
 import type { PaneMenuAction } from './xterm-controller.js';
 import { findCandidates } from './path-links.js';
 import { TypedBuffer, backspaces } from './hotstrings.js';
@@ -1895,10 +1896,20 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'error': {
+      /**
+       * An error about a workspace concerns the tab showing that workspace, and nobody else.
+       *
+       * The daemon tells every client when a workspace ends, because the tab that needs to hear
+       * it is not necessarily attached at that moment. This ignored the context entirely, so
+       * one workspace ending put "this terminal session expired" over every open tab, including
+       * ones whose own session was alive and running.
+       */
+      if (msg.context !== undefined && msg.context !== '' && msg.context !== workspaceId) return;
+
       if (msg.code === 'session-expired' || msg.code === 'session-not-found') {
         showRecovery('This terminal session expired.');
       } else {
-        setStatus(msg.message, 'error');
+        setStatus(describeError(msg.code, msg.message), 'error');
       }
       return;
     }
@@ -2170,6 +2181,11 @@ async function start(): Promise<void> {
       panesHost?.write(streamId, data, (bytes) => client?.ack(streamId, bytes));
     },
     onStatus: statusFor,
+    onProtocolError: (detail) => {
+      // Said out loud rather than logged. A tab that quietly stops updating is the worst
+      // possible failure, because nothing distinguishes it from a session with nothing to say.
+      setStatus(`TabTerm hit a problem: ${detail}`, 'error');
+    },
   });
   client.connect();
 
