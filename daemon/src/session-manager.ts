@@ -412,6 +412,17 @@ export class SessionManager {
     this.#applyResize(session);
   }
 
+  /**
+   * Put something on a session's screen that no process produced.
+   *
+   * Fed to this daemon's own terminal state as well as to the backend, so the screen the daemon
+   * would hand a reattaching tab matches what everyone is looking at right now.
+   */
+  inject(session: Session, text: string): void {
+    if (session.state === 'exited' || session.state === 'reaped') return;
+    this.#pty.inject(session.id, text);
+  }
+
   write(session: Session, data: Buffer): void {
     if (session.state === 'exited' || session.state === 'reaped') return;
     const text = data.toString('utf8');

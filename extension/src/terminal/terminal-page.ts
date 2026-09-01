@@ -1143,6 +1143,26 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
         });
       },
     },
+    {
+      // A landmark to scroll back to. Printed into the output rather than typed at the shell,
+      // so it cannot run in whatever program is in the foreground.
+      label: 'Add a marker here',
+      enabled: session !== '',
+      run: () => {
+        splitView?.focus(paneId);
+        const pane = panesHost?.get(paneId);
+        if (!pane) return;
+        openLabelForm({
+          container: pane.element,
+          current: '',
+          onSubmit: (label, color) => {
+            document.querySelector('.pane-label-form')?.remove();
+            client?.send({ t: 'insert-marker', sessionId: pane.sessionId, label, color });
+          },
+          onCancel: () => document.querySelector('.pane-label-form')?.remove(),
+        });
+      },
+    },
     { label: 'Split right', separated: true, run: target(() => splitFocused('horizontal')) },
     { label: 'Split down', run: target(() => splitFocused('vertical')) },
     {
@@ -1917,6 +1937,12 @@ declare global {
       readScreen: (paneId?: string) => string;
       /** What is selected, which the WebGL renderer paints on a canvas nothing can query. */
       selection: () => string;
+      /** Print a landmark, and read where the view is, without going through the menu. */
+      insertMarker: (label: string, color?: string) => void;
+      viewportY: () => number;
+      /** Landmarks the focused pane can see. */
+      markers: () => readonly { row: number; color: number }[];
+      scrollToLine: (row: number) => void;
       /** Name a pane without going through its menu. */
       setPaneLabel: (paneId: string, label: string, color?: string) => void;
       /** Cell geometry, so a test can aim a real mouse event at a known character. */
@@ -1986,6 +2012,28 @@ function installTestHook(): void {
     selection: () => {
       const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
       return pane?.controller.term.getSelection() ?? '';
+    },
+    insertMarker: (label, color) => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
+      if (!pane) return;
+      client?.send({
+        t: 'insert-marker',
+        sessionId: pane.sessionId,
+        label,
+        ...(color === undefined ? {} : { color }),
+      });
+    },
+    markers: () => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
+      return pane?.controller.markers ?? [];
+    },
+    scrollToLine: (row) => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
+      pane?.controller.term.scrollToLine(row);
+    },
+    viewportY: () => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
+      return pane?.controller.term.buffer.active.viewportY ?? -1;
     },
     setPaneLabel: (paneId, label, color) => {
       if (!workspaceId) return;

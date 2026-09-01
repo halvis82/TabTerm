@@ -247,6 +247,18 @@ export type ClientMessage =
       direction: 'horizontal' | 'vertical';
     }
   | { t: 'detach-pane-to-tab'; workspaceId: string; paneId: string }
+  | {
+      /**
+       * Print a landmark into a session's output.
+       *
+       * Output, never input: it reaches the screen and the scrollback and never the shell, so it
+       * cannot run in whatever program happens to be in the foreground.
+       */
+      t: 'insert-marker';
+      sessionId: string;
+      label: string;
+      color?: string;
+    }
   | { t: 'list-mergeable'; workspaceId: string }
   | {
       /** Name a pane, or clear the name by sending an empty label. */

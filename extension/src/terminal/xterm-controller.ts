@@ -4,6 +4,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import type { ILinkProvider } from '@xterm/xterm';
 import { classifyKey, xtermShouldHandle } from './keymap.js';
 import { placeMenu } from './menu-position.js';
+import { MarkerRail } from './markers.js';
 
 export interface ControllerOptions {
   container: HTMLElement;
@@ -53,6 +54,9 @@ export class XtermController {
   #webgl: WebglAddon | null = null;
 
   #undoText = '';
+  /** Landmarks in the scrollback, and the rail beside the scrollbar that finds them. */
+  #markers: MarkerRail | null = null;
+  #markerTimer = 0;
   readonly #opts: ControllerOptions;
 
   constructor(opts: ControllerOptions) {
@@ -276,6 +280,27 @@ export class XtermController {
     this.term.write(data, () => onParsed(data.byteLength));
   }
 
+  /**
+   * Keep the rail of landmarks in step with the buffer.
+   *
+   * Debounced on render rather than run per frame: output arrives in bursts and the answer only
+   * has to be right once the burst settles. A landmark whose lines have fallen off the end of
+   * the scrollback stops being found, which is exactly when it stops being reachable.
+   */
+  installMarkers(container: HTMLElement): void {
+    const rail = new MarkerRail(container, (row) => this.term.scrollToLine(row));
+    this.#markers = rail;
+    this.term.onRender(() => {
+      clearTimeout(this.#markerTimer);
+      this.#markerTimer = window.setTimeout(() => rail.sync(this.term), 220);
+    });
+  }
+
+  /** The landmarks this pane can see, which is what the markers beside the scrollbar show. */
+  get markers(): readonly { row: number; color: number }[] {
+    return this.#markers?.markers ?? [];
+  }
+
   registerLinkProvider(provider: ILinkProvider): void {
     this.term.registerLinkProvider(provider);
   }
@@ -371,6 +396,8 @@ export class XtermController {
   }
 
   dispose(): void {
+    clearTimeout(this.#markerTimer);
+    this.#markers?.dispose();
     this.#webgl?.dispose();
     this.term.dispose();
   }

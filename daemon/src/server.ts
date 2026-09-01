@@ -23,6 +23,7 @@ import { authDelayMs, recordFailure, recordSuccess, verifyToken } from './auth.j
 import type { Config } from './config.js';
 import { FlowController } from './flow-control.js';
 import { debug, info, warn } from './log.js';
+import { markerBlock } from './marker-block.js';
 import { openPath, resolvePaths } from './paths.js';
 import { processCwd } from './process-cwd.js';
 import type { LauncherData } from './launcher-data.js';
@@ -666,6 +667,20 @@ export class DaemonServer {
           if (session) void this.#sessions.kill(session);
         }
         this.#broadcastLayout(msg.workspaceId);
+        return;
+      }
+
+      case 'insert-marker': {
+        const session = this.#sessions.get(msg.sessionId);
+        if (!session) return;
+        this.#sessions.inject(
+          session,
+          markerBlock({
+            label: msg.label,
+            ...(msg.color === undefined ? {} : { color: msg.color }),
+            cols: session.vt.cols,
+          }),
+        );
         return;
       }
 

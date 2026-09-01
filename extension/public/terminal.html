@@ -941,6 +941,38 @@
     color: #5f6368;
     cursor: default;
   }
+  /* Landmarks beside the scrollbar. Inside it rather than over it: Chrome handles a scrollbar
+     click itself and dispatches no DOM event, so markers drawn on top of one can be seen and
+     never clicked. */
+  .marker-rail {
+    position: absolute;
+    /* Clear of the command button, which sits in the same corner and would swallow the clicks
+       meant for the topmost landmarks. */
+    top: 34px;
+    bottom: 4px;
+    right: 11px;
+    width: 6px;
+    z-index: 5;
+    display: none;
+  }
+  .marker-rail.has-markers {
+    display: block;
+  }
+  .marker-pip {
+    position: absolute;
+    left: 0;
+    width: 6px;
+    height: 4px;
+    border-radius: 2px;
+    cursor: pointer;
+    opacity: 0.85;
+  }
+  .marker-pip:hover {
+    opacity: 1;
+    width: 10px;
+    left: -4px;
+  }
+
   /* A name somebody gave a pane. Quiet on purpose: it is for telling panes apart, not for
      reading, and one that competed with the output would be worse than none. */
   .pane-label {

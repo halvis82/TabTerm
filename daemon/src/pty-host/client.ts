@@ -323,6 +323,16 @@ export class PtyHostClient {
     this.#send({ t: 'write', sessionId, data });
   }
 
+  /**
+   * Put something on a session's screen without sending it to the shell.
+   *
+   * The distinction matters: `write` is input and reaches whatever program is in the foreground.
+   * This is output, and reaches only the screen and the scrollback.
+   */
+  inject(sessionId: string, data: string): void {
+    this.#send({ t: 'inject', sessionId, data });
+  }
+
   resize(sessionId: string, cols: number, rows: number): void {
     this.#send({ t: 'resize', sessionId, cols, rows });
   }

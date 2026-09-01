@@ -175,6 +175,36 @@ that passes through something the page might have wanted.
 Drag selects, double-click selects a word or path, triple-click selects a line, and shift-click
 extends, all from xterm.
 
+### Landmarks
+
+A pane can print a landmark: a solid colored bar with a label, from its own menu. It is written
+into the session's **output**, never to the PTY. That distinction is the whole design. Output is
+what the terminal has already printed, so a landmark scrolls with the work it marks and survives
+a reload and a daemon restart because it sits in the ring and on disk with everything else.
+
+Sending `echo` to the shell instead would put a command in somebody's history, run in whatever
+program happened to be in the foreground, and be impossible while a command was already running.
+
+A landmark is **found by what it looks like** rather than by a hidden sentinel: a solid bar of one
+explicit 24-bit background, which no ordinary output produces. So it is found again after a
+reload with nothing having to remember where it was, and it stops being found the moment its
+lines fall off the end of the scrollback, which is exactly when it stops being reachable.
+
+Two details that were wrong first:
+
+- The bar stops **one column short** of the terminal. A line written to the last column wraps by
+  itself, and the newline after it then produced a blank line between every bar, so one landmark
+  arrived as three.
+- The colors are sampled near the **start** of the line, not at the last column. A bar is printed
+  at the width the session had at the time, so a terminal widened afterwards leaves the far
+  columns untouched.
+
+The rail of markers is drawn by TabTerm rather than by xterm's overview ruler, which paints on
+top of the native scrollbar. Chrome handles a scrollbar click itself and dispatches no DOM event,
+so markers there could be seen and never clicked.
+
+---
+
 **A path shows it is clickable only while the pointer is on it.** The cursor used to change for
 the whole screen the moment the modifier went down, which announced that something was clickable
 without saying what, and said it over blank space too. Pointer and underline are xterm's own and

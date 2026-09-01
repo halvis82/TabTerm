@@ -27,6 +27,10 @@ export class HostPtyBackend implements PtyBackend {
     this.#client.write(sessionId, data);
   }
 
+  inject(sessionId: string, data: string): void {
+    this.#client.inject(sessionId, data);
+  }
+
   resize(sessionId: string, cols: number, rows: number): void {
     this.#client.resize(sessionId, cols, rows);
   }

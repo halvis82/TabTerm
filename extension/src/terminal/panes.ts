@@ -99,6 +99,8 @@ export class PaneHost {
       scanTimer = window.setTimeout(scanVisible, 180);
     });
 
+    controller.installMarkers(element);
+
     controller.registerLinkProvider(
       createPathLinkProvider(controller.term, {
         resolve: (candidates) => this.#opts.resolvePaths(paneId, candidates),
