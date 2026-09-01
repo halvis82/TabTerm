@@ -166,9 +166,9 @@
     display: none;
   }
   /* Links only activate while Command is held, so the terminal stays a terminal. */
-  body.cmd-held .xterm-screen {
-    cursor: pointer;
-  }
+  /* The pointer belongs to the link under it, which xterm sets itself. Setting it for the whole
+     screen the moment the modifier went down said "something here is clickable" without saying
+     what, and it said it over blank space too. */
   /* --- reset confirmation ------------------------------------------------ */
 
   .reset {

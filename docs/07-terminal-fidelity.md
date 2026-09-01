@@ -175,6 +175,22 @@ that passes through something the page might have wanted.
 Drag selects, double-click selects a word or path, triple-click selects a line, and shift-click
 extends, all from xterm.
 
+**A path shows it is clickable only while the pointer is on it.** The cursor used to change for
+the whole screen the moment the modifier went down, which announced that something was clickable
+without saying what, and said it over blank space too. Pointer and underline are xterm's own and
+apply per link; the color is a decoration over the link's cells, which is what makes it
+unmistakable which run of characters will open.
+
+**Paths are resolved as they are printed, not when one is hovered.** xterm caches what a link
+provider answered for a line and asks again only when the pointer changes line. The first hover
+therefore arrived before the daemon had confirmed the path, was told there were no links, and
+that answer stuck until the pointer left the line and came back. The visible rows are scanned on
+render, debounced, so the answer is already in hand by the time anybody hovers.
+
+The modifier is recorded in the **capture** phase of `mousemove`. Bubbling ran after xterm had
+already asked its providers about the line under the pointer, so the first query on a line saw no
+modifier and the cached answer kept the link inert.
+
 **Right-click never follows a link.** A link is activated by a mouse event without regard to
 which button produced it, so right-clicking a URL both opened it and showed the menu: asking what
 the options were was the same gesture as choosing one. Activation now requires button 0.

@@ -557,7 +557,10 @@ function installAmbientFocus(): void {
 function installModifierTracking(): void {
   window.addEventListener('keydown', (e) => setCmdHeld(e.metaKey), { capture: true });
   window.addEventListener('keyup', (e) => setCmdHeld(e.metaKey), { capture: true });
-  window.addEventListener('mousemove', (e) => setCmdHeld(e.metaKey));
+  // Capture, so the modifier is known before xterm asks its link providers about the line
+  // under the pointer. Bubbling ran after that question was already answered, and xterm caches
+  // the answer per line, so moving along a path never asked again and the link stayed inert.
+  window.addEventListener('mousemove', (e) => setCmdHeld(e.metaKey), { capture: true });
   window.addEventListener('blur', () => setCmdHeld(false));
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') setCmdHeld(false);
@@ -1791,6 +1794,15 @@ declare global {
       readScreen: (paneId?: string) => string;
       /** What is selected, which the WebGL renderer paints on a canvas nothing can query. */
       selection: () => string;
+      /** Cell geometry, so a test can aim a real mouse event at a known character. */
+      geometry: () => {
+        cols: number;
+        rows: number;
+        left: number;
+        top: number;
+        cellWidth: number;
+        cellHeight: number;
+      } | null;
       /** End every session in this tab, so a test does not abandon them. */
       endSessions: () => void;
       workspaceId: () => string;
@@ -1832,6 +1844,20 @@ declare global {
  */
 function installTestHook(): void {
   window.__tabterm = {
+    geometry: () => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
+      const screen = pane?.element.querySelector('.xterm-screen');
+      if (!pane || !screen) return null;
+      const rect = screen.getBoundingClientRect();
+      return {
+        cols: pane.controller.term.cols,
+        rows: pane.controller.term.rows,
+        left: rect.left,
+        top: rect.top,
+        cellWidth: rect.width / pane.controller.term.cols,
+        cellHeight: rect.height / pane.controller.term.rows,
+      };
+    },
     selection: () => {
       const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
       return pane?.controller.term.getSelection() ?? '';

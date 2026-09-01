@@ -1,6 +1,6 @@
 import type { ResolvedPath } from '@tabterm/shared';
 import { XtermController, type PaneMenuAction } from './xterm-controller.js';
-import { createPathLinkProvider } from './path-links.js';
+import { createPathLinkProvider, findCandidates } from './path-links.js';
 
 /**
  * One terminal per pane.
@@ -66,6 +66,37 @@ export class PaneHost {
       onResize: (cols, rows) => this.#opts.onResize(paneId, cols, rows),
       onClear: () => this.#opts.onClear?.(paneId),
       menuActions: () => this.#opts.menuActions?.(paneId) ?? [],
+    });
+
+    /**
+     * Ask about the paths on screen as they are printed, rather than when one is hovered.
+     *
+     * xterm caches what a link provider answered for a line and only asks again when the
+     * pointer moves to a different line. The first hover therefore arrived before the daemon
+     * had confirmed anything, was told there were no links, and that answer stuck: the path
+     * stayed inert until the pointer left the line and came back. Resolving as output arrives
+     * means the answer is already there by the time anybody hovers.
+     *
+     * Debounced and limited to the rows actually on screen, so a noisy build does not turn into
+     * a request per line.
+     */
+    let scanTimer = 0;
+    const scanVisible = (): void => {
+      const buffer = controller.term.buffer.active;
+      const first = buffer.viewportY;
+      const last = Math.min(buffer.length, first + controller.term.rows);
+      const found = new Set<string>();
+      for (let y = first; y < last; y++) {
+        const text = buffer.getLine(y)?.translateToString(true) ?? '';
+        if (text === '') continue;
+        for (const candidate of findCandidates(text)) found.add(candidate.text);
+      }
+      const unknown = [...found].filter((c) => this.#opts.lookupPath(c) === undefined);
+      if (unknown.length > 0) this.#opts.resolvePaths(paneId, unknown);
+    };
+    controller.term.onRender(() => {
+      clearTimeout(scanTimer);
+      scanTimer = window.setTimeout(scanVisible, 180);
     });
 
     controller.registerLinkProvider(

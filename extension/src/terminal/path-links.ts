@@ -1,4 +1,11 @@
-import type { Terminal, IBufferLine, ILink, ILinkProvider } from '@xterm/xterm';
+import type {
+  Terminal,
+  IBufferLine,
+  IBufferRange,
+  IDecoration,
+  ILink,
+  ILinkProvider,
+} from '@xterm/xterm';
 import type { ResolvedPath } from '@tabterm/shared';
 
 /**
@@ -34,6 +41,13 @@ export interface PathLinkOptions {
    * of accidental opens. Requiring Command matches how editors handle the same problem.
    */
   modifierHeld: () => boolean;
+  /**
+   * The color a link takes while the pointer is on it.
+   *
+   * Only `#RRGGBB` is accepted by xterm's decorations, so this is a plain hex string rather
+   * than anything the theme can express.
+   */
+  hoverColor?: string;
 }
 
 interface Candidate {
@@ -87,6 +101,13 @@ export function findUrls(text: string): Candidate[] {
 }
 
 export function createPathLinkProvider(term: Terminal, opts: PathLinkOptions): ILinkProvider {
+  /** The decorations painting the link currently under the pointer, if any. */
+  let highlight: IDecoration[] = [];
+  const clearHighlight = (): void => {
+    for (const d of highlight) d.dispose();
+    highlight = [];
+  };
+
   return {
     provideLinks(bufferLineNumber, callback) {
       // Nothing is a link unless the modifier is down.
@@ -130,17 +151,32 @@ export function createPathLinkProvider(term: Terminal, opts: PathLinkOptions): I
         };
       };
 
+      const hoverable = (link: ILink): ILink => ({
+        ...link,
+        // Pointer and underline are xterm's own, and they appear only while the pointer is
+        // actually on the link. The cursor used to change for the whole screen the moment the
+        // modifier went down, which said "something here is clickable" without saying what.
+        decorations: { pointerCursor: true, underline: true },
+        hover: () => {
+          clearHighlight();
+          highlight = paintRange(term, link.range, opts.hoverColor ?? '#79b8ff');
+        },
+        leave: clearHighlight,
+      });
+
       for (const u of urls) {
         const range = rangeFor(u);
         if (!range) continue;
-        links.push({
-          text: u.text,
-          range,
-          activate: (event) => {
-            if (!isPrimaryClick(event)) return;
-            opts.openUrl(u.text);
-          },
-        });
+        links.push(
+          hoverable({
+            text: u.text,
+            range,
+            activate: (event) => {
+              if (!isPrimaryClick(event)) return;
+              opts.openUrl(u.text);
+            },
+          }),
+        );
       }
 
       for (const c of candidates) {
@@ -150,14 +186,16 @@ export function createPathLinkProvider(term: Terminal, opts: PathLinkOptions): I
         const range = rangeFor(c);
         if (!range) continue;
 
-        links.push({
-          text: c.text,
-          range,
-          activate: (event) => {
-            if (!isPrimaryClick(event)) return;
-            opts.activate(resolved, event);
-          },
-        });
+        links.push(
+          hoverable({
+            text: c.text,
+            range,
+            activate: (event) => {
+              if (!isPrimaryClick(event)) return;
+              opts.activate(resolved, event);
+            },
+          }),
+        );
       }
       callback(links.length > 0 ? links : undefined);
     },
@@ -203,4 +241,43 @@ function readWrappedLine(
       return { x: offset % width, y: row.y + 1 };
     },
   };
+}
+
+/**
+ * Color the cells a link occupies.
+ *
+ * xterm paints links with an underline and a pointer on its own, but not with a color, and a
+ * terminal already underlines plenty of things. The color is what makes it unmistakable that
+ * this exact run of characters is the thing that will open.
+ *
+ * One decoration per row, because a decoration is a rectangle and a link that wraps is not one.
+ * Returns whatever was created, which may be nothing: decorations are refused while the
+ * alternate screen is active, and a link inside a full-screen program is not worth chasing.
+ */
+function paintRange(term: Terminal, range: IBufferRange, color: string): IDecoration[] {
+  const buffer = term.buffer.active;
+  const cursorLine = buffer.baseY + buffer.cursorY;
+  const made: IDecoration[] = [];
+
+  for (let y = range.start.y; y <= range.end.y; y++) {
+    // Ranges are 1-based; markers are relative to the line the cursor is on.
+    const marker = term.registerMarker(y - 1 - cursorLine);
+    if (!marker) continue;
+
+    const startX = y === range.start.y ? range.start.x - 1 : 0;
+    const endX = y === range.end.y ? range.end.x : term.cols;
+    const width = Math.max(1, endX - startX);
+
+    const decoration = term.registerDecoration({
+      marker,
+      x: startX,
+      width,
+      height: 1,
+      foregroundColor: color,
+      layer: 'top',
+    });
+    if (decoration) made.push(decoration);
+    else marker.dispose();
+  }
+  return made;
 }
