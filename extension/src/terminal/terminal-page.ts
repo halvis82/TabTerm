@@ -27,6 +27,7 @@ import { DEFAULT_PLACEMENT, type PanelPlacement } from '../launcher/command-pane
 import { buildSettings } from '../launcher/settings-view.js';
 import { buildReset, buildResetDone } from '../launcher/reset-view.js';
 import { quotePath } from './quote-path.js';
+import { DEFAULT_COLOR, loadRecentColors, rememberColor, type ColorUse } from './color-store.js';
 import { loadTemplates, saveTemplates, type LayoutTemplate } from '../launcher/templates.js';
 import type {
   AgentHooksStatus,
@@ -203,7 +204,19 @@ function offerClearUndo(paneId: string): void {
   button.onclick = () => {
     const pane = panesHost?.get(paneId);
     const text = pane?.controller.takeUndo() ?? '';
-    if (text) pane?.controller.write(new TextEncoder().encode(`${text}\r\n`), () => {});
+    /**
+     * Written **over** the prompt, not after it.
+     *
+     * Clearing ends with the shell redrawing its prompt at the top of the screen, so appending
+     * here put the restored screen to the right of a live prompt and left a second copy of that
+     * prompt above everything. The restored text ends with the prompt line the shell drew before
+     * the clear, which is the same text at the same column, so overwriting the line puts the
+     * cursor exactly where the shell already believes it is.
+     */
+    if (text) {
+      const toLineStart = `\r${String.fromCharCode(27)}[2K`;
+      pane?.controller.write(new TextEncoder().encode(toLineStart + text), () => {});
+    }
     dismissClearUndo(paneId);
   };
   // Ten seconds, and gone the moment anything else is run: an undo offered over new output
@@ -697,6 +710,9 @@ let lastStatus = 'unknown';
 function buildHosts(): void {
   panesHost = new PaneHost({
     menuActions: (paneId) => paneMenuActions(paneId),
+    highlightColor: () => recentColors.highlight[0] ?? DEFAULT_COLOR.highlight,
+    highlightRecents: () => recentColors.highlight,
+    onColorUsed: (color) => useColor('highlight', color),
     onData: (paneId, data) => {
       inputBytesSeen += data.length;
       const pane = panesHost?.get(paneId);
@@ -776,6 +792,31 @@ function buildHosts(): void {
       }
     },
   });
+}
+
+/**
+ * The last few colors, per use, held in memory as well as in storage.
+ *
+ * A right-click menu is built and measured synchronously, so it cannot wait on a storage read to
+ * know what color the swatch should be. This is refreshed whenever one is used and read once at
+ * startup, and being briefly out of date costs nothing: the worst case is a swatch showing the
+ * previous color for one menu.
+ */
+const recentColors: Record<ColorUse, string[]> = {
+  title: [DEFAULT_COLOR.title],
+  marker: [DEFAULT_COLOR.marker],
+  highlight: [DEFAULT_COLOR.highlight],
+};
+
+function refreshRecentColors(): void {
+  for (const use of ['title', 'marker', 'highlight'] as const) {
+    void loadRecentColors(use).then((list) => (recentColors[use] = [...list]));
+  }
+}
+
+function useColor(use: ColorUse, color: string): void {
+  recentColors[use] = [color, ...recentColors[use].filter((c) => c !== color)].slice(0, 5);
+  void rememberColor(use, color);
 }
 
 function buildLauncher(): void {
@@ -1175,9 +1216,11 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
           container: pane.element,
           placeholder: 'Name this session',
           current: named.label,
+          recents: recentColors.title,
           ...(named.color ? { currentColor: named.color } : {}),
           onSubmit: (label, color) => {
             document.querySelector('.pane-label-form')?.remove();
+            if (label !== '') useColor('title', color);
             client?.send({ t: 'set-pane-label', workspaceId, paneId, label, color });
           },
           onCancel: () => document.querySelector('.pane-label-form')?.remove(),
@@ -1197,8 +1240,11 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
           container: pane.element,
           placeholder: 'What is this marker for',
           current: '',
+          recents: recentColors.marker,
+          currentColor: recentColors.marker[0] ?? DEFAULT_COLOR.marker,
           onSubmit: (label, color) => {
             document.querySelector('.pane-label-form')?.remove();
+            useColor('marker', color);
             client?.send({ t: 'insert-marker', sessionId: pane.sessionId, label, color });
           },
           onCancel: () => document.querySelector('.pane-label-form')?.remove(),
@@ -1994,6 +2040,8 @@ declare global {
       readScreen: (paneId?: string) => string;
       /** What is selected, which the WebGL renderer paints on a canvas nothing can query. */
       selection: () => string;
+      /** Highlights on the focused pane. A decoration is painted, so the DOM cannot be asked. */
+      highlights: () => { text: string; fromEnd: number; color: string }[];
       /** Print a landmark, and read where the view is, without going through the menu. */
       insertMarker: (label: string, color?: string) => void;
       viewportY: () => number;
@@ -2069,6 +2117,10 @@ function installTestHook(): void {
     selection: () => {
       const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
       return pane?.controller.term.getSelection() ?? '';
+    },
+    highlights: () => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
+      return [...(pane?.controller.highlights ?? [])];
     },
     insertMarker: (label, color) => {
       const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
@@ -2194,6 +2246,8 @@ async function start(): Promise<void> {
     return;
   }
 
+  // Read once, so the first right-click already shows the color that was last used.
+  refreshRecentColors();
   buildHosts();
   buildLauncher();
   buildCommandPanel();

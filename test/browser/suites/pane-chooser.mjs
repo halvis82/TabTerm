@@ -37,10 +37,22 @@ r.ok(
 // box: sitting at a prompt, typing a path is what `cd` is for.
 await realClick(b.client, '.pane-chooser-browse');
 await sleep(1600);
-r.ok(
-  'the picker lists folders',
-  Number(await evaluate(b.client, "document.querySelectorAll('.pane-chooser-folder').length")) > 1,
+const listed = Number(
+  await evaluate(b.client, "document.querySelectorAll('.pane-chooser-folder').length"),
 );
+r.ok('the picker lists folders', listed > 1, String(listed));
+
+// It used to show the first eight, which is a browser that cannot reach most folders. A home
+// directory has more than that, and the one being looked for was usually not among them.
+const home = JSON.parse(
+  await evaluate(
+    b.client,
+    `(() => { const list = document.querySelector('.pane-chooser-folders');
+      return JSON.stringify({ rows: list.children.length, scrolls: list.scrollHeight > list.clientHeight + 1 }); })()`,
+  ),
+);
+r.ok('every folder in it, not the first handful', home.rows > 9, JSON.stringify(home));
+r.ok('and the list scrolls rather than growing past the pane', home.scrolls, JSON.stringify(home));
 // Anchored to the bottom of the pane, not merely low in it: a terminal fills from the top, so
 // what matters is that the panel never reaches the line being typed.
 const anchored = JSON.parse(

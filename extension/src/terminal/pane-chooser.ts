@@ -34,7 +34,6 @@ export interface PaneChooserOptions {
 
 /** A shortlist, not an inventory. A pane is a small place to read one. */
 const MAX_SESSIONS = 4;
-const MAX_FOLDERS = 8;
 
 export class PaneChooser {
   readonly #opts: PaneChooserOptions;
@@ -138,20 +137,32 @@ export class PaneChooser {
     header.textContent = shorten(path, this.#opts.home);
     body.append(header);
 
+    /**
+     * Every folder, in a region that scrolls.
+     *
+     * It used to show the first eight, which is a browser that cannot reach most folders: a
+     * directory of projects routinely has more than that, and the one being looked for was
+     * usually not among the ones shown. The list scrolls instead, and the heading and the
+     * buttons stay put so `Open here` cannot be scrolled out of reach.
+     */
+    const list = document.createElement('div');
+    list.className = 'pane-chooser-folders';
+
     // Up first, because going back is the thing most often wanted while browsing.
     const up = document.createElement('button');
     up.className = 'pane-chooser-folder';
     up.textContent = '..';
     up.addEventListener('click', () => this.#browse(`${parentOf(path)}/`));
-    body.append(up);
+    list.append(up);
 
-    for (const folder of this.#folders.slice(0, MAX_FOLDERS)) {
+    for (const folder of this.#folders) {
       const row = document.createElement('button');
       row.className = 'pane-chooser-folder';
       row.textContent = folder;
       row.addEventListener('click', () => this.#browse(`${trimSlash(path)}/${folder}/`));
-      body.append(row);
+      list.append(row);
     }
+    body.append(list);
 
     const actions = document.createElement('div');
     actions.className = 'pane-chooser-actions';

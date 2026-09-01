@@ -306,11 +306,35 @@ Every setting there is about how a terminal behaves and is worth changing while 
 
 ---
 
+### One color picker, everywhere
+
+The session name, the landmark and the highlight all take their color from the same picker: a map
+with hue across it and lightness down it, which you click. There is nothing to type, no channels,
+and no second dialog.
+
+It replaced three fixed palettes of six tints each. Six was enough to tell panes apart and was
+never enough for anything anybody meant by "that one, but darker".
+
+Under the map are the **last five colors, kept separately per use** and across restarts, because
+the colors are for different jobs: a tint chosen to keep a session title readable at low opacity
+is not one anybody wants offered as a highlight, and a landmark color is neither. One shared list
+would make all three worse. The common case stays one click on a color already known to work.
+
 ### The folder box says whether the folder is there
 
 Checked as it is typed, debounced, and answered against the exact text that was asked about so a
 reply to a keystroke that has since been replaced is discarded rather than shown against
 something else. A path that is not there offers `Create folder`, and the offer goes once it is.
+
+**Return runs the selected layout, and only that.** Two handlers on the same box both acted on
+Return, so `Open` sent its `cd` twice. `stopPropagation` does not prevent that: it stops an event
+reaching an ancestor and says nothing about a second listener on the same element.
+
+The path is quoted **only when it needs quoting**. The line goes into the scrollback and is read
+later, and `cd ~/'Documents/thing'` for a folder with no space in it is a line nobody would have
+typed. What counts as needing it is decided by a list of characters that pass through untouched
+rather than a list of dangerous ones, so a character nobody thought of ends up quoted, which is
+harmless, instead of unquoted, which is not.
 
 ### What comes first
 
@@ -334,6 +358,11 @@ rather than replacing it, on the same principle as the start screen: the shell u
 already running and already has the keyboard, so typing goes straight to it and the chooser goes
 away when a command is actually sent.
 
+Every folder in the directory is listed, in a region that scrolls, with the heading and the
+buttons outside it so `Open here` cannot be scrolled out of reach. It used to show the first
+eight, which is a browser that cannot reach most folders: a directory of projects routinely has
+more, and the one being looked for was usually not among the ones shown.
+
 There is deliberately **no path box**. Sitting at a prompt, typing a path is what `cd` is for, and
 a box for it would be a worse version of the terminal underneath. A picker and a list of running
 sessions are the parts typing cannot replace. Only a workspace with more than one
@@ -350,8 +379,7 @@ you meant is worse than no list.
 
 ### Naming a session
 
-A session can be given a name from its pane's menu, with a short list of colors rather than a full
-picker. The name belongs to the terminal, not to the box it is drawn in, which is why the entry
+A session can be given a name from its pane's menu. The name belongs to the terminal, not to the box it is drawn in, which is why the entry
 reads `Name session`. Six distinguishable tints is what telling panes apart actually needs, and a free color
 wheel mostly produces labels nobody can read against the terminal background.
 

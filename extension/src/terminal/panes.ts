@@ -1,6 +1,8 @@
 import type { ResolvedPath } from '@tabterm/shared';
 import { XtermController, type PaneMenuAction } from './xterm-controller.js';
 import { createPathLinkProvider, findCandidates } from './path-links.js';
+import { loadHighlights, saveHighlights } from './highlights.js';
+import { DEFAULT_COLOR } from './color-store.js';
 
 /**
  * One terminal per pane.
@@ -20,6 +22,10 @@ export interface PaneHostOptions {
   modifierHeld: () => boolean;
   /** Pane-level entries for the right-click menu, asked for at the moment of the click. */
   menuActions?: (paneId: string) => readonly PaneMenuAction[];
+  /** The color a highlight gets on a plain click, and the ones offered in the picker. */
+  highlightColor?: () => string;
+  highlightRecents?: () => readonly string[];
+  onColorUsed?: (color: string) => void;
 }
 
 interface Pane {
@@ -66,6 +72,15 @@ export class PaneHost {
       onResize: (cols, rows) => this.#opts.onResize(paneId, cols, rows),
       onClear: () => this.#opts.onClear?.(paneId),
       menuActions: () => this.#opts.menuActions?.(paneId) ?? [],
+      onHighlightsChanged: (highlights) => {
+        // Keyed by the session rather than the pane: a highlight belongs to the output it is
+        // drawn on, and that output moves with the session when a pane adopts a different one.
+        const pane = this.#panes.get(paneId);
+        if (pane) void saveHighlights(pane.sessionId, highlights);
+      },
+      highlightColor: () => this.#opts.highlightColor?.() ?? DEFAULT_COLOR.highlight,
+      highlightRecents: () => this.#opts.highlightRecents?.() ?? [],
+      onColorUsed: (color) => this.#opts.onColorUsed?.(color),
     });
 
     /**
@@ -100,6 +115,12 @@ export class PaneHost {
     });
 
     controller.installMarkers(element);
+
+    // What was highlighted last time this session was looked at. Anchored to the text rather
+    // than to a row, so it lands correctly even though the buffer was rebuilt from a snapshot.
+    void loadHighlights(sessionId).then((saved) => {
+      if (saved.length > 0) controller.restoreHighlights(saved);
+    });
 
     controller.registerLinkProvider(
       createPathLinkProvider(controller.term, {

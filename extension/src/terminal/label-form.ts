@@ -1,23 +1,17 @@
-/**
- * Naming a pane.
- *
- * A text box and a handful of colors, opened from the pane's own menu and dismissed by Escape or
- * by clicking away. Deliberately small: a name and a tint is the whole feature, and anything more
- * would be a dialog in front of a terminal.
- *
- * The colors are a fixed set rather than a full picker. Six distinguishable tints is what telling
- * panes apart actually needs, and a free color wheel mostly produces labels nobody can read
- * against the terminal background.
- */
+import { openColorPicker, closeColorPicker } from './color-picker.js';
 
-export const LABEL_COLORS = [
-  '#9aa1b8', // the default grey, for a label that should stay out of the way
-  '#7aa2f7',
-  '#8ae2a0',
-  '#e0c879',
-  '#e0776b',
-  '#c58af0',
-] as const;
+/**
+ * Naming a session, and describing a landmark.
+ *
+ * A text box and a color, opened from the pane's own menu and dismissed by Escape or by clicking
+ * away. Deliberately small: a name and a tint is the whole feature, and anything more would be a
+ * dialog in front of a terminal.
+ *
+ * The color is chosen with the same picker the highlight uses, rather than from six fixed tints.
+ * The fixed set was enough to tell panes apart and was never enough for anything anybody meant
+ * by "that one, but darker". The last few colors are offered inside the picker, per use, so the
+ * common case is still one click on a color already known to work.
+ */
 
 export interface LabelFormOptions {
   container: HTMLElement;
@@ -25,6 +19,8 @@ export interface LabelFormOptions {
   placeholder?: string;
   current: string;
   currentColor?: string;
+  /** The last few colors chosen for this particular use. */
+  recents?: readonly string[];
   onSubmit: (label: string, color: string) => void;
   onCancel: () => void;
 }
@@ -42,25 +38,40 @@ export function openLabelForm(opts: LabelFormOptions): HTMLElement {
   input.value = opts.current;
   input.spellcheck = false;
 
-  let chosen = opts.currentColor ?? LABEL_COLORS[0];
+  const recents = opts.recents ?? [];
+  let chosen = opts.currentColor ?? recents[0] ?? '#9aa1b8';
 
   const swatches = document.createElement('div');
   swatches.className = 'pane-label-colors';
-  const buttons: HTMLButtonElement[] = [];
-  for (const color of LABEL_COLORS) {
-    const swatch = document.createElement('button');
-    swatch.className = 'pane-label-color';
-    swatch.style.background = color;
-    swatch.title = color;
-    swatch.addEventListener('click', () => {
-      chosen = color;
-      for (const b of buttons) b.classList.toggle('on', b === swatch);
-      input.focus();
+
+  const current = document.createElement('button');
+  current.className = 'pane-label-color on';
+  current.style.background = chosen;
+  current.title = 'Choose a color';
+
+  const caption = document.createElement('span');
+  caption.className = 'pane-label-color-caption';
+  caption.textContent = 'Color';
+
+  current.addEventListener('mousedown', (e) => e.stopPropagation());
+  current.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openColorPicker({
+      anchor: current,
+      recents,
+      current: chosen,
+      onPreview: (color) => (current.style.background = color),
+      onPick: (color) => {
+        chosen = color;
+        current.style.background = color;
+        closeColorPicker();
+        input.focus();
+      },
+      // Nothing was chosen, so the swatch goes back to showing what is still selected.
+      onClose: () => (current.style.background = chosen),
     });
-    swatch.classList.toggle('on', color === chosen);
-    buttons.push(swatch);
-    swatches.append(swatch);
-  }
+  });
+  swatches.append(caption, current);
 
   const actions = document.createElement('div');
   actions.className = 'pane-label-actions';

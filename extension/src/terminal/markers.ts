@@ -117,8 +117,13 @@ export class MarkerRail {
     return this.#markers;
   }
 
-  sync(term: Terminal): void {
-    this.#markers = findMarkers(term);
+  /**
+   * `extra` is the highlights, which are found by the layer that owns them rather than by
+   * looking at the buffer. They share the rail because "somewhere I marked" is one idea, and
+   * having to look in two places for it would be two features where there should be one.
+   */
+  sync(term: Terminal, extra: readonly FoundMarker[] = []): void {
+    this.#markers = [...findMarkers(term), ...extra].sort((a, b) => a.row - b.row);
     this.#rail.replaceChildren();
     // Hidden entirely when there is nothing to show, rather than sitting there as an empty
     // stripe beside every terminal anybody ever opens.

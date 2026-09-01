@@ -939,6 +939,67 @@
     font-size: 13px;
     cursor: pointer;
   }
+  /* An entry that carries its color beside it. The label takes the width so the swatch stays
+     on the right edge, where it reads as a setting for the entry rather than a second entry. */
+  .term-menu-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .term-menu-row .term-menu-item {
+    flex: 1 1 auto;
+  }
+  .term-menu-swatch {
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    margin-right: 6px;
+    padding: 0;
+    border-radius: 4px;
+    border: 1px solid #4a4a4a;
+    cursor: pointer;
+  }
+  .term-menu-swatch:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+
+  /* --- the color picker, used everywhere a color is chosen ---------------- */
+  .color-picker {
+    position: fixed;
+    z-index: 80;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid #333;
+    background: #1a1c20;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  }
+  .color-picker-map {
+    width: 190px;
+    height: 120px;
+    border-radius: 6px;
+    border: 1px solid #333;
+    cursor: crosshair;
+  }
+  .color-picker-recents {
+    display: flex;
+    gap: 5px;
+  }
+  .color-picker-swatch {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border-radius: 5px;
+    border: 2px solid transparent;
+    cursor: pointer;
+  }
+  .color-picker-swatch.on {
+    border-color: #e8e8e8;
+  }
+
   .term-menu-item:hover:not(:disabled) {
     background: #2b4d7a;
   }
@@ -989,7 +1050,7 @@
     /* Big enough to read at a glance and faint enough to read through, which is the whole point:
        it says which session this is without competing with what the session is saying. Sized
        against the pane, so it stays legible in a narrow one and never grows past it. */
-    font-size: clamp(13px, 7cqw, 34px);
+    font-size: clamp(32px, 17cqw, 85px);
     line-height: 1.05;
     font-weight: 600;
     letter-spacing: 0.01em;
@@ -997,7 +1058,7 @@
     opacity: 0.16;
     pointer-events: none;
     user-select: none;
-    max-width: 62%;
+    max-width: 72%;
     text-align: right;
     /* Wraps rather than being cut off, so a name is still a name in a small pane. */
     white-space: normal;
@@ -1032,9 +1093,14 @@
     outline: none;
     border-color: #4d7fd0;
   }
+  .pane-label-color-caption {
+    color: #9aa1b8;
+    font-size: 12px;
+  }
   .pane-label-colors {
     display: flex;
-    gap: 5px;
+    align-items: center;
+    gap: 6px;
   }
   .pane-label-color {
     width: 20px;
@@ -1066,6 +1132,16 @@
     padding: 10px;
     pointer-events: none;
   }
+  .pane-chooser-folders {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    /* Every folder is listed, so this is what keeps a directory of forty from pushing
+       `Open here` off the bottom of the pane. */
+    overflow-y: auto;
+    min-height: 0;
+  }
+
   .pane-chooser-box {
     pointer-events: auto;
     display: flex;
@@ -1073,9 +1149,11 @@
     gap: 6px;
     width: 100%;
     max-width: 460px;
-    /* Bounded by the pane it sits in. Without this the rows ran past the bottom of a short
-       pane and could not be clicked at all, which is indistinguishable from them not working. */
-    max-height: 100%;
+    /* Bounded well inside the pane it sits in. Without a bound the rows ran past the bottom of
+       a short pane and could not be clicked at all. Without the margin at the top, listing every
+       folder made the panel taller than the pane and it covered the line being typed on, which
+       is the one thing moving it to the bottom was for. The list inside it scrolls instead. */
+    max-height: 62%;
     overflow-y: auto;
     padding: 10px;
     border-radius: 10px;

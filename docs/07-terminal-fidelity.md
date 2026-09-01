@@ -191,6 +191,33 @@ submitting an empty one is what pressing Enter at a prompt does, and it makes th
 fresh prompt beneath the landmark. Only when nothing is running: those characters would otherwise
 be input to whatever program is in the foreground.
 
+### Highlights
+
+A highlight is a background behind text somebody picked out by hand. Select, right click,
+`Highlight`. One click, no dialog, in whatever color was used last, defaulting to yellow the way
+a highlighter is yellow unless you go and get another one. The color sits on the right of that
+menu entry as a swatch, and pressing **the swatch** is the only thing that opens anything.
+
+It is drawn as a decoration on the `bottom` layer, which puts it behind the characters rather
+than over them, and it appears on the same rail as the landmarks, because "somewhere I marked" is
+one idea and deserves one place to look.
+
+**Nothing is written into the session.** A landmark can be printed output and survive on its own;
+a highlight cannot, because the text it covers was printed long ago and cannot be repainted at
+the source. So a highlight is remembered the way a landmark is found: by what it looks like. It
+records the text it covers and **which occurrence of that text, counted from the end of the
+buffer**.
+
+Counted from the end deliberately. Scrollback is trimmed from the front, so numbering from the
+front changes every time a line is dropped, while numbering from the end is stable until the
+highlighted line itself is dropped. At that point the highlight stops being found, which is
+exactly when it stops being reachable. A highlight that cannot be placed is dropped rather than
+drawn somewhere approximate.
+
+The record is kept per session in extension storage, on the same reasoning as layout templates:
+this describes how a person marked up their own view, and the daemon owns sessions rather than
+taste. It is bounded at 50 sessions, because nothing tells a closed tab that a session ended.
+
 A landmark is **found by what it looks like** rather than by a hidden sentinel: a solid bar of one
 explicit 24-bit background, which no ordinary output produces. So it is found again after a
 reload with nothing having to remember where it was, and it stops being found the moment its
@@ -342,6 +369,12 @@ It restores **only this tab's copy**, which was kept in the page. The durable co
 moment clear is pressed and are never recovered, so the undo cannot resurrect something that was
 cleared in order to be gone. That asymmetry is deliberate: the reason people clear is the reason
 the undo must be limited.
+
+It writes the old screen **over** the prompt rather than after it. Clearing ends with the shell
+redrawing its prompt at the top, so appending put the restored screen to the right of a live
+prompt, leaving one line carrying two prompts. The restored text ends with the prompt line the
+shell drew before the clear, which is the same text ending at the same column, so overwriting the
+line puts the cursor exactly where the shell already believes it is.
 
 Dismissed by a new command, because an undo offered over fresh output would put the old screen
 underneath the new one.

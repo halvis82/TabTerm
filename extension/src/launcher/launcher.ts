@@ -526,13 +526,16 @@ export class Launcher {
     input.spellcheck = false;
     this.#dirInput = input;
 
-    // Typing a path here must not reach the shell underneath.
+    /**
+     * Typing a path here must not reach the shell underneath.
+     *
+     * Return is deliberately **not** handled here. A second listener further down runs whichever
+     * layout is selected, and `Open` is the one selected from the outset, so acting on Return in
+     * both places sent `cd` twice. `stopPropagation` does not prevent that: it stops the event
+     * bubbling to an ancestor, and says nothing about another listener on the same element.
+     */
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
-      if (e.key === 'Enter') {
-        const path = input.value.trim();
-        if (path) this.#opts.onChooseDir(path);
-      }
       if (e.key === 'Escape') this.dismiss();
       /**
        * Tab completes the folder, the way it does in a terminal.

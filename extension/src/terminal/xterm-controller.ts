@@ -5,6 +5,9 @@ import type { ILinkProvider } from '@xterm/xterm';
 import { classifyKey, xtermShouldHandle } from './keymap.js';
 import { placeMenu } from './menu-position.js';
 import { MarkerRail } from './markers.js';
+import { HighlightLayer } from './highlights.js';
+import { closeColorPicker, openColorPicker } from './color-picker.js';
+import type { Highlight } from './highlight-anchor.js';
 
 export interface ControllerOptions {
   container: HTMLElement;
@@ -27,6 +30,19 @@ export interface ControllerOptions {
    * rather than as it was when the pane was created.
    */
   menuActions?: () => readonly PaneMenuAction[];
+  /**
+   * The highlights somebody drew, whenever they change.
+   *
+   * The controller draws them and knows nothing about where they are kept. Which session they
+   * belong to is the page's business, since a pane can be given a different session.
+   */
+  onHighlightsChanged?: (highlights: readonly Highlight[]) => void;
+  /** The color a highlight gets when the entry is clicked rather than the swatch. */
+  highlightColor?: () => string;
+  /** The last few highlight colors, for the row of swatches under the map. */
+  highlightRecents?: () => readonly string[];
+  /** A color that was actually used, so it can be remembered for next time. */
+  onColorUsed?: (color: string) => void;
 }
 
 export interface PaneMenuAction {
@@ -57,6 +73,7 @@ export class XtermController {
   /** Landmarks in the scrollback, and the rail beside the scrollbar that finds them. */
   #markers: MarkerRail | null = null;
   #markerTimer = 0;
+  #highlights: HighlightLayer | null = null;
   readonly #opts: ControllerOptions;
 
   constructor(opts: ControllerOptions) {
@@ -198,6 +215,55 @@ export class XtermController {
 
     const selected = this.term.getSelection() || this.#selectionAtRightClick;
     item('Copy', selected.length > 0, () => void this.copySelection(selected));
+
+    /**
+     * Highlight, which acts on a click, with the color beside it rather than behind a menu.
+     *
+     * The entry itself applies the last color used and closes, because that is the common case
+     * and it should cost one click. The swatch on its right is the only part that opens
+     * anything, and it opens the picker next to itself rather than replacing the menu, so the
+     * thing being colored is still on screen while the color is chosen.
+     */
+    if (this.#highlights) {
+      const row = document.createElement('div');
+      row.className = 'term-menu-row';
+
+      const label = document.createElement('button');
+      label.className = 'term-menu-item';
+      label.textContent = 'Highlight';
+      label.disabled = selected.length === 0;
+      label.addEventListener('click', () => {
+        close();
+        this.highlightSelection(this.#opts.highlightColor?.() ?? '#ffd54a');
+      });
+
+      const swatch = document.createElement('button');
+      swatch.className = 'term-menu-swatch';
+      swatch.style.background = this.#opts.highlightColor?.() ?? '#ffd54a';
+      swatch.title = 'Choose a color';
+      swatch.disabled = selected.length === 0;
+      swatch.addEventListener('mousedown', (e) => e.stopPropagation());
+      swatch.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openColorPicker({
+          anchor: swatch,
+          recents: this.#opts.highlightRecents?.() ?? [],
+          current: this.#opts.highlightColor?.() ?? '#ffd54a',
+          onPreview: (color) => (swatch.style.background = color),
+          onPick: (color) => {
+            // The picker is its own element beside the menu, so closing the menu does not
+            // take it with it. Both go, because the choice has been made.
+            closeColorPicker();
+            close();
+            this.highlightSelection(color);
+          },
+        });
+      });
+
+      row.append(label, swatch);
+      menu.append(row);
+    }
+
     item('Paste', true, () => void this.pasteFromClipboard());
     item('Select all', true, () => {
       // Focus first. A selection made while the textarea does not have focus is held by xterm
@@ -205,6 +271,14 @@ export class XtermController {
       this.term.focus();
       this.term.selectAll();
     });
+    // Offered only when the click landed on a highlight, so taking one off is where it is.
+    const under = this.#cellAt(x, y);
+    const onHighlight =
+      under !== null && this.#highlights !== null ? this.#highlights.highlights.length > 0 : false;
+    if (onHighlight && under) {
+      item('Remove highlight', true, () => this.#highlights?.removeAt(under.row, under.col));
+    }
+
     // The real clear, not `term.clear()`. Wiping this buffer alone left the output in the daemon
     // and on disk, so it came back on the next reload. See docs/07-terminal-fidelity.md.
     item('Clear', true, () => this.clear());
@@ -301,10 +375,56 @@ export class XtermController {
   installMarkers(container: HTMLElement): void {
     const rail = new MarkerRail(container, (row) => this.term.scrollToLine(row));
     this.#markers = rail;
+    this.#highlights = new HighlightLayer(this.term, (h) => this.#opts.onHighlightsChanged?.(h));
     this.term.onRender(() => {
       clearTimeout(this.#markerTimer);
-      this.#markerTimer = window.setTimeout(() => rail.sync(this.term), 220);
+      this.#markerTimer = window.setTimeout(() => {
+        // Both on the same tick, and both for the same reason: a decoration is anchored
+        // relative to the cursor line, so anything that scrolled has moved it.
+        this.#highlights?.draw();
+        rail.sync(this.term, this.#highlights?.places() ?? []);
+      }, 220);
     });
+  }
+
+  /** Highlight what is selected. Returns how many lines it covered, zero when nothing was. */
+  highlightSelection(color: string): number {
+    const lines = this.#highlights?.add(color) ?? 0;
+    if (lines > 0) {
+      this.#opts.onColorUsed?.(color);
+      this.#markers?.sync(this.term, this.#highlights?.places() ?? []);
+      // The selection has been acted on, and leaving it drawn over its own highlight hides it.
+      this.term.clearSelection();
+    }
+    return lines;
+  }
+
+  /** Restore the highlights this session had, without counting it as a change. */
+  restoreHighlights(highlights: readonly Highlight[]): void {
+    this.#highlights?.restore(highlights);
+    this.#markers?.sync(this.term, this.#highlights?.places() ?? []);
+  }
+
+  get highlights(): readonly Highlight[] {
+    return this.#highlights?.highlights ?? [];
+  }
+
+  /**
+   * Which cell a point in the page is over.
+   *
+   * xterm exposes no way to ask this, so it is measured: the screen element's box divided by the
+   * grid it is showing. Rounded down, and offset by the scroll position, because a highlight is
+   * anchored to a buffer row rather than to a row on screen.
+   */
+  #cellAt(clientX: number, clientY: number): { row: number; col: number } | null {
+    const screen = this.term.element?.querySelector('.xterm-screen');
+    if (!(screen instanceof HTMLElement)) return null;
+    const box = screen.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0) return null;
+    const col = Math.floor(((clientX - box.left) / box.width) * this.term.cols);
+    const line = Math.floor(((clientY - box.top) / box.height) * this.term.rows);
+    if (col < 0 || col >= this.term.cols || line < 0 || line >= this.term.rows) return null;
+    return { row: this.term.buffer.active.viewportY + line, col };
   }
 
   /** The landmarks this pane can see, which is what the markers beside the scrollbar show. */
