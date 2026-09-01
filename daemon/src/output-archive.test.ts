@@ -111,7 +111,7 @@ describe('alt-screen periods are skipped', () => {
     expect(output).toBe('headtail');
   });
 
-  it('recognises the older alt-screen sequences too', () => {
+  it('recognizes the older alt-screen sequences too', () => {
     const archive = on();
     archive.begin('s1', 'top', '/w');
     archive.write('s1', `a${ESC}[?47hhidden${ESC}[?47lb`);

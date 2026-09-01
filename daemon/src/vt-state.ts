@@ -51,7 +51,7 @@ export class VtState {
    */
   clearScrollback(): void {
     // xterm's own `clear` keeps the current line and discards the rest, which is exactly the
-    // behaviour a person expects from the key.
+    // behavior a person expects from the key.
     this.#term.clear();
   }
 

@@ -38,7 +38,7 @@ export async function loadPlugins(host: PluginHost, directory?: string): Promise
     return result;
   }
 
-  // Resolved once so a symlink out of the directory can be recognised. A plugin directory is
+  // Resolved once so a symlink out of the directory can be recognized. A plugin directory is
   // trusted; a symlink pointing somewhere else was not necessarily put there deliberately.
   const root = await realpath(dir).catch(() => dir);
 

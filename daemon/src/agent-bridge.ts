@@ -26,7 +26,7 @@ export interface AgentBridgeOptions {
   onEvent: (event: AgentEvent) => void;
 }
 
-/** What a hook name means. Anything unrecognised is ignored rather than guessed at. */
+/** What a hook name means. Anything unrecognized is ignored rather than guessed at. */
 export function mapHookToState(hook: string): AgentState | null {
   switch (hook) {
     case 'UserPromptSubmit':
@@ -111,7 +111,7 @@ export class AgentBridge {
       const state = mapHookToState(hook);
 
       if (!sessionId || state === null) {
-        // Accepted but ignored: a hook we do not recognise is not an error worth surfacing to
+        // Accepted but ignored: a hook we do not recognize is not an error worth surfacing to
         // whatever process is calling us.
         res.writeHead(204);
         res.end();

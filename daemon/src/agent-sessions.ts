@@ -220,7 +220,7 @@ async function readSummary(path: string): Promise<string | null> {
 /**
  * Pull a human-readable line out of one store record.
  *
- * Written against a format nobody promised to keep. Every shape it does not recognise returns
+ * Written against a format nobody promised to keep. Every shape it does not recognize returns
  * null, which costs a label and nothing else.
  */
 function summaryFrom(record: unknown): string | null {

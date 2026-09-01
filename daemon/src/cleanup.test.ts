@@ -63,7 +63,7 @@ describe('reap policy', () => {
     expect(d.reason).toBe('long-lived-program');
   });
 
-  it('recognises a long-lived program given by absolute path', () => {
+  it('recognizes a long-lived program given by absolute path', () => {
     const d = decide({ foregroundProgram: '/opt/homebrew/bin/nvim', hasExplicitCommand: true });
     expect(d.reason).toBe('long-lived-program');
   });
@@ -118,7 +118,7 @@ describe('reap policy', () => {
 
 describe('a pane whose tab was closed', () => {
   it('is kept forever when that is what was chosen', () => {
-    // ADR-0012's original behaviour, still available by choosing it.
+    // ADR-0012's original behavior, still available by choosing it.
     const decision = decideReap(
       { ...base, inWorkspace: true, keepBackgroundSeconds: null },
       DEFAULTS,

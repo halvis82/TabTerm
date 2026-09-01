@@ -146,7 +146,7 @@ describe('durability', () => {
      *
      * What changed is the far end: a pane with no tab is now reaped after a background timeout
      * rather than kept literally forever, because sessions survive daemon restarts and the old
-     * behaviour accumulated hundreds of them. Keeping them forever is still available by
+     * behavior accumulated hundreds of them. Keeping them forever is still available by
      * choosing it, which is what this test now pins.
      */
     sessions.keepBackgroundSeconds = null;

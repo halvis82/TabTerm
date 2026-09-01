@@ -18,7 +18,7 @@ describe('mapping agent hooks to state', () => {
     expect(mapHookToState('SubagentStop')).toBe('idle');
   });
 
-  it('ignores a hook it does not recognise rather than guessing', () => {
+  it('ignores a hook it does not recognize rather than guessing', () => {
     // A future version emitting something new must not produce a confidently wrong state.
     // Showing nothing is better than showing the wrong thing.
     expect(mapHookToState('SomethingAddedNextYear')).toBeNull();

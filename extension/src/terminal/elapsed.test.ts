@@ -71,7 +71,7 @@ describe('what counts as long running', () => {
     expect(isLongRunning(now - 3_000, 30_000, now)).toBe(false);
   });
 
-  it('recognises one worth mentioning', () => {
+  it('recognizes one worth mentioning', () => {
     expect(isLongRunning(now - 45_000, 30_000, now)).toBe(true);
   });
 

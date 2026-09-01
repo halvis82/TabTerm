@@ -51,7 +51,7 @@ describe('agent hook installation', () => {
     expect(hooksPresent(full)).toBe(false);
   });
 
-  it('recognises nothing in an empty settings file', () => {
+  it('recognizes nothing in an empty settings file', () => {
     expect(hooksPresent({})).toBe(false);
   });
 

@@ -200,7 +200,7 @@ function readCommand(value: unknown): string[] {
  * Which declared command belongs to a pane.
  *
  * The parser numbers panes `p1..pN` in the same depth-first order it collects commands, so the
- * mapping is positional and needs no side table. Anything unrecognised gets no command rather
+ * mapping is positional and needs no side table. Anything unrecognized gets no command rather
  * than someone else's.
  */
 export function templateCommandIndex(paneId: string): number {

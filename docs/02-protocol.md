@@ -114,7 +114,7 @@ reason it was spawned and may still be running.
 
 A shell that has printed a prompt and nothing else is deliberately absent. It is a session in the
 daemon's bookkeeping and an empty tab to the person who opened it, and including those makes the
-list read as terminals they do not recognise.
+list read as terminals they do not recognize.
 
 `attached` means a client connection is reading the session, which is not quite the same as a tab
 being on screen. A client showing a session should filter its own out of the list before

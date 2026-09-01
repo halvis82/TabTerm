@@ -33,7 +33,7 @@ async function post(body: unknown, token = TOKEN): Promise<number> {
 }
 
 describe('agent hook endpoint', () => {
-  it('accepts a recognised hook and reports the state', async () => {
+  it('accepts a recognized hook and reports the state', async () => {
     received.length = 0;
     expect(await post({ sessionId: 's1', hook: 'PermissionRequest', detail: 'edit main.ts' })).toBe(
       204,
@@ -53,7 +53,7 @@ describe('agent hook endpoint', () => {
     expect(await post({ sessionId: 's1', hook: 'Stop' }, '')).toBe(401);
   });
 
-  it('accepts but ignores an unrecognised hook', async () => {
+  it('accepts but ignores an unrecognized hook', async () => {
     received.length = 0;
     // A future agent version emitting something new must not produce a wrong state, and must
     // not look like a failure to whatever is calling.

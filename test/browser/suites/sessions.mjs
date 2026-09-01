@@ -1,6 +1,6 @@
 // The new tab has to say what already exists, including sessions no tab is showing.
 //
-// A path is not enough to recognise a terminal, so this checks the preview carries the actual
+// A path is not enough to recognize a terminal, so this checks the preview carries the actual
 // output, and that "open in a tab" is told apart from "no tab".
 import { openTerminal, evaluate, sleep, type, finish } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';

@@ -22,7 +22,7 @@ import { debug, info } from './log.js';
 const MAX_OUTPUT_BYTES = 256 * 1024;
 
 /**
- * Alt-screen enter and leave, the only two sequences this needs to recognise.
+ * Alt-screen enter and leave, the only two sequences this needs to recognize.
  *
  * The escape character is exactly what is being matched here, so the rule against control
  * characters in a pattern does not apply.

@@ -141,7 +141,7 @@ describe('costs nothing when nothing is happening', () => {
 });
 
 describe('noise filtering', () => {
-  it('recognises shell helpers by name, with or without a path', () => {
+  it('recognizes shell helpers by name, with or without a path', () => {
     expect(isNoise('tput colors')).toBe(true);
     expect(isNoise('/usr/bin/stty -a')).toBe(true);
     expect(isNoise('npm test')).toBe(false);
