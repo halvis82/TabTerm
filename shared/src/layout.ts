@@ -193,3 +193,31 @@ export function isValidLayout(node: unknown): node is LayoutNode {
     return false;
   }
 }
+
+/** A label a person typed, bounded so it stays a label rather than becoming a paragraph. */
+export const MAX_PANE_LABEL = 40;
+
+/**
+ * Clean up a pane label, or refuse it.
+ *
+ * Terminal output is untrusted and so is anything typed into a box, so this returns plain text
+ * with no control characters and a bounded length. It is rendered with `textContent`, so this is
+ * about legibility rather than safety, and a label containing a newline would break the layout
+ * rather than the page.
+ */
+export function cleanPaneLabel(raw: string): string {
+  let out = '';
+  for (const ch of raw) {
+    const code = ch.codePointAt(0) ?? 0;
+    // Control characters become spaces. A label is drawn on one line over a pane, so a newline
+    // is not a label, and a stray escape has no business reaching a style attribute.
+    out += code < 0x20 || code === 0x7f ? ' ' : ch;
+  }
+  return out.trim().slice(0, MAX_PANE_LABEL);
+}
+
+/** Only `#rrggbb`. A color that is not one is dropped rather than guessed at. */
+export function cleanLabelColor(raw: string | undefined): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  return /^#[0-9a-f]{6}$/i.test(raw) ? raw.toLowerCase() : undefined;
+}

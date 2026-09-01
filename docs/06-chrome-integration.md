@@ -318,6 +318,20 @@ shell underneath is already running and already has the keyboard, so typing goes
 and the chooser goes away when a command is actually sent. Only a workspace with more than one
 pane gets them, since a single pane already has the start screen over it.
 
+### Naming a pane
+
+A pane can be given a name from its own menu, with a short list of colors rather than a full
+picker. Six distinguishable tints is what telling panes apart actually needs, and a free color
+wheel mostly produces labels nobody can read against the terminal background.
+
+The name lives **on the layout**, so it survives a reload and a daemon restart the way the split
+it belongs to does. It is drawn quietly in a corner at low opacity: a name exists to tell four
+shells apart at a glance, and one that competed with the output would be worse than none.
+
+Both the name and the color are cleaned where they enter storage. Control characters become
+spaces, since a label is drawn on one line and a newline is not a label, and a color that is not
+`#rrggbb` is dropped rather than guessed at.
+
 ### A session is never open in two tabs
 
 Bringing a session into a pane **moves** it. A session lives in exactly one workspace, so the tab

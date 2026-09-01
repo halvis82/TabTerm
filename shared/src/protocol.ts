@@ -248,6 +248,14 @@ export type ClientMessage =
     }
   | { t: 'detach-pane-to-tab'; workspaceId: string; paneId: string }
   | { t: 'list-mergeable'; workspaceId: string }
+  | {
+      /** Name a pane, or clear the name by sending an empty label. */
+      t: 'set-pane-label';
+      workspaceId: string;
+      paneId: string;
+      label: string;
+      color?: string;
+    }
   | { t: 'set-ratio'; workspaceId: string; paneId: string; ratio: number }
   | { t: 'swap-panes'; workspaceId: string; a: string; b: string }
   | { t: 'resize-pane'; workspaceId: string; paneId: string; cols: number; rows: number }
@@ -319,7 +327,7 @@ export type ClientMessage =
        *
        * `panes` and `direction` alone can only describe splitting the same way repeatedly, which
        * cannot express one pane beside two stacked ones, or four in the corners. Absent means the
-       * old behaviour, so nothing that already worked has to change.
+       * old behavior, so nothing that already worked has to change.
        */
       shape?: LayoutShape;
       createIfMissing: boolean;
@@ -370,7 +378,7 @@ export type ClientMessage =
    */
   | { t: 'set-background-timeout'; seconds: number | null }
   | { t: 'get-background-timeout' }
-  /** Every session the daemon holds, with enough of its screen to recognise it. */
+  /** Every session the daemon holds, with enough of its screen to recognize it. */
   | { t: 'list-live-sessions' }
   /**
    * Complete a directory path, the way a shell would.

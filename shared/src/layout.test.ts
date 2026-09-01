@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { LayoutNode, SplitDirection } from './model.js';
 import {
+  MAX_PANE_LABEL,
+  cleanLabelColor,
+  cleanPaneLabel,
   LayoutError,
   closePane,
   findPane,
@@ -221,5 +224,39 @@ describe('merge and detach preserve every session', () => {
     const solo = terminalNode('moved', 'sMoved');
     expect(isValidLayout(solo)).toBe(true);
     expect(panes(solo)).toEqual([{ paneId: 'moved', sessionId: 'sMoved' }]);
+  });
+});
+
+describe('pane labels', () => {
+  it('keeps an ordinary label as written', () => {
+    expect(cleanPaneLabel('build watch')).toBe('build watch');
+  });
+
+  it('flattens anything that would break the layout', () => {
+    // A label is drawn on one line over a pane, so a newline is not a label.
+    expect(cleanPaneLabel('two\nlines')).toBe('two lines');
+  });
+
+  it('bounds the length, so a label stays a label', () => {
+    expect(cleanPaneLabel('x'.repeat(200))).toHaveLength(MAX_PANE_LABEL);
+  });
+
+  it('accepts a six digit color and nothing else', () => {
+    expect(cleanLabelColor('#7AA2F7')).toBe('#7aa2f7');
+    expect(cleanLabelColor('red')).toBeUndefined();
+    expect(cleanLabelColor('#fff')).toBeUndefined();
+    expect(cleanLabelColor(undefined)).toBeUndefined();
+  });
+
+  it('accepts a labelled terminal node as a valid layout', () => {
+    expect(
+      isValidLayout({
+        type: 'terminal',
+        paneId: 'p',
+        sessionId: 's',
+        label: 'build',
+        labelColor: '#7aa2f7',
+      }),
+    ).toBe(true);
   });
 });

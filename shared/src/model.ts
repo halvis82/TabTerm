@@ -86,7 +86,22 @@ export interface TerminalSession {
 export type SplitDirection = 'horizontal' | 'vertical';
 
 export type LayoutNode =
-  | { type: 'terminal'; paneId: string; sessionId: string }
+  | {
+      type: 'terminal';
+      paneId: string;
+      sessionId: string;
+      /**
+       * A name somebody gave this pane.
+       *
+       * On the layout rather than in the page, so it survives a reload and a daemon restart the
+       * way the split it belongs to does. Drawn quietly over the pane: a label is for telling
+       * four shells apart at a glance, and one that competed with the output would be worse than
+       * none.
+       */
+      label?: string;
+      /** `#rrggbb`, validated before it is stored. Anything else is refused, not corrected. */
+      labelColor?: string;
+    }
   | {
       type: 'split';
       direction: SplitDirection;
@@ -295,7 +310,7 @@ export interface ShellIntegrationStatus {
 /**
  * A session as the new tab page shows it.
  *
- * The path alone is not enough to recognise a terminal you left running, so this carries the
+ * The path alone is not enough to recognize a terminal you left running, so this carries the
  * last lines of what it actually printed. Somebody with four shells in the same repository can
  * only tell them apart by what is on them.
  */

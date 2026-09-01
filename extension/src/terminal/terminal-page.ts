@@ -12,6 +12,7 @@ import { getToken } from '../transport/token.js';
 import { SplitView, collectPanes } from '../layout/split-view.js';
 import { PaneHost } from './panes.js';
 import { PaneChooser } from './pane-chooser.js';
+import { openLabelForm } from './label-form.js';
 import type { PaneMenuAction } from './xterm-controller.js';
 import { findCandidates } from './path-links.js';
 import { TypedBuffer, backspaces } from './hotstrings.js';
@@ -1100,6 +1101,18 @@ function closeFocused(): void {
  * Every entry targets the pane that was clicked rather than the focused one, by focusing it
  * first. Right-clicking a pane and having the action land somewhere else would be a trap.
  */
+/** What a pane is currently called, read from the layout, which is where it lives. */
+function paneLabel(paneId: string): { label: string; color?: string } {
+  const walk = (node: LayoutNode): { label: string; color?: string } | null => {
+    if (node.type === 'terminal') {
+      if (node.paneId !== paneId) return null;
+      return { label: node.label ?? '', ...(node.labelColor ? { color: node.labelColor } : {}) };
+    }
+    return walk(node.children[0]) ?? walk(node.children[1]);
+  };
+  return (layout ? walk(layout) : null) ?? { label: '' };
+}
+
 function paneMenuActions(paneId: string): PaneMenuAction[] {
   const paneCount = layout ? collectPanes(layout).length : 1;
   const hasSiblings = paneCount > 1;
@@ -1109,7 +1122,27 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
     run();
   };
 
+  const named = paneLabel(paneId);
+
   return [
+    {
+      label: named.label === '' ? 'Name this pane' : 'Rename this pane',
+      run: () => {
+        splitView?.focus(paneId);
+        const pane = panesHost?.get(paneId);
+        if (!pane || !workspaceId) return;
+        openLabelForm({
+          container: pane.element,
+          current: named.label,
+          ...(named.color ? { currentColor: named.color } : {}),
+          onSubmit: (label, color) => {
+            document.querySelector('.pane-label-form')?.remove();
+            client?.send({ t: 'set-pane-label', workspaceId, paneId, label, color });
+          },
+          onCancel: () => document.querySelector('.pane-label-form')?.remove(),
+        });
+      },
+    },
     { label: 'Split right', separated: true, run: target(() => splitFocused('horizontal')) },
     { label: 'Split down', run: target(() => splitFocused('vertical')) },
     {
@@ -1884,6 +1917,8 @@ declare global {
       readScreen: (paneId?: string) => string;
       /** What is selected, which the WebGL renderer paints on a canvas nothing can query. */
       selection: () => string;
+      /** Name a pane without going through its menu. */
+      setPaneLabel: (paneId: string, label: string, color?: string) => void;
       /** Cell geometry, so a test can aim a real mouse event at a known character. */
       geometry: () => {
         cols: number;
@@ -1951,6 +1986,16 @@ function installTestHook(): void {
     selection: () => {
       const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
       return pane?.controller.term.getSelection() ?? '';
+    },
+    setPaneLabel: (paneId, label, color) => {
+      if (!workspaceId) return;
+      client?.send({
+        t: 'set-pane-label',
+        workspaceId,
+        paneId,
+        label,
+        ...(color === undefined ? {} : { color }),
+      });
     },
     /**
      * End every session in this tab. For tests, which would otherwise abandon them.

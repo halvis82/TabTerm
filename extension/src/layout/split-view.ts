@@ -154,7 +154,11 @@ export class SplitView {
   }
 
   #buildNode(node: LayoutNode): HTMLElement {
-    if (node.type === 'terminal') return this.#paneWrapper(node.paneId, node.sessionId);
+    if (node.type === 'terminal') {
+      const wrapper = this.#paneWrapper(node.paneId, node.sessionId);
+      this.#applyLabel(wrapper, node.label, node.labelColor);
+      return wrapper;
+    }
 
     const box = document.createElement('div');
     box.className = `split-node split-${node.direction}`;
@@ -221,6 +225,26 @@ export class SplitView {
     }
     wrapper.classList.toggle('focused', this.#focused === paneId);
     return wrapper;
+  }
+
+  /**
+   * Draw the pane's name, quietly.
+   *
+   * A label exists to tell four shells apart at a glance, so it sits in a corner at low opacity
+   * and never competes with the output. Written with `textContent`, since it is text somebody
+   * typed and has no business being markup.
+   */
+  #applyLabel(wrapper: HTMLElement, label?: string, color?: string): void {
+    const existing = wrapper.querySelector('.pane-label');
+    if (!label) {
+      existing?.remove();
+      return;
+    }
+    const el = existing ?? document.createElement('div');
+    el.className = 'pane-label';
+    el.textContent = label;
+    (el as HTMLElement).style.color = color ?? '';
+    if (!existing) wrapper.append(el);
   }
 
   #sessionFor(paneId: string): string | null {

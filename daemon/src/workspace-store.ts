@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { LayoutNode, SplitDirection, Workspace } from '@tabterm/shared';
 import {
+  cleanLabelColor,
+  cleanPaneLabel,
   closePane,
   insertPane,
   panes,
@@ -89,6 +91,38 @@ export class WorkspaceStore {
 
   sessionIds(workspace: Workspace): string[] {
     return panes(workspace.layout).map((p) => p.sessionId);
+  }
+
+  /**
+   * Name a pane, or clear the name.
+   *
+   * On the layout, so it survives a reload and a daemon restart the way the split does. The
+   * label and the color are cleaned here rather than trusted: this is where they enter storage.
+   */
+  setLabel(workspaceId: string, paneId: string, label: string, color?: string): Workspace | null {
+    const workspace = this.#workspaces.get(workspaceId);
+    if (!workspace) return null;
+
+    const clean = cleanPaneLabel(label);
+    const tint = cleanLabelColor(color);
+    const relabel = (node: LayoutNode): LayoutNode => {
+      if (node.type === 'terminal') {
+        if (node.paneId !== paneId) return node;
+        // Rebuilt without the old label rather than overwritten, so clearing a name really
+        // removes the fields instead of leaving empty ones behind.
+        const rest = { type: node.type, paneId: node.paneId, sessionId: node.sessionId };
+        return {
+          ...rest,
+          ...(clean === '' ? {} : { label: clean }),
+          ...(clean !== '' && tint ? { labelColor: tint } : {}),
+        };
+      }
+      return { ...node, children: [relabel(node.children[0]), relabel(node.children[1])] };
+    };
+
+    const next = { ...workspace, layout: relabel(workspace.layout), updatedAt: Date.now() };
+    this.#workspaces.set(workspaceId, next);
+    return this.#announce(next);
   }
 
   split(

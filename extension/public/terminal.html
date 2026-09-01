@@ -941,6 +941,76 @@
     color: #5f6368;
     cursor: default;
   }
+  /* A name somebody gave a pane. Quiet on purpose: it is for telling panes apart, not for
+     reading, and one that competed with the output would be worse than none. */
+  .pane-label {
+    position: absolute;
+    top: 3px;
+    right: 8px;
+    z-index: 4;
+    padding: 0 4px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.28);
+    color: #9aa1b8;
+    font-size: 11px;
+    line-height: 1.5;
+    opacity: 0.62;
+    pointer-events: none;
+    max-width: 45%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .pane-label-form {
+    position: absolute;
+    top: 24px;
+    right: 8px;
+    z-index: 61;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid #333;
+    background: #1a1c20;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  }
+  .pane-label-input {
+    width: 190px;
+    padding: 5px 7px;
+    border-radius: 6px;
+    border: 1px solid #39405a;
+    background: #12141a;
+    color: #e8e8e8;
+    font: inherit;
+    font-size: 12px;
+  }
+  .pane-label-input:focus {
+    outline: none;
+    border-color: #4d7fd0;
+  }
+  .pane-label-colors {
+    display: flex;
+    gap: 5px;
+  }
+  .pane-label-color {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+  }
+  .pane-label-color.on {
+    border-color: #e8e8e8;
+  }
+  .pane-label-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 4px;
+  }
+
   /* --- the chooser over an empty pane ----------------------------------- */
   .pane-chooser {
     position: absolute;

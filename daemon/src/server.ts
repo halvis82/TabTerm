@@ -261,7 +261,7 @@ export class DaemonServer {
    *
    * Not every live session: a shell that has printed a prompt and nothing else is a session to
    * the daemon and an empty tab to the person who opened it. Listing those is what turns
-   * "running now" into a list of things nobody recognises, and it counts the tab you are
+   * "running now" into a list of things nobody recognizes, and it counts the tab you are
    * reading it in. A session enters this list when a command runs in it, and never leaves
    * while it is alive, so going idle again does not make it disappear.
    *
@@ -666,6 +666,17 @@ export class DaemonServer {
           if (session) void this.#sessions.kill(session);
         }
         this.#broadcastLayout(msg.workspaceId);
+        return;
+      }
+
+      case 'set-pane-label': {
+        const updated = this.#workspaces.setLabel(
+          msg.workspaceId,
+          msg.paneId,
+          msg.label,
+          msg.color,
+        );
+        if (updated) this.#broadcastLayout(msg.workspaceId);
         return;
       }
 
