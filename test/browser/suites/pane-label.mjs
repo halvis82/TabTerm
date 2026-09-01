@@ -29,14 +29,14 @@ const firstItem = () =>
 
 await openMenu();
 r.ok(
-  'an unnamed pane offers a name',
-  String(await firstItem()).includes('Name'),
+  'an unnamed session offers a name',
+  String(await firstItem()).includes('Name session'),
   String(await firstItem()),
 );
 
 // A real press and release, not `.click()`. The menu dismissed itself on mousedown, so every
 // entry was dead to a real mouse while this suite passed.
-await realClick(client, '.term-menu-item', 'Name this pane');
+await realClick(client, '.term-menu-item', 'Name session');
 await sleep(500);
 r.ok('the form opens', await evaluate(client, "!!document.querySelector('.pane-label-form')"));
 r.ok(
@@ -65,8 +65,8 @@ r.ok(
 
 await openMenu();
 r.ok(
-  'a named pane offers to rename it',
-  String(await firstItem()).includes('Rename'),
+  'a named session offers to rename it',
+  String(await firstItem()).includes('Rename session'),
   String(await firstItem()),
 );
 await evaluate(client, "document.querySelector('.term-menu')?.remove()");

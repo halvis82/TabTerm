@@ -23,6 +23,7 @@ import { authDelayMs, recordFailure, recordSuccess, verifyToken } from './auth.j
 import type { Config } from './config.js';
 import { FlowController } from './flow-control.js';
 import { debug, info, warn } from './log.js';
+import { expandHome } from './complete-path.js';
 import { markerBlock } from './marker-block.js';
 import { openPath, resolvePaths } from './paths.js';
 import { processCwd } from './process-cwd.js';
@@ -175,6 +176,11 @@ export function clampTimeout(seconds: number | null): number | null {
  * anything about, while the cause underneath it usually names the command that was missing or
  * the directory that was not there. The `Error:` prefix goes because it is noise in a sentence.
  */
+/** The shell's own clear-and-redraw, and the pair that discards a line and submits it empty. */
+const CTRL_L = String.fromCharCode(12);
+const CTRL_U = String.fromCharCode(21);
+const CARRIAGE_RETURN = String.fromCharCode(13);
+
 export function causeOf(thrown: unknown): string {
   const text = thrown instanceof Error ? thrown.message : String(thrown);
   return text.replace(/^Error:\s*/, '').trim() || 'no reason was given';
@@ -693,6 +699,20 @@ export class DaemonServer {
             cols: session.vt.cols,
           }),
         );
+        /**
+         * And leave a prompt under it.
+         *
+         * The marker is printed where the cursor was, so the shell's prompt ends up above it
+         * and the next command is typed against a bare line. Discarding the line and submitting
+         * an empty one is what pressing Enter at a prompt does, and it makes the shell print a
+         * fresh prompt beneath the marker.
+         *
+         * Only when nothing is running: those two characters would otherwise be input to
+         * whatever program is in the foreground.
+         */
+        if (!session.commandRunning) {
+          this.#sessions.write(session, Buffer.from(CTRL_U + CARRIAGE_RETURN, 'utf8'));
+        }
         return;
       }
 
@@ -704,6 +724,52 @@ export class DaemonServer {
           msg.color,
         );
         if (updated) this.#broadcastLayout(msg.workspaceId);
+        return;
+      }
+
+      case 'check-folder':
+      case 'create-folder': {
+        const wanted = expandHome(msg.path.trim());
+        void (async () => {
+          if (msg.t === 'create-folder') {
+            try {
+              await mkdir(wanted, { recursive: true });
+            } catch (e: unknown) {
+              send(
+                client.socket,
+                controlFrame({
+                  t: 'folder-checked',
+                  path: msg.path,
+                  exists: false,
+                  error: causeOf(e),
+                }),
+              );
+              return;
+            }
+          }
+          // Asked about the text as typed, and answered with the same text, so an answer that
+          // arrives after another keystroke can be recognized as stale rather than shown.
+          let exists = false;
+          let isFile = false;
+          try {
+            const info = await stat(wanted);
+            exists = info.isDirectory();
+            isFile = !info.isDirectory();
+          } catch {
+            // Not there, which is the answer rather than a failure.
+          }
+          send(
+            client.socket,
+            controlFrame({
+              t: 'folder-checked',
+              path: msg.path,
+              exists,
+              ...(isFile ? { isFile } : {}),
+            }),
+          );
+        })().catch(() => {
+          /* answering is best effort; the box simply shows nothing */
+        });
         return;
       }
 
@@ -1390,6 +1456,17 @@ export class DaemonServer {
         // offering back something the user cleared would be the same failure by another route.
         const workspace = this.#workspaces.findBySession(msg.sessionId);
         if (workspace) this.snapshotWorkspace(workspace.id);
+
+        /**
+         * Then ask the shell to redraw, so the screen looks like one that just ran `clear`.
+         *
+         * Purging the buffers alone left a genuinely empty screen with no prompt on it, which
+         * is a state no shell ever produces and which leaves the next command typed against
+         * nothing. Ctrl+L is the shell's own clear-and-redraw: it puts the prompt back at the
+         * top, keeps whatever was half typed, and redraws a full-screen program correctly
+         * instead of blanking it.
+         */
+        this.#sessions.write(session, Buffer.from(CTRL_L, 'utf8'));
         info('scrollback.cleared', { sessionId: msg.sessionId });
         return;
       }

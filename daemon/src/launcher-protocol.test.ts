@@ -1,3 +1,5 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
@@ -202,6 +204,89 @@ describe('launcher protocol', () => {
     c.send({ t: 'list-history', query: '', limit: 50 });
     const page = (await c.waitFor('history-page')) as unknown as { entries: unknown[] };
     expect(page.entries).toHaveLength(0);
+    c.close();
+  });
+});
+
+describe('the folder box asks the daemon whether a folder is there', () => {
+  /**
+   * A page cannot look at the disk, so the answer has to come from here, and it has to be
+   * matched to the text that was asked about. Somebody typing a path produces a check per
+   * keystroke, and an answer to a prefix arriving after a longer prefix was typed would
+   * otherwise be shown against the wrong text.
+   */
+  const scratch = mkdtempSync(join(tmpdir(), 'tabterm-folder-'));
+
+  afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+
+  it('answers about a folder that is there', async () => {
+    const c = await Client.connect();
+    c.send({ t: 'check-folder', path: scratch });
+    const msg = (await c.waitFor('folder-checked')) as unknown as {
+      path: string;
+      exists: boolean;
+      isFile?: boolean;
+    };
+
+    expect(msg.exists).toBe(true);
+    // Only sent when it is one, since "there but a file" is the only case worth a word for.
+    expect(msg.isFile).toBeUndefined();
+    // Echoed exactly, which is what lets a stale answer be recognized.
+    expect(msg.path).toBe(scratch);
+    c.close();
+  });
+
+  it('answers about one that is not, without treating it as a failure', async () => {
+    const c = await Client.connect();
+    const missing = join(scratch, 'not-here');
+    c.send({ t: 'check-folder', path: missing });
+    const msg = (await c.waitFor('folder-checked')) as unknown as {
+      exists: boolean;
+      error?: string;
+    };
+
+    expect(msg.exists).toBe(false);
+    expect(msg.error).toBeUndefined();
+    c.close();
+  });
+
+  it('tells a file apart from a folder', async () => {
+    // Both are "something is there", and only one of them can be opened as a working directory.
+    const file = join(scratch, 'a-file');
+    writeFileSync(file, 'x');
+    const c = await Client.connect();
+    c.send({ t: 'check-folder', path: file });
+    const msg = (await c.waitFor('folder-checked')) as unknown as {
+      exists: boolean;
+      isFile?: boolean;
+    };
+
+    expect(msg.exists).toBe(false);
+    expect(msg.isFile).toBe(true);
+    c.close();
+  });
+
+  it('creates one that is missing, and says it is there afterwards', async () => {
+    const c = await Client.connect();
+    const wanted = join(scratch, 'made', 'nested');
+    c.send({ t: 'create-folder', path: wanted });
+    const msg = (await c.waitFor('folder-checked')) as unknown as { exists: boolean };
+
+    // Nested, because somebody typing a path types the whole path rather than one level of it.
+    expect(msg.exists).toBe(true);
+    c.close();
+  });
+
+  it('reports why it could not create one, rather than reporting nothing', async () => {
+    const c = await Client.connect();
+    c.send({ t: 'create-folder', path: '/tabterm-cannot-write-here/x' });
+    const msg = (await c.waitFor('folder-checked')) as unknown as {
+      exists: boolean;
+      error?: string;
+    };
+
+    expect(msg.exists).toBe(false);
+    expect(msg.error ?? '').not.toBe('');
     c.close();
   });
 });

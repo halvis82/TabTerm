@@ -259,6 +259,16 @@ export type ClientMessage =
       label: string;
       color?: string;
     }
+  | {
+      /** Does this folder exist? Asked as somebody types, so the answer can be shown live. */
+      t: 'check-folder';
+      path: string;
+    }
+  | {
+      /** Make it, then say whether it is there. Only ever a folder, never a file. */
+      t: 'create-folder';
+      path: string;
+    }
   | { t: 'list-mergeable'; workspaceId: string }
   | {
       /** Name a pane, or clear the name by sending an empty label. */
@@ -606,6 +616,16 @@ export type ServerMessage =
        * this the history is written, bounded and pruned, and never seen by anybody.
        */
       lastScreen?: readonly string[];
+    }
+  | {
+      t: 'folder-checked';
+      /** Exactly the text that was asked about, so a late answer to an old keystroke is ignored. */
+      path: string;
+      exists: boolean;
+      /** Set when the path is there but is a file, which is a different thing to say. */
+      isFile?: boolean;
+      /** Present when a create was attempted and did not work. */
+      error?: string;
     }
   | { t: 'mergeable-sessions'; sessions: readonly MergeableSession[] }
   | {

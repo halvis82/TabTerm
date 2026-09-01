@@ -21,6 +21,8 @@ export const LABEL_COLORS = [
 
 export interface LabelFormOptions {
   container: HTMLElement;
+  /** What the box is for, since the same form names a session and describes a marker. */
+  placeholder?: string;
   current: string;
   currentColor?: string;
   onSubmit: (label: string, color: string) => void;
@@ -35,7 +37,7 @@ export function openLabelForm(opts: LabelFormOptions): HTMLElement {
 
   const input = document.createElement('input');
   input.className = 'pane-label-input';
-  input.placeholder = 'Name this pane';
+  input.placeholder = opts.placeholder ?? 'Name this session';
   input.maxLength = 40;
   input.value = opts.current;
   input.spellcheck = false;

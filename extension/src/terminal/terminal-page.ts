@@ -524,9 +524,11 @@ function syncPaneChoosers(): void {
           client?.write(target.streamId, new TextEncoder().encode(`cd ${quotePath(path)}\r`));
           paneChoosers.get(id)?.dismiss();
         },
-        onCompletePath: (partial) => {
+        onListFolder: (path) => {
+          // The same completion the start screen browses with: a trailing slash asks for what
+          // is inside a directory rather than for a suggestion.
           completingPane = paneId;
-          client?.send({ t: 'complete-path', partial });
+          client?.send({ t: 'complete-path', partial: path });
         },
         onTakeSession: (id, session) => {
           if (!workspaceId) return;
@@ -648,7 +650,14 @@ function installAmbientFocus(): void {
     // A click inside a pane is already handled by the pane itself, which focuses the right one.
     if (e.target instanceof HTMLElement && e.target.closest('.pane')) return;
     const paneId = splitView?.focused ?? panesHost?.all[0]?.paneId;
-    if (paneId) setTimeout(() => panesHost?.focus(paneId), 0);
+    if (!paneId) return;
+    setTimeout(() => {
+      // Unless the click opened something that wants the keyboard. A menu entry is not a text
+      // field, so this fired for every one of them and took focus back from the form the entry
+      // had just opened, which is why naming anything meant clicking into the box first.
+      if (isTextField(document.activeElement)) return;
+      panesHost?.focus(paneId);
+    }, 0);
   });
 }
 
@@ -774,6 +783,8 @@ function buildLauncher(): void {
 
   launcher = new Launcher({
     root: overlay,
+    onCheckFolder: (path) => client?.send({ t: 'check-folder', path }),
+    onCreateFolder: (path) => client?.send({ t: 'create-folder', path }),
     onChooseDir: (path) => {
       // Send a real `cd` rather than restarting the session: the shell you are already in is
       // the one you want, just somewhere else.
@@ -1154,13 +1165,15 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
 
   return [
     {
-      label: named.label === '' ? 'Name this pane' : 'Rename this pane',
+      // A session, not a pane. The pane is the box; the name belongs to the terminal in it.
+      label: named.label === '' ? 'Name session' : 'Rename session',
       run: () => {
         splitView?.focus(paneId);
         const pane = panesHost?.get(paneId);
         if (!pane || !workspaceId) return;
         openLabelForm({
           container: pane.element,
+          placeholder: 'Name this session',
           current: named.label,
           ...(named.color ? { currentColor: named.color } : {}),
           onSubmit: (label, color) => {
@@ -1182,6 +1195,7 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
         if (!pane) return;
         openLabelForm({
           container: pane.element,
+          placeholder: 'What is this marker for',
           current: '',
           onSubmit: (label, color) => {
             document.querySelector('.pane-label-form')?.remove();
@@ -1703,11 +1717,16 @@ function onControl(msg: ServerMessage): void {
       return;
     }
 
+    case 'folder-checked': {
+      launcher?.folderChecked(msg);
+      return;
+    }
+
     case 'path-completion': {
       // One channel, two possible askers. The pane that asked last owns the answer.
       const chooser = completingPane ? paneChoosers.get(completingPane) : undefined;
       completingPane = null;
-      if (chooser) chooser.setCompletion(msg);
+      if (chooser) chooser.setListing(msg.partial, msg.matches);
       else launcher?.pathCompletion(msg);
       return;
     }

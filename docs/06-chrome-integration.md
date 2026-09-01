@@ -306,6 +306,12 @@ Every setting there is about how a terminal behaves and is worth changing while 
 
 ---
 
+### The folder box says whether the folder is there
+
+Checked as it is typed, debounced, and answered against the exact text that was asked about so a
+reply to a keystroke that has since been replaced is discarded rather than shown against
+something else. A path that is not there offers `Create folder`, and the offer goes once it is.
+
 ### What comes first
 
 The folder box leads, and what is already running follows it. Running sessions used to come
@@ -322,9 +328,15 @@ with one is go somewhere. So a pane with nothing in it draws a chooser over itse
 two things worth doing: open a folder, with the same Tab completion the start screen has, or bring
 a session that already exists here.
 
-It sits over the pane rather than replacing it, on the same principle as the start screen: the
-shell underneath is already running and already has the keyboard, so typing goes straight to it
-and the chooser goes away when a command is actually sent. Only a workspace with more than one
+It sits at the **bottom** of the pane. A terminal fills from the top, so a panel anchored there
+would cover the line being typed, which is the one place it must never be. It is over the pane
+rather than replacing it, on the same principle as the start screen: the shell underneath is
+already running and already has the keyboard, so typing goes straight to it and the chooser goes
+away when a command is actually sent.
+
+There is deliberately **no path box**. Sitting at a prompt, typing a path is what `cd` is for, and
+a box for it would be a worse version of the terminal underneath. A picker and a list of running
+sessions are the parts typing cannot replace. Only a workspace with more than one
 pane gets them, since a single pane already has the start screen over it.
 
 **Only a pane that has printed nothing but a prompt.** Every pane in a multi-pane tab used to get
@@ -336,15 +348,18 @@ bottom of a short one where its rows cannot be clicked at all. The list is short
 matters: a session currently open in a tab comes first, because a short list that omits the one
 you meant is worse than no list.
 
-### Naming a pane
+### Naming a session
 
-A pane can be given a name from its own menu, with a short list of colors rather than a full
-picker. Six distinguishable tints is what telling panes apart actually needs, and a free color
+A session can be given a name from its pane's menu, with a short list of colors rather than a full
+picker. The name belongs to the terminal, not to the box it is drawn in, which is why the entry
+reads `Name session`. Six distinguishable tints is what telling panes apart actually needs, and a free color
 wheel mostly produces labels nobody can read against the terminal background.
 
 The name lives **on the layout**, so it survives a reload and a daemon restart the way the split
-it belongs to does. It is drawn quietly in a corner at low opacity: a name exists to tell four
-shells apart at a glance, and one that competed with the output would be worse than none.
+it belongs to does. It is drawn large and faint, the way iTerm does it: big enough to read at a glance, translucent
+enough that the terminal reads straight through it, clear of the command button in the same
+corner, and sized against the pane rather than the window so it stays legible in a narrow one and
+wraps instead of being cut off.
 
 Both the name and the color are cleaned where they enter storage. Control characters become
 spaces, since a label is drawn on one line and a newline is not a label, and a color that is not

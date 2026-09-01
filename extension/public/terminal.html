@@ -40,6 +40,11 @@
     flex: 1 1 0;
     border: 1px solid transparent;
     border-radius: 4px;
+    /* So the session name sizes itself against the pane rather than the window, which is what
+       keeps it legible in a narrow one. Inline axis only: the pane is a flex item with a
+       definite width, and containing the block axis too would make the terminal inside it lay
+       out against nothing. */
+    container-type: inline-size;
   }
   /* The focused pane is the one receiving keystrokes, so it has to be obvious at a glance. */
   .pane.focused {
@@ -977,21 +982,26 @@
      reading, and one that competed with the output would be worse than none. */
   .pane-label {
     position: absolute;
-    top: 3px;
-    right: 8px;
+    /* Clear of the command button, which lives in the same corner. */
+    top: 40px;
+    right: 14px;
     z-index: 4;
-    padding: 0 4px;
-    border-radius: 4px;
-    background: rgba(0, 0, 0, 0.28);
-    color: #9aa1b8;
-    font-size: 11px;
-    line-height: 1.5;
-    opacity: 0.62;
+    /* Big enough to read at a glance and faint enough to read through, which is the whole point:
+       it says which session this is without competing with what the session is saying. Sized
+       against the pane, so it stays legible in a narrow one and never grows past it. */
+    font-size: clamp(13px, 7cqw, 34px);
+    line-height: 1.05;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: #e8e8e8;
+    opacity: 0.16;
     pointer-events: none;
-    max-width: 45%;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+    user-select: none;
+    max-width: 62%;
+    text-align: right;
+    /* Wraps rather than being cut off, so a name is still a name in a small pane. */
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   .pane-label-form {
@@ -1049,7 +1059,9 @@
     inset: 0;
     z-index: 6;
     display: flex;
-    align-items: flex-start;
+    /* At the bottom. A terminal fills from the top, so a panel anchored there would sit over
+       the line being typed, which is the one place it must never be. */
+    align-items: flex-end;
     justify-content: center;
     padding: 10px;
     pointer-events: none;
@@ -1071,26 +1083,23 @@
     background: rgba(20, 23, 33, 0.72);
     backdrop-filter: blur(14px);
   }
-  .pane-chooser-input {
-    width: 100%;
-    padding: 7px 9px;
-    border-radius: 7px;
-    border: 1px solid #39405a;
-    background: #171a22;
-    color: #e8e8e8;
-    font: inherit;
-    font-size: 12px;
-  }
-  .pane-chooser-input:focus {
-    outline: none;
-    border-color: #4d7fd0;
-  }
-  .pane-chooser-matches {
+  .pane-chooser-rows {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
     gap: 4px;
+    min-height: 0;
+    overflow-y: auto;
   }
-  .pane-chooser-match,
+  .pane-chooser-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 2px;
+  }
+  .pane-chooser-browse,
+  .pane-chooser-folder,
+  .pane-chooser-accept,
+  .pane-chooser-cancel,
   .pane-chooser-session {
     display: flex;
     align-items: baseline;
@@ -1108,7 +1117,10 @@
   .pane-chooser-session {
     width: 100%;
   }
-  .pane-chooser-match:hover,
+  .pane-chooser-browse:hover,
+  .pane-chooser-folder:hover,
+  .pane-chooser-accept:hover,
+  .pane-chooser-cancel:hover,
   .pane-chooser-session:hover {
     background: rgba(122, 162, 247, 0.16);
     border-color: rgba(122, 162, 247, 0.4);
@@ -1139,6 +1151,15 @@
     background: rgba(122, 162, 247, 0.18);
     color: #9ec5ff;
     font-size: 10px;
+  }
+  .pane-chooser-accept {
+    background: rgba(122, 162, 247, 0.22);
+    border-color: rgba(122, 162, 247, 0.5);
+    color: #cfe0ff;
+  }
+  .pane-chooser-browse {
+    justify-content: center;
+    color: #cfe0ff;
   }
   .pane-chooser-warn {
     width: 100%;
@@ -1389,6 +1410,37 @@
     outline: none;
     border-color: #4a5573;
   }
+  .launcher-folder-state {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 18px;
+    font-size: 11px;
+    color: #7d8398;
+  }
+  .launcher-folder-state.is-good {
+    color: #8ae2a0;
+  }
+  .launcher-folder-state.is-bad {
+    color: #e0776b;
+  }
+  .launcher-folder-state.is-missing {
+    color: #e0c879;
+  }
+  .launcher-create-folder {
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(224, 200, 121, 0.45);
+    background: rgba(224, 200, 121, 0.12);
+    color: #e0c879;
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .launcher-create-folder:hover {
+    background: rgba(224, 200, 121, 0.22);
+  }
+
   .launcher-buttons {
     display: flex;
     gap: 7px;

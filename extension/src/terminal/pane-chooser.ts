@@ -3,13 +3,18 @@ import type { MergeableSession } from '@tabterm/shared';
 /**
  * What an empty pane offers instead of a bare prompt.
  *
- * Splitting a tab used to produce two empty shells in the home directory, and the first thing
- * anybody does with one is go somewhere. So a pane with nothing in it offers the two things
- * worth doing: pick a folder, or bring a session that already exists here.
+ * Splitting a tab produces empty shells in the home directory, and the first thing anybody does
+ * with one is go somewhere. So a pane with nothing in it offers the two things it cannot already
+ * do by typing: browse for a folder, and take a session that already exists.
  *
- * It sits over the pane rather than replacing it, on the same principle as the start screen: the
- * shell underneath is already running and already has the keyboard, so typing goes straight to it
- * and this gets out of the way. Nothing here is a mode.
+ * There is deliberately **no path box**. You are already sitting at a prompt, so typing a path
+ * is what `cd` is for; a box for it would be a worse version of the terminal underneath. A
+ * picker and a list of running sessions are the parts typing cannot replace.
+ *
+ * It sits at the **bottom** of the pane, because a terminal fills from the top and the panel
+ * must never cover the line being typed. It is over the pane rather than replacing it, on the
+ * same principle as the start screen: the shell underneath is already running and already has
+ * the keyboard, so typing goes straight to it and this goes away on the first command.
  *
  * Bringing a session here **moves** it. A session lives in exactly one workspace, so the tab it
  * came from is left with nothing, and that is said before it happens rather than discovered
@@ -17,25 +22,29 @@ import type { MergeableSession } from '@tabterm/shared';
  */
 
 export interface PaneChooserOptions {
-  /** Where to draw, which is the pane's own element. */
   container: HTMLElement;
   paneId: string;
   home: string;
   onChooseDir: (paneId: string, path: string) => void;
-  onCompletePath: (partial: string) => void;
-  /** Move a session into this pane. `closeSource` when a tab is currently showing it. */
+  /** Ask the daemon what is inside a directory. The answer arrives at `setListing`. */
+  onListFolder: (path: string) => void;
   onTakeSession: (paneId: string, session: MergeableSession) => void;
   onRefreshSessions: () => void;
 }
 
+/** A shortlist, not an inventory. A pane is a small place to read one. */
+const MAX_SESSIONS = 4;
+const MAX_FOLDERS = 8;
+
 export class PaneChooser {
   readonly #opts: PaneChooserOptions;
   readonly #el: HTMLElement;
-  #input: HTMLInputElement | null = null;
   #sessions: readonly MergeableSession[] = [];
-  #completion: { prefix: string; matches: readonly string[] } | null = null;
   #dismissed = false;
   #confirming: string | null = null;
+  /** The directory being browsed, or null when the picker is closed. */
+  #browsing: string | null = null;
+  #folders: readonly string[] = [];
 
   constructor(opts: PaneChooserOptions) {
     this.#opts = opts;
@@ -50,11 +59,7 @@ export class PaneChooser {
     return this.#dismissed;
   }
 
-  /**
-   * Take it away for good.
-   *
-   * Once a pane has been used it is a terminal, and a terminal does not grow a panel back.
-   */
+  /** Once a pane has been used it is a terminal, and a terminal does not grow a panel back. */
   dismiss(): void {
     if (this.#dismissed) return;
     this.#dismissed = true;
@@ -65,9 +70,9 @@ export class PaneChooser {
     /**
      * What is worth offering, in the order worth offering it.
      *
-     * An untouched shell is left out: taking one gains nothing and costs whoever opened it
-     * their tab. The rest are sorted so a session somebody is currently looking at comes first,
-     * because a short list that omits the one you meant is worse than no list.
+     * An untouched shell is left out: taking one gains nothing and costs whoever opened it their
+     * tab. The rest are sorted so a session somebody is looking at comes first, because a short
+     * list that omits the one you meant is worse than no list.
      */
     this.#sessions = sessions
       .filter((session) => session.hasRun)
@@ -76,73 +81,21 @@ export class PaneChooser {
     if (!this.#dismissed) this.render();
   }
 
-  /**
-   * Apply what the daemon completed.
-   *
-   * The full path comes back as `completed`; `matches` are the basenames beneath it, and are
-   * worth showing only when the completion could not decide, which is what a shell does.
-   */
-  setCompletion(reply: { partial: string; completed: string; matches: readonly string[] }): void {
-    if (this.#dismissed || !this.#input) return;
-    // An answer to a keystroke that has since been replaced is not an answer to anything.
-    if (this.#input.value.trim() !== reply.partial) return;
-
-    if (reply.completed !== reply.partial) this.#input.value = reply.completed;
-    this.#completion =
-      reply.matches.length > 1 ? { prefix: reply.completed, matches: reply.matches } : null;
+  /** Folders inside the directory being browsed. */
+  setListing(path: string, folders: readonly string[]): void {
+    if (this.#dismissed || this.#browsing === null) return;
+    if (path !== this.#browsing) return;
+    this.#folders = folders;
     this.render();
   }
 
   render(): void {
     if (this.#dismissed) return;
-    const typed = this.#input?.value ?? '';
-    const hadFocus = document.activeElement === this.#input;
     this.#el.replaceChildren();
 
     const box = document.createElement('div');
     box.className = 'pane-chooser-box';
-
-    const input = document.createElement('input');
-    input.className = 'pane-chooser-input';
-    input.placeholder = 'Open a folder';
-    input.spellcheck = false;
-    input.value = typed;
-    input.addEventListener('keydown', (e) => this.#onKey(e, input));
-    this.#input = input;
-    box.append(input);
-
-    if (this.#completion && this.#completion.matches.length > 1) {
-      const list = document.createElement('div');
-      list.className = 'pane-chooser-matches';
-      for (const match of this.#completion.matches.slice(0, 6)) {
-        const chip = document.createElement('button');
-        chip.className = 'pane-chooser-match';
-        chip.textContent = match;
-        chip.addEventListener('click', () => {
-          // Replace the fragment being completed, not the whole path.
-          const base = input.value.slice(0, input.value.lastIndexOf('/') + 1);
-          input.value = `${base}${match}`;
-          this.#completion = null;
-          this.render();
-          this.#input?.focus();
-        });
-        list.append(chip);
-      }
-      box.append(list);
-    }
-
-    if (this.#sessions.length > 0) {
-      const heading = document.createElement('div');
-      heading.className = 'pane-chooser-heading';
-      heading.textContent = 'Or bring a session here';
-      box.append(heading);
-
-      // A shortlist, not an inventory. The full list lives on the start screen, and a pane is
-      // a small place to read one.
-      for (const session of this.#sessions.slice(0, 4)) {
-        box.append(this.#sessionRow(session));
-      }
-    }
+    box.append(this.#browsing === null ? this.#chooserBody() : this.#browserBody());
 
     const hint = document.createElement('div');
     hint.className = 'pane-chooser-hint';
@@ -150,13 +103,90 @@ export class PaneChooser {
     box.append(hint);
 
     this.#el.append(box);
-    if (hadFocus) input.focus();
+  }
+
+  #chooserBody(): HTMLElement {
+    const body = document.createElement('div');
+    body.className = 'pane-chooser-rows';
+
+    const browse = document.createElement('button');
+    browse.className = 'pane-chooser-browse';
+    browse.textContent = 'Open a folder';
+    browse.addEventListener('click', () => this.#browse(`${this.#opts.home}/`));
+    body.append(browse);
+
+    if (this.#sessions.length > 0) {
+      const heading = document.createElement('div');
+      heading.className = 'pane-chooser-heading';
+      heading.textContent = 'Or bring a session here';
+      body.append(heading);
+      for (const session of this.#sessions.slice(0, MAX_SESSIONS)) {
+        body.append(this.#sessionRow(session));
+      }
+    }
+    return body;
+  }
+
+  #browserBody(): HTMLElement {
+    const body = document.createElement('div');
+    body.className = 'pane-chooser-rows';
+
+    const path = this.#browsing ?? this.#opts.home;
+
+    const header = document.createElement('div');
+    header.className = 'pane-chooser-heading';
+    header.textContent = shorten(path, this.#opts.home);
+    body.append(header);
+
+    // Up first, because going back is the thing most often wanted while browsing.
+    const up = document.createElement('button');
+    up.className = 'pane-chooser-folder';
+    up.textContent = '..';
+    up.addEventListener('click', () => this.#browse(`${parentOf(path)}/`));
+    body.append(up);
+
+    for (const folder of this.#folders.slice(0, MAX_FOLDERS)) {
+      const row = document.createElement('button');
+      row.className = 'pane-chooser-folder';
+      row.textContent = folder;
+      row.addEventListener('click', () => this.#browse(`${trimSlash(path)}/${folder}/`));
+      body.append(row);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'pane-chooser-actions';
+
+    const open = document.createElement('button');
+    open.className = 'pane-chooser-accept';
+    open.textContent = 'Open here';
+    open.addEventListener('click', () =>
+      this.#opts.onChooseDir(this.#opts.paneId, trimSlash(path)),
+    );
+
+    const cancel = document.createElement('button');
+    cancel.className = 'pane-chooser-cancel';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', () => {
+      this.#browsing = null;
+      this.#folders = [];
+      this.render();
+    });
+
+    actions.append(cancel, open);
+    body.append(actions);
+    return body;
+  }
+
+  #browse(path: string): void {
+    this.#browsing = path;
+    this.#folders = [];
+    this.render();
+    this.#opts.onListFolder(path);
   }
 
   #sessionRow(session: MergeableSession): HTMLElement {
     const row = document.createElement('button');
     row.className = 'pane-chooser-session';
-    // Which session this row is, so the row can be identified without reading its label.
     row.dataset['session'] = session.sessionId;
 
     const name = document.createElement('span');
@@ -197,28 +227,18 @@ export class PaneChooser {
     });
     return row;
   }
-
-  #onKey(e: KeyboardEvent, input: HTMLInputElement): void {
-    // The pane's own keys, not the terminal's, while the cursor is deliberately in this box.
-    e.stopPropagation();
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      this.#opts.onCompletePath(input.value.trim() || '~/');
-      return;
-    }
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      const path = input.value.trim();
-      if (path) this.#opts.onChooseDir(this.#opts.paneId, path);
-      return;
-    }
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      this.dismiss();
-    }
-  }
 }
 
 function shorten(path: string, home: string): string {
   return home && path.startsWith(home) ? `~${path.slice(home.length)}` : path;
+}
+
+function trimSlash(path: string): string {
+  return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
+}
+
+function parentOf(path: string): string {
+  const trimmed = trimSlash(path);
+  const cut = trimmed.lastIndexOf('/');
+  return cut <= 0 ? '/' : trimmed.slice(0, cut);
 }

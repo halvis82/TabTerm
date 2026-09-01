@@ -49,6 +49,9 @@ export interface LauncherOptions {
   onOpenSession: (session: LiveSession) => void;
   /** Ask the daemon to complete a folder path. The answer arrives via pathCompletion(). */
   onCompletePath: (partial: string) => void;
+  /** Ask whether a folder is there, as it is typed. The answer arrives via folderChecked(). */
+  onCheckFolder: (path: string) => void;
+  onCreateFolder: (path: string) => void;
   onCloseSession: (session: LiveSession) => void;
   onForgetRestorable: (workspaceId: string) => void;
   onOpenServer: (port: number) => void;
@@ -140,6 +143,9 @@ export class Launcher {
   #browsing = false;
   #browsePath = '~/';
   #browserEl: HTMLElement | null = null;
+  /** What the daemon last said about the folder in the box. */
+  #folderState: { path: string; exists: boolean; isFile?: boolean; error?: string } | null = null;
+  #checkTimer = 0;
   #templateFormEl: HTMLElement | null = null;
   #templates: LayoutTemplate[] = [];
 
@@ -155,6 +161,50 @@ export class Launcher {
    * The completion is filled in, and the alternatives are shown only when Tab could not decide,
    * which is what a shell does and what stops the list being permanent furniture.
    */
+  /**
+   * Whether the folder in the box is there.
+   *
+   * Answered against the text that was asked about, so a reply to a keystroke that has since
+   * been replaced is discarded rather than shown against something else.
+   */
+  folderChecked(reply: { path: string; exists: boolean; isFile?: boolean; error?: string }): void {
+    if (this.#dirInput === null) return;
+    if (this.#dirInput.value.trim() !== reply.path) return;
+    this.#folderState = reply;
+    this.#renderFolderState();
+  }
+
+  /** Drawn in place rather than through a full render, which would take the cursor with it. */
+  #renderFolderState(): void {
+    const slot = this.#el.querySelector('.launcher-folder-state');
+    if (!(slot instanceof HTMLElement)) return;
+    slot.replaceChildren();
+
+    const state = this.#folderState;
+    const typed = this.#dirInput?.value.trim() ?? '';
+    if (!state || typed === '' || state.path !== typed) return;
+
+    if (state.exists) {
+      slot.className = 'launcher-folder-state is-good';
+      slot.textContent = 'folder exists';
+      return;
+    }
+    if (state.isFile === true) {
+      slot.className = 'launcher-folder-state is-bad';
+      slot.textContent = 'that is a file, not a folder';
+      return;
+    }
+
+    slot.className = 'launcher-folder-state is-missing';
+    const label = document.createElement('span');
+    label.textContent = state.error ?? 'no folder there yet';
+    const make = document.createElement('button');
+    make.className = 'launcher-create-folder';
+    make.textContent = 'Create folder';
+    make.addEventListener('click', () => this.#opts.onCreateFolder(typed));
+    slot.append(label, make);
+  }
+
   pathCompletion(reply: { partial: string; completed: string; matches: readonly string[] }): void {
     // While browsing, a reply is a directory listing rather than a suggestion for the box.
     if (this.#browsing && reply.partial === this.#browsePath) {
@@ -497,7 +547,21 @@ export class Launcher {
       }
     });
     // A new keystroke makes any pending suggestion stale.
-    input.addEventListener('input', () => this.#clearCompletion());
+    input.addEventListener('input', () => {
+      this.#clearCompletion();
+      /**
+       * Ask whether the folder is there, once typing settles.
+       *
+       * Debounced, because this is a filesystem call per keystroke otherwise, and the answer
+       * for a half-typed path is never the interesting one.
+       */
+      this.#folderState = null;
+      this.#renderFolderState();
+      clearTimeout(this.#checkTimer);
+      const typed = input.value.trim();
+      if (typed === '') return;
+      this.#checkTimer = window.setTimeout(() => this.#opts.onCheckFolder(typed), 260);
+    });
 
     /**
      * Dropping a path in.
@@ -687,7 +751,11 @@ export class Launcher {
     note.className = 'launcher-note';
     note.textContent = 'The folder is created if it does not exist.';
 
-    form.append(browse, input, buttons);
+    // Between the box and the buttons: it is about what was typed, and it must not move the
+    // buttons around as it appears and goes.
+    const folderState = document.createElement('div');
+    folderState.className = 'launcher-folder-state';
+    form.append(browse, input, folderState, buttons);
     wrap.append(form, note);
     return wrap;
   }

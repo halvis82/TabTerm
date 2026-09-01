@@ -33,22 +33,37 @@ r.ok(
   'and the pane already in use does not, since covering output would offer to replace it',
 );
 
-// Tab completes a folder, exactly as it does on the start screen.
-const key = (k) => `(() => {
-  const i = document.querySelector('.pane-chooser-input');
-  i.focus();
-  i.dispatchEvent(new KeyboardEvent('keydown', { key: '${k}', bubbles: true }));
-})()`;
-await evaluate(
-  b.client,
-  "(() => { const i = document.querySelector('.pane-chooser-input'); i.focus(); i.value = '~/Docu'; })()",
+// The picker, which is what a pane cannot already do by typing. There is deliberately no path
+// box: sitting at a prompt, typing a path is what `cd` is for.
+await realClick(b.client, '.pane-chooser-browse');
+await sleep(1600);
+r.ok(
+  'the picker lists folders',
+  Number(await evaluate(b.client, "document.querySelectorAll('.pane-chooser-folder').length")) > 1,
 );
-await evaluate(b.client, key('Tab'));
-await sleep(1400);
-const completed = String(
-  await evaluate(b.client, "document.querySelector('.pane-chooser-input')?.value ?? ''"),
+// Anchored to the bottom of the pane, not merely low in it: a terminal fills from the top, so
+// what matters is that the panel never reaches the line being typed.
+const anchored = JSON.parse(
+  await evaluate(
+    b.client,
+    `(() => { const box = document.querySelector('.pane-chooser-box').getBoundingClientRect();
+       const pane = document.querySelector('.pane-chooser').closest('.pane').getBoundingClientRect();
+       return JSON.stringify({ gap: Math.round(pane.bottom - box.bottom), clearOfTop: Math.round(box.top - pane.top) }); })()`,
+  ),
 );
-r.ok('Tab completes a path in the pane', completed.startsWith('~/Documents'), completed);
+r.ok(
+  'the panel is anchored to the bottom of the pane',
+  anchored.gap >= 0 && anchored.gap <= 20,
+  JSON.stringify(anchored),
+);
+r.ok(
+  'and leaves the first line free to type on',
+  anchored.clearOfTop > 20,
+  JSON.stringify(anchored),
+);
+
+await realClick(b.client, '.pane-chooser-cancel', 'Cancel');
+await sleep(500);
 
 // A session already open in a tab says so before it is moved.
 // Exactly the session this suite opened, not whichever attached row happens to be first: a

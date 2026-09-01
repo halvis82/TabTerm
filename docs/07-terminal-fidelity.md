@@ -185,6 +185,12 @@ a reload and a daemon restart because it sits in the ring and on disk with every
 Sending `echo` to the shell instead would put a command in somebody's history, run in whatever
 program happened to be in the foreground, and be impossible while a command was already running.
 
+**A prompt follows it.** The landmark is printed where the cursor was, so the shell's prompt ends
+up above it and the next command would be typed against a bare line. Discarding the line and
+submitting an empty one is what pressing Enter at a prompt does, and it makes the shell print a
+fresh prompt beneath the landmark. Only when nothing is running: those characters would otherwise
+be input to whatever program is in the foreground.
+
 A landmark is **found by what it looks like** rather than by a hidden sentinel: a solid bar of one
 explicit 24-bit background, which no ordinary output produces. So it is found again after a
 reload with nothing having to remember where it was, and it stops being found the moment its
@@ -248,6 +254,11 @@ doing nothing.
 
 `Clear` performs the real clear, not `term.clear()`. Wiping only this buffer left the output in
 the daemon and on disk, so it returned on the next reload, which made the entry a lie. See §7.
+
+It then asks the shell to redraw. Purging the buffers alone left a genuinely empty screen with no
+prompt on it, which is a state no shell ever produces and which leaves the next command typed
+against nothing. `Ctrl+L` is the shell's own clear-and-redraw: the prompt returns to the top,
+whatever was half typed survives, and a full-screen program redraws rather than being blanked.
 
 **A press inside the menu never dismisses it.** The menu closes on the next mousedown anywhere
 else, in the capture phase. Without that exception it was unusable: pressing an entry removed the
