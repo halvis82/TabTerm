@@ -185,15 +185,64 @@ crash.
 
 ## 6. Session resume
 
-The agent CLI keeps its own session records under `~/.claude/projects/`. TabTerm reads them to
-offer resume. Implemented in `daemon/src/agent-sessions.ts`.
+Each agent CLI keeps its own session records on disk. Claude writes to `~/.claude/projects/` and
+Codex writes to `~/.codex/sessions/YYYY/MM/DD/`. TabTerm reads both, in
+`daemon/src/agent-sessions.ts` and `daemon/src/codex-sessions.ts`.
 
 - Resume IDs are discovered from the store, never guessed
 - Offered in the launcher and on the expired-session recovery page
 - **Never auto-resumes.** Listing is not resuming; a person clicks
 - The id is passed as argv to the agent CLI, never through a shell
 
+### They do not resume the same way
+
+This is the difference that made resume look broken. Claude takes a flag and Codex takes a
+subcommand:
+
+| Agent | Command |
+|---|---|
+| Claude | `claude --resume <id>` |
+| Codex | `codex resume <id>` |
+
+`codex --resume <id>` is rejected with `error: unexpected argument '--resume' found`, which is
+what every attempt to resume a Codex session produced. The table lives in
+`daemon/src/agent-resume.ts` so a third agent is a row rather than a branch.
+
+**In the session's own directory**, which the row carries. An agent resumed somewhere else has
+different files in front of it: for Claude that is a different project, and for Codex it is a
+conversation about the wrong tree.
+
+### Both agents are always reachable
+
+The merged list takes turns between the agents rather than sorting purely by recency. One agent
+is usually the one in daily use, so its conversations are always the newest, and a list cut to a
+few rows would never contain a single row for the other: the feature would be present, correct
+and unreachable. Recency still decides the order within each agent, and whichever has the single
+newest session leads.
+
+### Nothing is offered that would fail
+
+A row is a promise. Before a conversation is listed, three things are checked, none of which the
+store knows:
+
+1. **The CLI is reachable**, on the login shell's PATH rather than launchd's four directories
+2. **The directory still exists.** Resuming into a deleted project fails immediately
+3. **The store said which conversation it is.** A Claude summary sidecar has no `sessionId` and
+   is refused by the CLI; a Codex rollout with no `session_meta` has neither an id nor a
+   directory
+
+The same rule governs the rest of the launcher: recent folders that have been deleted are
+dropped from the list and from the table, and a saved workspace whose directories are all gone
+is not offered for reopening.
+
 ### Reading somebody else's format
+
+Two formats, and they agree on nothing. The Codex store states the working directory in its
+first record, so nothing has to be reversed; its files are nested by date and sort
+chronologically at every level, so the newest sessions are reached after reading a handful of
+small directories rather than walking the whole tree.
+
+The Claude store is the harder one:
 
 This is an undocumented on-disk format that is free to change. Every assumption is checked and
 every failure means "offer nothing" rather than an error. A store that has moved or changed

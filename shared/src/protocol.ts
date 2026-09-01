@@ -364,7 +364,15 @@ export type ClientMessage =
   // Agent sessions that could be resumed. Listing is not resuming: the daemon reports what
   // exists and a person decides. See docs/09-agent-integration.md.
   | { t: 'list-resumable'; cwd?: string; limit?: number }
-  | { t: 'resume-agent'; sessionId: string; cwd: string; cols: number; rows: number }
+  | {
+      t: 'resume-agent';
+      sessionId: string;
+      cwd: string;
+      cols: number;
+      rows: number;
+      /** Which CLI, since they take different arguments. Defaults to claude when absent. */
+      agent?: 'claude' | 'codex';
+    }
   // Local servers. Discovery runs when someone asks, and on the command-start event, never
   // on a timer. See docs/11-performance.md §6.
   | { t: 'list-servers' }
@@ -712,6 +720,14 @@ export interface ResumableAgentSession {
   sessionId: string;
   cwd: string;
   modifiedAt: number;
+  /**
+   * Which CLI this conversation belongs to.
+   *
+   * Carried because the two do not resume the same way: Claude takes `--resume <id>` and Codex
+   * takes a `resume` subcommand. Guessing was the reason resuming a Codex session only ever
+   * produced an error.
+   */
+  agent: 'claude' | 'codex';
   /** First words of what the user asked. A label only, absent when it cannot be read. */
   summary?: string;
 }

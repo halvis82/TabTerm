@@ -157,6 +157,18 @@ export class SplitView {
     if (node.type === 'terminal') {
       const wrapper = this.#paneWrapper(node.paneId, node.sessionId);
       this.#applyLabel(wrapper, node.label, node.labelColor);
+      /**
+       * Sized by the tree it is in now, never by the tree it used to be in.
+       *
+       * A wrapper is deliberately reused across renders so its terminal survives, and it was
+       * carrying the `flex` it had been given as one half of a split. When the other pane left,
+       * the tree collapsed correctly and the surviving pane still drew itself at half width
+       * with empty space beside it, which read as the layout not updating at all.
+       *
+       * The parent overwrites this for the first child of a split, so filling is the default
+       * and a fixed share is the exception, which is the right way round.
+       */
+      wrapper.style.flex = '1 1 0';
       return wrapper;
     }
 

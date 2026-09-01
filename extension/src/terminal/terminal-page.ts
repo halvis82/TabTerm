@@ -99,7 +99,14 @@ let agentHooks: AgentHooksStatus | null = null;
 let shellIntegration: ShellIntegrationStatus | null = null;
 let scrollbackBytes: number | null = null;
 let backgroundTimeout: number | null | undefined;
-/** A layout was asked for from this tab's start screen, so its panes belong here. */
+/**
+ * Something was asked for from this tab's start screen, so what it creates belongs here.
+ *
+ * Set by every start-screen action that makes a workspace: a layout, a project template, and
+ * resuming an agent. A tab showing a list of ways to begin is empty by definition, and choosing
+ * one of them means "begin here". Opening a second tab left this one sitting on the menu beside
+ * the thing it had just started, which is a tab nobody wanted.
+ */
 let layoutRequestedHere = false;
 /** A template whose commands are waiting for its panes to exist. */
 let pendingTemplate: LayoutTemplate | null = null;
@@ -566,6 +573,24 @@ function syncPaneChoosers(): void {
 }
 
 /** How much a pane has printed, which is how an empty one is told from one in use. */
+/**
+ * Has anything happened in this tab yet?
+ *
+ * True for a tab that is still showing its start screen with a shell nobody has typed into:
+ * one pane, one line on it, which is the prompt. That is the tab that should be taken over or
+ * closed rather than left beside whatever was just opened.
+ *
+ * Deliberately conservative. Anything it cannot be sure about counts as used, because closing a
+ * tab somebody was working in is far worse than leaving an empty one.
+ */
+function thisTabIsUnused(): boolean {
+  const panes = panesHost?.all ?? [];
+  if (panes.length !== 1) return false;
+  const only = panes[0];
+  if (!only) return false;
+  return linesWithContent(only.controller.term) <= 1;
+}
+
 function linesWithContent(term: {
   buffer: {
     active: {
@@ -926,12 +951,28 @@ function buildLauncher(): void {
        * second copy. It did not; this tab simply stopped showing the list.
        */
       if (!session.workspaceId) return;
+      /**
+       * A session already shown in a tab is focused rather than attached again, and **this tab
+       * goes** when it had nothing in it.
+       *
+       * The tab used to be left alone, on the reasoning that dismissing its start screen would
+       * reveal its own empty terminal at the moment focus moved away, which looks like a second
+       * copy of the session. Closing it entirely answers that better than leaving it: there is
+       * no tab left to be confused by, and an empty tab beside the one you asked for is waste.
+       *
+       * Only when unused. A tab somebody has worked in is theirs, whatever they click.
+       */
+      const leaveHere = thisTabIsUnused();
       void chrome.runtime.sendMessage({
         t: 'tabterm:focus-workspace',
         workspaceId: session.workspaceId,
         attachHere: !session.attached,
       });
       if (!session.attached) launcher?.dismiss();
+      if (session.attached && leaveHere) {
+        // After the focus message, so the tab being switched to is already in front.
+        setTimeout(() => window.close(), 120);
+      }
     },
     onCloseSession: (session) => {
       client?.send({ t: 'kill-session', sessionId: session.sessionId });
@@ -976,10 +1017,13 @@ function buildLauncher(): void {
     },
     onResumeAgent: (session) => {
       const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
+      // Resumed into this tab, not beside it. Asked for here, so it belongs here.
+      if (thisTabIsUnused()) layoutRequestedHere = true;
       client?.send({
         t: 'resume-agent',
         sessionId: session.sessionId,
         cwd: session.cwd,
+        agent: session.agent,
         ...size,
       });
       launcher?.dismiss();
@@ -1666,9 +1710,21 @@ function onControl(msg: ServerMessage): void {
         client?.send({ t: 'attach-workspace', workspaceId, cols: 80, rows: 24 });
         return;
       }
-      // A pane left this tab on purpose, so open the tab that now owns it.
+      /**
+       * A pane left this tab on purpose, so open the tab that now owns it, **next to this one**.
+       *
+       * At the end of the strip it reads as an unrelated tab that happened to appear. Beside the
+       * tab it came out of, it reads as the thing that just moved, which is what happened. Chrome
+       * puts a tab at the end unless it is given an index.
+       */
       const url = chrome.runtime.getURL(`terminal.html?workspace=${msg.newWorkspaceId}`);
-      void chrome.tabs.create({ url, active: true });
+      void chrome.tabs.getCurrent().then((here) => {
+        void chrome.tabs.create({
+          url,
+          active: true,
+          ...(here?.index === undefined ? {} : { index: here.index + 1 }),
+        });
+      });
       client?.send({ t: 'attach-workspace', workspaceId, cols: 80, rows: 24 });
       return;
     }
@@ -2040,6 +2096,8 @@ declare global {
       readScreen: (paneId?: string) => string;
       /** What is selected, which the WebGL renderer paints on a canvas nothing can query. */
       selection: () => string;
+      /** What the daemon said could be resumed, before the launcher trims it for display. */
+      resumable: () => { sessionId: string; cwd: string; agent: string; summary?: string }[];
       /** Highlights on the focused pane. A decoration is painted, so the DOM cannot be asked. */
       highlights: () => { text: string; fromEnd: number; color: string }[];
       /** Print a landmark, and read where the view is, without going through the menu. */
@@ -2118,6 +2176,13 @@ function installTestHook(): void {
       const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
       return pane?.controller.term.getSelection() ?? '';
     },
+    resumable: () =>
+      resumableSessions.map((r) => ({
+        sessionId: r.sessionId,
+        cwd: r.cwd,
+        agent: r.agent,
+        ...(r.summary === undefined ? {} : { summary: r.summary }),
+      })),
     highlights: () => {
       const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
       return [...(pane?.controller.highlights ?? [])];

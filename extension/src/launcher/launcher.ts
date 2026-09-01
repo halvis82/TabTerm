@@ -69,7 +69,14 @@ export interface LauncherOptions {
  */
 const MAX_RECENT = 6;
 const MAX_RESTORE = 3;
-const MAX_RESUME = 3;
+/**
+ * Four, not three.
+ *
+ * The daemon takes turns between the agents, so three rows showed two of one and one of the
+ * other. Four gives each of them a pair, which is what makes "resume the one before last"
+ * possible without a picker.
+ */
+const MAX_RESUME = 4;
 
 export class Launcher {
   readonly #opts: LauncherOptions;
@@ -967,9 +974,11 @@ export class Launcher {
     const rows = this.#resumable.slice(0, MAX_RESUME).map((session) => {
       const row = document.createElement('button');
       row.className = 'launcher-row';
+      // Both agents are listed together, so each row says which one it is. Without that, two
+      // conversations about the same folder are indistinguishable.
       row.append(
         strong(session.summary ?? `Session ${session.sessionId.slice(0, 8)}`),
-        dim(shorten(session.cwd, home)),
+        dim(`${session.agent} · ${shorten(session.cwd, home)}`),
       );
       row.title = session.sessionId;
       row.addEventListener('click', () => this.#opts.onResumeAgent(session));

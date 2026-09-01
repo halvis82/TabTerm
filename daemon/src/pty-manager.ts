@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import ptyPkg from 'node-pty';
 import type { IPty } from 'node-pty';
 import { info, warn } from './log.js';
@@ -55,6 +56,17 @@ export function spawnPty(opts: PtyOptions): PtyHandle {
     // Said plainly and thrown, rather than left to a spawn error that reports a number. What
     // reaches the tab should name the command that could not be found.
     throw new Error(`${file}: command not found`);
+  }
+
+  /**
+   * A directory that is not there, said plainly.
+   *
+   * A folder deleted between being listed and being chosen is a real race, and node-pty's own
+   * failure for it is an opaque spawn error with no path in it. Lists are filtered before they
+   * are shown, so reaching here is rare; when it happens the message has to name the folder.
+   */
+  if (!existsSync(opts.cwd)) {
+    throw new Error(`${opts.cwd}: no such directory`);
   }
 
   const pty = spawn(resolved, args, {

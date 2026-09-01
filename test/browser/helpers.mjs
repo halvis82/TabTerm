@@ -70,14 +70,32 @@ export async function realClick(client, selector, text) {
          const all = [...document.querySelectorAll(${JSON.stringify(selector)})];
          // Matched on the element's own first text node as well as its whole text, because a
          // control that carries a badge or a shortcut has more text in it than its label.
+         //
+         // Exact first, then a substring. Exact has to come first or a label that is a prefix
+         // of a longer one would be reachable only by luck. The substring fallback exists for
+         // rows whose text is mostly content: a resume row is a whole pasted paragraph with a
+         // few identifying words in it, and there is no exact string to ask for.
          const el = ${
            text === undefined
              ? 'all[0]'
-             : `all.find((x) => x.textContent === ${JSON.stringify(text)} || x.firstChild?.textContent === ${JSON.stringify(text)})`
+             : `all.find((x) => x.textContent === ${JSON.stringify(text)} || x.firstChild?.textContent === ${JSON.stringify(text)}) ?? all.find((x) => (x.textContent ?? '').includes(${JSON.stringify(text)}))`
          };
          if (!el) return '';
+         /**
+          * Scrolled into view first, and the answer checked against what is actually at the
+          * point.
+          *
+          * A control below the fold has a bounding box off screen, so the click landed on
+          * whatever happened to be at those coordinates and the test reported a press that
+          * never reached the control. That has now produced a wrong diagnosis three times: the
+          * launcher chips, the pane chooser rows, and the resume rows.
+          */
+         el.scrollIntoView({ block: 'center' });
          const r = el.getBoundingClientRect();
-         return JSON.stringify({ x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 });
+         const x = (r.left + r.right) / 2;
+         const y = (r.top + r.bottom) / 2;
+         if (!el.contains(document.elementFromPoint(x, y))) return '';
+         return JSON.stringify({ x, y });
        })()`,
     ),
   );

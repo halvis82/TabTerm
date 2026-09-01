@@ -306,6 +306,37 @@ Every setting there is about how a terminal behaves and is worth changing while 
 
 ---
 
+### A tab that was never used does not survive being left
+
+Choosing a running session, or resuming an agent, from a tab still showing its start screen acts
+**on that tab**. Resuming takes it over; opening a session that already lives in another tab
+brings that tab forward and closes this one.
+
+The tab used to be left alone, reasoning that dismissing its start screen would reveal its own
+empty terminal at the moment focus moved away, which reads as a second copy of the session.
+Closing it answers that better than leaving it: there is no tab left to be confused by, and an
+empty tab beside the one you asked for is waste. Only ever a tab with one pane and nothing on
+it, because closing a tab somebody has worked in is far worse than leaving an empty one.
+
+### A detached pane opens next to the tab it left
+
+At the end of the strip it reads as an unrelated tab that happened to appear. Beside its source
+it reads as the thing that just moved, which is what happened. Chrome appends unless it is given
+an index.
+
+The pane that stays **grows into the space**. A pane's wrapper element is reused across renders
+so its terminal survives, and it was keeping the width it had been given as one half of a split:
+the tree collapsed correctly and the surviving pane still drew itself at half width with empty
+space beside it, which read as the layout not updating at all. Filling is now the default and a
+fixed share is set only for the first child of a split, which is the right way round.
+
+### Two terminals in one tab are two rows
+
+`Running now` lists sessions, not tabs, so a split tab appears twice. That is deliberate: they
+are separate shells with their own directories and their own work, and collapsing them into one
+row would hide one of them. Both rows carry the same workspace, so pressing either brings that
+tab forward.
+
 ### One color picker, everywhere
 
 The session name, the landmark and the highlight all take their color from the same picker: a map

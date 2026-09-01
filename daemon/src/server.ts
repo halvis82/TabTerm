@@ -36,6 +36,14 @@ import {
 } from './project-config.js';
 import { trustAction, type ProjectTrust } from './project-trust.js';
 import { listResumable } from './agent-sessions.js';
+import { listCodexResumable } from './codex-sessions.js';
+import {
+  AGENT_EXECUTABLE,
+  interleaveByAgent,
+  resumeCommand,
+  type AgentKind,
+} from './agent-resume.js';
+import { loginPath, resolveExecutable } from './login-path.js';
 import { listeningPorts } from './server-detect.js';
 import { applyMemoryMode, frontendSettings } from './memory-modes.js';
 import type { RestoreStore } from './restore-store.js';
@@ -44,7 +52,7 @@ import type { PluginHost } from './plugin-api.js';
 import type { ProjectIndex } from './project-index.js';
 import type { WorkspaceStore } from './workspace-store.js';
 import type { Session, SessionManager } from './session-manager.js';
-import type { LayoutShape, LiveSession } from '@tabterm/shared';
+import type { LayoutShape, LiveSession, ResumableAgentSession } from '@tabterm/shared';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -184,6 +192,21 @@ const CARRIAGE_RETURN = String.fromCharCode(13);
 export function causeOf(thrown: unknown): string {
   const text = thrown instanceof Error ? thrown.message : String(thrown);
   return text.replace(/^Error:\s*/, '').trim() || 'no reason was given';
+}
+
+/**
+ * Is that still a directory?
+ *
+ * Used wherever something is about to be offered as a place to work. A folder that has been
+ * deleted since it was last used is not an option, and finding out by opening a terminal in it
+ * is the worst way to be told.
+ */
+export async function directoryExists(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 export class DaemonServer {
@@ -1249,13 +1272,7 @@ export class DaemonServer {
       }
 
       case 'list-resumable': {
-        void listResumable({
-          ...(msg.cwd ? { cwd: msg.cwd } : {}),
-          // Known directories make the store's lossy directory naming exact rather than a
-          // guess. See daemon/src/agent-sessions.ts.
-          knownDirs: this.#launcher.recentDirs(40).map((d) => d.path),
-          limit: msg.limit ?? 8,
-        })
+        void this.#resumableSessions(msg.cwd, msg.limit ?? 8)
           .then((sessions) => {
             send(client.socket, controlFrame({ t: 'resumable-sessions', sessions }));
           })
@@ -1268,13 +1285,20 @@ export class DaemonServer {
       }
 
       case 'resume-agent': {
-        // Resuming is a spawn like any other. The id came from the store, but it is passed as
-        // argv to the agent CLI and never through a shell.
+        /**
+         * Resuming is a spawn like any other. The id came from the store, but it is passed as
+         * argv to the agent CLI and never through a shell.
+         *
+         * In **the session's own directory**, which the row carries. An agent resumed somewhere
+         * else has different files in front of it, which for Claude is a different project
+         * entirely and for Codex is a conversation about the wrong tree.
+         */
+        const agent: AgentKind = msg.agent ?? 'claude';
         const session = this.#sessions.create({
           cwd: msg.cwd,
           cols: msg.cols,
           rows: msg.rows,
-          command: [...this.#config.agentCommand, '--resume', msg.sessionId],
+          command: resumeCommand(agent, this.#agentExecutable(agent), msg.sessionId),
         });
         this.#launcher.recordDir(msg.cwd);
         const { workspace } = this.#workspaces.create(session.id);
@@ -1361,16 +1385,27 @@ export class DaemonServer {
 
       case 'list-restorable': {
         const live = new Set(this.#workspaces.all.map((w) => w.id));
-        const workspaces = this.#restore.list(live).map((entry) => ({
-          workspaceId: entry.workspaceId,
-          paneCount: entry.panes.length,
-          savedAt: entry.savedAt,
-          panes: entry.panes.map((pane) => ({
-            cwd: pane.cwd,
-            hadCommand: (pane.command?.length ?? 0) > 0,
-            ...(pane.lastCommand ? { lastCommand: pane.lastCommand } : {}),
-          })),
-        }));
+        /**
+         * Only what could actually be reopened.
+         *
+         * A workspace whose directories have since been deleted cannot come back: every pane in
+         * it would fail to spawn. Offering it is offering a button that produces an error, so a
+         * saved workspace with no surviving directory is left out. One that has lost some of its
+         * panes' directories is still offered, because the rest of it is real.
+         */
+        const workspaces = this.#restore
+          .list(live)
+          .map((entry) => ({
+            workspaceId: entry.workspaceId,
+            paneCount: entry.panes.length,
+            savedAt: entry.savedAt,
+            panes: entry.panes.map((pane) => ({
+              cwd: pane.cwd,
+              hadCommand: (pane.command?.length ?? 0) > 0,
+              ...(pane.lastCommand ? { lastCommand: pane.lastCommand } : {}),
+            })),
+          }))
+          .filter((entry) => entry.panes.some((pane) => existsSync(pane.cwd)));
         send(client.socket, controlFrame({ t: 'restorable-workspaces', workspaces }));
         return;
       }
@@ -2052,6 +2087,65 @@ export class DaemonServer {
    * `broadcast` reaches only the control connection, which is the offscreen document, and a
    * message meant for the tab showing a workspace has to reach the tab.
    */
+  /**
+   * Which executable to run for an agent.
+   *
+   * A configured `agentCommand` wins for the agent it names, so somebody whose `claude` is a
+   * wrapper script keeps their wrapper. The other agent falls back to its usual name.
+   */
+  #agentExecutable(agent: AgentKind): string {
+    const configured = this.#config.agentCommand[0];
+    if (configured !== undefined && configured.endsWith(agent)) return configured;
+    return AGENT_EXECUTABLE[agent];
+  }
+
+  /**
+   * Conversations that could actually be picked back up.
+   *
+   * Both stores, merged and newest first, and then **filtered down to what would work**. A row
+   * that errors when pressed is worse than no row: it costs the same click and teaches nobody
+   * anything. Three things are checked here, none of which the store knows:
+   *
+   * 1. The CLI is reachable. The daemon runs under launchd with a four-directory PATH, so an
+   *    agent installed in a home directory is not on it; the login shell's PATH is used instead.
+   *    Without this, every row for a missing CLI was an offer to run a command not found.
+   * 2. The directory still exists. Resuming into a deleted project is an immediate failure for
+   *    Claude and a conversation about a missing tree for Codex.
+   * 3. The store said which conversation it is. Handled inside each reader.
+   */
+  async #resumableSessions(
+    cwd: string | undefined,
+    limit: number,
+  ): Promise<ResumableAgentSession[]> {
+    const path = loginPath();
+    const usable = (agent: AgentKind): boolean =>
+      resolveExecutable(this.#agentExecutable(agent), path) !== null;
+
+    const knownDirs = this.#launcher.recentDirs(40).map((d) => d.path);
+    const [claude, codex] = await Promise.all([
+      usable('claude')
+        ? listResumable({ ...(cwd ? { cwd } : {}), knownDirs, limit })
+        : Promise.resolve([]),
+      usable('codex')
+        ? listCodexResumable({ ...(cwd ? { cwd } : {}), limit })
+        : Promise.resolve([]),
+    ]);
+
+    const merged = interleaveByAgent<ResumableAgentSession>([
+      ...claude.map((s) => ({ ...s, agent: 'claude' as const })),
+      ...codex.map((s) => ({ ...s, agent: 'codex' as const })),
+    ]);
+
+    const offerable: ResumableAgentSession[] = [];
+    for (const session of merged) {
+      if (offerable.length >= limit) break;
+      // Checked here rather than at the reader, so both stores get the same guarantee.
+      if (!(await directoryExists(session.cwd))) continue;
+      offerable.push(session);
+    }
+    return offerable;
+  }
+
   #tellEveryone(message: ServerMessage): void {
     for (const c of this.#clients) {
       if (c.authed) send(c.socket, controlFrame(message));
