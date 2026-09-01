@@ -206,6 +206,11 @@ export class PtyHostClient {
           for (const fn of this.#dataListeners) fn(sessionId, notice, 0);
           for (const fn of this.#exitListeners) fn(sessionId, 1);
         }
+        if (t === 'message-failed') {
+          // The host could not act on something we asked for. Recorded, because a request that
+          // silently did nothing is the hardest kind of failure to find later.
+          warn('pty-host.message-failed', { error: msg['message'], about: msg['about'] });
+        }
         if (t === 'exited') {
           for (const fn of this.#exitListeners) {
             fn(String(msg['sessionId']), Number(msg['exitCode']), msg['signal'] as number);

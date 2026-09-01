@@ -111,7 +111,24 @@ export class PtyHost {
       const { frames, consumed } = decoded;
       pending = merged.subarray(consumed);
       for (const f of frames) {
-        if (f.kind === 'control') this.#handle(socket, f.message as Record<string, unknown>);
+        if (f.kind !== 'control') continue;
+        try {
+          this.#handle(socket, f.message as Record<string, unknown>);
+        } catch (e: unknown) {
+          /**
+           * One bad message must not disturb anything else this process is holding.
+           *
+           * There is a guard for uncaught exceptions, but reaching it means unwinding out of a
+           * socket handler with the rest of this batch unprocessed. This process holds the only
+           * handle to everybody's running work, so a message it cannot make sense of is
+           * answered by ignoring that message and nothing more.
+           */
+          this.#send(socket, {
+            t: 'message-failed',
+            message: String(e),
+            about: f.message,
+          });
+        }
       }
     });
   }

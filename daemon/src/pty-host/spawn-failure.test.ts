@@ -70,3 +70,25 @@ describe('a command that cannot be started', () => {
     expect(output.join('')).toContain('SPAWNED-OK');
   });
 });
+
+describe('a message the host cannot make sense of', () => {
+  it('is answered and ignored, and everything else keeps working', async () => {
+    // This process holds the only handle to everybody's running work, so unwinding out of a
+    // socket handler over one bad message would risk far more than the message is worth.
+    const output: string[] = [];
+    client.onData((_id, data) => output.push(data.toString('utf8')));
+
+    // A resize with nonsense in it, then an ordinary spawn.
+    client.resize('nobody', Number.NaN, Number.NaN);
+    client.spawn({
+      sessionId: 'after-a-bad-message',
+      shell: '/bin/zsh',
+      cwd: dir,
+      cols: 80,
+      rows: 24,
+      command: ['echo', 'STILL-WORKING'],
+    });
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(output.join('')).toContain('STILL-WORKING');
+  });
+});
