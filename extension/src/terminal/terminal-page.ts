@@ -11,6 +11,7 @@ import { DaemonClient, type ConnectionStatus } from '../transport/daemon-client.
 import { getToken } from '../transport/token.js';
 import { SplitView, collectPanes } from '../layout/split-view.js';
 import { PaneHost } from './panes.js';
+import type { PaneMenuAction } from './xterm-controller.js';
 import { findCandidates } from './path-links.js';
 import { TypedBuffer, backspaces } from './hotstrings.js';
 import { chooseOpenAction, describeOpen } from './open-action.js';
@@ -585,6 +586,7 @@ let lastStatus = 'unknown';
 
 function buildHosts(): void {
   panesHost = new PaneHost({
+    menuActions: (paneId) => paneMenuActions(paneId),
     onData: (paneId, data) => {
       inputBytesSeen += data.length;
       const pane = panesHost?.get(paneId);
@@ -1010,6 +1012,53 @@ function closeFocused(): void {
   // Closing the only pane would close the workspace, which is what closing the tab is for.
   if (layout && collectPanes(layout).length <= 1) return;
   client?.send({ t: 'close-pane', workspaceId, paneId });
+}
+
+/**
+ * What the right-click menu offers for one pane.
+ *
+ * Asked for at the moment of the click, so it describes the pane as it is: a pane with no
+ * siblings cannot be detached or closed, and saying so greyed out is clearer than an entry that
+ * silently does nothing.
+ *
+ * Every entry targets the pane that was clicked rather than the focused one, by focusing it
+ * first. Right-clicking a pane and having the action land somewhere else would be a trap.
+ */
+function paneMenuActions(paneId: string): PaneMenuAction[] {
+  const paneCount = layout ? collectPanes(layout).length : 1;
+  const hasSiblings = paneCount > 1;
+  const session = panesHost?.get(paneId)?.sessionId ?? '';
+  const target = (run: () => void) => () => {
+    splitView?.focus(paneId);
+    run();
+  };
+
+  return [
+    { label: 'Split right', separated: true, run: target(() => splitFocused('horizontal')) },
+    { label: 'Split down', run: target(() => splitFocused('vertical')) },
+    {
+      label: 'Move to its own tab',
+      enabled: hasSiblings,
+      run: target(() => detachFocused()),
+    },
+    {
+      label: 'Close pane',
+      separated: true,
+      enabled: hasSiblings,
+      run: target(() => closeFocused()),
+    },
+    {
+      // Distinct from closing: this ends the process rather than the view of it. Offered
+      // because a pane holding something runaway is exactly when somebody wants it gone and
+      // does not want to go looking for where that lives.
+      label: 'Kill session',
+      danger: true,
+      enabled: session !== '',
+      run: () => {
+        if (session) client?.send({ t: 'kill-session', sessionId: session });
+      },
+    },
+  ];
 }
 
 /**
@@ -1740,6 +1789,8 @@ declare global {
   interface Window {
     __tabterm?: {
       readScreen: (paneId?: string) => string;
+      /** What is selected, which the WebGL renderer paints on a canvas nothing can query. */
+      selection: () => string;
       /** End every session in this tab, so a test does not abandon them. */
       endSessions: () => void;
       workspaceId: () => string;
@@ -1781,6 +1832,10 @@ declare global {
  */
 function installTestHook(): void {
   window.__tabterm = {
+    selection: () => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
+      return pane?.controller.term.getSelection() ?? '';
+    },
     /**
      * End every session in this tab. For tests, which would otherwise abandon them.
      *

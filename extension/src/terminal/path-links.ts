@@ -61,6 +61,17 @@ export function findCandidates(text: string): Candidate[] {
   return out;
 }
 
+/**
+ * Only a left click follows a link.
+ *
+ * Without this, right-clicking a URL both opened it and showed the context menu, because the
+ * link is activated by the mouse event without regard to which button produced it. Right-click
+ * is how a person asks what their options are, and it must never be the thing that decides.
+ */
+function isPrimaryClick(event: MouseEvent): boolean {
+  return event.button === 0;
+}
+
 /** Bare URLs, handled here too so that links and paths behave identically. */
 const URL_TOKEN = /\bhttps?:\/\/[^\s<>"'`)\]}]+/g;
 
@@ -122,7 +133,14 @@ export function createPathLinkProvider(term: Terminal, opts: PathLinkOptions): I
       for (const u of urls) {
         const range = rangeFor(u);
         if (!range) continue;
-        links.push({ text: u.text, range, activate: () => opts.openUrl(u.text) });
+        links.push({
+          text: u.text,
+          range,
+          activate: (event) => {
+            if (!isPrimaryClick(event)) return;
+            opts.openUrl(u.text);
+          },
+        });
       }
 
       for (const c of candidates) {
@@ -135,7 +153,10 @@ export function createPathLinkProvider(term: Terminal, opts: PathLinkOptions): I
         links.push({
           text: c.text,
           range,
-          activate: (event) => opts.activate(resolved, event),
+          activate: (event) => {
+            if (!isPrimaryClick(event)) return;
+            opts.activate(resolved, event);
+          },
         });
       }
       callback(links.length > 0 ? links : undefined);

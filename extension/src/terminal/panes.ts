@@ -1,5 +1,5 @@
 import type { ResolvedPath } from '@tabterm/shared';
-import { XtermController } from './xterm-controller.js';
+import { XtermController, type PaneMenuAction } from './xterm-controller.js';
 import { createPathLinkProvider } from './path-links.js';
 
 /**
@@ -18,6 +18,8 @@ export interface PaneHostOptions {
   openPath: (paneId: string, resolved: ResolvedPath, event: MouseEvent) => void;
   openUrl: (url: string) => void;
   modifierHeld: () => boolean;
+  /** Pane-level entries for the right-click menu, asked for at the moment of the click. */
+  menuActions?: (paneId: string) => readonly PaneMenuAction[];
 }
 
 interface Pane {
@@ -63,6 +65,7 @@ export class PaneHost {
       onData: (data) => this.#opts.onData(paneId, data),
       onResize: (cols, rows) => this.#opts.onResize(paneId, cols, rows),
       onClear: () => this.#opts.onClear?.(paneId),
+      menuActions: () => this.#opts.menuActions?.(paneId) ?? [],
     });
 
     controller.registerLinkProvider(

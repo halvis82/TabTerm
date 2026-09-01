@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { findCandidates, findUrls } from './path-links.js';
+import { createPathLinkProvider, findCandidates, findUrls } from './path-links.js';
+import type { Terminal } from '@xterm/xterm';
 
 const texts = (s: string) => findCandidates(s).map((c) => c.text);
 
@@ -72,5 +73,55 @@ describe('URL detection', () => {
 
   it('does not treat a path as a URL', () => {
     expect(findUrls('/Users/me/Projects')).toHaveLength(0);
+  });
+});
+
+/**
+ * Just enough terminal for the provider: one unwrapped line, and a width.
+ *
+ * The provider reads the buffer and asks for columns, and nothing else, so a real terminal here
+ * would only add a canvas and a font to something that is really string arithmetic.
+ */
+function fakeTerminal(text: string): Terminal {
+  const line = { isWrapped: false, translateToString: () => text };
+  return {
+    cols: 200,
+    buffer: { active: { length: 1, getLine: (y: number) => (y === 0 ? line : undefined) } },
+  } as unknown as Terminal;
+}
+
+describe('which mouse button follows a link', () => {
+  const activateFirst = (text: string, button: number): string[] => {
+    const opened: string[] = [];
+    const provider = createPathLinkProvider(fakeTerminal(text), {
+      resolve: () => {},
+      lookup: (candidate) => ({
+        candidate,
+        absolute: `/tmp/${candidate}`,
+        exists: true,
+        isDirectory: false,
+      }),
+      activate: () => opened.push('path'),
+      openUrl: () => opened.push('url'),
+      modifierHeld: () => true,
+    });
+    provider.provideLinks(1, (links) => {
+      for (const link of links ?? []) link.activate({ button } as MouseEvent, link.text);
+    });
+    return opened;
+  };
+
+  it('follows a link on a left click', () => {
+    expect(activateFirst('see https://example.com/docs', 0)).toContain('url');
+  });
+
+  it('does nothing on a right click, which is asking for a menu', () => {
+    // Right-clicking a URL used to open it and show the menu, so asking what the options were
+    // was the same gesture as choosing one.
+    expect(activateFirst('see https://example.com/docs', 2)).toEqual([]);
+  });
+
+  it('does not open a path on a right click either', () => {
+    expect(activateFirst('edit src/main.ts now', 2)).toEqual([]);
   });
 });

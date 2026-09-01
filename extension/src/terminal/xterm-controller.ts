@@ -3,6 +3,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import type { ILinkProvider } from '@xterm/xterm';
 import { classifyKey, xtermShouldHandle } from './keymap.js';
+import { placeMenu } from './menu-position.js';
 
 export interface ControllerOptions {
   container: HTMLElement;
@@ -16,6 +17,25 @@ export interface ControllerOptions {
    * from the daemon. See docs/07-terminal-fidelity.md.
    */
   onClear?: () => void;
+  /**
+   * Extra menu entries, supplied by whoever owns the pane.
+   *
+   * The controller knows about one terminal and deliberately nothing else: it has no idea what
+   * a workspace is, whether this pane has siblings, or what closing one would mean. Asking for
+   * the entries at the moment of the right-click also means they reflect the pane as it is now,
+   * rather than as it was when the pane was created.
+   */
+  menuActions?: () => readonly PaneMenuAction[];
+}
+
+export interface PaneMenuAction {
+  label: string;
+  run: () => void;
+  /** Shown greyed rather than hidden, so the menu keeps a stable shape. */
+  enabled?: boolean;
+  /** Draws a rule above this entry, to separate destructive actions from ordinary ones. */
+  separated?: boolean;
+  danger?: boolean;
 }
 
 /**
@@ -159,8 +179,6 @@ export class XtermController {
 
     const menu = document.createElement('div');
     menu.className = 'term-menu';
-    menu.style.left = `${String(x)}px`;
-    menu.style.top = `${String(y)}px`;
 
     const item = (label: string, enabled: boolean, run: () => void) => {
       const b = document.createElement('button');
@@ -177,10 +195,45 @@ export class XtermController {
     const selected = this.term.getSelection() || this.#selectionAtRightClick;
     item('Copy', selected.length > 0, () => void this.copySelection(selected));
     item('Paste', true, () => void this.pasteFromClipboard());
-    item('Select all', true, () => this.term.selectAll());
-    item('Clear', true, () => this.term.clear());
+    item('Select all', true, () => {
+      // Focus first. A selection made while the textarea does not have focus is held by xterm
+      // but never painted, which looked exactly like the entry doing nothing.
+      this.term.focus();
+      this.term.selectAll();
+    });
+    // The real clear, not `term.clear()`. Wiping this buffer alone left the output in the daemon
+    // and on disk, so it came back on the next reload. See docs/07-terminal-fidelity.md.
+    item('Clear', true, () => this.clear());
 
+    for (const action of this.#opts.menuActions?.() ?? []) {
+      if (action.separated === true) {
+        const rule = document.createElement('div');
+        rule.className = 'term-menu-rule';
+        menu.append(rule);
+      }
+      const before = menu.lastElementChild;
+      item(action.label, action.enabled !== false, action.run);
+      if (action.danger === true) {
+        (before?.nextElementSibling ?? menu.lastElementChild)?.classList.add('is-danger');
+      }
+    }
+
+    // Measured, then placed. The size depends on the entries, which depend on the pane, so
+    // there is no useful constant to place it by.
+    menu.style.visibility = 'hidden';
     document.body.append(menu);
+    const rect = menu.getBoundingClientRect();
+    const at = placeMenu({
+      x,
+      y,
+      menuWidth: rect.width,
+      menuHeight: rect.height,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    });
+    menu.style.left = `${String(at.left)}px`;
+    menu.style.top = `${String(at.top)}px`;
+    menu.style.visibility = 'visible';
     // Dismiss on the next interaction anywhere, including a second right-click.
     const close = () => {
       menu.remove();
