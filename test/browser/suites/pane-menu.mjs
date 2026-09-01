@@ -83,5 +83,5 @@ r.ok(
   JSON.stringify(rect),
 );
 
-await finish(client);
+await finish();
 r.done();

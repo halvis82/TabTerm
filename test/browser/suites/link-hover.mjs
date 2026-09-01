@@ -101,5 +101,5 @@ await client.send('Input.dispatchMouseEvent', {
 await sleep(1500);
 r.ok('without Command a path is inert', !(await pointer()));
 
-await finish(client);
+await finish();
 r.done();

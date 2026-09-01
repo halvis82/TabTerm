@@ -1,5 +1,5 @@
 // Shared driving helpers, so each suite is about what it checks rather than about CDP.
-import { connect, evaluate, newTab, sleep } from './cdp.mjs';
+import { closeTab, connect, evaluate, newTab, sleep } from './cdp.mjs';
 import { readFileSync } from 'node:fs';
 
 const root = new URL('../../', import.meta.url);
@@ -18,15 +18,20 @@ const opened = [];
 
 /** End every session these tests started, and close their tabs. */
 export async function finish() {
-  for (const client of opened) {
+  for (const { client } of opened) {
     try {
       await evaluate(client, `window.__tabterm?.endSessions?.()`);
     } catch {
       // A tab that already went away has nothing left to clean up.
     }
   }
+  await sleep(300);
+  // And close the pages. Ending the sessions was not enough: a run of two dozen suites left
+  // dozens of live pages open, and the suites that ran last failed on timing that was fine when
+  // they ran alone.
+  for (const { tab } of opened) await closeTab(tab.id);
   opened.length = 0;
-  await sleep(400);
+  await sleep(300);
 }
 
 export async function openTerminal(query = '') {
@@ -40,7 +45,7 @@ export async function openTerminal(query = '') {
   // the page looks perfectly healthy and simply never receives anything.
   await client.send('Page.bringToFront');
   await sleep(4000);
-  opened.push(client);
+  opened.push({ client, tab });
   return { client, tab };
 }
 
