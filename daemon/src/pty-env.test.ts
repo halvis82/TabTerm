@@ -35,14 +35,25 @@ async function envOf(name: string): Promise<string> {
   const session = sessions.create({ cols: 200, rows: 24 });
   await sleep(700);
   sessions.write(session, Buffer.from(`echo "MARK:[$${name}]"\r`));
-  await sleep(900);
-  const screen = session.vt.snapshot(0).screen;
 
-  // The typed line is echoed back before the shell runs it, so the screen holds the marker
-  // twice: once with the variable unexpanded and once with its value. The last one is the
-  // answer. Reading the first gave the literal `$NAME` and made every assertion here wrong.
-  const matches = [...screen.matchAll(/MARK:\[([^\]]*)\]/g)];
-  return matches[matches.length - 1]?.[1] ?? '';
+  /**
+   * Wait for the shell to answer, rather than for a fixed time.
+   *
+   * The typed line is echoed back before the shell runs it, so the screen holds the marker
+   * twice: once with the variable unexpanded and once with its value. The last one is the
+   * answer, and under load the second one had not arrived yet, so this read the literal
+   * `$NAME` and reported it as the variable's value.
+   */
+  const read = (): { seen: number; value: string } => {
+    const matches = [...session.vt.snapshot(0).screen.matchAll(/MARK:\[([^\]]*)\]/g)];
+    return { seen: matches.length, value: matches[matches.length - 1]?.[1] ?? '' };
+  };
+  for (let waited = 0; waited < 6000; waited += 150) {
+    await sleep(150);
+    // Two markers means the command has run: the echo of the line, then its output.
+    if (read().seen >= 2) break;
+  }
+  return read().value;
 }
 
 describe('the environment a shell is given', () => {

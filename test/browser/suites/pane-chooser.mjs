@@ -47,7 +47,7 @@ r.ok('Tab completes a path in the pane', completed.startsWith('~/Documents'), co
 
 // A session already open in a tab says so before it is moved.
 // Exactly the session this suite opened, not whichever attached row happens to be first: a
-// machine mid-session has others, and taking one of those proves nothing about this behaviour.
+// machine mid-session has others, and taking one of those proves nothing about this behavior.
 // Matched on the prefix, because the test hook reports ids shortened for readability.
 const clickAttached = `(() => {
   const row = document.querySelector('.pane-chooser-session[data-session^="${sourceSession}"]');
