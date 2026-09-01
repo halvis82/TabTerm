@@ -123,6 +123,22 @@ just the leader, so orphaned children do not survive.
 
 ---
 
+### A tab that was never used
+
+A tab opened and closed without anything being run in it, and which never left the directory it
+opened in, is ended a few seconds after its tab closes rather than being kept for the background
+timeout. It is not work anybody comes back to, and keeping it is how a machine ends up holding
+dozens of identical shells in the home directory, which is what made the list of running sessions
+unreadable.
+
+A `cd` on its own is a shell builtin and spawns nothing, so the directory is checked as well
+rather than trusting the "has run a command" flag alone. The rule never applies to a session
+holding a listening socket, or one opened to run a specific command, and pinning still outranks
+it. The delay is short rather than zero, so closing a tab by accident is still recoverable by
+reopening it.
+
+---
+
 ## 5. Reattach and restore
 
 ### The sequence

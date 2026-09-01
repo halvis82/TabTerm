@@ -85,6 +85,7 @@ describe('applying a mode', () => {
       inWorkspace: false,
       exited: false,
       hasExplicitCommand: false,
+      neverUsed: false,
       keepBackgroundSeconds: null,
     };
     const low = decideReap(idle, applyMemoryMode(DEFAULTS, 'low')).afterSeconds;
@@ -104,6 +105,7 @@ describe('applying a mode', () => {
         inWorkspace: false,
         exited: false,
         hasExplicitCommand: false,
+        neverUsed: false,
         keepBackgroundSeconds: null,
       };
       expect(decideReap(pinned, config).afterSeconds).toBeNull();

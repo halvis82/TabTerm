@@ -11,6 +11,7 @@ const base: ReapInput = {
   inWorkspace: false,
   exited: false,
   hasExplicitCommand: false,
+  neverUsed: false,
   keepBackgroundSeconds: null,
 };
 
@@ -151,5 +152,45 @@ describe('a pane whose tab was closed', () => {
       DEFAULTS,
     );
     expect(decision.afterSeconds).toBe(null);
+  });
+});
+
+describe('a tab opened and closed without being used', () => {
+  const unused: ReapInput = {
+    ...base,
+    inWorkspace: true,
+    neverUsed: true,
+    keepBackgroundSeconds: 900,
+  };
+
+  it('goes quickly rather than being held for the background timeout', () => {
+    // Otherwise a machine accumulates dozens of identical shells in the home directory, which
+    // is what made the session list unreadable.
+    const decision = decideReap(unused, config);
+    expect(decision.reason).toBe('never-used');
+    expect(decision.afterSeconds).toBe(30);
+  });
+
+  it('is still recoverable for a few seconds, so an accidental close is not final', () => {
+    expect(decideReap(unused, config).afterSeconds).toBeGreaterThan(0);
+  });
+
+  it('does not apply once something has been run', () => {
+    expect(decideReap({ ...unused, neverUsed: false }, config).reason).toBe('background-timeout');
+  });
+
+  it('never applies to a session holding a listening socket', () => {
+    // A dev server started from a pane means the pane was used, whatever the flags say.
+    expect(decideReap({ ...unused, listeningPort: 3000 }, config).reason).not.toBe('never-used');
+  });
+
+  it('never applies to a session opened to run a specific command', () => {
+    expect(decideReap({ ...unused, hasExplicitCommand: true }, config).reason).not.toBe(
+      'never-used',
+    );
+  });
+
+  it('is still outranked by pinning', () => {
+    expect(decideReap({ ...unused, pinned: true }, config).afterSeconds).toBeNull();
   });
 });
