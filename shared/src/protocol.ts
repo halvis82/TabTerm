@@ -441,6 +441,16 @@ export interface MergeableSession {
   title: string;
   cwd: string;
   paneCount: number;
+  /**
+   * A tab is showing this session right now.
+   *
+   * Taking it moves it, because a session lives in exactly one workspace, so the tab it came
+   * from is left with nothing. Knowing which ones those are is what lets the interface say so
+   * before doing it rather than afterwards.
+   */
+  attached: boolean;
+  /** Something has actually been run in it, so an untouched shell can be told apart. */
+  hasRun: boolean;
 }
 
 export interface ResolvedPath {
@@ -578,6 +588,18 @@ export type ServerMessage =
       lastScreen?: readonly string[];
     }
   | { t: 'mergeable-sessions'; sessions: readonly MergeableSession[] }
+  | {
+      /**
+       * A workspace's last session was taken into another one.
+       *
+       * Distinct from expiry, which is what this used to be reported as. Nothing ended: the
+       * session is alive and somewhere else, and the tab that used to show it has nothing left.
+       * Saying "this expired" there is untrue and offers to restore something that moved.
+       */
+      t: 'workspace-taken-over';
+      workspaceId: string;
+      sessionId: string;
+    }
   | {
       /** A pane left this workspace. The frontend opens a tab at this URL to pick it up. */
       t: 'pane-detached';

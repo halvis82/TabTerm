@@ -306,6 +306,33 @@ Every setting there is about how a terminal behaves and is worth changing while 
 
 ---
 
+## 6.6 What an empty pane shows
+
+Splitting a tab produced two empty shells in the home directory, and the first thing anybody does
+with one is go somewhere. So a pane with nothing in it draws a chooser over itself offering the
+two things worth doing: open a folder, with the same Tab completion the start screen has, or bring
+a session that already exists here.
+
+It sits over the pane rather than replacing it, on the same principle as the start screen: the
+shell underneath is already running and already has the keyboard, so typing goes straight to it
+and the chooser goes away when a command is actually sent. Only a workspace with more than one
+pane gets them, since a single pane already has the start screen over it.
+
+### A session is never open in two tabs
+
+Bringing a session into a pane **moves** it. A session lives in exactly one workspace, so the tab
+it came from is left with nothing, and that is said before it happens rather than discovered
+afterwards: a session a tab is currently showing is marked, and choosing it asks first.
+
+That tab is then told the workspace was **taken over**, which is distinct from expiry. Nothing
+ended, so offering to restore it would be untrue, and it closes instead.
+
+This does not conflict with ADR-0011, which says a duplicated tab mirrors its session. That is
+about Chrome's own duplicate, which cannot be refused because Chrome does not ask. This rule is
+about the sessions TabTerm itself offers to open, where it can and does.
+
+---
+
 ## 7. Notifications
 
 `chrome.notifications`, fired from the offscreen document so they work with every terminal tab

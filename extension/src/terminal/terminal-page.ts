@@ -11,6 +11,7 @@ import { DaemonClient, type ConnectionStatus } from '../transport/daemon-client.
 import { getToken } from '../transport/token.js';
 import { SplitView, collectPanes } from '../layout/split-view.js';
 import { PaneHost } from './panes.js';
+import { PaneChooser } from './pane-chooser.js';
 import type { PaneMenuAction } from './xterm-controller.js';
 import { findCandidates } from './path-links.js';
 import { TypedBuffer, backspaces } from './hotstrings.js';
@@ -477,6 +478,74 @@ function lookupPath(candidate: string): ResolvedPath | undefined {
 // Modifier tracking
 // ---------------------------------------------------------------------------
 
+/**
+ * The chooser drawn over a pane that has nothing in it.
+ *
+ * Only for a workspace with more than one pane. A single pane already has the start screen over
+ * it, and two panels saying the same thing would be worse than one.
+ */
+const paneChoosers = new Map<string, PaneChooser>();
+
+function syncPaneChoosers(): void {
+  const paneIds = layout ? collectPanes(layout) : [];
+  for (const [paneId, chooser] of paneChoosers) {
+    if (!paneIds.includes(paneId)) {
+      chooser.dismiss();
+      paneChoosers.delete(paneId);
+    }
+  }
+  if (paneIds.length < 2) return;
+
+  for (const paneId of paneIds) {
+    if (paneChoosers.has(paneId)) continue;
+    const pane = panesHost?.get(paneId);
+    if (!pane) continue;
+    paneChoosers.set(
+      paneId,
+      new PaneChooser({
+        container: pane.element,
+        paneId,
+        home: launcherHome,
+        onChooseDir: (id, path) => {
+          const target = panesHost?.get(id);
+          if (!target) return;
+          splitView?.focus(id);
+          client?.write(target.streamId, new TextEncoder().encode(`cd ${quotePath(path)}\r`));
+          paneChoosers.get(id)?.dismiss();
+        },
+        onCompletePath: (partial) => {
+          completingPane = paneId;
+          client?.send({ t: 'complete-path', partial });
+        },
+        onTakeSession: (id, session) => {
+          if (!workspaceId) return;
+          // Moving it, not copying it: a session lives in exactly one workspace, so the tab it
+          // came from is asked to close rather than left showing a workspace with nothing in it.
+          takingOverFrom.add(session.workspaceId);
+          client?.send({
+            t: 'merge-into',
+            workspaceId,
+            targetPaneId: id,
+            sessionId: session.sessionId,
+            direction: 'horizontal',
+          });
+          paneChoosers.get(id)?.dismiss();
+        },
+        onRefreshSessions: () => {
+          if (workspaceId) client?.send({ t: 'list-mergeable', workspaceId });
+        },
+      }),
+    );
+  }
+}
+
+/** Workspaces this tab has just taken a session from, so their tabs know to close. */
+const takingOverFrom = new Set<string>();
+/** Which pane asked for a completion, since the answer comes back on one channel. */
+let completingPane: string | null = null;
+/** Home, as the daemon reports it, for shortening paths in a pane chooser. */
+let launcherHome = '';
+
 function setCmdHeld(held: boolean): void {
   if (held === cmdHeld) return;
   cmdHeld = held;
@@ -617,7 +686,10 @@ function buildHosts(): void {
       // drawn on top is only there because there is no output yet. Dismissing on the first
       // keystroke made a half-typed command the moment everything disappeared, which is both
       // startling and useless, since that is exactly when you might still want the list.
-      if (submitsCommand(data)) launcher?.dismiss();
+      if (submitsCommand(data)) {
+        launcher?.dismiss();
+        paneChoosers.get(paneId)?.dismiss();
+      }
       client?.write(pane.streamId, new TextEncoder().encode(data));
     },
     onResize: (paneId, cols, rows) => {
@@ -973,6 +1045,7 @@ function applyLayout(next: LayoutNode): void {
   for (const id of [...paneTime.keys()]) if (!live.includes(id)) paneTime.delete(id);
   setFavicon(paneStatus.effective());
   refreshTitle();
+  syncPaneChoosers();
 }
 
 function splitFocused(direction: 'horizontal' | 'vertical'): void {
@@ -1459,9 +1532,21 @@ function onControl(msg: ServerMessage): void {
       return;
     }
 
+    case 'workspace-taken-over': {
+      // This tab's session is alive in another tab now, so there is nothing here to show and
+      // nothing to restore. Closing is the honest outcome, and it is what keeps the rule that a
+      // session is never open in two places from leaving an empty tab behind.
+      if (msg.workspaceId === workspaceId) {
+        attached = false;
+        window.close();
+      }
+      return;
+    }
+
     case 'mergeable-sessions': {
       mergeable = [...msg.sessions];
       palette?.setMergeable(mergeable);
+      for (const chooser of paneChoosers.values()) chooser.setSessions(mergeable);
       return;
     }
 
@@ -1497,6 +1582,7 @@ function onControl(msg: ServerMessage): void {
         refitAllPanes();
       }
       launcher?.setState(msg.state);
+      launcherHome = msg.state.home;
       savedItems = [...msg.state.saved];
       palette?.setSaved(savedItems);
       commandPanel?.setFavorites(savedItems);
@@ -1537,7 +1623,11 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'path-completion': {
-      launcher?.pathCompletion(msg);
+      // One channel, two possible askers. The pane that asked last owns the answer.
+      const chooser = completingPane ? paneChoosers.get(completingPane) : undefined;
+      completingPane = null;
+      if (chooser) chooser.setCompletion(msg);
+      else launcher?.pathCompletion(msg);
       return;
     }
 

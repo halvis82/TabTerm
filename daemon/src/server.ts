@@ -684,6 +684,8 @@ export class DaemonServer {
                 title: session.titleFields.process ?? session.shell.split('/').pop() ?? 'shell',
                 cwd: session.cwd,
                 paneCount: panes(w.layout).length,
+                attached: session.clients.size > 0,
+                hasRun: session.hasRun === true,
               },
             ];
           }),
@@ -712,6 +714,13 @@ export class DaemonServer {
             // so restoring that tab can pull it back instead of reporting an expiry.
             this.#mergedAway.set(sourceId, { sessionId: msg.sessionId, at: Date.now() });
             this.#pruneMergedAway();
+            // Taken over, not expired. The tab it left can close rather than offering to
+            // restore a session that is alive in another tab.
+            this.#tellEveryone({
+              t: 'workspace-taken-over',
+              workspaceId: sourceId,
+              sessionId: msg.sessionId,
+            });
             this.#notifyWorkspaceGone(sourceId);
           }
           this.#attachWorkspace(client, msg.workspaceId, 80, 24);
@@ -1917,6 +1926,18 @@ export class DaemonServer {
     const cutoff = Date.now() - MERGED_AWAY_TTL_MS;
     for (const [workspaceId, record] of this.#mergedAway) {
       if (record.at < cutoff) this.#mergedAway.delete(workspaceId);
+    }
+  }
+
+  /**
+   * Send to every authenticated client, terminal pages included.
+   *
+   * `broadcast` reaches only the control connection, which is the offscreen document, and a
+   * message meant for the tab showing a workspace has to reach the tab.
+   */
+  #tellEveryone(message: ServerMessage): void {
+    for (const c of this.#clients) {
+      if (c.authed) send(c.socket, controlFrame(message));
     }
   }
 
