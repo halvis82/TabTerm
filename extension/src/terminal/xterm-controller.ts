@@ -471,6 +471,11 @@ export class XtermController {
     this.term.reset();
   }
 
+  /** Put a buffer row at the top of the view, clamped so a row near the start still lands. */
+  scrollTo(row: number): void {
+    this.term.scrollToLine(Math.max(0, row));
+  }
+
   /**
    * Repaint the terminal itself.
    *

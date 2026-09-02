@@ -522,6 +522,8 @@ export class DaemonServer {
       }
       for (const f of client.flow.values()) f.dispose();
       this.#clients.delete(client);
+      // Its report about tabs went with it: a browser that has gone does not speak for them.
+      this.#sessions.forgetReporter(client.id);
       debug('client.disconnected', { clientId: client.id });
     });
   }
@@ -805,7 +807,7 @@ export class DaemonServer {
          * it, and a report that arrives from anywhere else can only ever say that more tabs
          * exist, which is the safe direction.
          */
-        this.#sessions.reportOpenWorkspaces(msg.workspaceIds);
+        this.#sessions.reportOpenWorkspaces(client.id, msg.workspaceIds);
         return;
       }
 

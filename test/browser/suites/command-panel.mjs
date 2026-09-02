@@ -157,20 +157,27 @@ const stored = await evaluate(
 );
 r.ok('and where it was put is remembered', String(stored).includes('"x"'), String(stored));
 
-// Minimizing.
+/**
+ * Minimizing hides the panel, and the button that is always in the top right brings it back.
+ *
+ * There is deliberately no second control. It used to leave a small puck floating where the
+ * panel had been, beside a permanent button that did the same thing: two controls for one
+ * action, one of them in a place that moves.
+ */
 await evaluate(client, `document.querySelector('.cmd-header .cmd-icon')?.click()`);
 await sleep(500);
 r.ok(
-  'it minimizes to a puck',
-  (await evaluate(
-    client,
-    `document.querySelector('.cmd-panel').hidden && !document.querySelector('.cmd-puck').hidden`,
-  )) === true,
+  'minimizing hides it',
+  (await evaluate(client, `document.querySelector('.cmd-panel').hidden`)) === true,
 );
-await evaluate(client, `document.querySelector('.cmd-puck')?.click()`);
+r.ok(
+  'and leaves no second icon behind',
+  (await evaluate(client, `document.querySelector('.cmd-puck') === null`)) === true,
+);
+await evaluate(client, `document.getElementById('cmd-button')?.click()`);
 await sleep(500);
 r.ok(
-  'and the puck brings it back',
+  'the button in the corner brings it back',
   (await evaluate(client, `!document.querySelector('.cmd-panel').hidden`)) === true,
 );
 

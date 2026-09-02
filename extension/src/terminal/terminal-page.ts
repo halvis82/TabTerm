@@ -592,6 +592,26 @@ function thisTabIsUnused(): boolean {
   return linesWithContent(only.controller.term) <= 1;
 }
 
+/**
+ * Where a command was run, if its line is still in the buffer.
+ *
+ * Matched on the text of the command, searching from the end, because the row a person means by
+ * "this one" is the most recent time they ran it. Null when the output has scrolled off, which
+ * is what keeps the offer honest.
+ */
+function findCommandRow(command: string): number | null {
+  const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
+  if (!pane) return null;
+  const wanted = command.trim();
+  if (wanted === '') return null;
+  const buffer = pane.controller.term.buffer.active;
+  for (let row = buffer.length - 1; row >= 0; row--) {
+    const text = buffer.getLine(row)?.translateToString(true) ?? '';
+    if (text.includes(wanted)) return row;
+  }
+  return null;
+}
+
 function linesWithContent(term: {
   buffer: {
     active: {
@@ -1482,6 +1502,12 @@ function buildCommandPanel(): void {
     root: overlay,
     onPaste: (text) => sendToFocusedPane(text),
     onCopy: (text) => void navigator.clipboard.writeText(text),
+    canScrollTo: (command) => findCommandRow(command) !== null,
+    onScrollTo: (command) => {
+      const row = findCommandRow(command);
+      // A command is worth a little context above it, the same as a landmark.
+      if (row !== null) panesHost?.get(splitView?.focused ?? '')?.controller.scrollTo(row - 2);
+    },
     onSearch: (query) => {
       const sessionId = focusedSessionId();
       client?.send({
@@ -2043,6 +2069,14 @@ function onControl(msg: ServerMessage): void {
 
         paneStatus.finished(pane.paneId, msg.exitCode);
         setFavicon(paneStatus.effective());
+        /**
+         * The panel is live while it is open.
+         *
+         * Its lists were fetched when it opened and never again, so a command run in the
+         * terminal behind it did not appear until it was closed and reopened, and the stats it
+         * was showing were the stats as of whenever somebody last pressed Command+K.
+         */
+        commandPanel?.refreshLive();
         refreshTitle();
         renderTimeLabels();
 

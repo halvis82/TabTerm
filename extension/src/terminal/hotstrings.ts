@@ -1,7 +1,7 @@
 /**
  * Hotstring expansion.
  *
- * An abbreviation followed by a space or Enter becomes a full command. See
+ * An abbreviation becomes a full command the moment it is complete. See
  * docs/14-command-menu.md §4.
  *
  * Kept pure: it is handed keystrokes and returns what to do about them. That matters because the
@@ -111,7 +111,28 @@ export class TypedBuffer {
     this.#typed += ch;
     // Bounded: a line nobody is going to match against does not need remembering.
     if (this.#typed.length > 512) this.#typed = this.#typed.slice(-512);
-    return null;
+
+    /**
+     * Expand the moment the abbreviation is complete.
+     *
+     * It used to wait for a space or Return, which meant typing the abbreviation and then
+     * watching nothing happen until you typed something else. Waiting for a delimiter is what a
+     * text expander does when it cannot see the text, and this one can: it knows exactly what
+     * has been typed since the last boundary.
+     *
+     * The delimiter is still handled above, so an abbreviation that is a prefix of a longer one
+     * still works: typing the longer one passes through this on the way and expands as soon as
+     * it matches, and the shorter one expands when it matches.
+     */
+    const match = longestMatch(this.#typed, hotstrings);
+    if (!match) return null;
+    this.#typed = '';
+    return {
+      deleteCount: match.trigger.length,
+      // No delimiter reproduced: nothing was typed to trigger it, so nothing is owed back.
+      insert: match.command,
+      trigger: match.trigger,
+    };
   }
 }
 

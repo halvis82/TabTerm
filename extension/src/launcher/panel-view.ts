@@ -24,6 +24,15 @@ export interface PanelOptions {
   onPaste: (text: string) => void;
   onCopy: (text: string) => void;
   onSearch: (query: string) => void;
+  /**
+   * Is this command still on screen in the terminal behind the panel?
+   *
+   * Asked rather than assumed, because scrollback is finite: a command from this morning is in
+   * the history list long after its output has fallen off the end of the buffer, and offering
+   * to scroll to something that is not there is offering a button that cannot work.
+   */
+  canScrollTo: (command: string) => boolean;
+  onScrollTo: (command: string) => void;
   onKeep: (text: string) => void;
   onStar: (entry: CommandEntry) => void;
   onEdit: (
@@ -45,7 +54,6 @@ const PANEL_WIDTH = 460;
 export class CommandPanel {
   readonly #opts: PanelOptions;
   readonly #el: HTMLElement;
-  readonly #puck: HTMLElement;
   readonly #search: HTMLInputElement;
   readonly #list: HTMLElement;
   readonly #footer: HTMLElement;
@@ -130,14 +138,14 @@ export class CommandPanel {
     this.#el.append(header, this.#search, this.#body, this.#footer);
     opts.root.append(this.#el);
 
-    // The minimized form: a small puck that reopens where it was.
-    this.#puck = document.createElement('button');
-    this.#puck.className = 'cmd-puck';
-    this.#puck.hidden = true;
-    this.#puck.title = 'Commands';
-    this.#puck.textContent = '⌘';
-    this.#puck.addEventListener('click', () => this.restore());
-    opts.root.append(this.#puck);
+    /**
+     * There is no separate minimized form, deliberately.
+     *
+     * Minimizing used to leave a small puck floating where the panel had been, next to the
+     * command button that is permanently in the top right and does the same thing. Two controls
+     * for one action, one of them in a place that moves. Minimizing now simply hides the panel,
+     * and the button that was always there brings it back where it was.
+     */
   }
 
   get isOpen(): boolean {
@@ -165,7 +173,6 @@ export class CommandPanel {
     this.#placement.minimized = false;
     this.#showingSettings = false;
     this.#editing = null;
-    this.#puck.hidden = true;
     this.#el.hidden = false;
     // A fresh query every time. Reopening to find last time's filter still applied is a list
     // that appears empty for a reason nothing on screen explains.
@@ -187,14 +194,12 @@ export class CommandPanel {
   close(): void {
     this.#open = false;
     this.#el.hidden = true;
-    this.#puck.hidden = true;
     this.#opts.onClose();
   }
 
   minimize(): void {
     this.#placement.minimized = true;
     this.#el.hidden = true;
-    this.#puck.hidden = false;
     this.#applyPlacement();
     this.#save();
     this.#opts.onClose();
@@ -213,6 +218,9 @@ export class CommandPanel {
     this.#placement.tab = tab;
     this.#selected = 0;
     this.#showingSettings = false;
+    // Going somewhere else is leaving the form. Keeping it open behind another tab meant coming
+    // back to a half-typed edit nobody remembered starting.
+    this.#editing = null;
     // Recent is fetched, not held: history lives in the daemon and the panel may have been open
     // for a while. Without this the tab was simply empty until you typed something into search.
     if (tab === 'recent') this.#opts.onSearch(this.#search.value);
@@ -234,8 +242,6 @@ export class CommandPanel {
     this.#placement = clamped;
     this.#el.style.left = `${String(clamped.x)}px`;
     this.#el.style.top = `${String(clamped.y)}px`;
-    this.#puck.style.left = `${String(clamped.x + PANEL_WIDTH - 44)}px`;
-    this.#puck.style.top = `${String(clamped.y)}px`;
   }
 
   /**
@@ -298,6 +304,18 @@ export class CommandPanel {
     this.render();
   }
 
+  /**
+   * Something happened in the terminal, so whatever is on screen is now out of date.
+   *
+   * Only while it is open and only for the pages that show live data. Re-rendering the edit
+   * form under somebody's hands, or the settings page, would replace what they were typing.
+   */
+  refreshLive(): void {
+    if (!this.isOpen || this.#editing !== null || this.#showingSettings) return;
+    if (this.#placement.tab === 'recent') this.#opts.onSearch(this.#search.value);
+    if (this.#placement.tab === 'stats' || this.#placement.tab === 'recent') this.render();
+  }
+
   refreshSettings(): void {
     if (this.#showingSettings && this.isOpen) this.render();
   }
@@ -306,6 +324,17 @@ export class CommandPanel {
     for (const button of this.#tabBar.children) {
       button.classList.toggle('on', (button as HTMLElement).dataset['tab'] === this.#placement.tab);
     }
+
+    /**
+     * The search box belongs to the lists, and only to the lists.
+     *
+     * Stats, settings, and the form for editing a favorite have nothing to search: an empty
+     * box over them is a control that does nothing, and over the edit form it sat directly
+     * above another text box, which is worse than useless.
+     */
+    const searchable =
+      !this.#showingSettings && this.#editing === null && this.#placement.tab !== 'stats';
+    this.#search.hidden = !searchable;
 
     if (this.#showingSettings) {
       this.#body.replaceChildren(this.#opts.settings());
@@ -411,13 +440,38 @@ export class CommandPanel {
     });
 
     if (row.kind === 'recent') {
+      /**
+       * Filled when this command is already a favorite.
+       *
+       * Every recent row carried an empty star whether or not the command was already kept, so
+       * the control said nothing about the state it was showing and starring something twice
+       * looked identical to starring it once. Matched on the command text, which is what a
+       * person means by "the same command".
+       */
+      // Only when its output is still in the buffer. See `canScrollTo`.
+      if (this.#opts.canScrollTo(row.entry.command)) {
+        const jump = document.createElement('button');
+        jump.className = 'cmd-icon cmd-jump';
+        jump.title = 'Scroll to where this ran';
+        jump.textContent = 'Scroll here';
+        jump.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.#opts.onScrollTo(row.entry.command);
+          this.close();
+        });
+        el.append(jump);
+      }
+
+      const kept = this.#favorites.some((f) => f.body.trim() === row.entry.command.trim());
       const star = document.createElement('button');
-      star.className = 'cmd-icon';
-      star.title = 'Keep as a favorite';
-      star.textContent = '☆';
+      star.className = `cmd-icon cmd-star${kept ? ' on' : ''}`;
+      star.title = kept ? 'Already a favorite' : 'Keep as a favorite';
+      star.textContent = kept ? '★' : '☆';
       star.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.#opts.onStar(row.entry);
+        // Starring something already kept would make a second copy of it, which is never what
+        // the click meant.
+        if (!kept) this.#opts.onStar(row.entry);
       });
       el.append(star);
     }
@@ -444,7 +498,14 @@ export class CommandPanel {
   #renderFooter(row: PanelRow | undefined): void {
     const hints = document.createElement('span');
     hints.className = 'cmd-hints';
-    hints.textContent = operationsFor(row).join(' · ');
+    /**
+     * Nothing on a page with nothing to select.
+     *
+     * "Arrows to select" over the stats page is an instruction for something that is not there.
+     * The gear stays, because settings are reachable from every page.
+     */
+    const selectable = !this.#showingSettings && this.#placement.tab !== 'stats' && !this.#editing;
+    hints.textContent = selectable ? operationsFor(row).join(' · ') : '';
 
     const gear = document.createElement('button');
     gear.className = 'cmd-icon cmd-gear';
@@ -600,10 +661,37 @@ export class CommandPanel {
     }
     const text = rowText(row);
     if (how === 'copy') {
+      /**
+       * Copying finishes the interaction, the same as pasting does.
+       *
+       * It used to leave the panel open with no sign anything had happened, so the only way to
+       * know the copy had worked was to go and paste it somewhere. A copy that leaves no trace
+       * is indistinguishable from a key that did nothing.
+       */
       this.#opts.onCopy(text);
+      this.#flash('Copied');
+      this.close();
       return;
     }
     this.#opts.onPaste(text);
     this.close();
+  }
+
+  /**
+   * A word, briefly, where the panel was.
+   *
+   * Long enough to be read and short enough that it is gone before it is in the way. It is
+   * removed on a timer rather than on an animation event, because an animation that never runs
+   * would otherwise leave it on screen forever.
+   */
+  #flash(text: string): void {
+    document.querySelector('.cmd-flash')?.remove();
+    const note = document.createElement('div');
+    note.className = 'cmd-flash';
+    note.textContent = text;
+    note.style.left = `${String(this.#placement.x)}px`;
+    note.style.top = `${String(this.#placement.y)}px`;
+    this.#opts.root.append(note);
+    setTimeout(() => note.remove(), 900);
   }
 }

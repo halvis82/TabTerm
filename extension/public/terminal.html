@@ -715,6 +715,56 @@
     padding: 2px 5px;
     border-radius: 5px;
   }
+  /* The gear is the one control in the footer and it was rendered at the same size as a hint,
+     which made it hard to find at all. It is a target, so it is sized like one. */
+  /* A kept command reads as kept, rather than as an invitation to keep it again. */
+  .cmd-flash {
+    position: fixed;
+    z-index: 90;
+    padding: 7px 13px;
+    border-radius: 8px;
+    border: 1px solid var(--edge);
+    background: var(--panel);
+    color: var(--text);
+    font-size: 13px;
+    pointer-events: none;
+    animation: cmd-flash-out 0.9s ease forwards;
+  }
+  @keyframes cmd-flash-out {
+    0% {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    18% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    72% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+  /* A word rather than a glyph: it is an action with a destination, and an icon would need
+     explaining. Quiet until the row is hovered or selected, so a list of ten does not shout. */
+  .cmd-jump {
+    font-size: 11px;
+    color: var(--dim);
+    opacity: 0.55;
+  }
+  .cmd-row:hover .cmd-jump,
+  .cmd-row.selected .cmd-jump {
+    opacity: 1;
+  }
+  .cmd-star.on {
+    color: #e8c34a;
+  }
+  .cmd-gear {
+    font-size: 19px;
+    padding: 2px 8px;
+    color: var(--dim);
+  }
   .cmd-icon:hover {
     color: var(--text);
     background: rgba(90, 100, 130, 0.25);

@@ -18,35 +18,52 @@ function type(buffer: TypedBuffer, text: string) {
 }
 
 describe('expanding on a delimiter', () => {
-  it('expands on space, keeping the space', () => {
-    const request = type(new TypedBuffer(), 'runbuild! ');
+  it('expands the moment the abbreviation is complete', () => {
+    /**
+     * No delimiter. Waiting for a space or Return meant typing the abbreviation and watching
+     * nothing happen until you typed something else, which reads as the feature being broken.
+     * Waiting for a delimiter is what an expander does when it cannot see the text; this one
+     * knows exactly what has been typed since the last boundary.
+     */
+    const request = type(new TypedBuffer(), 'runbuild!');
     expect(request).toEqual({
       deleteCount: 'runbuild!'.length,
-      insert: 'npm run build ',
+      // Nothing was typed to trigger it, so nothing is owed back.
+      insert: 'npm run build',
       trigger: 'runbuild!',
     });
   });
 
-  it('expands on Enter, and still submits', () => {
-    // One keystroke from running, not two: the expansion happens first and the newline goes
-    // with it.
-    const request = type(new TypedBuffer(), 'runbuild!\r');
-    expect(request?.insert).toBe('npm run build\r');
+  it('has already expanded by the time Enter is pressed', () => {
+    // The expansion fires on the last character of the abbreviation, so the Return that follows
+    // finds nothing left to match and is simply a Return on an already-expanded line.
+    const buffer = new TypedBuffer();
+    expect(type(buffer, 'runbuild!')?.insert).toBe('npm run build');
+    expect(type(buffer, '\r')).toBeNull();
   });
 
-  it('does not expand while the abbreviation is still being typed', () => {
-    // The whole reason a delimiter is required. `ls` would otherwise fire inside `lsof`.
+  it('does not expand while the abbreviation is still incomplete', () => {
     const buffer = new TypedBuffer();
     expect(type(buffer, 'runbuild')).toBeNull();
     expect(buffer.typed).toBe('runbuild');
   });
 
-  it('leaves a longer word alone that merely starts with a hotstring', () => {
-    expect(type(new TypedBuffer(), 'lsof ')).toBeNull();
+  it('fires as soon as it matches, even inside a longer word', () => {
+    /**
+     * The cost of expanding immediately, stated rather than hidden.
+     *
+     * An abbreviation that is a prefix of something you type will fire in the middle of it, so
+     * abbreviations have to be chosen to be unusual. Every expander that works without a
+     * delimiter has this property; the alternative is the delay that made this look broken.
+     */
+    const request = type(new TypedBuffer(), 'runbuild!of');
+    expect(request?.insert).toBe('npm run build');
   });
 
-  it('does not expand on Tab, which already means completion in a terminal', () => {
-    expect(type(new TypedBuffer(), 'runbuild!\t')).toBeNull();
+  it('has expanded before Tab is reached, so Tab still means completion', () => {
+    const buffer = new TypedBuffer();
+    expect(type(buffer, 'runbuild!')).not.toBeNull();
+    expect(type(buffer, '\t')).toBeNull();
   });
 
   it('expands mid-line, not only at the start', () => {
@@ -75,13 +92,13 @@ describe('giving up rather than guessing', () => {
     expect(buffer.typed).toBe('');
   });
 
-  it('tracks backspace', () => {
+  it('tracks backspace, so correcting a typo still expands', () => {
     const buffer = new TypedBuffer();
     type(buffer, 'runbuildX');
     buffer.consume(DEL, HOTSTRINGS);
     expect(buffer.typed).toBe('runbuild');
-    expect(buffer.consume('!', HOTSTRINGS)).toBeNull();
-    expect(buffer.consume(' ', HOTSTRINGS)?.trigger).toBe('runbuild!');
+    // The corrected last character completes the abbreviation, so it fires there.
+    expect(buffer.consume('!', HOTSTRINGS)?.trigger).toBe('runbuild!');
   });
 
   it('gives up on an arrow key or any other control sequence', () => {

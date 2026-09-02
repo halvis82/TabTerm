@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { connect, type Socket } from 'node:net';
 import { controlFrame, decodeFrames } from './framing.js';
 import { info, warn } from '../log.js';
+import { HOST_PROTOCOL } from './host.js';
 
 /**
  * The daemon's end of the PTY host.
@@ -102,7 +103,28 @@ export class PtyHostClient {
           this.#attach(socket);
           const hello = await this.#request({ t: 'hello' }, 'hello-ok');
           if (hello) {
-            info('pty-host.connected', { pid: hello['pid'] });
+            /**
+             * An older host is reported, never replaced.
+             *
+             * The whole point of this design is that a running host holds everybody's terminals
+             * and outlives the daemon, so an update stages new code and the old process keeps
+             * running until it stops for its own reasons. That means a new daemon can find a
+             * host speaking an older protocol, and the one thing it must not do about that is
+             * restart it: that would trade a compatibility question for certain data loss.
+             *
+             * Recorded so a mismatch is visible in the log rather than surfacing later as
+             * inexplicable behavior. The protocol is deliberately small and additive for this
+             * reason, so an older host missing a newer message is the realistic worst case.
+             */
+            const speaks = Number(hello['protocol']);
+            if (Number.isFinite(speaks) && speaks !== HOST_PROTOCOL) {
+              warn('pty-host.protocol-mismatch', {
+                host: speaks,
+                daemon: HOST_PROTOCOL,
+                note: 'left running on purpose: restarting it would end every terminal it holds',
+              });
+            }
+            info('pty-host.connected', { pid: hello['pid'], protocol: speaks });
             return true;
           }
         }
@@ -160,6 +182,8 @@ export class PtyHostClient {
   #attach(socket: Socket): void {
     this.#socket = socket;
     this.#pending = new Uint8Array(0);
+    // Anything asked for while there was nowhere to send it goes now, before anything new.
+    this.#flush();
 
     socket.on('data', (chunk: Buffer) => {
       const merged = new Uint8Array(this.#pending.length + chunk.length);
@@ -270,8 +294,37 @@ export class PtyHostClient {
     this.#onReconnect = fn;
   }
 
+  /**
+   * Held while there is no socket, and sent when there is one again.
+   *
+   * Messages used to be dropped silently whenever the connection was down, which is a window
+   * that genuinely happens: the host is restarting, or has just been killed and the daemon has
+   * not reconnected yet. A `spawn` lost in that window leaves a tab with a pane that never
+   * receives anything, forever, with no error anywhere. That is a lost terminal, which is the
+   * one outcome this product cannot have.
+   *
+   * Bounded, because a host that never comes back must not turn into unbounded memory. The
+   * oldest go first: a stale `write` for a session that no longer exists is worth less than the
+   * `spawn` that would create a new one.
+   */
+  #outbox: unknown[] = [];
+
   #send(message: unknown): void {
-    if (this.#socket && !this.#socket.destroyed) this.#socket.write(controlFrame(message));
+    if (this.#socket && !this.#socket.destroyed) {
+      this.#socket.write(controlFrame(message));
+      return;
+    }
+    this.#outbox.push(message);
+    if (this.#outbox.length > 500) this.#outbox.shift();
+  }
+
+  /** Everything that was held, in the order it was asked for. */
+  #flush(): void {
+    if (this.#outbox.length === 0) return;
+    const waiting = this.#outbox;
+    this.#outbox = [];
+    info('pty-host.flushed', { messages: waiting.length });
+    for (const message of waiting) this.#send(message);
   }
 
   async #request(

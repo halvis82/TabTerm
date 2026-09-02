@@ -4,7 +4,16 @@
 // worth testing are the ones nobody schedules: a browser killed outright, a daemon killed
 // mid-command, and the process holding the PTYs killed, which no session can survive.
 import { execFileSync } from 'node:child_process';
-import { openTerminal, readScreen, sleep, type, finish, waitUntil, waitFor } from '../helpers.mjs';
+import {
+  openTerminal,
+  readScreen,
+  sleep,
+  type,
+  finish,
+  waitUntil,
+  waitFor,
+  evaluate,
+} from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -66,6 +75,16 @@ await waitUntil(() => alive('pty-host.mjs'));
 r.ok('a new host is started automatically after the old one dies', alive('pty-host.mjs'));
 
 const fresh = await openTerminal();
+/**
+ * Wait for the prompt before typing, with a budget for a cold start.
+ *
+ * `openTerminal` waits too, but its budget assumes a daemon that is already up. Here the daemon
+ * has just been killed and restarted by launchd and the PTY host has been respawned from
+ * nothing, so the first shell takes noticeably longer. Typing into a tab that has no prompt yet
+ * sends the keystrokes nowhere, and the check that follows then fails for a reason that has
+ * nothing to do with recovery.
+ */
+await waitFor(fresh.client, "(window.__tabterm.readScreen() ?? '').trim() !== ''", 40000);
 await type(fresh.client, `echo recovered-${TAG}`);
 // Waited for, not slept through. A shell that has just been started by a freshly respawned host
 // takes longer than one on a quiet machine, and a fixed wait here is the difference between a
@@ -80,7 +99,12 @@ const recovered = await waitFor(
 r.ok(
   'and TabTerm still works, rather than needing a daemon restart',
   recovered,
-  String(await readScreen(fresh.client)).slice(0, 120),
+  // Enough to tell "the tab never got a session" apart from "the shell never printed", which
+  // an empty screen alone cannot.
+  JSON.stringify({
+    screen: String(await readScreen(fresh.client)).slice(0, 60),
+    transport: String(await evaluate(fresh.client, 'window.__tabterm?.transport?.() ?? "no hook"')),
+  }),
 );
 
 r.ok('the daemon is running again, restarted by launchd', alive('libexec/tabterm/daemon.mjs'));

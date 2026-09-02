@@ -194,7 +194,7 @@ describe('durability', () => {
      * replaced. The daemon acts on what the extension reports about tabs, so a test that wants
      * a reap has to report one.
      */
-    sessions.reportOpenWorkspaces([]);
+    sessions.reportOpenWorkspaces('a-browser', []);
     await sleep(2500);
 
     const session = sessions.get(sessionId);
@@ -213,7 +213,7 @@ describe('durability', () => {
 
   it('reaps a session that is not in a workspace once its grace period passes', async () => {
     const { c, sessionId } = await makeSession('dur-3');
-    sessions.reportOpenWorkspaces([]);
+    sessions.reportOpenWorkspaces('a-browser', []);
     // Outside a workspace the idle-shell rule applies, which is faster than the never-used one.
     // Remove it from its workspace so the protection no longer applies.
     const ws = workspaces.findBySession(sessionId);
@@ -467,9 +467,50 @@ describe('a pane nobody used', () => {
     const { c, sessionId } = await makeSession('dur-unused', false);
     c.close();
     // The tab is genuinely gone, which is what the never-used rule is about.
-    sessions.reportOpenWorkspaces([]);
+    sessions.reportOpenWorkspaces('a-browser', []);
     await sleep(1200);
     // Scheduled rather than gone: the delay is what makes an accidental close recoverable.
     expect(sessions.get(sessionId)?.state).toBe('expiring');
+  });
+});
+
+describe('two browsers reporting their tabs', () => {
+  /**
+   * One set replaced by whoever spoke last was wrong in the direction that ends terminals.
+   *
+   * Anything that can report is a browser that knows only its own tabs: a second Chrome profile,
+   * another browser with the extension, or the several headless ones the suites run in. The
+   * last report to arrive used to erase everybody else's, so their sessions were put on a clock
+   * while their tabs sat open.
+   */
+  it('keeps a session that any of them still shows', async () => {
+    const { c, sessionId } = await makeSession('dur-two-browsers');
+    const ws = workspaces.findBySession(sessionId)?.id ?? '';
+    c.close();
+    sessions.keepBackgroundSeconds = 1;
+
+    sessions.reportOpenWorkspaces('browser-a', [ws]);
+    // A different browser, which has never heard of this workspace, says what it has.
+    sessions.reportOpenWorkspaces('browser-b', []);
+    await sleep(2000);
+
+    expect(sessions.get(sessionId), 'a tab in another browser still counts').toBeTruthy();
+    sessions.keepBackgroundSeconds = null;
+  });
+
+  it('stops trusting a browser that has gone', async () => {
+    const { c, sessionId } = await makeSession('dur-gone-browser');
+    const ws = workspaces.findBySession(sessionId)?.id ?? '';
+    c.close();
+    sessions.keepBackgroundSeconds = 1;
+
+    sessions.reportOpenWorkspaces('browser-a', [ws]);
+    sessions.reportOpenWorkspaces('browser-b', []);
+    // Chrome A quits. Its last report is not evidence about the world any more.
+    sessions.forgetReporter('browser-a');
+    await sleep(2500);
+
+    expect(sessions.get(sessionId)).toBeUndefined();
+    sessions.keepBackgroundSeconds = null;
   });
 });

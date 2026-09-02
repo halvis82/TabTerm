@@ -540,19 +540,36 @@ export class SessionManager {
   }
 
   /**
-   * Which workspaces Chrome still has a tab for, as last reported by the extension.
+   * Which workspaces have a tab, **per reporting browser**, unioned.
    *
-   * `null` until something reports, which is read as "nobody could tell us" rather than as
-   * "there are none". The daemon cannot see Chrome, and guessing in that direction is what ends
-   * somebody's terminal.
+   * One set replaced by whoever reported last was wrong, and wrong in the direction that ends
+   * terminals. Anything that can report is a browser with its own tabs: a second Chrome profile,
+   * a second browser with the extension, or the several headless ones the browser suites use.
+   * Each of them only knows its own tabs, so the last report to arrive erased everybody else's
+   * and their sessions were put on a clock while their tabs sat open.
+   *
+   * A session is protected if **any** reporter still shows it. Empty means nobody has reported
+   * at all, which is read as "nobody could tell us" rather than as "there are none".
    */
-  #openWorkspaces: ReadonlySet<string> | null = null;
+  readonly #openWorkspaces = new Map<string, ReadonlySet<string>>();
 
-  /** Told by the extension, on every tab event and on a poll. */
-  reportOpenWorkspaces(ids: readonly string[]): void {
-    this.#openWorkspaces = new Set(ids);
+  /** Told by each extension, on every tab event and on a poll. */
+  reportOpenWorkspaces(clientId: string, ids: readonly string[]): void {
+    this.#openWorkspaces.set(clientId, new Set(ids));
     // A session whose tab has come back must lose the clock it was put on, and one whose tab has
     // gone must be given one. Both are just the policy run again.
+    for (const session of this.all) this.#rescheduleReapIfIdle(session);
+  }
+
+  /**
+   * A browser that has gone stops speaking for its tabs.
+   *
+   * Its last report is not evidence about the world any more; keeping it would protect sessions
+   * belonging to a Chrome that is no longer running. Dropping it is safe because an empty map
+   * means "unknown", which still keeps everything.
+   */
+  forgetReporter(clientId: string): void {
+    if (!this.#openWorkspaces.delete(clientId)) return;
     for (const session of this.all) this.#rescheduleReapIfIdle(session);
   }
 
@@ -574,11 +591,14 @@ export class SessionManager {
    * the ordinary rules for an unattached shell.
    */
   #hasOpenTab(sessionId: string): boolean | null {
-    if (this.#openWorkspaces === null) return null;
+    if (this.#openWorkspaces.size === 0) return null;
     if (this.#workspaceOf === undefined) return null;
     const workspaceId = this.#workspaceOf(sessionId);
     if (workspaceId === undefined) return false;
-    return this.#openWorkspaces.has(workspaceId);
+    for (const reported of this.#openWorkspaces.values()) {
+      if (reported.has(workspaceId)) return true;
+    }
+    return false;
   }
 
   /** Set by the server, which owns the workspace store. */

@@ -214,7 +214,7 @@ describe('daemon, end to end over the real protocol', () => {
     expect(session?.state).toBe('detached');
 
     // Say the tab is gone, and it moves onto a clock like anything else.
-    sessions.reportOpenWorkspaces([]);
+    sessions.reportOpenWorkspaces('a-browser', []);
     await sleep(200);
     expect(sessions.get(created.sessionId)?.state).toBe('expiring');
 
