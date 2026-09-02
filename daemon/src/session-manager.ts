@@ -6,6 +6,7 @@ import { debug, info, warn } from './log.js';
 import type { PtyBackend } from './pty-backend.js';
 import { OscScanner } from './osc.js';
 import { decideReap, describeReap, reapInputFor } from './cleanup.js';
+import { plainText } from './plain-text.js';
 import { listeningPorts } from './server-detect.js';
 import { assertTransition } from './session-state.js';
 import { VtState } from './vt-state.js';
@@ -121,6 +122,18 @@ export interface SessionEvents {
   onInputWritten?: (session: Session, data: string) => void;
   /** This session has real shell integration, so the fallback should stand down. */
   onIntegrationDetected?: (session: Session) => void;
+}
+
+/**
+ * How many lines of a screen have anything on them.
+ *
+ * Used to tell a shell that has only printed its prompt from one somebody has worked in. The
+ * screen arrives with the escape sequences that produced it, so those are stripped first: a
+ * line that is only a color change is not a line with something on it.
+ */
+export function usedLines(screen: string): number {
+  // `plainText` already drops empty lines, so its length is how much is on the screen.
+  return plainText(screen).length;
 }
 
 export class SessionManager {
@@ -347,9 +360,19 @@ export class SessionManager {
       vt,
       clients: new Map(),
       commandRunning: false,
-      // A session that outlived the daemon has plainly been used for something, and the
-      // evidence of what was lost with the process that watched it happen.
-      hasRun: true,
+      /**
+       * Whether it was ever used is read off its screen, not assumed.
+       *
+       * It used to be assumed true, on the reasoning that a session which outlived a daemon had
+       * plainly been used. That is not true of a shell somebody opened and left: it outlives a
+       * daemon restart exactly as readily as a busy one. The result was empty shells appearing
+       * in `Running now` as cards holding nothing but a prompt, and being protected from the
+       * rule that clears untouched panes away.
+       *
+       * The screen is the evidence available. More than one line with anything on it means
+       * something was run, because a shell that has only printed its prompt has exactly one.
+       */
+      hasRun: usedLines(vt.snapshot(0).screen) > 1,
     };
     if (info_.command) session.command = info_.command;
     session.osc = this.#buildOsc(session);

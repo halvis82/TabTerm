@@ -89,6 +89,36 @@ a different workspace. See §6.
 
 The policy engine evaluates, in order. First match wins.
 
+### Every way a session can end
+
+The list, because "it should never happen unexpectedly" is only checkable against one. A session
+ends when, and only when:
+
+| Path | Who decides | Guard |
+|---|---|---|
+| The process exits | The shell, or what it is running | None wanted. This is the session finishing |
+| `Kill session` | A person, from the pane menu | Explicit, and the entry is marked as destructive |
+| Closing a session card | A person, from the start screen | Explicit |
+| Closing a pane | A person | Explicit. Closes the tab when it is the only pane |
+| `Reset everything` | A person, behind a confirmation | Explicit |
+| The reap policy | The daemon, on a timer | Never while a tab exists, and never while nobody has said. §4 |
+| The PTY host dying | A crash, or `kill` | The one path with no guard. The host holds the file descriptors, so nothing survives it |
+
+Nothing else. In particular **no timer, no cleanup pass and no restart may end one**, and nothing
+in this repository may end a session it did not create: a sweep in the test harness once pressed
+the close control on every session card, which is every session the daemon holds, and ended a
+terminal somebody was working in nineteen seconds after they had used it. It looked exactly like
+the product losing work. See `AGENTS/BRIEFING.md`.
+
+The host is the residual risk and is designed around rather than guarded: it is a separate
+process that holds nothing but file descriptors and bytes, has no protocol negotiated with a
+browser, no database and no policy, so it has almost no reason to change and therefore almost no
+reason to restart. Updating TabTerm stages new host code and leaves the running process alone,
+which is verified rather than assumed: with the installed file genuinely changed, a real install
+leaves the same pid serving the same terminals. A daemon that meets a host speaking an older
+protocol records the mismatch and still leaves it running, because restarting it would trade a
+compatibility question for certain data loss.
+
 ### A socket is not a tab
 
 The rule that matters most, because getting it wrong loses somebody's work. **A session is never

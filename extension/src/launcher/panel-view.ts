@@ -137,6 +137,7 @@ export class CommandPanel {
 
     this.#el.append(header, this.#search, this.#body, this.#footer);
     opts.root.append(this.#el);
+    this.#watchSize();
 
     /**
      * There is no separate minimized form, deliberately.
@@ -231,6 +232,28 @@ export class CommandPanel {
 
   #save(): void {
     this.#opts.onPlacement({ ...this.#placement });
+  }
+
+  /**
+   * Keep the whole panel on screen whenever anything could have moved it off.
+   *
+   * Clamping only on open and on drag was not enough. The panel is as tall as whatever it is
+   * showing, so Actions is short and Settings is tall, and switching to a taller page from a
+   * position near the bottom pushed the bottom of it past the edge. Typing in Recent did the
+   * same thing by growing the list, and resizing the window did it without the panel changing at
+   * all.
+   *
+   * A `ResizeObserver` covers all three, because every one of them ends as a change in height
+   * or in the space available for it.
+   */
+  #watchSize(): void {
+    const observer = new ResizeObserver(() => {
+      if (this.isOpen) this.#applyPlacement();
+    });
+    observer.observe(this.#el);
+    window.addEventListener('resize', () => {
+      if (this.isOpen) this.#applyPlacement();
+    });
   }
 
   #applyPlacement(): void {

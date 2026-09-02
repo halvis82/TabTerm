@@ -232,6 +232,21 @@ function offerClearUndo(paneId: string): void {
   clearUndoTimer = window.setTimeout(() => dismissClearUndo(paneId), 10_000);
 }
 
+/**
+ * Command+Z, while the undo is being offered.
+ *
+ * The same action as the button, reached the way undo is reached everywhere else. The offer is
+ * already bounded to ten seconds and to "nothing has run since", so this borrows those limits
+ * rather than inventing its own: outside that window the key is not ours and goes to the shell,
+ * where Command+Z means nothing anyway.
+ */
+function undoClearIfOffered(): boolean {
+  const button = document.getElementById('clear-undo');
+  if (!(button instanceof HTMLButtonElement) || button.hidden) return false;
+  button.click();
+  return true;
+}
+
 function dismissClearUndo(paneId?: string): void {
   clearTimeout(clearUndoTimer);
   clearUndoTimer = undefined;
@@ -1334,23 +1349,25 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
       run: target(() => detachFocused()),
     },
     {
+      // Reachable from the terminal as well as from the command menu and the toolbar icon.
+      // A setting is usually wanted at the moment the thing it governs is annoying you.
+      label: 'Settings',
+      separated: true,
+      run: () => commandPanel?.openSettings(),
+    },
+    {
       /**
        * Always available, and with one pane it means the tab.
        *
        * Greying it out for the only pane was answering a question nobody asked. Somebody who
        * closes the only terminal in a tab means to be rid of the tab, and having to reach for
        * Chrome's own close for that is a seam where there should not be one.
+       *
+       * "Session", not "pane": the pane is the box, and what closing it gets rid of is the
+       * terminal in it.
        */
-      label: 'Close pane',
-      separated: true,
+      label: 'Close session',
       run: target(() => (hasSiblings ? closeFocused() : window.close())),
-    },
-    {
-      // Reachable from the terminal as well as from the command menu and the toolbar icon.
-      // A setting is usually wanted at the moment the thing it governs is annoying you.
-      label: 'Settings',
-      separated: true,
-      run: () => commandPanel?.openSettings(),
     },
     {
       // Distinct from closing: this ends the process rather than the view of it. Offered
@@ -1620,6 +1637,11 @@ function installShortcuts(): void {
         // for the whole browser.
         if (splitView.inFocusMode) void splitView.exitFocusMode();
         else splitView.toggleMaximize(null);
+        e.preventDefault();
+        return;
+      }
+      // Command+Z takes back a clear, but only while one is being offered.
+      if (e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'z' && undoClearIfOffered()) {
         e.preventDefault();
         return;
       }

@@ -1645,6 +1645,16 @@
   }
 
   /* Browsing for a folder, since a native dialog cannot give an extension a path. */
+  /* The box takes the width; the button takes what it needs. */
+  .launcher-path-row {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .launcher-path-row .launcher-input {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
   .launcher-browse {
     flex: none;
     padding: 6px 10px;

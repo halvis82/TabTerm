@@ -51,43 +51,19 @@ const counts = await Promise.all(
 ended += counts.reduce((a, b) => a + b, 0);
 
 /**
- * Sessions no tab is holding any more.
+ * There is deliberately no sweep of sessions no tab is holding.
  *
- * The loop above can only reach a session through the tab showing it, so one whose tab was
- * closed, crashed, or reloaded away survives every sweep. They accumulate, and because a stale
- * one is still reported as open in a tab it sorts to the top of the list an empty pane offers,
- * pushing the session a suite actually opened off the end of it.
+ * There was one, and **it ended Halvor's real terminals.** It opened a start screen and pressed
+ * the close control on every session card, and that list is every session the daemon holds: the
+ * suites and the browser they run in are separate, but the daemon is the one he is working in.
+ * A session of his that had run `ls` nineteen seconds earlier was ended by a test run.
  *
- * **Off by default, and hard-bounded when on.** It opens a page and drives the start screen,
- * which is a slow thing to do at the end of every run; left on and unbounded it took six minutes
- * on its own, which was longer than every suite put together. Run it deliberately with
- * `TT_SWEEP_ORPHANS=1` when the lists start looking crowded.
+ * It cannot be made safe by being careful, because nothing on that screen distinguishes a
+ * session a suite created from one a person is using. So it is gone. Suites end what they
+ * created, through the tabs they opened, and a session that outlives its tab is left alone until
+ * the daemon's own policy decides about it.
+ *
+ * Nothing in this repository may end a session it did not create.
  */
-if (process.env['TT_SWEEP_ORPHANS'] === '1') {
-  const { openTerminal, evaluate, sleep, finish } = await import('./helpers.mjs');
-  const deadline = new Promise((resolve) => setTimeout(() => resolve('timed out'), 30_000));
-  const work = (async () => {
-    const own = await openTerminal();
-    const orphans = Number(
-      await evaluate(
-        own.client,
-        `(() => {
-          let n = 0;
-          for (const card of document.querySelectorAll('.session-card')) {
-            const close = card.querySelector('.session-close');
-            if (close) { close.click(); n++; }
-          }
-          return n;
-        })()`,
-      ),
-    );
-    await sleep(600);
-    ended += orphans;
-    await finish();
-    return 'done';
-  })();
-  const outcome = await Promise.race([work, deadline]);
-  if (outcome === 'timed out') console.log('  orphan sweep gave up after 30s');
-}
 
 if (ended > 0) console.log(`  swept ${String(ended)} session(s) the suites left behind`);

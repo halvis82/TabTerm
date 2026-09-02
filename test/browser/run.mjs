@@ -61,7 +61,15 @@ const FIRST = [
  * seconds and the suites running alongside it took 1075, all of them waiting on the same dead
  * daemon. Nothing may be in flight while these run.
  */
-const LAST = ['survives-restart', 'resilience'];
+/**
+ * `resilience` kills the PTY host, which ends **every terminal on the machine**, including ones
+ * a person is working in. It is not part of an ordinary run for that reason: set
+ * `TT_DESTRUCTIVE=1` when you mean it, on a machine where losing every shell is acceptable.
+ *
+ * `survives-restart` only restarts the daemon, which sessions are designed to outlive, so it
+ * stays in every run.
+ */
+const LAST = ['survives-restart', ...(process.env['TT_DESTRUCTIVE'] === '1' ? ['resilience'] : [])];
 
 const SERIAL = [...FIRST, ...LAST];
 

@@ -58,7 +58,7 @@ r.ok(
 );
 r.ok(
   'but closing it is offered, and means closing the tab',
-  !disabled.includes('Close pane'),
+  !disabled.includes('Close session'),
   disabled.join(' | '),
 );
 r.ok(

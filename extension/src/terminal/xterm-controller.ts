@@ -237,6 +237,9 @@ export class XtermController {
       this.term.selectAll();
     });
     item('Paste', true, () => void this.pasteFromClipboard());
+    // The real clear, not `term.clear()`. Wiping this buffer alone left the output in the daemon
+    // and on disk, so it came back on the next reload. See docs/07-terminal-fidelity.md.
+    item('Clear', true, () => this.clear());
 
     rule();
 
@@ -301,13 +304,6 @@ export class XtermController {
         this.#markers?.sync(this.term, this.#highlights?.places() ?? []);
       });
     }
-
-    rule();
-
-    // On its own: it is the one entry here that throws something away.
-    // The real clear, not `term.clear()`. Wiping this buffer alone left the output in the daemon
-    // and on disk, so it came back on the next reload. See docs/07-terminal-fidelity.md.
-    item('Clear', true, () => this.clear());
 
     for (const action of this.#opts.menuActions?.() ?? []) {
       if (action.separated === true) {

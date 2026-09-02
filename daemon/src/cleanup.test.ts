@@ -244,3 +244,21 @@ describe('a tab that still exists', () => {
     });
   });
 });
+
+describe('a session adopted after the daemon restarted', () => {
+  /**
+   * It used to be recorded as having been used, on the reasoning that anything outliving a
+   * daemon had plainly been used for something. A shell somebody opened and left outlives a
+   * restart exactly as readily as a busy one, so empty shells appeared in `Running now` as
+   * cards holding nothing but a prompt, and were protected from the rule that clears untouched
+   * panes away.
+   */
+  it('counts the lines on its screen rather than assuming', async () => {
+    const { usedLines } = await import('./session-manager.js');
+    // A shell that has only printed its prompt has exactly one line with anything on it.
+    expect(usedLines('(base) me@host ~ % ')).toBe(1);
+    expect(usedLines('(base) me@host ~ % ls\nAGENTS.md\n(base) me@host ~ % ')).toBe(3);
+    expect(usedLines('')).toBe(0);
+    expect(usedLines('\n\n   \n')).toBe(0);
+  });
+});

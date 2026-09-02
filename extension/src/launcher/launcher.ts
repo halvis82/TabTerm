@@ -1,4 +1,5 @@
 import { buildSessions } from './sessions-view.js';
+import { resolveTypedPath, unresolveTypedPath } from './typed-path.js';
 import { panesFor, type LayoutTemplate } from './templates.js';
 import type {
   LayoutShape,
@@ -176,7 +177,9 @@ export class Launcher {
    */
   folderChecked(reply: { path: string; exists: boolean; isFile?: boolean; error?: string }): void {
     if (this.#dirInput === null) return;
-    if (this.#dirInput.value.trim() !== reply.path) return;
+    // Compared against what was asked, which is the resolved form: the box may say `Documents`
+    // while the question was about `~/Documents`.
+    if (this.#resolved(this.#dirInput.value) !== reply.path) return;
     this.#folderState = reply;
     this.#renderFolderState();
   }
@@ -220,9 +223,13 @@ export class Launcher {
     }
     const input = this.#dirInput;
     // A reply to a keystroke that has since been replaced is not an answer to anything.
-    if (!input || input.value.trim() !== reply.partial) return;
+    if (!input || this.#resolved(input.value) !== reply.partial) return;
 
-    if (reply.completed !== reply.partial) input.value = reply.completed;
+    // Put back the way it was asked: they typed `Doc`, so they see `Documents` rather than a
+    // tilde appearing under their cursor.
+    if (reply.completed !== reply.partial) {
+      input.value = unresolveTypedPath(reply.completed, input.value);
+    }
     this.#clearCompletion();
     if (reply.matches.length < 2) return;
 
@@ -251,10 +258,20 @@ export class Launcher {
    * It reads through the same `complete-path` the box uses, so there is one implementation of
    * "what folders are in here" rather than two that can disagree.
    */
+  /**
+   * What is in the box, as a path.
+   *
+   * One place, so opening, completing, checking and browsing cannot disagree about what
+   * `Documents` means. See `typed-path.ts`.
+   */
+  #resolved(typed: string): string {
+    return resolveTypedPath(typed, this.#state?.home ?? '~');
+  }
+
   #openBrowser(): void {
     const input = this.#dirInput;
     if (!input) return;
-    const at = input.value.trim() || '~/';
+    const at = this.#resolved(input.value);
     this.#browsePath = at.endsWith('/') ? at : `${at}/`;
     this.#opts.onCompletePath(this.#browsePath);
   }
@@ -553,7 +570,7 @@ export class Launcher {
        */
       if (e.key === 'Tab') {
         e.preventDefault();
-        this.#opts.onCompletePath(input.value.trim() || '~/');
+        this.#opts.onCompletePath(this.#resolved(input.value));
       }
     });
     // A new keystroke makes any pending suggestion stale.
@@ -570,7 +587,8 @@ export class Launcher {
       clearTimeout(this.#checkTimer);
       const typed = input.value.trim();
       if (typed === '') return;
-      this.#checkTimer = window.setTimeout(() => this.#opts.onCheckFolder(typed), 260);
+      const asked = this.#resolved(typed);
+      this.#checkTimer = window.setTimeout(() => this.#opts.onCheckFolder(asked), 260);
     });
 
     /**
@@ -669,12 +687,18 @@ export class Launcher {
        * the whole set is visible at once.
        */
       const key = document.createElement('kbd');
-      key.textContent = String(index + 1);
+      /**
+       * The modifier as well as the number.
+       *
+       * A bare `1` reads as a label or a count. The shortcut is Control and a number, so the
+       * badge says that, using the same glyph the key has on the keyboard.
+       */
+      key.textContent = `\u2303${String(index + 1)}`;
       chip.append(key);
       chip.title = `${action.title}  (Control ${String(index + 1)})`;
       chip.addEventListener('click', () => {
         select(index);
-        action.run(input.value.trim() || state.home);
+        action.run(this.#resolved(input.value));
       });
       // Clicking or tabbing to a chip selects it, so what Return will do is always visible.
       chip.addEventListener('focus', () => select(index));
@@ -687,10 +711,7 @@ export class Launcher {
     addTemplate.textContent = '+';
     addTemplate.title = 'Save this layout as a template that runs a command in each pane';
     addTemplate.addEventListener('click', () => {
-      this.#showTemplateForm(
-        input.value.trim() || state.home,
-        actions[this.#selectedAction]?.shape,
-      );
+      this.#showTemplateForm(this.#resolved(input.value), actions[this.#selectedAction]?.shape);
     });
     buttons.append(addTemplate);
 
@@ -765,7 +786,16 @@ export class Launcher {
     // buttons around as it appears and goes.
     const folderState = document.createElement('div');
     folderState.className = 'launcher-folder-state';
-    form.append(browse, input, folderState, buttons);
+    /**
+     * Browse sits **beside** the box, not above it.
+     *
+     * As a full-width block over the input it read as the primary way to choose a folder, which
+     * it is not: typing is. It is a small button on the left of the thing it helps with.
+     */
+    const pathRow = document.createElement('div');
+    pathRow.className = 'launcher-path-row';
+    pathRow.append(browse, input);
+    form.append(pathRow, folderState, buttons);
     wrap.append(form, note);
     return wrap;
   }
