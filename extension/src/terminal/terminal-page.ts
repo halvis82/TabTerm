@@ -52,7 +52,6 @@ import { Palette, type PaletteAction } from '../launcher/palette.js';
  * See docs/04-session-lifecycle.md §5.
  */
 
-
 const params = new URLSearchParams(location.search);
 
 /**
@@ -988,25 +987,41 @@ function buildLauncher(): void {
        * second copy. It did not; this tab simply stopped showing the list.
        */
       if (!session.workspaceId) return;
+
       /**
-       * A session already shown in a tab is focused rather than attached again, and **this tab
-       * goes** when it had nothing in it.
+       * Taken over here when this tab has nothing in it. Never opened beside it.
        *
-       * The tab used to be left alone, on the reasoning that dismissing its start screen would
-       * reveal its own empty terminal at the moment focus moved away, which looks like a second
-       * copy of the session. Closing it entirely answers that better than leaving it: there is
-       * no tab left to be confused by, and an empty tab beside the one you asked for is waste.
+       * This has been reported twice. A session running in the background was handed to the
+       * service worker, which opens the workspace in a **new** tab, leaving the tab that was
+       * clicked in sitting on a bare shell in the home directory. Two tabs for one action, and
+       * the one you were looking at is the useless one.
        *
-       * Only when unused. A tab somebody has worked in is theirs, whatever they click.
+       * Navigating is what takes it over. The reattach path already knows how to restore a
+       * workspace into a tab, so this borrows it whole rather than growing a second way to do
+       * the same thing. The shell this tab was holding is untouched and never used, so the
+       * policy that clears untouched panes away takes it in its own time.
        */
-      const leaveHere = thisTabIsUnused();
+      const spare = thisTabIsUnused();
+      if (!session.attached && spare) {
+        location.href = chrome.runtime.getURL(`terminal.html?workspace=${session.workspaceId}`);
+        return;
+      }
+
+      /**
+       * Already open somewhere, so that tab is brought forward and **this one goes**.
+       *
+       * Leaving it was the previous behavior, on the reasoning that dismissing its start screen
+       * would reveal its own empty terminal at the moment focus moved away, which reads as a
+       * second copy of the session. Closing it answers that better: there is no tab left to be
+       * confused by. Only ever a tab nobody has used.
+       */
       void chrome.runtime.sendMessage({
         t: 'tabterm:focus-workspace',
         workspaceId: session.workspaceId,
         attachHere: !session.attached,
       });
       if (!session.attached) launcher?.dismiss();
-      if (session.attached && leaveHere) {
+      if (spare) {
         // After the focus message, so the tab being switched to is already in front.
         setTimeout(() => window.close(), 120);
       }
@@ -1888,7 +1903,8 @@ function onControl(msg: ServerMessage): void {
 
     case 'launcher-state': {
       // The panel is about to be drawn, so the terminal gives up the top of the window.
-      if (!reattaching && launcher && !launcher.dismissed) {
+      // Drawn for a new tab, and for a reattach that turns out to hold nothing.
+      if ((!reattaching || thisTabIsUnused()) && launcher && !launcher.dismissed) {
         root.classList.add('panel-open');
         refitAllPanes();
       }
@@ -2463,7 +2479,22 @@ async function start(): Promise<void> {
   installAmbientFocus();
   // A reattached session gets the whole window from the start. Nothing about it is new, so
   // there is nothing to offer.
-  if (reattaching) launcher?.dismiss();
+  /**
+   * A reattach keeps its terminal, **unless the terminal has nothing in it**.
+   *
+   * The URL gains a workspace as soon as a session is created, so refreshing a tab that was
+   * still showing the start screen looked exactly like reattaching to real work and dropped the
+   * person into a bare shell in their home directory. A tab showing an untouched shell has not
+   * begun, whatever its URL says, so the decision is made from the screen rather than the URL.
+   *
+   * Deferred until the snapshot has been applied, because until then every pane is empty and
+   * the question cannot be answered.
+   */
+  if (reattaching) {
+    setTimeout(() => {
+      if (!thisTabIsUnused()) launcher?.dismiss();
+    }, 900);
+  }
   // Leaving fullscreen by any route, including the Escape the browser handles itself, must
   // put the layout back and release the lock.
   document.addEventListener('fullscreenchange', () => {

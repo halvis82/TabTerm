@@ -197,10 +197,28 @@ describe('what is not worth offering back', () => {
     expect(store.list(new Set())).toHaveLength(1);
   });
 
-  it('does offer a multi-pane workspace even in home', () => {
+  it('does not offer a multi-pane workspace where every pane is untouched', () => {
+    /**
+     * Being bigger used to be enough to escape the rule. Three shells sitting in the home
+     * directory with nothing run in any of them were offered back as "3 panes" after every
+     * restart, and reopening them produced three more shells with nothing in them.
+     */
     const store = fresh();
     store.save(workspace('w1', ['s1', 's2']), () => ({ cwd: homedir(), screen: 'x' }));
-    expect(store.list(new Set())).toHaveLength(1);
+    expect(store.list(new Set())).toHaveLength(0);
+  });
+
+  it('keeps only the panes that hold something, and forgets the shape', () => {
+    // Work in one pane and two untouched shells beside it is worth reopening. The two are not.
+    const store = fresh();
+    store.save(workspace('w1', ['s1', 's2', 's3']), (sessionId) =>
+      sessionId === 's2'
+        ? { cwd: '/w/app', screen: 'x', lastCommand: 'npm test' }
+        : { cwd: homedir(), screen: 'x' },
+    );
+    const [offer] = store.list(new Set());
+    expect(offer?.panes).toHaveLength(1);
+    expect(offer?.panes[0]?.lastCommand).toBe('npm test');
   });
 
   it('collapses identical layouts to the newest', () => {

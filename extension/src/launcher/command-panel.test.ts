@@ -106,10 +106,15 @@ describe('remembering where the panel was', () => {
   const viewport = { width: 1200, height: 800 };
   const panel = { width: 420, height: 460 };
 
-  it('starts in the top right, where the button is', () => {
+  it('starts in the middle, not in a corner', () => {
+    /**
+     * It used to anchor to the top right, beside the button that opens it. That is where the
+     * button is, not where a panel wants to be: it covered the corner of the terminal you are
+     * most likely to be reading.
+     */
     const placed = clampPlacement(DEFAULT_PLACEMENT, viewport, panel);
-    expect(placed.x).toBeGreaterThan(700);
-    expect(placed.y).toBeLessThan(40);
+    expect(placed.x).toBe(Math.round((viewport.width - panel.width) / 2));
+    expect(placed.y).toBe(Math.round((viewport.height - panel.height) / 2));
   });
 
   it('keeps a remembered position', () => {

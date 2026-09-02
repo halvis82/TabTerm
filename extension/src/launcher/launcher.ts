@@ -140,6 +140,9 @@ export class Launcher {
     this.#dismissed = true;
     this.#el.hidden = true;
     this.#el.replaceChildren();
+    // Anything bound outside this element goes with it. Control and a number is not ours once
+    // the start screen is gone, and a listener left on the document would still be claiming it.
+    for (const undo of this.#teardown.splice(0)) undo();
     this.#opts.onDismiss();
   }
 
@@ -274,6 +277,40 @@ export class Launcher {
   #resolved(typed: string): string {
     return resolveTypedPath(typed, this.#state?.home ?? '~');
   }
+
+  /**
+   * Control and a number runs a layout.
+   *
+   * Bound on the box **and** on the document, because the shortcut is about the start screen
+   * rather than about the text field: pressing it after clicking a chip, or a folder, or
+   * nothing at all did nothing, which reads as the shortcut being broken rather than as it
+   * belonging to a control that happens not to have focus.
+   *
+   * Tab belongs to path completion in this box and cannot also cycle these. Command is Chrome's,
+   * which takes Command and a number for switching tabs and never delivers it to a page. Option
+   * types a character on macOS, so it only behaves if every handler remembers to suppress it.
+   * Control is claimed by nothing here and produces nothing on its own.
+   */
+  #runShortcut(
+    e: KeyboardEvent,
+    actions: readonly { run: (path: string) => void }[],
+    input: HTMLInputElement,
+  ): boolean {
+    if (!e.ctrlKey || e.metaKey || e.altKey || !/^[1-9]$/.test(e.key)) return false;
+    const index = Number(e.key) - 1;
+    const action = actions[index];
+    if (!action) return false;
+    e.preventDefault();
+    this.#selectChip?.(index);
+    action.run(this.#resolved(input.value));
+    return true;
+  }
+
+  /** Set while the layout row exists, so the shortcut can move the outline with it. */
+  #selectChip: ((index: number) => void) | undefined;
+
+  /** Listeners on things this class does not own, removed when the start screen goes. */
+  readonly #teardown: (() => void)[] = [];
 
   #openBrowser(): void {
     const input = this.#dirInput;
@@ -682,6 +719,22 @@ export class Launcher {
       this.#selectedAction = (index + actions.length) % actions.length;
       chips.forEach((chip, i) => chip.classList.toggle('is-selected', i === this.#selectedAction));
     };
+    this.#selectChip = select;
+
+    /**
+     * The same shortcut, from anywhere on the start screen.
+     *
+     * Removed when the start screen goes, so it cannot fire over a terminal: Control and a
+     * number is not ours once this is dismissed.
+     */
+    const onDocumentKey = (e: KeyboardEvent): void => {
+      if (this.#dismissed) return;
+      // Only when the box does not have it: there it is handled on the box itself.
+      if (document.activeElement === input) return;
+      this.#runShortcut(e, actions, input);
+    };
+    document.addEventListener('keydown', onDocumentKey, true);
+    this.#teardown.push(() => document.removeEventListener('keydown', onDocumentKey, true));
 
     for (const [index, action] of actions.entries()) {
       const chip = document.createElement('button');

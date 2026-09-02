@@ -14,7 +14,6 @@ import { daemonPort } from '../transport/port.js';
  * message also wakes the worker if it has already died.
  */
 
-
 let client: DaemonClient | null = null;
 
 function start(token: string, clientId: string): void {

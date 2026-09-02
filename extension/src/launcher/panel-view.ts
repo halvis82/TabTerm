@@ -262,9 +262,18 @@ export class CommandPanel {
       { width: window.innerWidth, height: window.innerHeight },
       { width: PANEL_WIDTH, height: this.#el.offsetHeight || 420 },
     );
+    /**
+     * Remembered as soon as it has a real position, not only when it is dragged.
+     *
+     * The stored placement started as "never placed", and nothing wrote a real one until
+     * somebody moved the panel by hand. So a refresh found the sentinel again and put the panel
+     * back where the default is, which read as the position not being kept at all.
+     */
+    const moved = clamped.x !== this.#placement.x || clamped.y !== this.#placement.y;
     this.#placement = clamped;
     this.#el.style.left = `${String(clamped.x)}px`;
     this.#el.style.top = `${String(clamped.y)}px`;
+    if (moved) this.#save();
   }
 
   /**

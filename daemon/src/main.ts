@@ -214,7 +214,7 @@ async function main(): Promise<void> {
       if (program) s.titleFields.process = program;
       events.onCommandStarted?.(s, command, startedAt);
       events.onTitle?.(s);
-      sessions.noteCommandStarted(s);
+      sessions.noteCommandStarted(s, command);
     },
     onEnd: (sessionId, command, durationMs) => {
       const s = sessions.get(sessionId);

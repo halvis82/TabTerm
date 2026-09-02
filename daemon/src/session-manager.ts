@@ -308,7 +308,7 @@ export class SessionManager {
         this.#events.onCommandStarted?.(session, command, startedAt);
         // Through the shared hook rather than straight to the server check, so that both this
         // path and the fallback tracker mark the session the same way.
-        this.noteCommandStarted(session);
+        this.noteCommandStarted(session, command);
       },
       onCommandEnd: (exitCode) => {
         const startedAt = session.commandStartedAt;
@@ -538,7 +538,19 @@ export class SessionManager {
    * Exists so the fallback tracker gets the same server check the integrated path gets, without
    * reaching into private state to do it.
    */
-  noteCommandStarted(session: Session): void {
+  noteCommandStarted(session: Session, command?: string): void {
+    /**
+     * Only a real command counts as having used a session.
+     *
+     * Pressing Return at an empty prompt produces a command mark with nothing in it, and that
+     * was enough to mark the session as used. The result was untouched shells being offered for
+     * reopening and appearing in `Running now` as cards showing three bare prompts, which is
+     * exactly the debris this flag exists to keep out.
+     *
+     * Absent means "something ran and we could not read what", which the fallback tracker can
+     * legitimately report, so that still counts.
+     */
+    if (command !== undefined && command.trim() === '') return;
     session.hasRun = true;
     this.#checkForServer(session);
   }

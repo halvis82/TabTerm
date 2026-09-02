@@ -1,5 +1,5 @@
 import type { LayoutNode, Workspace } from '@tabterm/shared';
-import { panes } from '@tabterm/shared';
+import { closePane, panes } from '@tabterm/shared';
 import { homedir } from 'node:os';
 import type { Database } from './database.js';
 import { debug, info } from './log.js';
@@ -152,9 +152,27 @@ export class RestoreStore {
         // restore offer; throwing would cost the daemon.
         continue;
       }
-      const snapshots = this.#panesFor(row.id);
+      const all = this.#panesFor(row.id);
+      if (all.length === 0) continue;
+
+      /**
+       * Only the panes that hold something, and the shape is forgotten with the rest.
+       *
+       * A layout of three untouched shells in the home directory has nothing in it to reopen,
+       * and was being offered as "3 panes" every time. One that had work in one pane and two
+       * empty ones was offering to rebuild two shells nobody had used. What is worth bringing
+       * back is the work, so the empty panes are pruned and the layout is pruned with them; if
+       * that leaves nothing, the whole offer goes.
+       */
+      const snapshots = all.filter((pane) => !isEmptyPane(pane));
       if (snapshots.length === 0) continue;
-      if (isTrivial(snapshots)) continue;
+      const kept = new Set(snapshots.map((p) => p.paneId));
+      for (const pane of all) {
+        if (kept.has(pane.paneId)) continue;
+        const pruned = closePane(layout, pane.paneId);
+        if (pruned === null) break;
+        layout = pruned;
+      }
 
       // Identical layouts collapse to the newest. A daemon that restarted a dozen times leaves
       // a dozen indistinguishable records, and offering the same thing twelve times is worse
@@ -235,10 +253,13 @@ export class RestoreStore {
  * new tab gives you. Restoring it restores nothing, and a list of them buries the workspaces
  * that do carry something back.
  */
-function isTrivial(panes: readonly PaneSnapshot[]): boolean {
-  if (panes.length !== 1) return false;
-  const pane = panes[0];
-  if (!pane) return true;
+/**
+ * A pane nobody used: no command run in it, none staged for it, and never moved from home.
+ *
+ * The same question `isTrivial` asked about a single-pane workspace, asked of one pane, so a
+ * layout of several is judged by the same rule rather than escaping it by being bigger.
+ */
+function isEmptyPane(pane: PaneSnapshot): boolean {
   if (pane.lastCommand || (pane.command?.length ?? 0) > 0) return false;
   return pane.cwd === homedir();
 }

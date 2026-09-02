@@ -97,8 +97,15 @@ export function clampPlacement(
 ): PanelPlacement {
   const maxX = Math.max(0, viewport.width - panel.width);
   const maxY = Math.max(0, viewport.height - panel.height);
-  // -1 means "never placed", which anchors it to the top right where the button is.
-  const x = placement.x < 0 ? maxX - 12 : Math.min(maxX, Math.max(0, placement.x));
-  const y = placement.y < 0 ? 12 : Math.min(maxY, Math.max(0, placement.y));
+  /**
+   * A negative coordinate means "never placed", and that lands in the middle.
+   *
+   * It used to anchor to the top right, beside the button that opens it. That is where the
+   * button is, not where a panel wants to be: it covered the corner of the terminal you are
+   * most likely to be reading, and a first-run default in a corner reads as a mistake rather
+   * than a choice. The middle is where a thing you just opened belongs.
+   */
+  const x = placement.x < 0 ? Math.round(maxX / 2) : Math.min(maxX, Math.max(0, placement.x));
+  const y = placement.y < 0 ? Math.round(maxY / 2) : Math.min(maxY, Math.max(0, placement.y));
   return { ...placement, x: Math.max(0, x), y };
 }
