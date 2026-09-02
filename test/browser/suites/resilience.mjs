@@ -3,7 +3,6 @@
 // The product's whole claim is that a terminal outlives the things around it, so the failures
 // worth testing are the ones nobody schedules: a browser killed outright, a daemon killed
 // mid-command, and the process holding the PTYs killed, which no session can survive.
-import { execFileSync } from 'node:child_process';
 import {
   openTerminal,
   readScreen,
@@ -20,15 +19,6 @@ import { reporter } from '../cdp.mjs';
 
 const r = reporter();
 const TAG = String(Date.now()).slice(-6);
-
-const alive = (pattern) => {
-  try {
-    execFileSync('pgrep', ['-f', pattern], { stdio: 'pipe' });
-    return true;
-  } catch {
-    return false;
-  }
-};
 
 // --- a daemon killed while a command is still producing output ------------
 const { client } = await openTerminal();
