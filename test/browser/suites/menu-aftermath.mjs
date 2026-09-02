@@ -87,6 +87,11 @@ const typePath = async (text) => {
 };
 
 r.ok('a folder that exists says so', (await typePath('~/Documents')).includes('exists'));
+// And a bare name means the same thing, since typing `~/` first is something everybody assumes.
+r.ok(
+  'and so does a bare name, taken as being under home',
+  (await typePath('Documents')).includes('exists'),
+);
 
 const missing = await typePath('~/tabterm-suite-made-this');
 r.ok('one that does not says that instead', missing.includes('no folder there yet'), missing);

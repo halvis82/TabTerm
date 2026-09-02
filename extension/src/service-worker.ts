@@ -185,6 +185,8 @@ async function closeWorkspaceTab(workspaceId: string, asking?: number): Promise<
  * truth by construction. A tab with no workspace in its URL has not been given one yet and is
  * counted as nothing, which is correct: it has no session to protect.
  */
+const OPEN_TABS_KEY = 'tabterm.openWorkspaces';
+
 async function reportOpenTabs(): Promise<void> {
   try {
     const base = chrome.runtime.getURL('terminal.html');
@@ -192,6 +194,8 @@ async function reportOpenTabs(): Promise<void> {
     const workspaceIds = tabs
       .map((t) => new URL(t.url ?? '').searchParams.get('workspace'))
       .filter((id): id is string => id !== null && id !== '');
+    // Kept as well as sent, so the tabs can be put back after a reload. See `reopenAfterReload`.
+    await chrome.storage.local.set({ [OPEN_TABS_KEY]: workspaceIds });
     await chrome.runtime.sendMessage({ t: 'tabterm:tabs-open', workspaceIds });
   } catch {
     /**
@@ -214,6 +218,43 @@ async function reportOpenTabs(): Promise<void> {
  */
 const TAB_REPORT_MS = 120_000;
 
+/**
+ * Put the tabs back after the extension is reloaded or updated.
+ *
+ * Chrome destroys every page belonging to an extension when it is reloaded, so the terminal tabs
+ * vanish. The terminals themselves are untouched: they live in the PTY host, which is a separate
+ * process that knows nothing about Chrome. Reopening the workspace URL finds the session exactly
+ * as it was, which is verified rather than assumed.
+ *
+ * So the tabs come back on their own. Without this the sessions were alive, reachable and
+ * invisible, and getting to them meant knowing that the start screen lists them, which is not
+ * something a person should have to know after pressing reload.
+ *
+ * Only what was open at the moment the extension went away. The remembered set is rewritten on
+ * every report, so a tab somebody closed is already out of it and is not resurrected.
+ */
+async function reopenAfterReload(): Promise<void> {
+  try {
+    const stored = await chrome.storage.local.get(OPEN_TABS_KEY);
+    const wanted: unknown = stored[OPEN_TABS_KEY];
+    if (!Array.isArray(wanted) || wanted.length === 0) return;
+
+    const base = chrome.runtime.getURL('terminal.html');
+    const open = await chrome.tabs.query({ url: `${base}*` });
+    const already = new Set(
+      open.map((t) => new URL(t.url ?? '').searchParams.get('workspace')).filter(Boolean),
+    );
+    for (const id of wanted) {
+      if (typeof id !== 'string' || already.has(id)) continue;
+      // Not focused: several coming back at once should not fight over which is in front, and
+      // a reload is not a request to be taken somewhere.
+      await chrome.tabs.create({ url: `${base}?workspace=${id}`, active: false });
+    }
+  } catch {
+    /* A tab that could not be reopened is still reachable from the start screen. */
+  }
+}
+
 chrome.tabs.onRemoved.addListener(() => void reportOpenTabs());
 chrome.tabs.onCreated.addListener(() => void reportOpenTabs());
 chrome.tabs.onUpdated.addListener((_id, changed) => {
@@ -221,8 +262,14 @@ chrome.tabs.onUpdated.addListener((_id, changed) => {
   if (changed.url !== undefined) void reportOpenTabs();
 });
 chrome.tabs.onReplaced.addListener(() => void reportOpenTabs());
-chrome.runtime.onStartup.addListener(() => void reportOpenTabs());
-chrome.runtime.onInstalled.addListener(() => void reportOpenTabs());
+chrome.runtime.onStartup.addListener(() => void reopenAfterReload().then(() => reportOpenTabs()));
+/**
+ * An update, a reload from chrome://extensions, and a fresh install all land here, and the
+ * first two destroyed the tabs. `onStartup` covers Chrome itself being restarted.
+ */
+chrome.runtime.onInstalled.addListener(() => {
+  void reopenAfterReload().then(() => reportOpenTabs());
+});
 void chrome.alarms.create('tabterm:tab-report', { periodInMinutes: TAB_REPORT_MS / 60_000 });
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'tabterm:tab-report') void reportOpenTabs();

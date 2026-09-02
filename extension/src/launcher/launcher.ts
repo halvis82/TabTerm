@@ -192,7 +192,14 @@ export class Launcher {
 
     const state = this.#folderState;
     const typed = this.#dirInput?.value.trim() ?? '';
-    if (!state || typed === '' || state.path !== typed) return;
+    /**
+     * Compared against the **resolved** path, which is what was asked about.
+     *
+     * The box may say `Documents` while the question was about `~/Documents`, so comparing the
+     * answer to the raw text meant a bare path never matched and the state stayed blank: the
+     * check ran, the daemon answered, and nothing was ever shown.
+     */
+    if (!state || typed === '' || state.path !== this.#resolved(typed)) return;
 
     if (state.exists) {
       slot.className = 'launcher-folder-state is-good';
