@@ -13,6 +13,8 @@ import {
   waitUntil,
   waitFor,
   evaluate,
+  ownDaemonPid,
+  ownHostPid,
 } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
@@ -34,22 +36,25 @@ await sleep(2000);
 await type(client, `for i in 1 2 3 4 5 6 7 8; do echo tick-${TAG}-$i; sleep 1; done`);
 await sleep(2500);
 
-try {
-  execFileSync('kill', [
-    '-9',
-    execFileSync('pgrep', ['-f', 'libexec/tabterm/daemon.mjs'], {
-      encoding: 'utf8',
-    })
-      .trim()
-      .split('\n')[0],
-  ]);
-} catch {
-  r.ok('could kill the daemon', false, 'pgrep or kill failed');
+/**
+ * This run's own daemon, found by the port it is listening on.
+ *
+ * It used to `pgrep` for the installed one, which is the daemon a person is working in. Nothing
+ * in this repository may act on an installation it did not create, and a suite whose whole
+ * subject is killing processes is the last place to be casual about which.
+ */
+const daemonPid = ownDaemonPid();
+if (daemonPid === null) {
+  r.ok('there is a daemon of our own to kill', false, 'run this through test/browser/run.mjs');
+  await finish();
+  r.done();
+} else {
+  process.kill(daemonPid, 'SIGKILL');
 }
 // Polled, not slept through. This was fourteen seconds of fixed waiting chosen to cover the
 // worst case, and the worst case is not the common one.
-await waitUntil(() => alive('pty-host.mjs') && alive());
-r.ok('the PTY host outlives the daemon being killed', alive('pty-host.mjs'));
+await waitUntil(() => ownHostPid() !== null && ownDaemonPid() !== null);
+r.ok('the PTY host outlives the daemon being killed', ownHostPid() !== null);
 
 const after = String(await readScreen(client));
 r.ok(
@@ -66,13 +71,16 @@ r.ok(
 );
 
 // --- the host itself, which no session can survive -------------------------
-try {
-  execFileSync('pkill', ['-9', '-f', 'pty-host.mjs']);
-} catch {
-  /* nothing running is a fine starting point */
-}
-await waitUntil(() => alive('pty-host.mjs'));
-r.ok('a new host is started automatically after the old one dies', alive('pty-host.mjs'));
+/**
+ * Only the host this installation is using, found by who holds its socket.
+ *
+ * `pkill -f pty-host.mjs` matched every host on the machine, which is every terminal a person
+ * has open. That is the single most destructive line this repository has ever contained.
+ */
+const hostPid = ownHostPid();
+if (hostPid !== null) process.kill(hostPid, 'SIGKILL');
+await waitUntil(() => ownHostPid() !== null && ownHostPid() !== hostPid);
+r.ok('a new host is started automatically after the old one dies', ownHostPid() !== null);
 
 const fresh = await openTerminal();
 /**
@@ -107,7 +115,7 @@ r.ok(
   }),
 );
 
-r.ok('the daemon is running again, restarted by launchd', alive('libexec/tabterm/daemon.mjs'));
+r.ok('the daemon is running again, put back by whatever supervises it', ownDaemonPid() !== null);
 
 await finish();
 r.done();

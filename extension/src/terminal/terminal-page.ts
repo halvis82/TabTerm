@@ -9,6 +9,7 @@ import type {
 } from '@tabterm/shared';
 import { DaemonClient, type ConnectionStatus } from '../transport/daemon-client.js';
 import { getToken } from '../transport/token.js';
+import { daemonPort } from '../transport/port.js';
 import { SplitView, collectPanes } from '../layout/split-view.js';
 import { PaneHost } from './panes.js';
 import { PaneChooser } from './pane-chooser.js';
@@ -50,7 +51,7 @@ import { Palette, type PaletteAction } from '../launcher/palette.js';
  * at once at startup and eager attach means N snapshot replays competing.
  * See docs/04-session-lifecycle.md §5.
  */
-const DEFAULT_PORT = 7377;
+
 
 const params = new URLSearchParams(location.search);
 
@@ -2477,7 +2478,7 @@ async function start(): Promise<void> {
   if (staged) showStaged(staged, params.get('stagedFrom') ?? 'a webpage');
 
   client = new DaemonClient({
-    port: DEFAULT_PORT,
+    port: await daemonPort(),
     token,
     clientId: await connectionId(),
     role: 'data',

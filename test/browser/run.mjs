@@ -19,7 +19,8 @@
  * nine unrelated product bugs.
  */
 import { execFileSync, spawn } from 'node:child_process';
-import { readdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -69,7 +70,19 @@ const FIRST = [
  * `survives-restart` only restarts the daemon, which sessions are designed to outlive, so it
  * stays in every run.
  */
-const LAST = ['survives-restart', ...(process.env['TT_DESTRUCTIVE'] === '1' ? ['resilience'] : [])];
+const LAST = ['survives-restart', 'resilience'];
+
+/**
+ * Left out of an ordinary run unless asked for.
+ *
+ * `resilience` kills the PTY host. Against the suites' own daemon that costs nothing, but the
+ * cost of getting the wiring wrong once is somebody's work, so it stays opt-in.
+ *
+ * Excluded from the **whole** run, not merely from the last phase. Taking it out of the phase
+ * list alone quietly promoted it into the parallel pool, where it killed a host while four
+ * browsers were using it: a worse outcome than leaving it where it was.
+ */
+const SKIP = process.env['TT_DESTRUCTIVE'] === '1' ? [] : ['resilience'];
 
 const SERIAL = [...FIRST, ...LAST];
 
@@ -159,6 +172,8 @@ function suiteNames() {
       .filter((f) => !/ \d\.mjs$/.test(f))
       .map((f) => f.replace(/\.mjs$/, ''))
       .filter((n) => wanted.length === 0 || wanted.includes(n))
+      // Named explicitly, it runs; left to the default set, it does not.
+      .filter((n) => only.includes(n) || !SKIP.includes(n))
       .sort()
   );
 }
@@ -228,6 +243,64 @@ async function pool(names, ports) {
   await Promise.all(workers);
 }
 
+/**
+ * A daemon of the suites' own, with its own home.
+ *
+ * `TABTERM_HOME` moves the config, the state, the database, the token and the PTY host socket,
+ * so this is a genuinely separate installation rather than the same one on another port. The
+ * suites can then do anything at all, including ending every session they can see, without
+ * being able to touch a terminal somebody is working in.
+ *
+ * Returns what the browsers need to find it.
+ */
+function startTestDaemon() {
+  const home = mkdtempSync(join(tmpdir(), 'tabterm-suite-home-'));
+  const port = Number(process.env['TT_DAEMON_PORT'] ?? '7378');
+  const state = { child: null, pid: 0, stopping: false };
+
+  /**
+   * Restarted when it dies, which is what launchd does for the real one.
+   *
+   * `survives-restart` kills it on purpose to prove that terminals outlive a daemon being
+   * replaced. Without something putting it back, that check would be testing a machine with no
+   * daemon on it.
+   */
+  const spawnOnce = () => {
+    const child = spawn(process.execPath, [join(ROOT, 'daemon', 'dist', 'main.js')], {
+      cwd: ROOT,
+      env: { ...process.env, TABTERM_HOME: home, TABTERM_PORT: String(port) },
+      stdio: 'ignore',
+    });
+    state.child = child;
+    state.pid = child.pid ?? 0;
+    process.env['TT_DAEMON_PID'] = String(state.pid);
+    child.on('exit', () => {
+      if (state.stopping) return;
+      spawnOnce();
+    });
+  };
+  spawnOnce();
+  const child = {
+    get pid() {
+      return state.pid;
+    },
+    kill: (signal) => {
+      state.stopping = true;
+      state.child?.kill(signal);
+    },
+  };
+
+  // It writes its token on startup; the browsers need it to authenticate.
+  const tokenFile = join(home, '.local', 'state', 'tabterm', 'token');
+  const deadline = Date.now() + 15_000;
+  for (;;) {
+    if (existsSync(tokenFile)) break;
+    if (Date.now() > deadline) throw new Error('the test daemon never wrote a token');
+    execFileSync('sleep', ['0.2']);
+  }
+  return { home, port, child, token: readFileSync(tokenFile, 'utf8').trim() };
+}
+
 function startBrowser(port) {
   execFileSync('bash', [join(HERE, 'launch.sh')], {
     cwd: ROOT,
@@ -264,6 +337,15 @@ const ports = Array.from({ length: width }, (_, i) => BASE_PORT + i);
  * on a browser that was never going to exit. From the outside it looked exactly like the suites
  * being slow, which is what this file exists to fix.
  */
+const daemon = startTestDaemon();
+process.env['TT_DAEMON_PORT'] = String(daemon.port);
+process.env['TT_DAEMON_TOKEN'] = daemon.token;
+// The two suites that kill things are told which installation is theirs. Without it they
+// refuse to act rather than reaching for whatever daemon happens to be on the machine.
+process.env['TT_DAEMON_HOME'] = daemon.home;
+process.env['TT_DAEMON_PID'] = String(daemon.child.pid ?? '');
+console.log(`  test daemon on ${String(daemon.port)}, home ${daemon.home}`);
+
 for (const port of ports) startBrowser(port);
 
 for (const name of first) report(await runSuite(name, BASE_PORT));
@@ -285,6 +367,20 @@ for (const name of last) report(await runSuite(name, BASE_PORT));
 // connection that would have done it. Sessions outlive the daemon now, so a leak here is a shell
 // running on the machine until somebody notices.
 sweep();
+
+// The daemon and everything it owned. Its PTY host goes with it, which is safe precisely
+// because nothing a person is using was ever in there.
+try {
+  daemon.child.kill('SIGTERM');
+  execFileSync('pkill', ['-f', daemon.home], { stdio: 'ignore' });
+} catch {
+  /* already gone */
+}
+try {
+  rmSync(daemon.home, { recursive: true, force: true });
+} catch {
+  /* a directory that could not be removed is not a failed run */
+}
 
 const pass = results.reduce((n, r) => n + r.pass, 0);
 const fail = results.reduce((n, r) => n + r.fail, 0);

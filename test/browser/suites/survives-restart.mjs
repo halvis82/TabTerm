@@ -13,6 +13,7 @@ import {
   finish,
   waitUntil,
   ready,
+  ownDaemonPid,
 } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
@@ -41,17 +42,24 @@ const alive = () => {
 };
 r.ok('and its background job is running', alive());
 
-// Exactly what installing an update does.
+/**
+ * Exactly what installing an update does, to **this run's own daemon**.
+ *
+ * It used to `launchctl kickstart` the installed one, which is the daemon a person is working
+ * in. Sessions survive a daemon restart by design, so that was not destructive, but reaching
+ * for somebody's installation to prove a point about ours is the habit that led to a real
+ * terminal being ended. The runner spawns a daemon for the suites and says which pid it is.
+ */
+const daemonPid = ownDaemonPid();
 try {
-  execFileSync(
-    'launchctl',
-    ['kickstart', '-k', `gui/${String(process.getuid())}/com.tabterm.daemon`],
-    {
-      stdio: 'pipe',
-    },
-  );
-} catch {
-  r.ok('could restart the daemon', false, 'launchctl kickstart failed');
+  if (daemonPid === null) throw new Error('no daemon of our own');
+  process.kill(daemonPid, 'SIGKILL');
+} catch (e) {
+  // Said rather than thrown: a suite that cannot find its own daemon must report that, not
+  // fall over, and must never fall back to whatever daemon is on the machine.
+  r.ok('there is a daemon of our own to restart', false, `${String(e)} (run via run.mjs)`);
+  await finish();
+  r.done();
 }
 // Wait for the daemon to be back rather than for six seconds.
 await waitUntil(() => alive());

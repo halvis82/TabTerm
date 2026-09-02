@@ -655,7 +655,39 @@ export class SessionManager {
     }
 
     const timer = setTimeout(() => {
-      info('session.reaping', { sessionId: session.id, reason: decision.reason });
+      /**
+       * Decided again, at the moment of acting.
+       *
+       * The first decision was made when the timer was set, and a great deal can happen in half
+       * an hour: the tab can come back, another browser can report it, the timeout can be
+       * changed, a server can start listening in it. The worst case is the ordinary one. A
+       * laptop closed for the night wakes with every timer overdue, and they all fire at once,
+       * before Chrome has started and said which tabs it has. Acting on a half-hour-old answer
+       * there ends terminals whose tabs are sitting open on the screen the person is looking at.
+       *
+       * So the timer only means "look again", and a session is ended only if the policy still
+       * says so with everything known now. When it does not, it is simply rescheduled.
+       */
+      const now = decideReap(
+        reapInputFor(session, {
+          inWorkspace: this.#inWorkspace(session.id),
+          listeningPort: session.listeningPort,
+          keepBackgroundSeconds: this.keepBackgroundSeconds,
+          hasOpenTab: this.#hasOpenTab(session.id),
+        }),
+        this.#config,
+      );
+      if (now.afterSeconds === null) {
+        info('session.reap.cancelled', {
+          sessionId: session.id,
+          was: decision.reason,
+          now: now.reason,
+        });
+        delete session.reapTimer;
+        this.#transition(session, 'detached');
+        return;
+      }
+      info('session.reaping', { sessionId: session.id, reason: now.reason });
       void this.kill(session, true);
     }, decision.afterSeconds * 1000);
     // Unref'd: a session waiting to be reaped must not be the reason the process stays alive.

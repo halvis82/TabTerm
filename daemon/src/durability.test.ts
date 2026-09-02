@@ -514,3 +514,28 @@ describe('two browsers reporting their tabs', () => {
     sessions.keepBackgroundSeconds = null;
   });
 });
+
+describe('a laptop that was closed for the night', () => {
+  /**
+   * Every timer is overdue on wake and they all fire at once, before Chrome has started and
+   * said which tabs it has. Acting on the answer that was true when the timer was set ends
+   * terminals whose tabs are sitting open on the screen the person is looking at.
+   *
+   * The timer means "look again", never "act on what I decided half an hour ago".
+   */
+  it('does not act on a decision that has since stopped being true', async () => {
+    const { c, sessionId } = await makeSession('dur-woken');
+    const ws = workspaces.findBySession(sessionId)?.id ?? '';
+    c.close();
+    sessions.keepBackgroundSeconds = 1;
+    sessions.reportOpenWorkspaces('a-browser', []);
+
+    // The tab comes back before the timer fires, which is what waking up looks like.
+    await sleep(300);
+    sessions.reportOpenWorkspaces('a-browser', [ws]);
+    await sleep(2000);
+
+    expect(sessions.get(sessionId), 'the tab is open again, so it stays').toBeTruthy();
+    sessions.keepBackgroundSeconds = null;
+  });
+});

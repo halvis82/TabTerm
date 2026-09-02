@@ -7,9 +7,22 @@ import { join } from 'node:path';
  * The token file is the only security boundary on the local socket, so its mode is enforced
  * at startup rather than assumed.
  */
+/**
+ * A whole separate installation, for tests.
+ *
+ * `TABTERM_HOME` moves the config, the state, the database, the token and the PTY host's socket
+ * somewhere else, which makes a second daemon genuinely independent of the one somebody is
+ * working in rather than merely on a different port.
+ *
+ * It exists because the browser suites were sharing a daemon with a person, and a sweep that
+ * meant to tidy up test sessions ended a real terminal. Sharing a daemon and being careful is
+ * not a safe arrangement; not sharing one is.
+ */
+const root = process.env['TABTERM_HOME'] ?? homedir();
+
 export const paths = {
-  config: join(homedir(), '.config', 'tabterm'),
-  state: join(homedir(), '.local', 'state', 'tabterm'),
+  config: join(root, '.config', 'tabterm'),
+  state: join(root, '.local', 'state', 'tabterm'),
   get configFile() {
     return join(this.config, 'config.json');
   },
@@ -70,7 +83,8 @@ export interface Config {
 }
 
 export const DEFAULTS: Config = {
-  port: 7377,
+  // `TABTERM_PORT` goes with `TABTERM_HOME`: a separate installation needs a separate port.
+  port: Number(process.env['TABTERM_PORT'] ?? '') || 7377,
   scrollbackLines: 10_000,
   reapIdleShellSeconds: 180,
   reapAgentOrEditorSeconds: 600,

@@ -1,4 +1,5 @@
 import { DaemonClient } from '../transport/daemon-client.js';
+import { daemonPort } from '../transport/port.js';
 
 /**
  * Offscreen document: the control connection.
@@ -12,14 +13,19 @@ import { DaemonClient } from '../transport/daemon-client.js';
  * daemon token itself. It asks the service worker, which has the full API surface. Sending a
  * message also wakes the worker if it has already died.
  */
-const DEFAULT_PORT = 7377;
+
 
 let client: DaemonClient | null = null;
 
 function start(token: string, clientId: string): void {
   if (client) return;
+  void daemonPort().then((port) => startOn(port, token, clientId));
+}
+
+function startOn(port: number, token: string, clientId: string): void {
+  if (client) return;
   client = new DaemonClient({
-    port: DEFAULT_PORT,
+    port,
     token,
     clientId: `${clientId}:control`,
     role: 'control',

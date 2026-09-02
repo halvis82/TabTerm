@@ -1,5 +1,6 @@
 // Shared driving helpers, so each suite is about what it checks rather than about CDP.
 import { closeTab, connect, evaluate, newTab, sleep } from './cdp.mjs';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
 const root = new URL('../../', import.meta.url);
@@ -83,6 +84,71 @@ export async function ready(client, timeoutMs = 20000) {
  * need to know it came back. Those were the slowest suites in the run and every second of it was
  * a fixed sleep long enough to cover the worst case on a busy machine.
  */
+/**
+ * The daemon and PTY host belonging to **this run**, never whatever is on the machine.
+ *
+ * A suite that kills a process has to be certain which one, and `ps` does not show a process's
+ * environment, so the temporary home cannot be matched on a command line. Both are found by
+ * something only this installation has: the daemon by the pid the runner spawned, the host by
+ * whoever is holding this installation's socket.
+ *
+ * Without a test installation these return null and the suites say so rather than reaching for
+ * a person's daemon. This is not tidiness: a sweep that was not this careful ended a real
+ * terminal.
+ */
+export function ownDaemonPid() {
+  /**
+   * Found by the port it is listening on, not by a pid recorded earlier.
+   *
+   * The runner restarts its daemon when it dies, the way launchd does for the real one, so a
+   * pid noted at startup is stale the moment anything has killed it once. The port belongs to
+   * this installation and nothing else, so whoever holds it is ours.
+   */
+  const port = Number(process.env.TT_DAEMON_PORT);
+  if (!Number.isInteger(port) || port <= 0) return null;
+  try {
+    const out = execFileSync('lsof', ['-t', `-i`, `:${String(port)}`, '-sTCP:LISTEN'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const pid = Number(out.trim().split('\n')[0]);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+export function ownHostPid() {
+  /**
+   * From this installation's own lock file, which the host writes its pid into.
+   *
+   * Exact, and it cannot name anybody else's host: the lock lives under the temporary home the
+   * runner made. `pkill -f pty-host.mjs` matched every host on the machine, which is every
+   * terminal a person has open, and was the single most destructive line here.
+   */
+  const home = process.env.TT_DAEMON_HOME;
+  if (!home) return null;
+  try {
+    const pid = Number(readFileSync(`${home}/.local/state/tabterm/ptyhost.lock`, 'utf8').trim());
+    if (!Number.isInteger(pid) || pid <= 0) return null;
+    // A lock left by a host that has died names a pid that is not there any more.
+    return pidAlive(pid) ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Is a pid still there? */
+export function pidAlive(pid) {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function waitUntil(check, timeoutMs = 25000) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
