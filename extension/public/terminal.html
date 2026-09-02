@@ -4,14 +4,27 @@
 <link rel="stylesheet" href="xterm.css" />
 <link rel="icon" id="favicon" />
 <style>
+  /* The dark values, which are also the fallback. The theme sets these on the root at runtime,
+     from the same table the terminal's own colors come from, so the interface and the terminal
+     cannot end up disagreeing. See extension/src/terminal/themes.ts. */
   :root {
     color-scheme: dark;
+    --bg: #0f1015;
+    --panel: #1a1c20;
+    --edge: #333;
+    --text: #e8e8e8;
+    --dim: #9aa1b8;
+    --accent: #7aa2f7;
+    --hover: #2b4d7a;
+  }
+  :root[data-theme='light'] {
+    color-scheme: light;
   }
   html,
   body {
     margin: 0;
     height: 100%;
-    background: #12131a;
+    background: var(--bg);
     overflow: hidden;
   }
   /* --- split layout ---------------------------------------------------- */
@@ -195,7 +208,7 @@
     margin: 0 0 8px;
     font-size: 16px;
     font-weight: 600;
-    color: #e8e8e8;
+    color: var(--text);
   }
   .reset-body {
     margin: 0 0 10px;
@@ -262,7 +275,7 @@
   }
   .reset-cancel:hover {
     border-color: #3d6ba8;
-    color: #e8e8e8;
+    color: var(--text);
   }
   /* The destructive one is never the default, and it looks like what it does. */
   .reset-confirm {
@@ -381,7 +394,7 @@
     flex: 1 1 auto;
     overflow: hidden;
     font-size: 12.5px;
-    color: #e8e8e8;
+    color: var(--text);
     text-overflow: ellipsis;
     white-space: nowrap;
     direction: rtl;
@@ -514,7 +527,7 @@
     backdrop-filter: blur(6px);
   }
   #cmd-button:hover {
-    color: #e8e8e8;
+    color: var(--text);
     border-color: #3d6ba8;
   }
   /* Under the menu icon, and only there for a few seconds after a clear. */
@@ -534,7 +547,7 @@
     backdrop-filter: blur(6px);
   }
   #clear-undo:hover {
-    color: #e8e8e8;
+    color: var(--text);
     border-color: #3d6ba8;
   }
 
@@ -598,7 +611,7 @@
   .cmd-tab.on {
     background: rgba(61, 107, 168, 0.35);
     border-color: rgba(127, 168, 216, 0.5);
-    color: #e8e8e8;
+    color: var(--text);
   }
 
   .cmd-search {
@@ -607,7 +620,7 @@
     border-radius: 8px;
     border: 1px solid rgba(140, 155, 190, 0.22);
     background: rgba(12, 14, 20, 0.45);
-    color: #e8e8e8;
+    color: var(--text);
     font: inherit;
     font-size: 13px;
   }
@@ -703,7 +716,7 @@
     border-radius: 5px;
   }
   .cmd-icon:hover {
-    color: #e8e8e8;
+    color: var(--text);
     background: rgba(90, 100, 130, 0.25);
   }
 
@@ -725,7 +738,7 @@
   }
   .cmd-figure-value {
     font-size: 15px;
-    color: #e8e8e8;
+    color: var(--text);
   }
   .cmd-figure-label {
     font-size: 10px;
@@ -810,7 +823,7 @@
     cursor: pointer;
   }
   .cmd-add:hover {
-    color: #e8e8e8;
+    color: var(--text);
     border-color: #3d6ba8;
   }
 
@@ -834,7 +847,7 @@
     border-radius: 6px;
     border: 1px solid rgba(90, 100, 130, 0.35);
     background: rgba(16, 18, 22, 0.7);
-    color: #e8e8e8;
+    color: var(--text);
     font: inherit;
     font-size: 13px;
   }
@@ -891,13 +904,13 @@
     border-radius: 6px;
     border: 1px solid rgba(90, 100, 130, 0.4);
     background: transparent;
-    color: #e8e8e8;
+    color: var(--text);
     font: inherit;
     font-size: 12px;
     cursor: pointer;
   }
   .cmd-button.primary {
-    background: #2b4d7a;
+    background: var(--hover);
     border-color: #3d6ba8;
   }
 
@@ -922,9 +935,9 @@
     z-index: 60;
     min-width: 150px;
     padding: 4px;
-    border: 1px solid #333;
+    border: 1px solid var(--edge);
     border-radius: 8px;
-    background: #1a1c20;
+    background: var(--panel);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
     display: flex;
     flex-direction: column;
@@ -935,7 +948,7 @@
     border: 0;
     border-radius: 5px;
     background: transparent;
-    color: #e8e8e8;
+    color: var(--text);
     font-size: 13px;
     cursor: pointer;
   }
@@ -975,8 +988,8 @@
     gap: 6px;
     padding: 8px;
     border-radius: 8px;
-    border: 1px solid #333;
-    background: #1a1c20;
+    border: 1px solid var(--edge);
+    background: var(--panel);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   }
   .color-picker.is-inline {
@@ -995,7 +1008,7 @@
     width: 190px;
     height: 110px;
     border-radius: 6px;
-    border: 1px solid #333;
+    border: 1px solid var(--edge);
     cursor: crosshair;
   }
   .color-picker-recents {
@@ -1019,7 +1032,7 @@
   }
 
   .term-menu-item:hover:not(:disabled) {
-    background: #2b4d7a;
+    background: var(--hover);
   }
   .term-menu-item:disabled {
     color: #5f6368;
@@ -1073,7 +1086,7 @@
     line-height: 1.05;
     font-weight: 600;
     letter-spacing: 0.01em;
-    color: #e8e8e8;
+    color: var(--text);
     opacity: 0.16;
     pointer-events: none;
     user-select: none;
@@ -1098,8 +1111,8 @@
     gap: 6px;
     padding: 8px;
     border-radius: 8px;
-    border: 1px solid #333;
-    background: #1a1c20;
+    border: 1px solid var(--edge);
+    background: var(--panel);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   }
   .pane-label-input {
@@ -1108,7 +1121,7 @@
     border-radius: 6px;
     border: 1px solid #39405a;
     background: #12141a;
-    color: #e8e8e8;
+    color: var(--text);
     font: inherit;
     font-size: 12px;
   }
@@ -1216,7 +1229,7 @@
     background: rgba(201, 114, 79, 0.14);
   }
   .pane-chooser-session-name {
-    color: #e8e8e8;
+    color: var(--text);
   }
   .pane-chooser-session-cwd,
   .pane-chooser-hint {
@@ -1225,7 +1238,7 @@
   }
   .pane-chooser-heading {
     margin-top: 4px;
-    color: #9aa1b8;
+    color: var(--dim);
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -1272,7 +1285,7 @@
     align-items: center;
     gap: 8px;
     padding: 8px 12px;
-    border: 1px solid #333;
+    border: 1px solid var(--edge);
     border-radius: 8px;
     background: rgba(22, 24, 29, 0.97);
     font-size: 12px;
@@ -1305,7 +1318,7 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 13px;
     background: #16181d;
-    border: 1px solid #333;
+    border: 1px solid var(--edge);
     border-radius: 6px;
     padding: 12px 14px;
     margin: 0;
@@ -1328,14 +1341,14 @@
   .staged-button {
     padding: 7px 16px;
     border-radius: 6px;
-    border: 1px solid #333;
-    background: #1a1c20;
-    color: #e8e8e8;
+    border: 1px solid var(--edge);
+    background: var(--panel);
+    color: var(--text);
     font-size: 13px;
     cursor: pointer;
   }
   .staged-button.primary {
-    background: #2b4d7a;
+    background: var(--hover);
     border-color: #3d6ba8;
   }
   #recovery {
@@ -1547,7 +1560,7 @@
   }
   .launcher-chip:hover {
     border-color: #3d6ba8;
-    color: #e8e8e8;
+    color: var(--text);
   }
   /**
    * The one Return will run.
@@ -1559,7 +1572,7 @@
   .launcher-chip.is-selected {
     border-color: #7aa2f7;
     box-shadow: 0 0 0 1px rgba(122, 162, 247, 0.55);
-    color: #e8e8e8;
+    color: var(--text);
     background: rgba(61, 107, 168, 0.18);
   }
   .launcher-chip:focus-visible {
@@ -1595,7 +1608,7 @@
   }
   .launcher-browse:hover {
     border-color: #3d6ba8;
-    color: #e8e8e8;
+    color: var(--text);
   }
   .launcher-browser {
     margin-top: 8px;
@@ -1630,7 +1643,7 @@
   }
   .launcher-browser-item:hover {
     border-color: #3d6ba8;
-    color: #e8e8e8;
+    color: var(--text);
   }
   .launcher-browser-item.is-up {
     color: #9ec5ff;
@@ -1718,11 +1731,11 @@
     border-color: #7a5518;
   }
   .launcher-chip.primary {
-    background: #2b4d7a;
+    background: var(--hover);
     border-color: #3d6ba8;
   }
   .launcher-project {
-    border: 1px solid #333;
+    border: 1px solid var(--edge);
     border-radius: 6px;
     padding: 10px 12px;
     margin: 0 0 6px 12px;
@@ -1817,7 +1830,7 @@
   }
   .launcher-completion:hover {
     border-color: #3d6ba8;
-    color: #e8e8e8;
+    color: var(--text);
   }
 
   /* Outside the scrolling area, so it is never the thing that gets cut off. */
@@ -1937,15 +1950,15 @@
     font-size: 11px;
     padding: 3px 9px;
     border-radius: 999px;
-    border: 1px solid #333;
-    background: #1a1c20;
+    border: 1px solid var(--edge);
+    background: var(--panel);
     color: #9aa0a6;
     cursor: pointer;
   }
   .palette-scope.on {
-    background: #2b4d7a;
+    background: var(--hover);
     border-color: #3d6ba8;
-    color: #e8e8e8;
+    color: var(--text);
   }
   .palette-status {
     padding: 6px 12px 0;
@@ -1957,14 +1970,14 @@
     margin-left: 6px;
     padding: 2px 8px;
     border-radius: 4px;
-    border: 1px solid #333;
-    background: #1a1c20;
+    border: 1px solid var(--edge);
+    background: var(--panel);
     color: #c9c9c9;
     cursor: pointer;
     flex: 0 0 auto;
   }
   .palette-action:hover {
-    background: #2b4d7a;
+    background: var(--hover);
     border-color: #3d6ba8;
   }
   .palette-row.is-action .palette-command {
@@ -1985,7 +1998,7 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     background: #16181d;
-    border: 1px solid #333;
+    border: 1px solid var(--edge);
     border-radius: 6px;
     padding: 8px 10px;
     margin: 0;
@@ -2008,9 +2021,9 @@
     flex: 1;
     padding: 5px 8px;
     border-radius: 5px;
-    border: 1px solid #333;
+    border: 1px solid var(--edge);
     background: #101216;
-    color: #e8e8e8;
+    color: var(--text);
     font-size: 12px;
   }
   .palette-action:disabled {

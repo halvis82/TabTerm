@@ -1,3 +1,4 @@
+import { THEME_CHOICES } from '../terminal/themes.js';
 import type { AgentHooksStatus, NotifyPolicy, ShellIntegrationStatus } from '@tabterm/shared';
 /**
  * Settings, reached from the gear in the panel's footer.
@@ -60,11 +61,8 @@ const THRESHOLDS: [ms: number, label: string][] = [
   [600_000, '10 minutes'],
 ];
 
-const THEMES: [value: string, label: string][] = [
-  ['dark', 'Dark'],
-  ['light', 'Light'],
-  ['midnight', 'Midnight'],
-];
+// Derived from the table that defines them, so the list and the themes cannot disagree.
+const THEMES = THEME_CHOICES;
 
 /** Shortcuts the page handles itself, as opposed to the ones Chrome owns. */
 const PAGE_KEYS: [keys: string, does: string][] = [

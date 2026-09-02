@@ -213,8 +213,32 @@ export class XtermController {
       menu.append(b);
     };
 
+    /**
+     * Grouped by what the entries are for, with a rule between the groups.
+     *
+     * What is selected, then what to do with the selection, then what to do with the screen,
+     * then what to call this terminal. An ungrouped list of nine entries reads as nine
+     * unrelated things and every one of them has to be read to find the one you want.
+     */
+    const rule = () => {
+      const line = document.createElement('div');
+      line.className = 'term-menu-rule';
+      menu.append(line);
+    };
+
     const selected = this.term.getSelection() || this.#selectionAtRightClick;
+
+    // The clipboard, in the order a hand reaches for them.
     item('Copy', selected.length > 0, () => void this.copySelection(selected));
+    item('Select all', true, () => {
+      // Focus first. A selection made while the textarea does not have focus is held by xterm
+      // but never painted, which looked exactly like the entry doing nothing.
+      this.term.focus();
+      this.term.selectAll();
+    });
+    item('Paste', true, () => void this.pasteFromClipboard());
+
+    rule();
 
     /**
      * Highlight, which acts on a click, with the color beside it rather than behind a menu.
@@ -264,19 +288,11 @@ export class XtermController {
       menu.append(row);
     }
 
-    item('Paste', true, () => void this.pasteFromClipboard());
-    item('Select all', true, () => {
-      // Focus first. A selection made while the textarea does not have focus is held by xterm
-      // but never painted, which looked exactly like the entry doing nothing.
-      this.term.focus();
-      this.term.selectAll();
-    });
     /**
-     * Offered only when the click actually landed on a highlight.
+     * Directly under `Highlight`, because it is the same idea undone.
      *
-     * It used to appear whenever the pane had any highlight at all, so it was there over blank
-     * output and did nothing when pressed. Asking whether this cell is covered is the same
-     * question a person asks by right-clicking on one.
+     * Offered only when the click actually landed on one. It used to appear whenever the pane
+     * had any highlight at all, so it was there over blank output and did nothing when pressed.
      */
     const under = this.#cellAt(x, y);
     if (under && this.#highlights?.covers(under.row, under.col) === true) {
@@ -286,6 +302,9 @@ export class XtermController {
       });
     }
 
+    rule();
+
+    // On its own: it is the one entry here that throws something away.
     // The real clear, not `term.clear()`. Wiping this buffer alone left the output in the daemon
     // and on disk, so it came back on the next reload. See docs/07-terminal-fidelity.md.
     item('Clear', true, () => this.clear());
@@ -450,6 +469,23 @@ export class XtermController {
 
   reset(): void {
     this.term.reset();
+  }
+
+  /**
+   * Repaint the terminal itself.
+   *
+   * The renderer draws onto a canvas, so no stylesheet can reach these colors; they have to be
+   * handed to xterm. With WebGL attached the change needs a refresh to appear, since the
+   * existing frame was already uploaded.
+   */
+  applyTheme(theme: {
+    background: string;
+    foreground: string;
+    cursor: string;
+    selectionBackground: string;
+  }): void {
+    this.term.options.theme = { ...this.term.options.theme, ...theme };
+    this.term.refresh(0, this.term.rows - 1);
   }
 
   fit(): { cols: number; rows: number } {

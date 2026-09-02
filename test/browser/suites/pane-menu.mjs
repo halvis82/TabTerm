@@ -44,11 +44,28 @@ const disabled = JSON.parse(
     `JSON.stringify([...document.querySelectorAll('.term-menu-item')].filter(b => b.disabled).map(b => b.textContent))`,
   ),
 );
+/**
+ * Detach is greyed for a lone pane. **Close is not.**
+ *
+ * There is nowhere to detach a pane to when it is the only one, so that entry says so. Closing
+ * is different: somebody who closes the only terminal in a tab means to be rid of the tab, and
+ * greying it out was answering a question nobody asked.
+ */
 r.ok(
-  'close and detach are greyed for a lone pane',
-  disabled.includes('Close pane'),
+  'moving a lone pane to its own tab is greyed, since there is nowhere to move it',
+  disabled.includes('Move to its own tab'),
   disabled.join(' | '),
 );
+r.ok(
+  'but closing it is offered, and means closing the tab',
+  !disabled.includes('Close pane'),
+  disabled.join(' | '),
+);
+r.ok(
+  'and the menu is grouped rather than one long list',
+  Number(await evaluate(client, "document.querySelectorAll('.term-menu-rule').length")) >= 4,
+);
+r.ok('with settings reachable from the terminal', items.includes('Settings'), items.join(' | '));
 
 await choose('Select all');
 await sleep(500);

@@ -91,8 +91,10 @@ export function openLabelForm(opts: LabelFormOptions): HTMLElement {
   input.addEventListener('keydown', (e) => {
     // The terminal is underneath and would otherwise receive every one of these.
     e.stopPropagation();
+    // Escape and Command+K are handled once on the document, in the capture phase, so the form
+    // goes the same way whatever has focus. A capture listener has already run by the time
+    // `stopPropagation` above takes effect, so both still reach it.
     if (e.key === 'Enter') opts.onSubmit(input.value, chosen);
-    if (e.key === 'Escape') opts.onCancel();
   });
   // `input` rather than `keydown`, so it fires after the character has landed and also catches
   // a paste, which produces no keystroke at all.
@@ -100,6 +102,41 @@ export function openLabelForm(opts: LabelFormOptions): HTMLElement {
 
   form.append(input, colors, actions);
   opts.container.append(form);
+
+  /**
+   * Anything else that happens dismisses it, and dismissing means cancel.
+   *
+   * A small form floating over a terminal is not a dialog and should not behave like one:
+   * clicking somewhere else, pressing Escape, or opening the command menu all plainly mean "not
+   * now". Only Escape typed inside the box was handled, so clicking away left the form sitting
+   * there over the terminal with no obvious way out but the button.
+   *
+   * Cancel, never save. A name that was already set stays what it was, and a marker that was
+   * being described is simply not added. Saving something half typed because attention moved
+   * elsewhere would be worse than losing it.
+   */
+  const dismiss = (): void => {
+    document.removeEventListener('mousedown', onDown, true);
+    document.removeEventListener('keydown', onKey, true);
+    opts.onCancel();
+  };
+  const onDown = (e: MouseEvent): void => {
+    if (!(e.target instanceof Node)) return;
+    // The color picker is a separate element, and clicking a color is using the form.
+    if (form.contains(e.target)) return;
+    if (document.querySelector('.color-picker')?.contains(e.target) === true) return;
+    dismiss();
+  };
+  const onKey = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') dismiss();
+    // The command menu takes over the screen, so leaving this underneath it is clutter.
+    if (e.key.toLowerCase() === 'k' && (e.metaKey || e.ctrlKey)) dismiss();
+  };
+  setTimeout(() => {
+    document.addEventListener('mousedown', onDown, true);
+    document.addEventListener('keydown', onKey, true);
+  }, 0);
+
   input.focus();
   input.select();
   return form;

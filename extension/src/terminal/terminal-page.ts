@@ -27,6 +27,7 @@ import { DEFAULT_PLACEMENT, type PanelPlacement } from '../launcher/command-pane
 import { buildSettings } from '../launcher/settings-view.js';
 import { buildReset, buildResetDone } from '../launcher/reset-view.js';
 import { quotePath } from './quote-path.js';
+import { DEFAULT_THEME, themeNamed } from './themes.js';
 import { DEFAULT_COLOR, loadRecentColors, rememberColor, type ColorUse } from './color-store.js';
 import { loadTemplates, saveTemplates, type LayoutTemplate } from '../launcher/templates.js';
 import type {
@@ -1252,6 +1253,9 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
     {
       // A session, not a pane. The pane is the box; the name belongs to the terminal in it.
       label: named.label === '' ? 'Name session' : 'Rename session',
+      // A group of its own: naming a terminal and marking a place in it are the same kind of
+      // act, and neither belongs with the clipboard or with closing things.
+      separated: true,
       run: () => {
         splitView?.focus(paneId);
         const pane = panesHost?.get(paneId);
@@ -1310,10 +1314,23 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
       run: target(() => detachFocused()),
     },
     {
+      /**
+       * Always available, and with one pane it means the tab.
+       *
+       * Greying it out for the only pane was answering a question nobody asked. Somebody who
+       * closes the only terminal in a tab means to be rid of the tab, and having to reach for
+       * Chrome's own close for that is a seam where there should not be one.
+       */
       label: 'Close pane',
       separated: true,
-      enabled: hasSiblings,
-      run: target(() => closeFocused()),
+      run: target(() => (hasSiblings ? closeFocused() : window.close())),
+    },
+    {
+      // Reachable from the terminal as well as from the command menu and the toolbar icon.
+      // A setting is usually wanted at the moment the thing it governs is annoying you.
+      label: 'Settings',
+      separated: true,
+      run: () => commandPanel?.openSettings(),
     },
     {
       // Distinct from closing: this ends the process rather than the view of it. Offered
@@ -1450,8 +1467,14 @@ function buildCommandPanel(): void {
    */
   const openSettingsIfAsked = (): void => {
     if (openPanelAt !== 'settings') return;
-    // The start screen sits over the panel, so it goes: this tab was opened to change a setting.
-    launcher?.dismiss();
+    /**
+     * The start screen **stays**.
+     *
+     * It used to be dismissed here, which left a bare shell in the home directory behind the
+     * settings panel. Closing the panel then dropped you into a terminal you never asked for,
+     * in a directory you were not working in. A tab opened from the toolbar icon is a new tab
+     * like any other, and a new tab shows the ways to begin.
+     */
     commandPanel?.openSettings();
   };
 
@@ -1521,10 +1544,45 @@ function buildCommandPanel(): void {
   });
 }
 
-/** Theme is applied to the document root, so every surface follows it at once. */
+/**
+ * Paint both halves, and tell the other tabs.
+ *
+ * The interface follows CSS variables on the root. The terminal is drawn on a canvas by the
+ * renderer and takes its colors from xterm's own theme object, which no stylesheet can reach, so
+ * every open pane is repainted directly. Setting `data-theme` alone was the entire previous
+ * implementation, and nothing anywhere read it.
+ *
+ * Storage is also the delivery mechanism: every tab watches the key, so changing the theme in
+ * one repaints all of them without a message of our own.
+ */
 function applyTheme(theme: string): void {
+  const chosen = themeNamed(theme);
   document.documentElement.dataset['theme'] = theme;
+  for (const [name, value] of Object.entries(chosen.surface)) {
+    document.documentElement.style.setProperty(name, value);
+  }
+  for (const pane of panesHost?.all ?? []) pane.controller.applyTheme(chosen.terminal);
   void chrome.storage.local.set({ 'tabterm.theme': theme });
+}
+
+/**
+ * Follow the theme wherever it is changed.
+ *
+ * A setting changed in one tab has to reach the others: they are all the same product and a
+ * preference that only applies where it was typed is not a preference. `chrome.storage` already
+ * broadcasts, so watching the key costs nothing and needs no protocol.
+ */
+function watchTheme(): void {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    const next: unknown = changes['tabterm.theme']?.newValue;
+    if (typeof next !== 'string') return;
+    if (document.documentElement.dataset['theme'] === next) return;
+    applyTheme(next);
+  });
+  void chrome.storage.local.get('tabterm.theme').then((stored) => {
+    applyTheme((stored['tabterm.theme'] as string | undefined) ?? DEFAULT_THEME);
+  });
 }
 
 function installShortcuts(): void {
@@ -2109,6 +2167,8 @@ declare global {
        * Drop the socket without closing the tab, which is what a discarded tab, a slept
        * machine and a dead service worker all look like from the daemon.
        */
+      setTheme: (name: string) => void;
+      terminalTheme: () => { background?: string } | undefined;
       dropConnection: () => void;
       reconnect: () => void;
       setBackgroundTimeout: (seconds: number | null) => void;
@@ -2189,6 +2249,11 @@ function installTestHook(): void {
     selection: () => {
       const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
       return pane?.controller.term.getSelection() ?? '';
+    },
+    setTheme: (name) => applyTheme(name),
+    terminalTheme: () => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
+      return pane?.controller.term.options.theme;
     },
     dropConnection: () => client?.close(),
     reconnect: () => client?.connect(),
@@ -2330,6 +2395,8 @@ async function start(): Promise<void> {
 
   // Read once, so the first right-click already shows the color that was last used.
   refreshRecentColors();
+  // Before anything is drawn, so a tab never flashes the wrong theme on the way in.
+  watchTheme();
   buildHosts();
   buildLauncher();
   buildCommandPanel();
