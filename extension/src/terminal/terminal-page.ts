@@ -2105,6 +2105,13 @@ declare global {
       selection: () => string;
       /** What the daemon said could be resumed, before the launcher trims it for display. */
       resumable: () => { sessionId: string; cwd: string; agent: string; summary?: string }[];
+      /**
+       * Drop the socket without closing the tab, which is what a discarded tab, a slept
+       * machine and a dead service worker all look like from the daemon.
+       */
+      dropConnection: () => void;
+      reconnect: () => void;
+      setBackgroundTimeout: (seconds: number | null) => void;
       /** Highlights on the focused pane. A decoration is painted, so the DOM cannot be asked. */
       highlights: () => { text: string; occurrence: number; color: string }[];
       /** Print a landmark, and read where the view is, without going through the menu. */
@@ -2183,6 +2190,9 @@ function installTestHook(): void {
       const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
       return pane?.controller.term.getSelection() ?? '';
     },
+    dropConnection: () => client?.close(),
+    reconnect: () => client?.connect(),
+    setBackgroundTimeout: (seconds) => client?.send({ t: 'set-background-timeout', seconds }),
     resumable: () =>
       resumableSessions.map((r) => ({
         sessionId: r.sessionId,

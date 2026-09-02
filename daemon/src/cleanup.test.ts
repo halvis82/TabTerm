@@ -4,10 +4,17 @@ import { decideReap, describeReap, type ReapInput } from './cleanup.js';
 
 const config: Config = { ...DEFAULTS };
 
+/**
+ * `hasOpenTab: false` in the base, deliberately.
+ *
+ * Every timer in this policy only starts once the tab is known to be gone, so a fixture that
+ * left this unknown would test nothing but the "we cannot tell, so keep it" rule.
+ */
 const base: ReapInput = {
   pinned: false,
   persistent: false,
   attachedClients: 0,
+  hasOpenTab: false,
   inWorkspace: false,
   exited: false,
   hasExplicitCommand: false,
@@ -134,7 +141,7 @@ describe('a pane whose tab was closed', () => {
       DEFAULTS,
     );
     expect(decision.afterSeconds).toBe(900);
-    expect(decision.reason).toBe('background-timeout');
+    expect(decision.reason).toBe('tab-closed');
   });
 
   it('is still kept while a tab is showing it', () => {
@@ -176,7 +183,7 @@ describe('a tab opened and closed without being used', () => {
   });
 
   it('does not apply once something has been run', () => {
-    expect(decideReap({ ...unused, neverUsed: false }, config).reason).toBe('background-timeout');
+    expect(decideReap({ ...unused, neverUsed: false }, config).reason).toBe('tab-closed');
   });
 
   it('never applies to a session holding a listening socket', () => {
@@ -192,5 +199,48 @@ describe('a tab opened and closed without being used', () => {
 
   it('is still outranked by pinning', () => {
     expect(decideReap({ ...unused, pinned: true }, config).afterSeconds).toBeNull();
+  });
+});
+
+describe('a tab that still exists', () => {
+  /**
+   * The defect this answers: a session was reaped while its tab was plainly open, seventeen
+   * hours after its last command. The tab had been discarded or the machine had slept, so the
+   * socket was gone and the daemon counted zero attached clients. A connection is evidence that
+   * somebody is looking right now. It was never evidence that the tab had been closed.
+   */
+  it('is never reaped, whatever else is true of it', () => {
+    expect(decide({ hasOpenTab: true, inWorkspace: true, keepBackgroundSeconds: 60 })).toEqual({
+      afterSeconds: null,
+      reason: 'tab-open',
+    });
+    // Not even the never-used rule, which is otherwise the most eager one there is.
+    expect(decide({ hasOpenTab: true, inWorkspace: true, neverUsed: true })).toEqual({
+      afterSeconds: null,
+      reason: 'tab-open',
+    });
+  });
+
+  it('is kept when nobody could tell us either way', () => {
+    // Chrome closed, crashed, or not yet reported. All of them are a gap in what we know, and
+    // the only safe reading of "I do not know" is to keep the terminal.
+    expect(decide({ hasOpenTab: null, inWorkspace: true, keepBackgroundSeconds: 60 })).toEqual({
+      afterSeconds: null,
+      reason: 'no-report',
+    });
+  });
+
+  it('starts its clock only once the tab is actually gone', () => {
+    expect(decide({ hasOpenTab: false, inWorkspace: true, keepBackgroundSeconds: 1800 })).toEqual({
+      afterSeconds: 1800,
+      reason: 'tab-closed',
+    });
+  });
+
+  it('still lets an explicit choice to keep everything win', () => {
+    expect(decide({ hasOpenTab: false, inWorkspace: true, keepBackgroundSeconds: null })).toEqual({
+      afterSeconds: null,
+      reason: 'in-a-workspace',
+    });
   });
 });

@@ -77,6 +77,7 @@ Rules, all enforced:
 | `check-folder` | `path` | Is that folder there? Same reason as above: only the daemon can look |
 | `create-folder` | `path` | Make it, then answer as `check-folder` would |
 | `get-scrollback-budget` / `set-scrollback-budget` | `bytes` | Clamped to 1 MB..50 MB |
+| `tabs-open` | `workspaceIds[]` | Which workspaces Chrome still has a tab for. The daemon cannot see Chrome and a dropped socket is not a closed tab. See `04-session-lifecycle.md` §4 |
 | `list-resumable` | `cwd?`, `limit?` | Agent conversations that could be picked up. Both stores, filtered to what would work |
 | `resume-agent` | `sessionId`, `cwd`, `cols`, `rows`, `agent?` | `agent` decides the argv: Claude takes a flag, Codex a subcommand. See `09-agent-integration.md` |
 | `insert-marker` | `sessionId`, `label`, `color?` | A landmark, printed as output so it survives a reload |

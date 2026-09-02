@@ -10,6 +10,7 @@
     "type": "module"
   },
   "permissions": [
+    "alarms",
     "clipboardRead",
     "clipboardWrite",
     "contextMenus",

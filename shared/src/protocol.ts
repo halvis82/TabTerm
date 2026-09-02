@@ -269,6 +269,20 @@ export type ClientMessage =
       t: 'create-folder';
       path: string;
     }
+  | {
+      /**
+       * Which workspaces Chrome still has a tab for.
+       *
+       * The daemon cannot see Chrome, and a dropped socket is not evidence that a tab was
+       * closed: a backgrounded tab, one in a collapsed group, and one Chrome has discarded to
+       * save memory all look identical from the daemon's side. A session was once ended
+       * seventeen hours after its last command while its tab was plainly open. So the extension
+       * says what exists, on every tab event and on a poll, and the daemon believes it rather
+       * than the state of a socket.
+       */
+      t: 'tabs-open';
+      workspaceIds: readonly string[];
+    }
   | { t: 'list-mergeable'; workspaceId: string }
   | {
       /** Name a pane, or clear the name by sending an empty label. */

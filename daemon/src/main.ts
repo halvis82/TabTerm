@@ -101,6 +101,8 @@ async function main(): Promise<void> {
   // Reap policy must know whether a session is a pane in a workspace, since workspaces are
   // pinned by default and their panes are never reaped on a timer. See ADR-0012.
   sessions.isInWorkspace = (sessionId) => workspaces.findBySession(sessionId) !== undefined;
+  // And which workspace, so a report of the tabs Chrome has open can be matched to sessions.
+  sessions.setWorkspaceLookup((sessionId) => workspaces.findBySession(sessionId)?.id);
 
   const server = new DaemonServer(
     config,

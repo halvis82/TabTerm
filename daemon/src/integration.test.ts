@@ -40,6 +40,9 @@ beforeAll(async () => {
     new LocalPtyBackend(),
   );
   workspaces = new WorkspaceStore();
+  // As `main.ts` does it: the policy has to be able to map a session to the workspace a tab
+  // would carry in its URL, or it can never tell whether a tab is open.
+  sessions.setWorkspaceLookup((id) => workspaces.findBySession(id)?.id);
   server = new DaemonServer(
     config,
     sessions,
@@ -201,7 +204,19 @@ describe('daemon, end to end over the real protocol', () => {
 
     const session = sessions.get(created.sessionId);
     expect(session, 'session must outlive the client').toBeTruthy();
-    expect(session?.state).toBe('expiring');
+    /**
+     * `detached`, not `expiring`.
+     *
+     * A closed socket no longer puts a session on a clock. It says somebody stopped looking,
+     * which a backgrounded tab, a discarded tab and a sleeping machine all do without anybody
+     * being finished. Only Chrome reporting that the tab is gone starts the timer.
+     */
+    expect(session?.state).toBe('detached');
+
+    // Say the tab is gone, and it moves onto a clock like anything else.
+    sessions.reportOpenWorkspaces([]);
+    await sleep(200);
+    expect(sessions.get(created.sessionId)?.state).toBe('expiring');
 
     // Tab reopens and reattaches, exactly what Cmd+Shift+T does.
     const b = await TestClient.connect('client-b');

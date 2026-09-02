@@ -74,10 +74,23 @@ async function requestCredentials(): Promise<void> {
 }
 
 // The worker may also push credentials unprompted, right after creating this document.
-chrome.runtime.onMessage.addListener((msg: { t?: string } & Credentials) => {
-  if (msg.t === 'tabterm:credentials' && msg.token && msg.clientId) {
-    start(msg.token, msg.clientId);
-  }
-});
+chrome.runtime.onMessage.addListener(
+  (msg: { t?: string; workspaceIds?: readonly string[] } & Credentials) => {
+    if (msg.t === 'tabterm:credentials' && msg.token && msg.clientId) {
+      start(msg.token, msg.clientId);
+    }
+    /**
+     * What Chrome has open, forwarded to the daemon.
+     *
+     * The service worker can see tabs and cannot hold a connection; this document holds the
+     * connection and cannot see tabs. So the answer travels through here. Without it the daemon
+     * has only the state of a socket to go on, and a socket is not a tab: a session was once
+     * ended seventeen hours after its last command while its tab was sitting there.
+     */
+    if (msg.t === 'tabterm:tabs-open' && Array.isArray(msg.workspaceIds)) {
+      client?.send({ t: 'tabs-open', workspaceIds: msg.workspaceIds });
+    }
+  },
+);
 
 void requestCredentials();

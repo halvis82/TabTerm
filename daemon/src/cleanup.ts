@@ -11,10 +11,12 @@ import type { Session } from './session-manager.js';
 
 export type ReapReason =
   | 'never-used'
-  | 'background-timeout'
+  | 'tab-closed'
   | 'pinned'
   | 'persistent'
   | 'still-attached'
+  | 'tab-open'
+  | 'no-report'
   | 'in-a-workspace'
   | 'server-listening'
   | 'process-exited'
@@ -32,6 +34,18 @@ export interface ReapInput {
   pinned: boolean;
   persistent: boolean;
   attachedClients: number;
+  /**
+   * Does a Chrome tab for this session still exist?
+   *
+   * `true` a tab is open, `false` there is none, **`null` nobody could tell us**. The daemon
+   * cannot see Chrome, so this is reported by the extension, which can.
+   *
+   * The three-way answer is the whole point. A session was once reaped while its tab was
+   * plainly open: the tab had been discarded or the machine had slept, the socket went with it,
+   * and `attachedClients` fell to zero. A connection is evidence that somebody is looking right
+   * now; it is not evidence that the tab is gone.
+   */
+  hasOpenTab: boolean | null;
   /** Workspaces are pinned by default, so a pane in one is never reaped. See ADR-0012. */
   inWorkspace: boolean;
   exited: boolean;
@@ -61,6 +75,24 @@ export function decideReap(input: ReapInput, config: Config): ReapDecision {
   if (input.attachedClients > 0) return { afterSeconds: null, reason: 'still-attached' };
 
   /**
+   * A tab exists for it, so it stays. No timer, no exceptions.
+   *
+   * A backgrounded tab, a tab in a collapsed group, and a tab Chrome has discarded to save
+   * memory all look identical from here: no socket. None of them means the person is done with
+   * that terminal, and ending one is the single worst thing this product can do.
+   */
+  if (input.hasOpenTab === true) return { afterSeconds: null, reason: 'tab-open' };
+
+  /**
+   * Nobody could tell us, so we do not act.
+   *
+   * Chrome is closed, or crashed, or the extension has not reported yet. Every one of those is
+   * a gap in what we know rather than evidence that a tab was closed, and the only safe reading
+   * of "I do not know" is to keep the terminal. Chrome comes back and says what it has.
+   */
+  if (input.hasOpenTab === null) return { afterSeconds: null, reason: 'no-report' };
+
+  /**
    * A pane in a workspace, with no tab showing it.
    *
    * This used to be kept forever, from ADR-0012, so that closing a tab could never destroy
@@ -81,9 +113,15 @@ export function decideReap(input: ReapInput, config: Config): ReapDecision {
     if (input.neverUsed && input.listeningPort === undefined && !input.hasExplicitCommand) {
       return { afterSeconds: NEVER_USED_SECONDS, reason: 'never-used' };
     }
+    /**
+     * The tab has actually been closed, which is the only case that starts a clock.
+     *
+     * Half an hour by default: long enough that closing a tab by mistake costs nothing, short
+     * enough that a day of work does not leave fifty shells behind.
+     */
     return input.keepBackgroundSeconds === null
       ? { afterSeconds: null, reason: 'in-a-workspace' }
-      : { afterSeconds: input.keepBackgroundSeconds, reason: 'background-timeout' };
+      : { afterSeconds: input.keepBackgroundSeconds, reason: 'tab-closed' };
   }
 
   // A process that already ended holds nothing worth keeping, so its metadata goes quickly.
@@ -118,12 +156,14 @@ export function reapInputFor(
     inWorkspace: boolean;
     listeningPort?: number | undefined;
     keepBackgroundSeconds?: number | null;
+    hasOpenTab?: boolean | null;
   },
 ): ReapInput {
   return {
     pinned: session.pinned,
     persistent: session.persistent ?? false,
     attachedClients: session.clients.size,
+    hasOpenTab: opts.hasOpenTab ?? null,
     inWorkspace: opts.inWorkspace,
     // Never used means never a command, and never anywhere but where it opened. A `cd` on its
     // own is a shell builtin that spawns nothing, so the directory is checked as well rather

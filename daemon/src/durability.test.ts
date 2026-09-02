@@ -46,6 +46,9 @@ beforeAll(async () => {
   );
   workspaces = new WorkspaceStore();
   sessions.isInWorkspace = (id) => workspaces.findBySession(id) !== undefined;
+  // Wired the same way `main.ts` wires it, so a report about tabs can be matched to
+  // sessions. Without it nothing can be mapped and the policy keeps everything, correctly.
+  sessions.setWorkspaceLookup((id) => workspaces.findBySession(id)?.id);
   server = new DaemonServer(
     config,
     sessions,
@@ -183,6 +186,15 @@ describe('durability', () => {
     sessions.keepBackgroundSeconds = 1;
     const { c, sessionId } = await makeSession('dur-bg');
     c.close();
+    /**
+     * Chrome says the tab is gone, which is the only thing that starts the clock now.
+     *
+     * Closing the socket is not enough and must not be: a tab that was backgrounded, discarded,
+     * or on a machine that slept closes its socket too, and ending those was the defect this
+     * replaced. The daemon acts on what the extension reports about tabs, so a test that wants
+     * a reap has to report one.
+     */
+    sessions.reportOpenWorkspaces([]);
     await sleep(2500);
 
     const session = sessions.get(sessionId);
@@ -201,6 +213,7 @@ describe('durability', () => {
 
   it('reaps a session that is not in a workspace once its grace period passes', async () => {
     const { c, sessionId } = await makeSession('dur-3');
+    sessions.reportOpenWorkspaces([]);
     // Outside a workspace the idle-shell rule applies, which is faster than the never-used one.
     // Remove it from its workspace so the protection no longer applies.
     const ws = workspaces.findBySession(sessionId);
@@ -453,6 +466,8 @@ describe('a pane nobody used', () => {
     sessions.keepBackgroundSeconds = null;
     const { c, sessionId } = await makeSession('dur-unused', false);
     c.close();
+    // The tab is genuinely gone, which is what the never-used rule is about.
+    sessions.reportOpenWorkspaces([]);
     await sleep(1200);
     // Scheduled rather than gone: the delay is what makes an accidental close recoverable.
     expect(sessions.get(sessionId)?.state).toBe('expiring');

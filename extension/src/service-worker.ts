@@ -173,6 +173,62 @@ async function closeWorkspaceTab(workspaceId: string, asking?: number): Promise<
   if (ids.length > 0) await chrome.tabs.remove(ids);
 }
 
+/**
+ * Tell the daemon which workspaces Chrome still has a tab for.
+ *
+ * This is the whole answer to "a session expired while its tab was open". The daemon can only
+ * see sockets, and a socket is not a tab: a backgrounded tab, one in a collapsed group, one on a
+ * machine that slept, and one Chrome discarded to save memory all look identical from the
+ * daemon's side, and none of them means the person is finished with that terminal.
+ *
+ * The URL carries the workspace id, so no bookkeeping is needed: what Chrome reports is the
+ * truth by construction. A tab with no workspace in its URL has not been given one yet and is
+ * counted as nothing, which is correct: it has no session to protect.
+ */
+async function reportOpenTabs(): Promise<void> {
+  try {
+    const base = chrome.runtime.getURL('terminal.html');
+    const tabs = await chrome.tabs.query({ url: `${base}*` });
+    const workspaceIds = tabs
+      .map((t) => new URL(t.url ?? '').searchParams.get('workspace'))
+      .filter((id): id is string => id !== null && id !== '');
+    await chrome.runtime.sendMessage({ t: 'tabterm:tabs-open', workspaceIds });
+  } catch {
+    /**
+     * Silent, and safe when it fails.
+     *
+     * A report that does not arrive leaves the daemon on its previous answer, or on "nobody has
+     * told me", and both of those keep the terminal. The failure direction is never towards
+     * ending one.
+     */
+  }
+}
+
+/**
+ * Reported on every change, and on a slow poll as well.
+ *
+ * The events cover the ordinary cases. The poll covers the ones that are not events at all: the
+ * service worker having been asleep when a tab closed, a report lost while the daemon was
+ * restarting, and the extension having only just started. Two minutes is far below the shortest
+ * time anything is kept, so a missed event costs nothing.
+ */
+const TAB_REPORT_MS = 120_000;
+
+chrome.tabs.onRemoved.addListener(() => void reportOpenTabs());
+chrome.tabs.onCreated.addListener(() => void reportOpenTabs());
+chrome.tabs.onUpdated.addListener((_id, changed) => {
+  // Only when the URL changed: a title or a favicon says nothing about which workspaces exist.
+  if (changed.url !== undefined) void reportOpenTabs();
+});
+chrome.tabs.onReplaced.addListener(() => void reportOpenTabs());
+chrome.runtime.onStartup.addListener(() => void reportOpenTabs());
+chrome.runtime.onInstalled.addListener(() => void reportOpenTabs());
+void chrome.alarms.create('tabterm:tab-report', { periodInMinutes: TAB_REPORT_MS / 60_000 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'tabterm:tab-report') void reportOpenTabs();
+});
+void reportOpenTabs();
+
 /** Every terminal tab except the one asking, which is showing the result. */
 async function closeOtherTerminalTabs(keep?: number): Promise<void> {
   const base = chrome.runtime.getURL('terminal.html');

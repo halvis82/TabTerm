@@ -89,11 +89,48 @@ a different workspace. See §6.
 
 The policy engine evaluates, in order. First match wins.
 
+### A socket is not a tab
+
+The rule that matters most, because getting it wrong loses somebody's work. **A session is never
+ended while Chrome still has a tab for it**, and no timer starts until Chrome says the tab has
+actually been closed.
+
+The daemon cannot see Chrome. It used to infer "nobody wants this" from having no attached
+client, and that inference is wrong in four ordinary situations that all look identical from the
+daemon's side: a backgrounded tab, a tab in a collapsed group, a machine that went to sleep, and
+a tab Chrome discarded to reclaim memory. Each of those closes the socket and none of them means
+the person is finished. A terminal was once ended seventeen hours after its last command with its
+tab sitting open.
+
+So the extension, which can see tabs, tells the daemon. Every terminal tab carries its workspace
+in its URL, so the report is the truth by construction rather than bookkeeping that can drift.
+It is sent on tab creation, removal, replacement and URL change, at startup and install, and on a
+two minute alarm that covers the cases which are not events at all: the service worker asleep
+when a tab closed, a report lost while the daemon restarted, an extension that has only just
+started.
+
+The answer is deliberately three-valued. **Unknown is not the same as none.** Chrome closed,
+Chrome crashed, or nothing reported yet are all gaps in what we know, and the only safe reading
+of a gap is to keep the terminal. Chrome comes back and says what it has.
+
+A report that fails to send leaves the daemon on its previous answer or on "nobody has told me",
+both of which keep the terminal. The failure direction is never towards ending one.
+
+**Thirty minutes** after the tab is genuinely closed, by default, and settable. It used to be
+fifteen and it started at the wrong moment; now that nothing starts until the tab is gone, the
+number can afford to be generous.
+
 ```
 if pinned or persistent:
     never reap
 
 if session is attached (including attached to a workspace elsewhere):
+    never reap
+
+if Chrome still has a tab for this session's workspace:
+    never reap
+
+if nobody has said whether a tab exists:
     never reap
 
 if child process has exited:

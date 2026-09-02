@@ -796,6 +796,19 @@ export class DaemonServer {
         return;
       }
 
+      case 'tabs-open': {
+        /**
+         * What Chrome actually has open, which is the only trustworthy answer to "is anybody
+         * still using this?".
+         *
+         * Accepted from any client. The extension's control connection is the one that sends
+         * it, and a report that arrives from anywhere else can only ever say that more tabs
+         * exist, which is the safe direction.
+         */
+        this.#sessions.reportOpenWorkspaces(msg.workspaceIds);
+        return;
+      }
+
       case 'list-mergeable': {
         const here = this.#workspaces.get(msg.workspaceId);
         const mine = new Set(here ? this.#workspaces.sessionIds(here) : []);

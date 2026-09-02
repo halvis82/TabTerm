@@ -129,12 +129,15 @@ export class SessionManager {
   readonly #events: SessionEvents;
   readonly #pty: PtyBackend;
   /**
-   * How long a pane with no tab is kept, in seconds, or null for forever.
+   * How long a session is kept after **its tab has been closed**. Thirty minutes.
    *
-   * Set from the user's preference. Fifteen minutes by default, because sessions now genuinely
-   * survive everything and "forever" turned out to mean it.
+   * It used to be fifteen, and it used to start whenever no client was attached, which is not
+   * the same thing at all: a tab that was merely backgrounded or discarded started the clock.
+   * Now nothing starts until Chrome says the tab is gone, so the number can be generous. Long
+   * enough that closing a tab by mistake costs nothing, short enough that a day's work does not
+   * leave fifty shells behind. `null` keeps them until something else ends them.
    */
-  keepBackgroundSeconds: number | null = 15 * 60;
+  keepBackgroundSeconds: number | null = 30 * 60;
 
   /**
    * Re-apply the reap policy to every detached session.
@@ -536,12 +539,69 @@ export class SessionManager {
     session.serverCheckTimer = timer;
   }
 
+  /**
+   * Which workspaces Chrome still has a tab for, as last reported by the extension.
+   *
+   * `null` until something reports, which is read as "nobody could tell us" rather than as
+   * "there are none". The daemon cannot see Chrome, and guessing in that direction is what ends
+   * somebody's terminal.
+   */
+  #openWorkspaces: ReadonlySet<string> | null = null;
+
+  /** Told by the extension, on every tab event and on a poll. */
+  reportOpenWorkspaces(ids: readonly string[]): void {
+    this.#openWorkspaces = new Set(ids);
+    // A session whose tab has come back must lose the clock it was put on, and one whose tab has
+    // gone must be given one. Both are just the policy run again.
+    for (const session of this.all) this.#rescheduleReapIfIdle(session);
+  }
+
+  /** Only for a session nobody is attached to: an attached one has no timer to change. */
+  #rescheduleReapIfIdle(session: Session): void {
+    if (session.clients.size > 0) return;
+    this.#scheduleReap(session);
+  }
+
+  /**
+   * Whether Chrome still shows this session, as far as anybody has said.
+   *
+   * `null` only when nobody has reported at all, or when nothing has been wired up to map a
+   * session to a workspace, which would be a bug rather than a state and is read as "unknown"
+   * so that it keeps the terminal instead of ending it.
+   *
+   * A session that belongs to no workspace answers `false` once a report exists. A tab always
+   * carries a workspace in its URL, so a session outside one cannot be in a tab and is left to
+   * the ordinary rules for an unattached shell.
+   */
+  #hasOpenTab(sessionId: string): boolean | null {
+    if (this.#openWorkspaces === null) return null;
+    if (this.#workspaceOf === undefined) return null;
+    const workspaceId = this.#workspaceOf(sessionId);
+    if (workspaceId === undefined) return false;
+    return this.#openWorkspaces.has(workspaceId);
+  }
+
+  /** Set by the server, which owns the workspace store. */
+  #workspaceOf: ((sessionId: string) => string | undefined) | undefined;
+
+  setWorkspaceLookup(fn: (sessionId: string) => string | undefined): void {
+    this.#workspaceOf = fn;
+  }
+
   #scheduleReap(session: Session): void {
+    // Any previous timer is void: this is a fresh decision, and leaving the old one running
+    // would end a session whose tab has since come back.
+    if (session.reapTimer) {
+      clearTimeout(session.reapTimer);
+      delete session.reapTimer;
+    }
+
     const decision = decideReap(
       reapInputFor(session, {
         inWorkspace: this.#inWorkspace(session.id),
         listeningPort: session.listeningPort,
         keepBackgroundSeconds: this.keepBackgroundSeconds,
+        hasOpenTab: this.#hasOpenTab(session.id),
       }),
       this.#config,
     );
