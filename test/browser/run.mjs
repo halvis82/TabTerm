@@ -372,7 +372,19 @@ sweep();
 // because nothing a person is using was ever in there.
 try {
   daemon.child.kill('SIGTERM');
-  execFileSync('pkill', ['-f', daemon.home], { stdio: 'ignore' });
+  /**
+   * By port, not by home.
+   *
+   * `pkill -f <home>` matches nothing: the home is in the process's environment and `ps` shows
+   * only the command line, which is identical for every daemon on the machine. Matching on it
+   * would either kill nothing, which leaves a daemon holding the port, or be widened to the
+   * command line, which would kill the one a person is using.
+   */
+  const holding = execFileSync('lsof', ['-t', '-i', `:${String(daemon.port)}`, '-sTCP:LISTEN'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  }).trim();
+  for (const pid of holding.split('\n').filter(Boolean)) process.kill(Number(pid), 'SIGKILL');
 } catch {
   /* already gone */
 }
