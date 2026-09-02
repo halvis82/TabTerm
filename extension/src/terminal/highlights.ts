@@ -1,5 +1,6 @@
-import type { IDecoration, Terminal } from '@xterm/xterm';
-import { highlightAt, highlightsForSelection, locate, type Highlight } from './highlight-anchor.js';
+import type { IDecoration, IMarker, Terminal } from '@xterm/xterm';
+import { anchor, highlightStyle, locate, type Highlight } from './highlight-anchor.js';
+import { addOrToggle, connected, rangeAt, type Range } from './highlight-ranges.js';
 
 /**
  * Highlights drawn over a session's output.
@@ -11,8 +12,16 @@ import { highlightAt, highlightsForSelection, locate, type Highlight } from './h
  *
  * Nothing is written into the session. A landmark is printed output and survives on its own; a
  * highlight cannot be, because the text it covers was printed long ago and cannot be repainted
- * at the source. So the position is remembered as text rather than as a row, and the record is
- * kept per session in extension storage. See `highlight-anchor.ts` for why that is stable.
+ * at the source.
+ *
+ * **A live highlight is held by an xterm marker**, which is tied to one buffer line and moves
+ * with it as output arrives. That is what keeps it exactly where it was put. The first version
+ * recomputed the position from the text on every redraw, so a highlight on a shell prompt
+ * reappeared on every later prompt and jumped to any later copy of the same text. Recomputing
+ * was never going to work: a terminal repeats itself constantly, and text is not an identity.
+ *
+ * The text is still recorded, but only as the durable half, for finding the line again after a
+ * reload when there is no marker left. See `highlight-anchor.ts`.
  */
 
 const KEY = 'tabterm.highlights';
@@ -32,7 +41,7 @@ const isHighlight = (v: unknown): v is Highlight => {
   const h = v as Record<string, unknown>;
   return (
     typeof h['text'] === 'string' &&
-    typeof h['fromEnd'] === 'number' &&
+    typeof h['occurrence'] === 'number' &&
     typeof h['color'] === 'string'
   );
 };
@@ -97,15 +106,34 @@ export function selectionPieces(term: Terminal): { row: number; col: number; tex
     if (!line) continue;
     const from = row === range.start.y ? range.start.x : 0;
     const to = row === range.end.y ? range.end.x : line.length;
-    const text = line.translateToString(false, from, to);
-    pieces.push({ row, col: from, text });
+    const raw = line.translateToString(false, from, to);
+
+    /**
+     * Clipped to characters that were actually printed.
+     *
+     * A terminal line is a fixed grid, so a drag to the right edge selects the blank cells past
+     * the end of the text as readily as the text itself. Highlighting those drew a colored band
+     * over nothing, and the empty stretch after a prompt could be "highlighted" to no visible
+     * effect at all. The blanks at both ends are removed and the column moved to match.
+     */
+    const lead = raw.length - raw.trimStart().length;
+    const text = raw.trim();
+    if (text === '') continue;
+    pieces.push({ row, col: from + lead, text });
   }
   return pieces;
 }
 
+/** A highlight held in place by a marker on its own line. One merged range, never a layer. */
+interface Pinned {
+  highlight: Highlight;
+  marker: IMarker;
+  range: Range;
+  decoration: IDecoration | null;
+}
+
 export class HighlightLayer {
-  #highlights: Highlight[] = [];
-  #drawn: IDecoration[] = [];
+  #pinned: Pinned[] = [];
   readonly #term: Terminal;
   readonly #onChange: (highlights: readonly Highlight[]) => void;
 
@@ -115,91 +143,201 @@ export class HighlightLayer {
   }
 
   get highlights(): readonly Highlight[] {
-    return this.#highlights;
+    // A marker is disposed when its line falls off the end of the scrollback, which is exactly
+    // when the highlight stops being reachable. Those are dropped rather than remembered.
+    return this.#live().map((p) => p.highlight);
+  }
+
+  #live(): Pinned[] {
+    return this.#pinned.filter((p) => !p.marker.isDisposed);
+  }
+
+  /** What is highlighted, by buffer row, which is what the range operations work on. */
+  #byRow(): Map<number, Range[]> {
+    const rows = new Map<number, Range[]>();
+    for (const p of this.#live()) {
+      const list = rows.get(p.marker.line) ?? [];
+      list.push(p.range);
+      rows.set(p.marker.line, list);
+    }
+    return rows;
+  }
+
+  /**
+   * Pin one range to the buffer line it is on.
+   *
+   * The marker is the identity from here on. It moves with its line as the scrollback grows and
+   * is disposed with it, so the highlight can neither drift onto later output nor be recomputed
+   * onto a later copy of the same text.
+   */
+  #pin(row: number, range: Range, color: string): Pinned | null {
+    const buffer = this.#term.buffer.active;
+    const marker = this.#term.registerMarker(row - (buffer.baseY + buffer.cursorY));
+    if (!marker) return null;
+    const text = (buffer.getLine(row)?.translateToString(true) ?? '').slice(range.start, range.end);
+    const lines = bufferLines(this.#term);
+    const occurrence = Math.max(0, anchor(lines, row, range.start, text));
+    return { highlight: { text, occurrence, color }, marker, range, decoration: null };
   }
 
   /** Restored from storage, without announcing a change nobody made. */
   restore(highlights: readonly Highlight[]): void {
-    this.#highlights = [...highlights];
-    this.draw();
+    const lines = bufferLines(this.#term);
+    for (const highlight of highlights) {
+      const at = locate(lines, highlight);
+      // Not there any more, so there is no honest place to draw it. Dropped, never guessed.
+      if (!at) continue;
+      const held = this.#pin(at.row, { start: at.col, end: at.col + at.length }, highlight.color);
+      if (held) this.#pinned.push(held);
+    }
+    this.#redraw();
   }
 
-  /** Highlight what is selected, and say so. Returns how many lines were covered. */
+  /**
+   * Highlight what is selected, or take it off when it is exactly what is already there.
+   *
+   * Per line, and merged with whatever that line already has, so painting over a highlight
+   * widens it instead of stacking another translucent layer on the overlap.
+   *
+   * Returns how many lines changed, zero when nothing was selected.
+   */
   add(color: string): number {
-    const made = highlightsForSelection(
-      bufferLines(this.#term),
-      selectionPieces(this.#term),
-      color,
-    );
-    if (made.length === 0) return 0;
-    this.#highlights.push(...made);
-    this.draw();
-    this.#onChange(this.#highlights);
-    return made.length;
+    const pieces = selectionPieces(this.#term);
+    if (pieces.length === 0) return 0;
+
+    let changed = 0;
+    for (const piece of pieces) {
+      const wanted: Range = { start: piece.col, end: piece.col + piece.text.length };
+      const onRow = this.#live().filter((p) => p.marker.line === piece.row);
+      const next = addOrToggle(
+        onRow.map((p) => p.range),
+        wanted,
+      );
+
+      // Everything on this row is replaced by the merged result, which is what stops a stack.
+      for (const p of onRow) {
+        p.decoration?.dispose();
+        p.marker.dispose();
+      }
+      this.#pinned = this.#pinned.filter((p) => !onRow.includes(p));
+
+      for (const range of next) {
+        // A range that was already there keeps the color it was given; a new one takes this one.
+        const previous = onRow.find((p) => p.range.start === range.start)?.highlight.color;
+        const held = this.#pin(piece.row, range, previous ?? color);
+        if (held) this.#pinned.push(held);
+      }
+      changed++;
+    }
+    this.#redraw();
+    this.#onChange(this.highlights);
+    return changed;
   }
 
-  /** Take off the highlight under a point, if there is one. */
-  removeAt(row: number, col: number): boolean {
-    const hit = highlightAt(bufferLines(this.#term), this.#highlights, row, col);
-    if (!hit) return false;
-    this.#highlights = this.#highlights.filter((h) => h !== hit);
-    this.draw();
-    this.#onChange(this.#highlights);
+  /** Is there a highlight under this point? What `Remove highlight` is offered for. */
+  covers(row: number, column: number): boolean {
+    return rangeAt(this.#byRow().get(row) ?? [], column) !== null;
+  }
+
+  /**
+   * Take off the whole run of highlight a point is part of.
+   *
+   * Everything continuous with it, across rows as well as along one, whenever it was made. A
+   * block of color reads as one thing, so it comes off as one thing.
+   */
+  removeAt(row: number, column: number): boolean {
+    const run = connected(this.#byRow(), row, column);
+    if (run.length === 0) return false;
+
+    const going = this.#live().filter((p) =>
+      run.some((x) => x.row === p.marker.line && x.range.start === p.range.start),
+    );
+    if (going.length === 0) return false;
+    for (const p of going) {
+      p.decoration?.dispose();
+      p.marker.dispose();
+    }
+    this.#pinned = this.#pinned.filter((p) => !going.includes(p));
+    this.#onChange(this.highlights);
     return true;
   }
 
   clear(): void {
-    if (this.#highlights.length === 0) return;
-    this.#highlights = [];
-    this.draw();
-    this.#onChange(this.#highlights);
+    if (this.#pinned.length === 0) return;
+    for (const p of this.#pinned) {
+      p.decoration?.dispose();
+      p.marker.dispose();
+    }
+    this.#pinned = [];
+    this.#onChange(this.highlights);
   }
 
   /** Where the highlights are now, for the rail beside the scrollbar. */
   places(): { row: number; color: number }[] {
-    const lines = bufferLines(this.#term);
+    const seen = new Set<number>();
     const out: { row: number; color: number }[] = [];
-    for (const h of this.#highlights) {
-      const at = locate(lines, h);
-      if (at) out.push({ row: at.row, color: Number.parseInt(h.color.slice(1), 16) });
+    for (const p of this.#live()) {
+      // One pip per row. A row highlighted in three places is still one place to scroll to.
+      if (seen.has(p.marker.line)) continue;
+      seen.add(p.marker.line);
+      out.push({ row: p.marker.line, color: Number.parseInt(p.highlight.color.slice(1), 16) });
     }
     return out;
   }
 
   /**
-   * Redraw every highlight.
+   * Draw anything not drawn yet, and forget anything whose line has gone.
    *
-   * All of them, every time, rather than tracking which moved. A decoration is anchored to a
-   * marker that is relative to the cursor line, so every one of them is wrong as soon as the
-   * buffer scrolls, and rebuilding a handful of decorations is cheaper than being subtly wrong.
+   * A decoration follows its own marker, so nothing has to be rebuilt when the buffer scrolls.
    */
   draw(): void {
-    for (const d of this.#drawn) d.dispose();
-    this.#drawn = [];
+    this.#redraw();
+  }
 
-    const buffer = this.#term.buffer.active;
-    const cursorLine = buffer.baseY + buffer.cursorY;
-    const lines = bufferLines(this.#term);
-
-    for (const h of this.#highlights) {
-      const at = locate(lines, h);
-      if (!at) continue;
-      const marker = this.#term.registerMarker(at.row - cursorLine);
-      if (!marker) continue;
-      const decoration = this.#term.registerDecoration({
-        marker,
-        x: at.col,
-        width: at.length,
-        backgroundColor: h.color,
-        // Behind the characters. On top it would be a block of color where the text was.
-        layer: 'bottom',
-      });
-      if (decoration) this.#drawn.push(decoration);
+  #redraw(): void {
+    const alive: Pinned[] = [];
+    for (const p of this.#pinned) {
+      if (p.marker.isDisposed) {
+        p.decoration?.dispose();
+        continue;
+      }
+      if (!p.decoration) {
+        const style = highlightStyle(p.highlight.color);
+        const decoration = this.#term.registerDecoration({
+          marker: p.marker,
+          x: p.range.start,
+          width: p.range.end - p.range.start,
+          // Over the text, and translucent, so the characters read through it. An opaque block
+          // hid the very thing the highlight was pointing at.
+          layer: 'top',
+        });
+        if (decoration) {
+          decoration.onRender((element: HTMLElement) => {
+            element.style.background = style.background;
+            /**
+             * Edges down the sides only.
+             *
+             * A full outline drew a line between one highlighted row and the next, so a block
+             * spanning several rows looked like several stripes. The sides are what makes a
+             * highlight visible at low alpha; the top and bottom only ever separated it from
+             * itself.
+             */
+            element.style.boxShadow = `inset 1px 0 0 ${style.border}, inset -1px 0 0 ${style.border}`;
+            element.style.pointerEvents = 'none';
+          });
+          p.decoration = decoration;
+        }
+      }
+      alive.push(p);
     }
+    this.#pinned = alive;
   }
 
   dispose(): void {
-    for (const d of this.#drawn) d.dispose();
-    this.#drawn = [];
+    for (const p of this.#pinned) {
+      p.decoration?.dispose();
+      p.marker.dispose();
+    }
+    this.#pinned = [];
   }
 }

@@ -339,9 +339,25 @@ tab forward.
 
 ### One color picker, everywhere
 
-The session name, the landmark and the highlight all take their color from the same picker: a map
-with hue across it and lightness down it, which you click. There is nothing to type, no channels,
-and no second dialog.
+Three parts, in the same order and the same shape wherever it appears:
+
+    [        the color as it stands        ]
+    [              the map                 ]
+    []  []  []  []  []
+
+The bar on top follows the pointer across the map, so a color can be judged at a size worth
+judging rather than as a dot under the cursor. Under the map are the last five colors used **for
+that particular job**, filling left to right, with the empty slots drawn rather than left out so
+the row is the same shape from the first use and a color picked by position stays where it was.
+Nothing is marked as selected: the bar already says what is chosen.
+
+Choosing is one click, with nothing to confirm. A color is not a decision worth asking twice
+about, and putting it back is one more click.
+
+The name and the marker show the picker **permanently**, beside their text box, because those
+forms are "type a word and pick a color" and both halves belong on screen at once. The highlight
+menu shows it only when its swatch is pressed, because highlighting is one click and the color is
+the exception.
 
 It replaced three fixed palettes of six tints each. Six was enough to tell panes apart and was
 never enough for anything anybody meant by "that one, but darker".
@@ -416,9 +432,17 @@ wheel mostly produces labels nobody can read against the terminal background.
 
 The name lives **on the layout**, so it survives a reload and a daemon restart the way the split
 it belongs to does. It is drawn large and faint, the way iTerm does it: big enough to read at a glance, translucent
-enough that the terminal reads straight through it, clear of the command button in the same
-corner, and sized against the pane rather than the window so it stays legible in a narrow one and
-wraps instead of being cut off.
+enough that the terminal reads straight through it, in the top corner clear of the command
+button, and sized against the pane rather than the window so it stays legible in a narrow one and
+wraps instead of being cut off. Spaces are kept exactly as typed: HTML collapses a run of them
+into one, so a name with five spaces in it was drawn with one and did not match the box it came
+from.
+
+**It is drawn as it is typed.** A name is a piece of visual design, and none of how big it looks,
+whether the color survives being drawn at low opacity, or whether it wraps can be judged from a
+text box. Only in the tab doing the typing: nothing is sent until Save, so an abandoned form
+leaves no trace and Escape genuinely cancels. The form itself sits at the **bottom** of the pane,
+which is what stops it covering the name it is naming.
 
 Both the name and the color are cleaned where they enter storage. Control characters become
 spaces, since a label is drawn on one line and a newline is not a label, and a color that is not

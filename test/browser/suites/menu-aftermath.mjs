@@ -9,6 +9,7 @@ import {
   finish,
   realClick,
   openPaneMenu,
+  waitFor,
 } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 import { rm } from 'node:fs/promises';
@@ -20,7 +21,8 @@ const MADE = join(homedir(), 'tabterm-suite-made-this');
 
 const r = reporter();
 const { client } = await openTerminal();
-await sleep(4500);
+// The prompt is already there; this waits for the start screen's own lists.
+await waitFor(client, "document.querySelector('.launcher-input')");
 await type(client, 'echo before-clearing\r');
 await sleep(1400);
 
@@ -68,7 +70,8 @@ r.ok(
 
 // The start screen says whether a folder is there, and offers to make one that is not.
 const fresh = await openTerminal();
-await sleep(5000);
+// The prompt is already there; this waits for the start screen's own lists.
+await waitFor(fresh.client, "document.querySelector('.launcher-input')");
 const typePath = async (text) => {
   await evaluate(
     fresh.client,

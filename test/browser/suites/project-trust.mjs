@@ -1,6 +1,6 @@
 // A cloned repository can declare a workspace. Nothing about it runs without a decision.
 import { openTerminal, type, evaluate, sleep, finish } from '../helpers.mjs';
-import { reporter, connect } from '../cdp.mjs';
+import { reporter, connect, listTargets } from '../cdp.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -64,9 +64,9 @@ r.ok(
 r.ok('offering refusal as well as approval', panel.buttons.length === 2, panel.buttons.join(' | '));
 
 const before = new Set(
-  (await (await fetch('http://127.0.0.1:9223/json/list')).json())
-    .filter((t) => t.url.includes('terminal.html'))
-    .map((t) => t.id),
+  // `listTargets`, not a hardcoded port. Suites run across several browsers now, so a fixed
+  // 9223 asked a browser this suite is not in and saw none of its own tabs.
+  (await listTargets()).filter((t) => t.url.includes('terminal.html')).map((t) => t.id),
 );
 await evaluate(
   client,
@@ -74,7 +74,7 @@ await evaluate(
 );
 await sleep(3500);
 
-const fresh = (await (await fetch('http://127.0.0.1:9223/json/list')).json()).filter(
+const fresh = (await listTargets()).filter(
   (t) => t.url.includes('terminal.html') && !before.has(t.id),
 );
 r.ok('approving opens the declared workspace', fresh.length === 1);

@@ -4,7 +4,7 @@
 // worth testing are the ones nobody schedules: a browser killed outright, a daemon killed
 // mid-command, and the process holding the PTYs killed, which no session can survive.
 import { execFileSync } from 'node:child_process';
-import { openTerminal, readScreen, sleep, type, finish } from '../helpers.mjs';
+import { openTerminal, readScreen, sleep, type, finish, waitUntil, waitFor } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -37,8 +37,9 @@ try {
 } catch {
   r.ok('could kill the daemon', false, 'pgrep or kill failed');
 }
-await sleep(14000);
-
+// Polled, not slept through. This was fourteen seconds of fixed waiting chosen to cover the
+// worst case, and the worst case is not the common one.
+await waitUntil(() => alive('pty-host.mjs') && alive());
 r.ok('the PTY host outlives the daemon being killed', alive('pty-host.mjs'));
 
 const after = String(await readScreen(client));
@@ -61,17 +62,25 @@ try {
 } catch {
   /* nothing running is a fine starting point */
 }
-await sleep(7000);
-
+await waitUntil(() => alive('pty-host.mjs'));
 r.ok('a new host is started automatically after the old one dies', alive('pty-host.mjs'));
 
 const fresh = await openTerminal();
-await sleep(3500);
 await type(fresh.client, `echo recovered-${TAG}`);
-await sleep(2500);
+// Waited for, not slept through. A shell that has just been started by a freshly respawned host
+// takes longer than one on a quiet machine, and a fixed wait here is the difference between a
+// green run and a failure that reads as the recovery not working.
+const recovered = await waitFor(
+  fresh.client,
+  `(window.__tabterm.readScreen() ?? '').includes(${JSON.stringify(`recovered-${TAG}`)})`,
+  // Generous on purpose. A daemon that has just been killed comes back cold, and this is the
+  // one check in the run that is legitimately waiting on a process to start from nothing.
+  45000,
+);
 r.ok(
   'and TabTerm still works, rather than needing a daemon restart',
-  String(await readScreen(fresh.client)).includes(`recovered-${TAG}`),
+  recovered,
+  String(await readScreen(fresh.client)).slice(0, 120),
 );
 
 r.ok('the daemon is running again, restarted by launchd', alive('libexec/tabterm/daemon.mjs'));

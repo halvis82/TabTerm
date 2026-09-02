@@ -10,12 +10,14 @@ import {
   finish,
   realClick,
   openPaneMenu,
+  waitFor,
 } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
 const { client } = await openTerminal();
-await sleep(4500);
+// The prompt is already there; this waits for the start screen's own lists.
+await waitFor(client, "document.querySelector('.launcher-input')");
 await evaluate(client, "window.__tabterm.split('horizontal')");
 await sleep(3000);
 // A fresh pane has the chooser over it, which is what an empty pane is for. Use the pane first,
@@ -44,10 +46,19 @@ r.ok(
 await realClick(client, '.term-menu-item', 'Name session');
 await sleep(500);
 r.ok('the form opens', await evaluate(client, "!!document.querySelector('.pane-label-form')"));
-// One swatch, which opens the same picker every other color in the product comes from.
+// The picker is part of the form, not behind a swatch: naming is "type a word and pick a color",
+// so both halves are on screen at once.
 r.ok(
-  'with a color to pick',
-  await evaluate(client, "!!document.querySelector('.pane-label-color')"),
+  'with the color picker already there',
+  await evaluate(client, "!!document.querySelector('.pane-label-form .color-picker-map')"),
+);
+r.ok(
+  'showing the color as it stands, above the map',
+  await evaluate(client, "!!document.querySelector('.color-picker-current')"),
+);
+r.ok(
+  'and exactly five slots under it',
+  Number(await evaluate(client, "document.querySelectorAll('.color-picker-swatch').length")) === 5,
 );
 
 await evaluate(client, "document.querySelector('.pane-label-input').value = 'build watch'");
@@ -77,9 +88,9 @@ for (const kind of ['mousePressed', 'mouseReleased']) {
 }
 await sleep(300);
 const picked = String(
-  await evaluate(client, "document.querySelector('.pane-label-color')?.style.background ?? ''"),
+  await evaluate(client, "document.querySelector('.color-picker-current')?.style.background ?? ''"),
 );
-r.ok('and picking on it sets the color', picked !== '', picked);
+r.ok('and picking on the map sets the color, with nothing to confirm', picked !== '', picked);
 await realClick(client, '.pane-label-form .term-menu-item', 'Save');
 await sleep(1500);
 

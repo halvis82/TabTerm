@@ -8,8 +8,11 @@
 # The profile is throwaway and recreated each run, so a suite can never see state left by the
 # previous one, and the developer's real Chrome profile is never opened.
 set -uo pipefail
-PROFILE=/tmp/tt-chrome-headless
 PORT="${TT_CDP_PORT:-9223}"
+# One profile per port, so several browsers can run side by side. Suites are driven through the
+# active target, and several of them sharing one browser fight over which tab that is: keystrokes
+# land in somebody else's terminal and the failure looks like a product bug.
+PROFILE="/tmp/tt-chrome-headless-$PORT"
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 pkill -f "user-data-dir=$PROFILE" 2>/dev/null || true

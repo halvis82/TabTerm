@@ -198,9 +198,40 @@ A highlight is a background behind text somebody picked out by hand. Select, rig
 a highlighter is yellow unless you go and get another one. The color sits on the right of that
 menu entry as a swatch, and pressing **the swatch** is the only thing that opens anything.
 
-It is drawn as a decoration on the `bottom` layer, which puts it behind the characters rather
-than over them, and it appears on the same rail as the landmarks, because "somewhere I marked" is
-one idea and deserves one place to look.
+It is drawn **translucent**, at 24% or 34% depending on whether the color is light or dark, with
+an edge down each side. An opaque block hid the very text the highlight was pointing at, which is
+the opposite of what a highlight is for. The characters underneath are painted on the renderer's
+canvas and cannot be recolored from a decoration, so readability comes from letting them through
+rather than from choosing a color for them. The edges are on the sides only: a full outline drew
+a line between one highlighted row and the next, so a block spanning several rows looked like
+several stripes.
+
+It appears on the same rail as the landmarks, because "somewhere I marked" is one idea and
+deserves one place to look.
+
+**A highlight is a range on a line, and ranges merge.** Highlighting "sen", then "ce sent", then
+"nice senten" used to leave three translucent layers piled on the overlap, each darker than the
+last: the colors were stacking because the ranges were not. One rule answers three behaviors:
+
+- Overlapping ranges become one, so a wash is a wash however many times it was painted
+- Highlighting **exactly** what is already highlighted takes it off, which is the natural toggle
+- Highlighting anything wider keeps what was there and extends it
+
+`Remove highlight` appears on the menu only when the click landed on one, and removes everything
+**continuous** with that point, across rows as well as along one. A block of color reads as one
+thing, so it comes off as one thing, whenever its parts were made.
+
+**A live highlight is held by an xterm marker** on its own line, which is what keeps it exactly
+where it was put. The first version recomputed the position from the text on every redraw and
+anchored to "which occurrence, counted from the end of the buffer", chosen because scrollback is
+trimmed from the front. That was right about trimming and wrong about what a terminal does, which
+is append: a shell prints its prompt again after every command, each new copy became the last
+occurrence, and a highlight on one prompt reappeared on every later prompt. Text is not an
+identity in a terminal.
+
+**Only text that was printed.** A terminal line is a fixed grid, so a drag to the right edge
+selects blank cells as readily as characters. The selection is clipped to the characters actually
+on the line, and when nothing is left the entry is not offered at all.
 
 **Nothing is written into the session.** A landmark can be printed output and survive on its own;
 a highlight cannot, because the text it covers was printed long ago and cannot be repainted at

@@ -965,6 +965,8 @@
   }
 
   /* --- the color picker, used everywhere a color is chosen ---------------- */
+  /* The same three parts wherever a color is chosen: the color as it stands, the map, and the
+     last five used for this job. Floating beside whatever opened it, or sitting inside a form. */
   .color-picker {
     position: fixed;
     z-index: 80;
@@ -977,9 +979,21 @@
     background: #1a1c20;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   }
+  .color-picker.is-inline {
+    position: static;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .color-picker-current {
+    height: 22px;
+    border-radius: 5px;
+    border: 1px solid #3a3a3a;
+  }
   .color-picker-map {
     width: 190px;
-    height: 120px;
+    height: 110px;
     border-radius: 6px;
     border: 1px solid #333;
     cursor: crosshair;
@@ -989,15 +1003,19 @@
     gap: 5px;
   }
   .color-picker-swatch {
-    width: 22px;
+    width: 30px;
     height: 22px;
     padding: 0;
     border-radius: 5px;
-    border: 2px solid transparent;
+    border: 1px solid #3a3a3a;
     cursor: pointer;
   }
-  .color-picker-swatch.on {
-    border-color: #e8e8e8;
+  /* Drawn, not omitted, so the row is the same shape before anything has been chosen and a
+     color picked by position stays where it was. */
+  .color-picker-swatch.is-empty {
+    background: #232529;
+    border-style: dashed;
+    cursor: default;
   }
 
   .term-menu-item:hover:not(:disabled) {
@@ -1043,7 +1061,8 @@
      reading, and one that competed with the output would be worse than none. */
   .pane-label {
     position: absolute;
-    /* Clear of the command button, which lives in the same corner. */
+    /* Top right, clear of the command button in the same corner. The form that types it moved
+       to the bottom instead, which is what stops the two overlapping. */
     top: 40px;
     right: 14px;
     z-index: 4;
@@ -1060,14 +1079,18 @@
     user-select: none;
     max-width: 72%;
     text-align: right;
-    /* Wraps rather than being cut off, so a name is still a name in a small pane. */
-    white-space: normal;
+    /* `pre-wrap`, not `normal`. HTML collapses a run of spaces into one, so a name typed with
+       five spaces in it was drawn with one and did not match what was in the box. It still
+       wraps, so a name is still a name in a small pane. */
+    white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
 
   .pane-label-form {
     position: absolute;
-    top: 24px;
+    /* Bottom right, so it never covers the name it is naming, nor the command button. A
+       terminal fills from the top, so this is the emptier corner while one is being used. */
+    bottom: 12px;
     right: 8px;
     z-index: 61;
     display: flex;
@@ -1093,25 +1116,10 @@
     outline: none;
     border-color: #4d7fd0;
   }
-  .pane-label-color-caption {
-    color: #9aa1b8;
-    font-size: 12px;
-  }
+  /* The picker lives here permanently, so this is just where it sits. */
   .pane-label-colors {
     display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .pane-label-color {
-    width: 20px;
-    height: 20px;
-    padding: 0;
-    border-radius: 50%;
-    border: 2px solid transparent;
-    cursor: pointer;
-  }
-  .pane-label-color.on {
-    border-color: #e8e8e8;
+    flex-direction: column;
   }
   .pane-label-actions {
     display: flex;

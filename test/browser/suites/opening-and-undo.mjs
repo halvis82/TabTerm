@@ -7,12 +7,14 @@ import {
   finish,
   realClick,
   openPaneMenu,
+  waitFor,
 } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
 const { client } = await openTerminal();
-await sleep(5000);
+// The prompt is already there; this waits for the start screen's own lists.
+await waitFor(client, "document.querySelector('.launcher-input')");
 
 const lines = async () =>
   (await evaluate(client, 'window.__tabterm.readScreen()'))

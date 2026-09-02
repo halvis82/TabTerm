@@ -2,12 +2,13 @@
 //
 // The cursor used to change for the whole screen the moment Command went down, which announced
 // that something was clickable without saying what, and said it over blank space too.
-import { openTerminal, evaluate, sleep, type, finish } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, type, finish, waitFor } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
 const { client } = await openTerminal();
-await sleep(4500);
+// The prompt is already there; this waits for the start screen's own lists.
+await waitFor(client, "document.querySelector('.launcher-input')");
 await type(client, 'echo /Users/halvis82/Documents\r');
 await sleep(2800);
 

@@ -1,10 +1,20 @@
 // Only offer what works, and do not leave a spare tab behind.
-import { openTerminal, evaluate, sleep, type, finish, realClick } from '../helpers.mjs';
+import {
+  openTerminal,
+  evaluate,
+  sleep,
+  type,
+  finish,
+  realClick,
+  waitFor,
+  waitUntil,
+} from '../helpers.mjs';
 import { listTargets, reporter } from '../cdp.mjs';
 
 const r = reporter();
 const a = await openTerminal();
-await sleep(5000);
+// The prompt is already there; this waits for the start screen's own lists.
+await waitFor(a.client, 'window.__tabterm.resumable().length > 0');
 
 // What the daemon says can be resumed, before the launcher trims it for display.
 const resumable = JSON.parse(
@@ -34,12 +44,18 @@ r.ok(
 // Resuming from a tab that is still showing its start screen happens **in** that tab.
 {
   const fresh = await openTerminal();
-  await sleep(4800);
+  // The prompt is already there; this waits for the start screen's own lists.
+  // The codex row specifically. The folder box and the recent folders are both there long
+  // before the daemon has answered with the conversations, so waiting for either was waiting
+  // for the wrong thing and the click found nothing to press.
+  await waitFor(fresh.client, "window.__tabterm.resumable().some((s) => s.agent === 'codex')");
   const was = (await listTargets()).filter((t) => (t.url ?? '').includes('terminal.html')).length;
   const workspaceWas = String(await evaluate(fresh.client, 'window.__tabterm.workspaceId()'));
   const clicked = await realClick(fresh.client, '.launcher-row', 'codex \u00b7 ');
   r.ok('a resume row can be pressed', clicked !== false);
-  await sleep(9000);
+  // The resumed agent has started when the tab has changed workspace, which is the thing being
+  // asserted. Nine seconds was a guess at how long Codex takes to draw its first frame.
+  await waitFor(fresh.client, `window.__tabterm.workspaceId() !== ${JSON.stringify(workspaceWas)}`);
   const now = (await listTargets()).filter((t) => (t.url ?? '').includes('terminal.html')).length;
   r.ok(
     'resuming does not leave a spare tab behind',
@@ -64,11 +80,16 @@ await type(a.client, 'echo RUNNING-HERE\r');
 await sleep(1600);
 
 const spare = await openTerminal();
-await sleep(4800);
+// The prompt is already there; this waits for the start screen's own lists.
+await waitFor(spare.client, "document.querySelector('.launcher-input')");
 const before = (await listTargets()).filter((t) => (t.url ?? '').includes('terminal.html')).length;
 const took = await realClick(spare.client, '.session-card', 'RUNNING-HERE');
 r.ok('the new tab lists the running session', took !== false);
-await sleep(2500);
+// The tab closes itself, so wait for it to be gone rather than for long enough that it must be.
+await waitUntil(
+  async () =>
+    (await listTargets()).filter((t) => (t.url ?? '').includes('terminal.html')).length < before,
+);
 const after = (await listTargets()).filter((t) => (t.url ?? '').includes('terminal.html')).length;
 r.ok(
   'and closes itself rather than sitting there empty beside it',
@@ -78,7 +99,7 @@ r.ok(
 
 // Detaching a pane: the one that stays grows into the space.
 await evaluate(a.client, "window.__tabterm.split('horizontal')");
-await sleep(3500);
+await waitFor(a.client, "document.querySelectorAll('.pane').length === 2");
 const widths = () =>
   evaluate(
     a.client,
@@ -102,7 +123,8 @@ await sleep(1800);
 {
   // Read from another tab's start screen, because this tab's was dismissed the moment it was used.
   const onlooker = await openTerminal();
-  await sleep(4800);
+  // The prompt is already there; this waits for the start screen's own lists.
+  await waitFor(onlooker.client, "document.querySelector('.launcher-input')");
   const listed = JSON.parse(
     await evaluate(
       onlooker.client,
@@ -119,7 +141,7 @@ const tabsBefore = (await listTargets()).filter((t) =>
   (t.url ?? '').includes('terminal.html'),
 ).length;
 await evaluate(a.client, 'window.__tabterm.detachPane()');
-await sleep(4000);
+await waitFor(a.client, "document.querySelectorAll('.pane').length === 1");
 
 const one = JSON.parse(await widths());
 r.ok(

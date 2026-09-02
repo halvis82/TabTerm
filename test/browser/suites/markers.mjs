@@ -11,12 +11,14 @@ import {
   finish,
   realClick,
   openPaneMenu,
+  waitFor,
 } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
 const { client } = await openTerminal();
-await sleep(4500);
+// The prompt is already there; this waits for the start screen's own lists.
+await waitFor(client, "document.querySelector('.launcher-input')");
 await type(client, 'echo before-the-landmark\r');
 await sleep(1200);
 

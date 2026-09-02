@@ -44,9 +44,76 @@ export async function openTerminal(query = '') {
   // newly opened one is not automatically it, and every keystroke is silently discarded --
   // the page looks perfectly healthy and simply never receives anything.
   await client.send('Page.bringToFront');
-  await sleep(4000);
   opened.push({ client, tab });
+  await ready(client);
   return { client, tab };
+}
+
+/**
+ * Wait until the tab actually has a terminal with a prompt in it.
+ *
+ * This replaced a flat four second sleep, which was the single largest fixed wait in the run and
+ * was wrong in both directions: usually far longer than needed, and occasionally not long enough
+ * on a busy machine, which produced failures that looked like product bugs.
+ *
+ * The condition is the real one: a pane exists, and something has been printed into it. A prompt
+ * is the first thing a shell prints, so its arrival is the moment the tab is usable.
+ */
+export async function ready(client, timeoutMs = 20000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const answer = await evaluate(
+      client,
+      `(() => {
+         const hook = window.__tabterm;
+         if (!hook || hook.paneIds().length === 0) return '';
+         return hook.readScreen() ?? '';
+       })()`,
+    );
+    if (String(answer).trim() !== '') return true;
+    if (Date.now() > deadline) return false;
+    await sleep(120);
+  }
+}
+
+/**
+ * Wait for something outside the browser: a process appearing, a port answering, a file landing.
+ *
+ * The counterpart to `waitFor`, for the suites that kill the daemon or the PTY host and then
+ * need to know it came back. Those were the slowest suites in the run and every second of it was
+ * a fixed sleep long enough to cover the worst case on a busy machine.
+ */
+export async function waitUntil(check, timeoutMs = 25000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      if (await check()) return true;
+    } catch {
+      // Not yet. A check that throws is a check that is not satisfied.
+    }
+    if (Date.now() > deadline) return false;
+    await sleep(150);
+  }
+}
+
+/**
+ * Wait for a condition in the page, rather than for a length of time.
+ *
+ * Every fixed sleep is a guess that is too long when things go well and too short when they do
+ * not. Anything that can be expressed as a question about the page should be asked repeatedly
+ * instead. Returns false on timeout so a check can report what it was waiting for.
+ */
+export async function waitFor(client, expression, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const answer = await evaluate(
+      client,
+      `(() => { try { return !!(${expression}); } catch { return false; } })()`,
+    );
+    if (answer === true || answer === 'true') return true;
+    if (Date.now() > deadline) return false;
+    await sleep(90);
+  }
 }
 
 /**

@@ -2,7 +2,7 @@
 //
 // Two rules this pins. An error about one workspace concerns the tab showing it and nobody else,
 // and what reaches a person names the thing that failed rather than a code or a number.
-import { openTerminal, evaluate, sleep, type, finish } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, type, finish, waitFor } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -11,15 +11,18 @@ const recovery = (client) =>
 
 // Two unrelated tabs, plus one that will take a session from the first.
 const a = await openTerminal();
-await sleep(4000);
+// The prompt is already there; this waits for the start screen's own lists.
+await waitFor(a.client, "document.querySelector('.launcher-input')");
 await type(a.client, 'echo tab-A\r');
 await sleep(1200);
 const bystander = await openTerminal();
-await sleep(4000);
+// The prompt is already there; this waits for the start screen's own lists.
+await waitFor(bystander.client, "document.querySelector('.launcher-input')");
 await type(bystander.client, 'echo bystander\r');
 await sleep(1200);
 const taker = await openTerminal();
-await sleep(4000);
+// The prompt is already there; this waits for the start screen's own lists.
+await waitFor(taker.client, "document.querySelector('.launcher-input')");
 await evaluate(taker.client, "window.__tabterm.split('horizontal')");
 await sleep(3000);
 
@@ -46,7 +49,8 @@ r.ok(
 // A failure a person can act on, rather than a code. Asking for a layout in a directory that
 // cannot be created is a real failure with a real cause underneath it.
 const fresh = await openTerminal();
-await sleep(4500);
+// The prompt is already there; this waits for the start screen's own lists.
+await waitFor(fresh.client, "document.querySelector('.launcher-input')");
 await evaluate(
   fresh.client,
   `(() => {

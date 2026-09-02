@@ -7,12 +7,14 @@ import {
   finish,
   realClick,
   openPaneMenu,
+  waitFor,
 } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
 const { client } = await openTerminal();
-await sleep(4500);
+// The prompt is already there; this waits for the start screen's own lists.
+await waitFor(client, "document.querySelector('.launcher-input')");
 // Its own slate. Highlights are kept per session and a previous run's are still there.
 await evaluate(
   client,
@@ -141,8 +143,9 @@ const stored = JSON.parse(
 );
 r.ok('and is written down, so it survives a reload', stored.length > 0, JSON.stringify(stored));
 r.ok(
-  'anchored by its text rather than by a line number',
-  typeof stored[0]?.text === 'string' && typeof stored[0]?.fromEnd === 'number',
+  'anchored by its text and which occurrence of it, counted from the start',
+  typeof stored[0]?.text === 'string' && typeof stored[0]?.occurrence === 'number',
+  JSON.stringify(stored[0]),
 );
 
 const recents = JSON.parse(
@@ -161,6 +164,188 @@ r.ok(
   'and kept apart from the colors used for titles and markers',
   !('title' in recents) || recents.title.join() !== (recents.highlight ?? []).join(),
 );
+
+/**
+ * It stays where it was put.
+ *
+ * Both reported symptoms were one mistake: the position was recomputed from the text on every
+ * redraw, and the anchor counted occurrences from the **end** of the buffer. A shell prints its
+ * prompt again after every command, so each new copy became the last occurrence and the
+ * highlight moved onto it. It is now pinned to a marker on its own line and never recomputed.
+ */
+const before = JSON.parse(await evaluate(client, 'JSON.stringify(window.__tabterm.highlights())'));
+await type(client, 'echo pick-me-out\r');
+await sleep(1600);
+await type(client, 'echo pick-me-out\r');
+await sleep(1600);
+const after = JSON.parse(await evaluate(client, 'JSON.stringify(window.__tabterm.highlights())'));
+r.ok(
+  'printing the same text again does not move the highlight',
+  after.length === before.length,
+  JSON.stringify(after),
+);
+
+const rail = Number(await evaluate(client, "document.querySelectorAll('.marker-pip').length"));
+r.ok('and does not add a second one on the rail', rail === 1, String(rail));
+
+// Only text that was actually printed. A terminal line is a fixed grid, so a drag to the right
+// edge selects blank cells as readily as characters, and a colored band over nothing is not a
+// highlight of anything.
+const grid = JSON.parse(await evaluate(client, 'JSON.stringify(window.__tabterm.geometry())'));
+const blankRow = grid.top + grid.cellHeight * (grid.rows - 3.5);
+for (const [kind, x] of [
+  ['mousePressed', grid.left + grid.cellWidth * 4],
+  ['mouseMoved', grid.left + grid.cellWidth * 40],
+  ['mouseReleased', grid.left + grid.cellWidth * 40],
+]) {
+  await client.send('Input.dispatchMouseEvent', {
+    type: kind,
+    x,
+    y: blankRow,
+    button: 'left',
+    clickCount: 1,
+    buttons: kind === 'mouseMoved' ? 1 : 0,
+  });
+}
+await sleep(300);
+const wasCount = JSON.parse(
+  await evaluate(client, 'JSON.stringify(window.__tabterm.highlights())'),
+).length;
+await openPaneMenu(client, grid.left + grid.cellWidth * 10, blankRow);
+await sleep(250);
+const offered = await evaluate(
+  client,
+  `(() => { const b = [...document.querySelectorAll('.term-menu-item')].find((x) => x.textContent === 'Highlight'); return b ? String(b.disabled) : 'missing'; })()`,
+);
+r.ok(
+  'highlighting empty space is not offered',
+  offered === 'true' || offered === true,
+  String(offered),
+);
+await evaluate(client, "document.querySelector('.term-menu')?.remove()");
+const stillCount = JSON.parse(
+  await evaluate(client, 'JSON.stringify(window.__tabterm.highlights())'),
+).length;
+r.ok(
+  'and nothing was added',
+  stillCount === wasCount,
+  `${String(wasCount)} -> ${String(stillCount)}`,
+);
+
+/**
+ * Overlapping highlights merge rather than stacking.
+ *
+ * Highlighting "sen", then "ce sent", then "nice senten" used to leave three translucent layers
+ * piled on the overlap, each darker than the last. The colors were stacking because the ranges
+ * were not.
+ */
+await type(client, 'echo this is a nice sentence\r');
+await sleep(1600);
+const sentence = String(await evaluate(client, 'window.__tabterm.readScreen()'))
+  .split(String.fromCharCode(10))
+  .findIndex((l) => l.trim() === 'this is a nice sentence');
+
+const cells = JSON.parse(await evaluate(client, 'JSON.stringify(window.__tabterm.geometry())'));
+const select = async (fromCol, toCol) => {
+  const y = cells.top + cells.cellHeight * (sentence + 0.5);
+  const at = (col) => cells.left + cells.cellWidth * col;
+  for (const [kind, col, buttons] of [
+    ['mousePressed', fromCol, 0],
+    ['mouseMoved', toCol, 1],
+    ['mouseReleased', toCol, 0],
+  ]) {
+    await client.send('Input.dispatchMouseEvent', {
+      type: kind,
+      x: at(col),
+      y,
+      button: 'left',
+      clickCount: 1,
+      buttons,
+    });
+  }
+  await sleep(250);
+};
+const onSentence = async () => {
+  const all = JSON.parse(await evaluate(client, 'JSON.stringify(window.__tabterm.highlights())'));
+  return all.filter((h) => 'this is a nice sentence'.includes(h.text));
+};
+const highlightNow = async () => {
+  await openPaneMenu(
+    client,
+    cells.left + cells.cellWidth * 2,
+    cells.top + cells.cellHeight * (sentence + 0.5),
+  );
+  await sleep(200);
+  await realClick(client, '.term-menu-item', 'Highlight');
+  await sleep(500);
+};
+
+// "sen" of "sentence".
+await select(15, 18);
+await highlightNow();
+const one = await onSentence();
+r.ok('a first highlight lands on the line', one.length === 1, JSON.stringify(one));
+
+// Overlapping it, and wider on both sides.
+await select(12, 21);
+await highlightNow();
+const merged = await onSentence();
+r.ok(
+  'an overlapping highlight merges rather than layering',
+  merged.length === 1,
+  JSON.stringify(merged),
+);
+r.ok(
+  'and the merged one covers the wider span',
+  (merged[0]?.text.length ?? 0) > (one[0]?.text.length ?? 0),
+  JSON.stringify(merged[0]),
+);
+
+// Exactly what is there, which is how it comes off.
+await select(12, 21);
+await highlightNow();
+r.ok('highlighting exactly what is highlighted removes it', (await onSentence()).length === 0);
+
+// Put one back, then take it off from the menu.
+await select(12, 21);
+await highlightNow();
+r.ok('and it can be put back', (await onSentence()).length === 1);
+
+await openPaneMenu(
+  client,
+  cells.left + cells.cellWidth * 15,
+  cells.top + cells.cellHeight * (sentence + 0.5),
+);
+await sleep(250);
+const removeOffered = await evaluate(
+  client,
+  `[...document.querySelectorAll('.term-menu-item')].some((b) => b.textContent === 'Remove highlight')`,
+);
+r.ok(
+  'right-clicking a highlight offers to remove it',
+  removeOffered === true || removeOffered === 'true',
+);
+await realClick(client, '.term-menu-item', 'Remove highlight');
+await sleep(500);
+r.ok('and it goes', (await onSentence()).length === 0);
+
+// Not offered where there is no highlight.
+await openPaneMenu(
+  client,
+  cells.left + cells.cellWidth * 2,
+  cells.top + cells.cellHeight * (sentence + 0.5),
+);
+await sleep(250);
+const offeredOnPlain = await evaluate(
+  client,
+  `[...document.querySelectorAll('.term-menu-item')].some((b) => b.textContent === 'Remove highlight')`,
+);
+r.ok(
+  'and is not offered where there is none',
+  offeredOnPlain === false || offeredOnPlain === 'false',
+  String(offeredOnPlain),
+);
+await evaluate(client, "document.querySelector('.term-menu')?.remove()");
 
 await finish();
 r.done();

@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   anchor,
-  highlightAt,
-  highlightsForSelection,
+  highlightStyle,
   locate,
   occurrences,
+  prefersDarkText,
 } from './highlight-anchor.js';
 
 const lines = ['npm run build', 'error: no such file', 'npm run build', 'done'];
 
-describe('anchoring a highlight to what it covers', () => {
+describe('finding a highlight again after a reload', () => {
   it('finds every occurrence in reading order', () => {
     expect(occurrences(lines, 'npm run build')).toEqual([
       { row: 0, col: 0, length: 13 },
@@ -18,58 +18,70 @@ describe('anchoring a highlight to what it covers', () => {
   });
 
   it('does not count an overlapping match twice', () => {
-    // "the third time this appears" means what a person means by it.
     expect(occurrences(['aaaa'], 'aa')).toEqual([
       { row: 0, col: 0, length: 2 },
       { row: 0, col: 2, length: 2 },
     ]);
   });
 
-  it('numbers occurrences from the end, so trimming the top does not move them', () => {
-    const later = anchor(lines, 2, 0, 'npm run build');
-    expect(later).toBe(1);
+  it('numbers occurrences from the start, so later output cannot steal one', () => {
+    /**
+     * This is the bug the first version had. Counting from the **end** was chosen because
+     * scrollback is trimmed from the front, and it was wrong about what a terminal actually
+     * does: it appends. A shell prompt appears again after every command, so a highlight on one
+     * prompt jumped forward to every later prompt.
+     */
+    const first = anchor(lines, 0, 0, 'npm run build');
+    expect(first).toBe(0);
 
-    // Two lines fall off the front of the scrollback. The anchor still finds the same text.
-    const trimmed = lines.slice(2);
-    expect(locate(trimmed, { text: 'npm run build', fromEnd: later, color: '#ff0' })).toEqual({
+    // The command runs again and prints the same line. The anchor does not move.
+    const later = [...lines, 'npm run build'];
+    expect(locate(later, { text: 'npm run build', occurrence: first, color: '#ff0' })).toEqual({
       row: 0,
       col: 0,
       length: 13,
     });
   });
 
-  it('loses a highlight whose line has gone, rather than putting it somewhere else', () => {
-    const first = anchor(lines, 0, 0, 'npm run build');
-    expect(first).toBe(2);
-    // Its own occurrence is the one that was trimmed, so there is no honest place to draw it.
-    expect(locate(lines.slice(2), { text: 'npm run build', fromEnd: first, color: '#ff0' })).toBe(
-      null,
+  it('keeps the second occurrence the second, however much is appended', () => {
+    const second = anchor(lines, 2, 0, 'npm run build');
+    expect(second).toBe(1);
+    const later = [...lines, 'npm run build', 'npm run build'];
+    expect(locate(later, { text: 'npm run build', occurrence: second, color: '#ff0' })?.row).toBe(
+      2,
     );
   });
 
-  it('makes one highlight per line of a selection', () => {
-    const made = highlightsForSelection(
-      lines,
-      [
-        { row: 1, col: 0, text: 'error: no such file' },
-        { row: 2, col: 0, text: 'npm run build' },
-      ],
-      '#ffd54a',
-    );
-    expect(made.map((h) => h.text)).toEqual(['error: no such file', 'npm run build']);
-    expect(made.every((h) => h.color === '#ffd54a')).toBe(true);
+  it('drops a highlight whose occurrence is gone rather than moving it', () => {
+    // Being in the wrong place is worse than being gone: a highlight is a claim about where
+    // something is.
+    expect(locate(['done'], { text: 'npm run build', occurrence: 1, color: '#ff0' })).toBe(null);
+  });
+});
+
+describe('painting a highlight so the text still reads', () => {
+  it('works out whether the color is light or dark', () => {
+    expect(prefersDarkText('#ffd54a')).toBe(true);
+    expect(prefersDarkText('#f5f5f5')).toBe(true);
+    expect(prefersDarkText('#202020')).toBe(false);
+    expect(prefersDarkText('#1a3d8f')).toBe(false);
   });
 
-  it('drops a piece with nothing on it', () => {
-    // The empty tail of a line has no text to anchor to and could never be found again.
-    expect(highlightsForSelection(lines, [{ row: 3, col: 4, text: '   ' }], '#ffd54a')).toEqual([]);
+  it('is translucent, because an opaque block hides what it points at', () => {
+    const style = highlightStyle('#ffd54a');
+    expect(style.background).toMatch(/^rgba\(255, 213, 74, 0\.\d+\)$/);
+    const alpha = Number(/, (0\.\d+)\)$/.exec(style.background)?.[1]);
+    expect(alpha).toBeLessThan(0.4);
+    expect(alpha).toBeGreaterThan(0.15);
   });
 
-  it('finds the highlight under a point, so a second click can remove it', () => {
-    const made = highlightsForSelection(lines, [{ row: 1, col: 7, text: 'no such' }], '#ffd54a');
-    expect(highlightAt(lines, made, 1, 9)?.text).toBe('no such');
-    // Just past its end is not on it.
-    expect(highlightAt(lines, made, 1, 14)).toBe(null);
-    expect(highlightAt(lines, made, 0, 9)).toBe(null);
+  it('keeps a solid edge, so a dark color is still visible at low alpha', () => {
+    // A 24% wash of a dark blue on a dark terminal is very nearly nothing on its own.
+    expect(highlightStyle('#1a3d8f').border).toBe('rgba(26, 61, 143, 0.85)');
+  });
+
+  it('does not fall over on a color it was not given properly', () => {
+    expect(highlightStyle('nonsense').background).toMatch(/^rgba\(/);
+    expect(prefersDarkText('nope')).toBe(true);
   });
 });

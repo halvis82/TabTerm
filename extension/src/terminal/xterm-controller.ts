@@ -271,12 +271,19 @@ export class XtermController {
       this.term.focus();
       this.term.selectAll();
     });
-    // Offered only when the click landed on a highlight, so taking one off is where it is.
+    /**
+     * Offered only when the click actually landed on a highlight.
+     *
+     * It used to appear whenever the pane had any highlight at all, so it was there over blank
+     * output and did nothing when pressed. Asking whether this cell is covered is the same
+     * question a person asks by right-clicking on one.
+     */
     const under = this.#cellAt(x, y);
-    const onHighlight =
-      under !== null && this.#highlights !== null ? this.#highlights.highlights.length > 0 : false;
-    if (onHighlight && under) {
-      item('Remove highlight', true, () => this.#highlights?.removeAt(under.row, under.col));
+    if (under && this.#highlights?.covers(under.row, under.col) === true) {
+      item('Remove highlight', true, () => {
+        this.#highlights?.removeAt(under.row, under.col);
+        this.#markers?.sync(this.term, this.#highlights?.places() ?? []);
+      });
     }
 
     // The real clear, not `term.clear()`. Wiping this buffer alone left the output in the daemon

@@ -33,7 +33,7 @@
     "postinstall": "node scripts/postinstall.mjs",
     "check-node": "node scripts/check-node.mjs",
     "check-text": "node scripts/check-text.mjs",
-    "test:browser": "bash test/browser/run.sh"
+    "test:browser": "node test/browser/run.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.0",

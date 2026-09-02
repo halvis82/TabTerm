@@ -259,6 +259,19 @@ export class SplitView {
     if (!existing) wrapper.append(el);
   }
 
+  /**
+   * Draw a name without recording one.
+   *
+   * Used while somebody is typing it, so they can see the thing they are making: how big it
+   * reads against this pane, whether the color survives being drawn at low opacity, whether it
+   * wraps. Nothing is sent to the daemon, so an abandoned form leaves no trace and Escape
+   * genuinely cancels. The next render from a real layout overwrites whatever is here.
+   */
+  previewLabel(paneId: string, label: string, color: string): void {
+    const wrapper = this.#wrappers.get(paneId);
+    if (wrapper) this.#applyLabel(wrapper, label, color);
+  }
+
   #sessionFor(paneId: string): string | null {
     if (!this.#layout) return null;
     const walk = (n: LayoutNode): string | null => {

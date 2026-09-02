@@ -17,8 +17,10 @@ const KEY = 'tabterm.recentColors';
 
 /** What each use starts with before anybody has picked anything. */
 export const DEFAULT_COLOR: Record<ColorUse, string> = {
+  // The quiet grey a name should have, so it says which session this is without competing.
   title: '#9aa1b8',
-  marker: '#7aa2f7',
+  // A red, which is what a landmark in a wall of output wants to be.
+  marker: '#e0776b',
   // Yellow, the way a highlighter is yellow unless you go and get another one.
   highlight: '#ffd54a',
 };

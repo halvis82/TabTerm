@@ -1,23 +1,30 @@
 /**
- * Remembering where a highlight is, without remembering a line number.
+ * Remembering where a highlight is.
  *
- * A row number is wrong the moment anything scrolls off the top of the scrollback, and after a
- * reload the buffer is rebuilt from a snapshot that may not start in the same place. So a
- * highlight is anchored the way a landmark is found: by what it looks like. It records the text
- * it covers and **which occurrence of that text**, counted from the end of the buffer.
+ * A live highlight is held by an xterm marker, which is tied to one buffer line and moves with it
+ * as the scrollback grows. That is exact and is what `highlights.ts` uses while the tab is open.
+ * This file is only about the durable half: what gets written down so a highlight survives a
+ * reload, when there is no marker left to hold.
  *
- * Counted from the end deliberately. Scrollback is trimmed from the front, so numbering from the
- * front changes every time a line is dropped, while numbering from the end is stable until the
- * highlighted line itself is dropped. At that point it stops being found, which is exactly when
- * it stops being reachable.
+ * **The first attempt was wrong and the reason matters.** It recorded "which occurrence of this
+ * text, counted from the end of the buffer", chosen because scrollback is trimmed from the front.
+ * That reasoning was right about trimming and wrong about what a terminal actually does, which is
+ * append, constantly. A shell prompt appears again after every command, and each new copy became
+ * the last occurrence, so a highlight on a prompt jumped forward to every later prompt. Counting
+ * from the **start** is stable under appending, which is the thing that happens all the time, and
+ * unstable only under trimming, which happens when the scrollback fills.
+ *
+ * A highlight whose occurrence is no longer there is dropped rather than drawn somewhere
+ * approximate. Being in the wrong place is worse than being gone: a highlight is a claim about
+ * where something is.
  */
 
 export interface Highlight {
   /** The text on one line that is highlighted. A selection over several lines becomes several. */
   text: string;
-  /** 1 is the last occurrence of that text in the buffer, 2 the one before it, and so on. */
-  fromEnd: number;
-  /** CSS color. */
+  /** 0 is the first occurrence of that text in the buffer, 1 the next, and so on. */
+  occurrence: number;
+  /** CSS color, as a #rrggbb. Drawn translucent, see `highlightStyle`. */
   color: string;
 }
 
@@ -49,62 +56,49 @@ export function occurrences(lines: readonly string[], text: string): Placed[] {
   return found;
 }
 
-/**
- * Which occurrence a place is, counted from the end.
- *
- * Zero when the text is not there at all, which the caller treats as "do not record this".
- */
+/** Which occurrence a place is, counted from the start. -1 when the text is not there. */
 export function anchor(lines: readonly string[], row: number, col: number, text: string): number {
-  const all = occurrences(lines, text);
-  const index = all.findIndex((o) => o.row === row && o.col === col);
-  return index === -1 ? 0 : all.length - index;
+  return occurrences(lines, text).findIndex((o) => o.row === row && o.col === col);
 }
 
-/** Where a highlight is now, or null when its text is no longer in the buffer. */
+/** Where a highlight is now, or null when that occurrence is no longer in the buffer. */
 export function locate(lines: readonly string[], highlight: Highlight): Placed | null {
-  const all = occurrences(lines, highlight.text);
-  return all[all.length - highlight.fromEnd] ?? null;
+  return occurrences(lines, highlight.text)[highlight.occurrence] ?? null;
 }
 
 /**
- * Split a selection into one anchored highlight per line.
+ * Is this color light enough that black reads on it?
  *
- * A highlight is drawn as a run on a single row, because that is what a decoration is, so a
- * selection over four lines is four highlights. Blank pieces are dropped: highlighting the empty
- * remainder of a line would anchor to text that is not there and could never be found again.
+ * Relative luminance, the same weighting every contrast tool uses. Above the midpoint means a
+ * light background, which wants dark text, and below it the other way around.
  */
-export function highlightsForSelection(
-  lines: readonly string[],
-  pieces: readonly { row: number; col: number; text: string }[],
-  color: string,
-): Highlight[] {
-  const made: Highlight[] = [];
-  for (const piece of pieces) {
-    const text = piece.text.trimEnd();
-    if (text === '') continue;
-    const fromEnd = anchor(lines, piece.row, piece.col, text);
-    if (fromEnd === 0) continue;
-    made.push({ text, fromEnd, color });
-  }
-  return made;
+export function prefersDarkText(color: string): boolean {
+  const hex = color.replace('#', '');
+  if (hex.length !== 6) return true;
+  const channel = (at: number): number => Number.parseInt(hex.slice(at, at + 2), 16) / 255;
+  const linear = (c: number): number => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const luminance =
+    0.2126 * linear(channel(0)) + 0.7152 * linear(channel(2)) + 0.0722 * linear(channel(4));
+  return luminance > 0.45;
 }
 
 /**
- * Drop a highlight that covers a point, so a second right-click can take one off.
+ * How a highlight is painted.
  *
- * Matched by position rather than by identity, because the caller has a click and the model has
- * text. The topmost match wins, which is the one drawn over the point.
+ * Translucent, because the decoration sits over the characters and an opaque block hid the text
+ * it was pointing at, which is the opposite of what a highlight is for. The text underneath is
+ * drawn on the renderer's canvas and cannot be recolored from here, so readability comes from
+ * letting it through rather than from choosing a color for it.
+ *
+ * A thin border in the solid color keeps the highlight visible at low alpha, which matters most
+ * on a dark terminal where a 20% wash of a dark color is nearly nothing.
  */
-export function highlightAt(
-  lines: readonly string[],
-  highlights: readonly Highlight[],
-  row: number,
-  col: number,
-): Highlight | null {
-  for (const h of highlights) {
-    const at = locate(lines, h);
-    if (!at) continue;
-    if (at.row === row && col >= at.col && col < at.col + at.length) return h;
-  }
-  return null;
+export function highlightStyle(color: string): { background: string; border: string } {
+  const hex = color.replace('#', '');
+  const rgb = [0, 2, 4].map((at) => Number.parseInt(hex.slice(at, at + 2), 16) || 0);
+  const alpha = prefersDarkText(color) ? 0.24 : 0.34;
+  return {
+    background: `rgba(${rgb.join(', ')}, ${String(alpha)})`,
+    border: `rgba(${rgb.join(', ')}, 0.85)`,
+  };
 }

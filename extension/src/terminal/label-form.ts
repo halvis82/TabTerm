@@ -1,4 +1,4 @@
-import { openColorPicker, closeColorPicker } from './color-picker.js';
+import { openColorPicker } from './color-picker.js';
 
 /**
  * Naming a session, and describing a landmark.
@@ -22,6 +22,14 @@ export interface LabelFormOptions {
   /** The last few colors chosen for this particular use. */
   recents?: readonly string[];
   onSubmit: (label: string, color: string) => void;
+  /**
+   * Fired on every keystroke and every color, so the name can be drawn as it is typed.
+   *
+   * A name is a piece of visual design: how big it looks against this pane, whether the color
+   * reads at low opacity, whether it wraps. None of that can be judged from a text box, and
+   * having to save, look, and reopen to adjust it is three steps for one decision.
+   */
+  onPreview?: (label: string, color: string) => void;
   onCancel: () => void;
 }
 
@@ -41,37 +49,26 @@ export function openLabelForm(opts: LabelFormOptions): HTMLElement {
   const recents = opts.recents ?? [];
   let chosen = opts.currentColor ?? recents[0] ?? '#9aa1b8';
 
-  const swatches = document.createElement('div');
-  swatches.className = 'pane-label-colors';
-
-  const current = document.createElement('button');
-  current.className = 'pane-label-color on';
-  current.style.background = chosen;
-  current.title = 'Choose a color';
-
-  const caption = document.createElement('span');
-  caption.className = 'pane-label-color-caption';
-  caption.textContent = 'Color';
-
-  current.addEventListener('mousedown', (e) => e.stopPropagation());
-  current.addEventListener('click', (e) => {
-    e.stopPropagation();
-    openColorPicker({
-      anchor: current,
-      recents,
-      current: chosen,
-      onPreview: (color) => (current.style.background = color),
-      onPick: (color) => {
-        chosen = color;
-        current.style.background = color;
-        closeColorPicker();
-        input.focus();
-      },
-      // Nothing was chosen, so the swatch goes back to showing what is still selected.
-      onClose: () => (current.style.background = chosen),
-    });
+  /**
+   * The picker is always there, under the box.
+   *
+   * Naming a session and describing a landmark are both "type a word and pick a color", so both
+   * halves belong on screen at once. Hiding the color behind a swatch made choosing one two
+   * clicks for something that is half the form.
+   */
+  const colors = document.createElement('div');
+  colors.className = 'pane-label-colors';
+  openColorPicker({
+    anchor: colors,
+    inline: true,
+    recents,
+    current: chosen,
+    onPick: (color) => {
+      chosen = color;
+      opts.onPreview?.(input.value, chosen);
+      input.focus();
+    },
   });
-  swatches.append(caption, current);
 
   const actions = document.createElement('div');
   actions.className = 'pane-label-actions';
@@ -97,8 +94,11 @@ export function openLabelForm(opts: LabelFormOptions): HTMLElement {
     if (e.key === 'Enter') opts.onSubmit(input.value, chosen);
     if (e.key === 'Escape') opts.onCancel();
   });
+  // `input` rather than `keydown`, so it fires after the character has landed and also catches
+  // a paste, which produces no keystroke at all.
+  input.addEventListener('input', () => opts.onPreview?.(input.value, chosen));
 
-  form.append(input, swatches, actions);
+  form.append(input, colors, actions);
   opts.container.append(form);
   input.focus();
   input.select();

@@ -4,7 +4,16 @@
 // screen of output. This is the check that would have caught that, so it runs against the real
 // daemon and restarts it for real. See docs/adr/0017.
 import { execFileSync } from 'node:child_process';
-import { openTerminal, evaluate, readScreen, sleep, type, finish } from '../helpers.mjs';
+import {
+  openTerminal,
+  evaluate,
+  readScreen,
+  sleep,
+  type,
+  finish,
+  waitUntil,
+  ready,
+} from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -44,13 +53,14 @@ try {
 } catch {
   r.ok('could restart the daemon', false, 'launchctl kickstart failed');
 }
-await sleep(6000);
-
+// Wait for the daemon to be back rather than for six seconds.
+await waitUntil(() => alive());
 r.ok('the process survived the daemon restarting', alive());
 
 // The tab has to find its way back on its own.
 await evaluate(client, `location.reload()`);
-await sleep(7000);
+// The tab is usable when it has drawn something, which is what `ready` waits for.
+await ready(client);
 
 const body = String(await evaluate(client, `document.body.innerText`));
 r.ok('the tab is not told its session expired', !body.includes('expired'), body.slice(0, 80));

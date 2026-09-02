@@ -1262,12 +1262,19 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
           current: named.label,
           recents: recentColors.title,
           ...(named.color ? { currentColor: named.color } : {}),
+          // Drawn as it is typed. Only in this tab: nothing is sent until Save, so an abandoned
+          // form leaves no trace anywhere else and Escape genuinely cancels.
+          onPreview: (label, color) => splitView?.previewLabel(paneId, label, color),
           onSubmit: (label, color) => {
             document.querySelector('.pane-label-form')?.remove();
             if (label !== '') useColor('title', color);
             client?.send({ t: 'set-pane-label', workspaceId, paneId, label, color });
           },
-          onCancel: () => document.querySelector('.pane-label-form')?.remove(),
+          onCancel: () => {
+            document.querySelector('.pane-label-form')?.remove();
+            // Put back whatever the name actually is, since the preview only ever drew here.
+            splitView?.previewLabel(paneId, named.label, named.color ?? '');
+          },
         });
       },
     },
@@ -2099,7 +2106,7 @@ declare global {
       /** What the daemon said could be resumed, before the launcher trims it for display. */
       resumable: () => { sessionId: string; cwd: string; agent: string; summary?: string }[];
       /** Highlights on the focused pane. A decoration is painted, so the DOM cannot be asked. */
-      highlights: () => { text: string; fromEnd: number; color: string }[];
+      highlights: () => { text: string; occurrence: number; color: string }[];
       /** Print a landmark, and read where the view is, without going through the menu. */
       insertMarker: (label: string, color?: string) => void;
       viewportY: () => number;

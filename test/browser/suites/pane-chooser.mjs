@@ -3,14 +3,15 @@
 // Splitting used to produce two empty shells in the home directory, and the first thing anybody
 // does with one is go somewhere. So a pane with nothing in it offers the two things worth doing:
 // pick a folder, or bring a session that already exists here.
-import { openTerminal, evaluate, sleep, type, finish, realClick } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, type, finish, realClick, waitFor } from '../helpers.mjs';
 import { listTargets, reporter } from '../cdp.mjs';
 
 const r = reporter();
 
 // One tab holding a session that has actually been used, left open.
 const a = await openTerminal();
-await sleep(4500);
+// The prompt is already there; this waits for the start screen's own lists.
+await waitFor(a.client, "document.querySelector('.launcher-input')");
 await type(a.client, 'echo TAKEN-OVER-MARKER\r');
 await sleep(1600);
 const sourceWorkspace = String(await evaluate(a.client, 'window.__tabterm.workspaceId()'));
@@ -19,7 +20,8 @@ const sourceSession = String(
 );
 
 const b = await openTerminal();
-await sleep(4500);
+// The prompt is already there; this waits for the start screen's own lists.
+await waitFor(b.client, "document.querySelector('.launcher-input')");
 // Use the tab first, the way a person does. Splitting with the start screen still up leaves the
 // panes in the thin strip it leaves for the terminal, which is not a state anybody reaches.
 await type(b.client, 'echo second-tab\r');
