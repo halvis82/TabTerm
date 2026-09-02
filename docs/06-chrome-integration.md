@@ -68,13 +68,13 @@ Measured on Chrome 150, and it constrains the design:
 
 | API | Offscreen document | Service worker | Extension page |
 |---|---|---|---|
-| `chrome.runtime` | ✅ | ✅ | ✅ |
-| `chrome.storage` | ❌ **undefined** | ✅ | ✅ |
-| `chrome.runtime.sendNativeMessage` | ❌ **undefined** | ✅ | ✅ |
-| `chrome.notifications` | ❌ **undefined** | ✅ | ✅ |
-| `chrome.tabs` / `chrome.tabGroups` | ❌ **undefined** | ✅ | ✅ |
-| `chrome.windows` | ❌ **undefined** | ✅ | ✅ |
-| `WebSocket` | ✅ | ✅ | ✅ |
+| `chrome.runtime` | yes | yes | yes |
+| `chrome.storage` | **undefined** | yes | yes |
+| `chrome.runtime.sendNativeMessage` | **undefined** | yes | yes |
+| `chrome.notifications` | **undefined** | yes | yes |
+| `chrome.tabs` / `chrome.tabGroups` | **undefined** | yes | yes |
+| `chrome.windows` | **undefined** | yes | yes |
+| `WebSocket` | yes | yes | yes |
 
 Measured on Chrome 150: an offscreen document is given **only `chrome.runtime`**. Everything else
 is undefined there, not merely restricted.

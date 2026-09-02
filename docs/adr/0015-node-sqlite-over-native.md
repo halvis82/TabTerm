@@ -32,7 +32,7 @@ Use `node:sqlite`, built into Node, and raise the runtime requirement to **Node 
   for and what JSON cannot give.
 - The runtime requirement rises from Node 20 to Node 22. The installer must select a Node that has
   it rather than whatever `command -v node` returns first.
-- ⚠️ **`node:sqlite` is marked experimental** and prints an ExperimentalWarning. The API could
+- **`node:sqlite` is marked experimental** and prints an ExperimentalWarning. The API could
   change between Node versions.
 
   This is the real cost, and it is bounded by ADR-0006: the daemon ships inside an app bundle with

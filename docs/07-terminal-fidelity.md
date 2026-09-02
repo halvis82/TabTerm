@@ -235,15 +235,15 @@ on the line, and when nothing is left the entry is not offered at all.
 
 **Nothing is written into the session.** A landmark can be printed output and survive on its own;
 a highlight cannot, because the text it covers was printed long ago and cannot be repainted at
-the source. So a highlight is remembered the way a landmark is found: by what it looks like. It
-records the text it covers and **which occurrence of that text, counted from the end of the
-buffer**.
+the source. So the durable half is remembered the way a landmark is found, by what it looks like:
+the text it covers and **which occurrence of that text, counted from the start**.
 
-Counted from the end deliberately. Scrollback is trimmed from the front, so numbering from the
-front changes every time a line is dropped, while numbering from the end is stable until the
-highlighted line itself is dropped. At that point the highlight stops being found, which is
-exactly when it stops being reachable. A highlight that cannot be placed is dropped rather than
-drawn somewhere approximate.
+From the start, not the end. The first version counted from the end because scrollback is trimmed
+from the front, which is true and is the less common event. Text is appended constantly, and
+counting from the end means every new copy of the same text renumbers everything before it. A
+highlight whose occurrence is no longer in the buffer is dropped rather than drawn somewhere
+approximate: being in the wrong place is worse than being gone, because a highlight is a claim
+about where something is.
 
 The record is kept per session in extension storage, on the same reasoning as layout templates:
 this describes how a person marked up their own view, and the daemon owns sessions rather than
@@ -346,10 +346,10 @@ Populated by the VT fidelity spike and updated whenever one is found.
 
 | Gap | Impact | Status |
 |---|---|---|
-| Kitty graphics protocol | Tools targeting it do not render images | ❌ Not supported. Sixel and the iTerm2 inline-image protocol are available via addon |
-| iTerm2 Semantic History | Not recreated as such | ⚠️ Superseded by the path detection work path detection |
-| iTerm2 triggers | Not implemented | ⚠️ Out of scope for now |
-| iTerm2 profiles | Not implemented | ⚠️ Replaced by workspace templates |
+| Kitty graphics protocol | Tools targeting it do not render images | Not supported. Sixel and the iTerm2 inline-image protocol are available via addon |
+| iTerm2 Semantic History | Not recreated as such | Superseded by the path detection work path detection |
+| iTerm2 triggers | Not implemented | Out of scope for now |
+| iTerm2 profiles | Not implemented | Replaced by workspace templates |
 | _(the VT fidelity spike findings)_ | | ⏳ Pending |
 
 ---

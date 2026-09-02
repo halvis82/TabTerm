@@ -77,6 +77,11 @@ Rules, all enforced:
 | `check-folder` | `path` | Is that folder there? Same reason as above: only the daemon can look |
 | `create-folder` | `path` | Make it, then answer as `check-folder` would |
 | `get-scrollback-budget` / `set-scrollback-budget` | `bytes` | Clamped to 1 MB..50 MB |
+| `list-resumable` | `cwd?`, `limit?` | Agent conversations that could be picked up. Both stores, filtered to what would work |
+| `resume-agent` | `sessionId`, `cwd`, `cols`, `rows`, `agent?` | `agent` decides the argv: Claude takes a flag, Codex a subcommand. See `09-agent-integration.md` |
+| `insert-marker` | `sessionId`, `label`, `color?` | A landmark, printed as output so it survives a reload |
+| `set-pane-label` | `workspaceId`, `paneId`, `label`, `color?` | Names the session. Empty label removes it |
+| `detach-pane-to-tab` | `workspaceId`, `paneId` | The pane leaves; the answer carries the workspace it went to |
 
 ---
 
@@ -106,6 +111,8 @@ Rules, all enforced:
 | `live-sessions` | `sessions[]` | Each with `attached`, `busy` and a `preview`. See §4.1 |
 | `path-completion` | `partial`, `completed`, `matches[]` | `partial` is echoed so a stale answer can be dropped |
 | `folder-checked` | `path`, `exists`, `isFile?`, `error?` | `path` is echoed for the same reason. A folder that is not there is an answer, not an error |
+| `resumable-sessions` | `sessions[]` | Each with `agent`, `cwd`, `modifiedAt` and a `summary?`. Never contains one that would fail |
+| `pane-detached` | `workspaceId`, `newWorkspaceId` | The tab opens the new workspace beside itself |
 | `error` | `code`, `message`, `context?` | Never a bare string |
 
 ### 4.1 Which sessions are live

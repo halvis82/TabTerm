@@ -10,7 +10,7 @@ Update this file whenever a new constraint is discovered.
 
 ---
 
-## Tier 0 — Impossible ❌
+## Tier 0 — Impossible
 
 No API exists. No workaround. Design around these.
 
@@ -64,7 +64,7 @@ for a normal paste.
 
 ---
 
-## Tier 1 — Possible only in degraded form ⚠️
+## Tier 1 — Possible only in degraded form 
 
 The feature survives, but not in its obvious form.
 
@@ -159,7 +159,7 @@ recoverable. The **Kitty graphics protocol is not supported**. Tools targeting i
 
 ---
 
-## Tier 2 — Solvable, but structural ⚠️
+## Tier 2 — Solvable, but structural 
 
 Get these wrong early and the fix is a rewrite, not a patch.
 
@@ -272,7 +272,7 @@ on every fresh install. Repaired by a postinstall step. See `13-packaging.md`.
 
 ---
 
-## Tier 3 — Hard engineering, no wall ✅
+## Tier 3 — Hard engineering, no wall yes
 
 Listed so nothing looks free.
 
@@ -300,14 +300,14 @@ Each has a Phase 0 spike. Nothing load-bearing may rely on an unverified assumpt
 | # | Assumption | Spike |
 |---|---|---|
 | 1 | Offscreen document idle lifetime in current Chrome | the service worker lifetime spike |
-| ~~2~~ | ~~`chrome.commands` accepts `Command+Alt`~~ | ❌ **Resolved: REJECTED.** See tier 1.8 |
-| ~~3~~ | ~~Concurrent WebGL context ceiling~~ | ✅ Resolved: 16 per page, no limit across tabs up to 20 |
-| ~~4~~ | ~~Hidden-tab favicon updates via push~~ | ✅ Resolved: fully unthrottled, 25/25 repaints at 5 fps |
-| ~~5~~ | ~~node-pty prebuild availability~~ | ✅ Resolved: prebuild ships and is used |
+| ~~2~~ | ~~`chrome.commands` accepts `Command+Alt`~~ | **Resolved: REJECTED.** See tier 1.8 |
+| ~~3~~ | ~~Concurrent WebGL context ceiling~~ | yes Resolved: 16 per page, no limit across tabs up to 20 |
+| ~~4~~ | ~~Hidden-tab favicon updates via push~~ | yes Resolved: fully unthrottled, 25/25 repaints at 5 fps |
+| ~~5~~ | ~~node-pty prebuild availability~~ | yes Resolved: prebuild ships and is used |
 | 6 | Whether Chrome discards a tab holding an open WebSocket | the background-tab status spike |
 | 7 | Whether a signed app bundle yields an upgrade-surviving TCC grant | the TCC spike |
-| ~~8~~ | ~~Round-trip fidelity of the headless emulator~~ | ✅ Resolved: 7/7 fixtures exact |
-| ~~9~~ | ~~Sustained throughput ceiling~~ | ✅ Resolved: 50 MB/s, bounded by the VT parser |
+| ~~8~~ | ~~Round-trip fidelity of the headless emulator~~ | yes Resolved: 7/7 fixtures exact |
+| ~~9~~ | ~~Sustained throughput ceiling~~ | yes Resolved: 50 MB/s, bounded by the VT parser |
 
 ---
 
@@ -317,15 +317,15 @@ Recorded so they are not reintroduced.
 
 | Assumption | Correction |
 |---|---|
-| "Use one shared extension service worker" | ❌ MV3 service workers die at ~30 s idle. Three connection classes required |
-| "Reject non-extension origins" as a security control | ❌ Origin headers are forgeable by any local process. The token is the only boundary |
-| "TabTerm daemon: small" in the memory table | ❌ Wrong once server-side VT state exists. Tens of MB per session |
-| "Duplicate" listed under natively supported tab behavior | ⚠️ Needs an explicit mirror-or-fork decision. Neither is a default |
-| Dragging a file from Finder inserts its path | ❌ Impossible. Cut, tier 0.5 |
-| PATAPIM cited as prior art | ❌ Unverifiable. Removed. Chrome Secure Shell / hterm added instead |
-| Short reap timers are a safe default | ⚠️ Wrong for workspaces. Pinned by default, ADR-0012 |
-| Missing: macOS TCC | ❌ Not mentioned at all. Now tier 2.1, on the critical path |
-| Missing: tab discarding | ❌ Not mentioned at all. Now tier 1.2, forces the notification architecture |
+| "Use one shared extension service worker" | MV3 service workers die at ~30 s idle. Three connection classes required |
+| "Reject non-extension origins" as a security control | Origin headers are forgeable by any local process. The token is the only boundary |
+| "TabTerm daemon: small" in the memory table | Wrong once server-side VT state exists. Tens of MB per session |
+| "Duplicate" listed under natively supported tab behavior | Needs an explicit mirror-or-fork decision. Neither is a default |
+| Dragging a file from Finder inserts its path | Impossible. Cut, tier 0.5 |
+| PATAPIM cited as prior art | Unverifiable. Removed. Chrome Secure Shell / hterm added instead |
+| Short reap timers are a safe default | Wrong for workspaces. Pinned by default, ADR-0012 |
+| Missing: macOS TCC | Not mentioned at all. Now tier 2.1, on the critical path |
+| Missing: tab discarding | Not mentioned at all. Now tier 1.2, forces the notification architecture |
 
 
 
@@ -337,13 +337,13 @@ Measured, not assumed. Each row was produced by killing the thing named and obse
 
 | Failure | Process | Screen | Usable after |
 |---|---|---|---|
-| Tab closed and reopened | ✅ survives | ✅ | Immediately |
-| Chrome killed with `SIGKILL` | ✅ survives | ✅ restored | Reopen the tab |
-| Daemon updated or restarted | ✅ survives | ✅ | Immediately, adopted |
-| Daemon killed with `SIGKILL` mid-command | ✅ keeps running to completion | ✅ | Immediately, no reload |
-| Daemon absent, then returning | ✅ survives | ✅ | Reconnects itself, no reload |
-| PTY host killed with `SIGKILL` | ❌ **cannot survive** | ✅ on disk | A new host starts automatically |
-| Machine reboot | ❌ cannot survive | ✅ on disk | Restore offers the layout back |
+| Tab closed and reopened | survives | yes | Immediately |
+| Chrome killed with `SIGKILL` | survives | yes restored | Reopen the tab |
+| Daemon updated or restarted | survives | yes | Immediately, adopted |
+| Daemon killed with `SIGKILL` mid-command | keeps running to completion | yes | Immediately, no reload |
+| Daemon absent, then returning | survives | yes | Reconnects itself, no reload |
+| PTY host killed with `SIGKILL` | **cannot survive** | survives on disk | A new host starts automatically |
+| Machine reboot | cannot survive | survives on disk | Restore offers the layout back |
 
 The host is the one process whose death takes sessions with it, which is the price of it being
 the only thing holding them. What was fixed after measuring: the daemon used to keep a dead

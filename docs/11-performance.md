@@ -54,15 +54,15 @@ Measured on arm64 with Node 20 unless marked otherwise. Any change that moves a 
 
 | Metric | Target | Measured |
 |---|---|---|
-| Daemon VT state, 12 sessions, balanced (10k) | under 60 MB | **43.7 MB** ✅ |
-| Daemon VT state, 12 sessions, low (5k) | under 30 MB | **22.6 MB** ✅ |
-| Daemon VT state, 12 sessions, full (50k) | under 250 MB | **212 MB** ⚠️ high by design |
-| Snapshot serialize, 10k scrollback | under 50 ms | **32 ms median** ✅ |
-| Snapshot serialize, 50k scrollback | under 200 ms | **168 ms** ⚠️ argues against 50k as a default |
+| Daemon VT state, 12 sessions, balanced (10k) | under 60 MB | **43.7 MB** yes |
+| Daemon VT state, 12 sessions, low (5k) | under 30 MB | **22.6 MB** yes |
+| Daemon VT state, 12 sessions, full (50k) | under 250 MB | **212 MB** high by design |
+| Snapshot serialize, 10k scrollback | under 50 ms | **32 ms median** yes |
+| Snapshot serialize, 50k scrollback | under 200 ms | **168 ms** argues against 50k as a default |
 | Snapshot size, 10k scrollback | — | 793 KB |
 | Attach to first paint, single pane | To be set | the attach and restore work |
 | Attach to first paint, 3-pane workspace | To be set | the workspace restore work |
-| 8 simultaneous restores, total stall | under 8 s | **33 ms** measured ✅ |
+| 8 simultaneous restores, total stall | under 8 s | **33 ms** measured yes |
 | Sustained PTY through the VT parser | — | **50 MB/s** measured |
 | History search, 100k rows, indexed | **< 50 ms** filtered, **< 150 ms** with fuzzy text | measured: 0.1 ms unfiltered page, 4.6 ms `project:` + `exit:`, 5.1 ms with text, 0.4 ms at offset 5000 |
 | Detach pane to reattached tab | Perceptually instant | the pane detach work |

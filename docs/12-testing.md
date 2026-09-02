@@ -167,14 +167,63 @@ Non-optional, per `05-security.md` §10.
 
 ## Browser suites
 
-`npm run test:browser` runs everything in `test/browser/suites/` against one daemon and one
-headless browser.
+`npm run test:browser` runs everything in `test/browser/suites/` against one daemon and several
+headless browsers. A full run is about five minutes; the suites covering one change are about
+thirty-five seconds.
+
+    npm run test:browser                      everything
+    npm run test:browser -- highlights        named suites only
+    npm run test:browser -- --changed         whatever git says was touched
+
+`TT_JOBS` sets how many run at once (4), `TT_SKIP_BUILD=1` skips the rebuild.
 
 **Headless by default and deliberately.** These run while someone is using the machine, and a
 browser that steals focus every few seconds makes that impossible. Everything the suites need
 works without a window, including WebGL terminal rendering and real key events. The profile is
-throwaway and recreated per run, so a suite never sees state from the previous one and the
-developer's own Chrome profile is never opened.
+throwaway and recreated per run and per port, so a suite never sees state from the previous one
+and the developer's own Chrome profile is never opened.
+
+### Three phases, and the order is the design
+
+| Phase | Suites | Why |
+|---|---|---|
+| First, alone | `reset`, `pane-chooser`, `resume-and-tabs`, `sessions`, `no-busy-loop` | They wipe state everything reads, or count things belonging to the whole browser |
+| Middle, parallel | everything else, across `TT_JOBS` browsers | Independent: each opens its own tab and its own sessions |
+| Last, alone | `survives-restart`, `resilience` | They take the daemon away on purpose |
+
+Running a first-phase suite beside another does not produce a flake, it produces a confident
+wrong answer. Running a last-phase suite early is worse: while the daemon is down every other
+suite in every other browser waits on a connection that is not coming back. One of them once
+took 1070 seconds and the suites running alongside it took 1075, all waiting on the same dead
+daemon. The run also sweeps before that phase, so the daemon being killed is not holding every
+session the run created.
+
+**A browser per parallel worker, not one shared.** Input goes to the browser's active target, so
+suites sharing one fight over which tab that is and keystrokes land in another suite's terminal.
+Two suites crashed in parallel that passed alone.
+
+### Wait for the condition, never for a duration
+
+`openTerminal` polls until a prompt is actually on screen. `waitFor(client, expression)` asks the
+page a question repeatedly; `waitUntil(fn)` does the same for something outside the browser, like
+a daemon coming back. A fixed `sleep` is a guess that is too long when things go well and too
+short when they do not, and the short case looks exactly like a product bug.
+
+Wait for the thing being tested, not something near it. Waiting for `.launcher-row` to check the
+resume rows waited for a recent folder, which renders immediately, so the click that followed
+found nothing to press.
+
+### The run was once twenty minutes, and none of it was the tests
+
+Worth recording, because every one of these presented as "the suites are slow":
+
+1. **`execFileSync` with `stdio: 'inherit'` waits for the pipe, not the process.** `launch.sh`
+   starts Chrome in the background, Chrome inherits the pipe and never closes it, so the runner
+   blocked before running a single suite
+2. **The cleanup sweep ran for six minutes** after suites that had finished in forty, connecting
+   to each tab in turn with no timeout. One unresponsive tab held the whole run open
+3. **Suites shared a browser**, as above
+4. **The daemon-killing suites ran first**, as above
 
 ### Two rules these suites learned the hard way
 
@@ -186,6 +235,17 @@ after it, and the output looked like nine unrelated product bugs.
 turns it into a control sequence and `Ctrl+C` does nothing at all. That cost time three separate
 times before it was written down in `helpers.mjs`.
 
+**A click is a press and a release.** `element.click()` dispatches a click directly and never
+produces the `mousedown` before it, so it passes against controls no person can operate: the pane
+menu dismissed itself on `mousedown`, which removed the button before the release, and every
+entry was dead to a real mouse while every test passed. Everything driven by a pointer goes
+through `realClick`, which also scrolls the control into view and checks what is actually at the
+point first, because a control below the fold has an off-screen box and the click lands on
+whatever happens to be at those coordinates.
+
+**Nothing may hardcode the debug port.** Suites run across several browsers, so `9223` asks a
+browser the suite is not in. Use `listTargets`.
+
 ### What is asserted, and why these ones
 
 | Suite | Guards |
@@ -195,6 +255,10 @@ times before it was written down in `helpers.mjs`.
 | `palette` | Actions reachable by typing, absent when they cannot apply |
 | `project-trust` | A cloned repository's config is shown and never acted on unasked |
 | `no-busy-loop` | An idle tab sends almost nothing |
+| `highlights` | Highlights merge rather than stack, stay where they were put, and cover only printed text |
+| `resume-and-tabs` | Both agents are offered and actually resume; an unused tab is taken over rather than left |
+| `opening-and-undo` | Opening a folder runs `cd` once, and undo restores the screen exactly |
+| `menu-aftermath` | Clear and a marker both leave a prompt, and the folder box says what is there |
 
 The last one is not hypothetical. The launcher recorded "this directory has no project config" by
 deleting the entry, which made "asked, nothing there" indistinguishable from "never asked". Every
