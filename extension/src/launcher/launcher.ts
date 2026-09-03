@@ -1,6 +1,16 @@
 import { buildSessions } from './sessions-view.js';
 import { resolveTypedPath, unresolveTypedPath } from './typed-path.js';
-import { panesFor, type LayoutTemplate } from './templates.js';
+import { checkShape, previewPanes } from '@tabterm/shared';
+
+/** The fixed shapes, as the syntax would write them, so the dialog opens on what was chosen. */
+const SHAPE_AS_TEXT: Record<string, string> = {
+  single: '1',
+  columns: '1+2',
+  rows: '1/2',
+  'one-plus-two': '1+(2/3)',
+  quad: '(1+2)/(3+4)',
+};
+import { type LayoutTemplate } from './templates.js';
 import type {
   LayoutShape,
   LiveSession,
@@ -486,72 +496,183 @@ export class Launcher {
   }
 
   /**
-   * Saving a template: a name, and a command for each pane the shape will make.
+   * Saving a template: a shape, a command per session, and a name.
    *
-   * Inline rather than a dialog, because everything it needs is already on this screen and the
-   * folder it is about is in the box above it.
+   * A dialog, not the strip of boxes this used to be. The old form asked for a name and one
+   * command per pane of a shape chosen elsewhere, which meant the only layouts a template could
+   * describe were the five on the buttons, and nothing showed what it would build.
+   *
+   * The shape is written down instead, `(1+2)/3` and the like, drawn as it is typed. The numbers
+   * are session names rather than counts, so using one twice puts the same session in two places
+   * and gives it one command box rather than two to keep in step.
    */
   #showTemplateForm(path: string, shape: LayoutShape = 'single'): void {
     this.#templateFormEl?.remove();
-    const panes = panesFor(shape);
 
+    const backdrop = document.createElement('div');
+    backdrop.className = 'template-backdrop';
     const form = document.createElement('div');
-    form.className = 'launcher-template-form';
+    form.className = 'template-dialog';
+    backdrop.append(form);
+
+    const title = document.createElement('div');
+    title.className = 'template-title';
+    title.textContent = 'New layout template';
+    const where = document.createElement('div');
+    where.className = 'template-where';
+    where.textContent = path;
+    form.append(title, where);
 
     const name = document.createElement('input');
     name.className = 'launcher-input';
-    name.placeholder = `Name this layout (${String(panes)} pane${panes === 1 ? '' : 's'} in ${path})`;
+    name.placeholder = 'Name, such as "review" or "server and logs"';
     name.spellcheck = false;
-    name.addEventListener('keydown', (e) => e.stopPropagation());
-    form.append(name);
 
-    const commandInputs: HTMLInputElement[] = [];
-    for (let i = 0; i < panes; i++) {
-      const command = document.createElement('input');
-      command.className = 'launcher-input launcher-template-command';
-      command.placeholder = `Pane ${String(i + 1)} command, staged not run`;
-      command.spellcheck = false;
-      command.addEventListener('keydown', (e) => e.stopPropagation());
-      commandInputs.push(command);
-      form.append(command);
+    const description = document.createElement('input');
+    description.className = 'launcher-input';
+    description.placeholder = 'What it is for (optional)';
+    description.spellcheck = false;
+
+    const layout = document.createElement('input');
+    layout.className = 'launcher-input template-layout';
+    layout.placeholder = '1+2';
+    layout.value = SHAPE_AS_TEXT[shape] ?? '1';
+    layout.spellcheck = false;
+
+    const help = document.createElement('div');
+    help.className = 'template-help';
+    help.textContent =
+      '+ side by side, / stacked, ( ) to group. (1+2)/3 is two above one. ' +
+      'The numbers name the sessions, so 1+1 is one session in both halves.';
+
+    const preview = document.createElement('div');
+    preview.className = 'template-preview';
+    const problem = document.createElement('div');
+    problem.className = 'template-problem';
+    const commands = document.createElement('div');
+    commands.className = 'template-commands';
+
+    form.append(name, description, layout, help, preview, problem, commands);
+
+    /** Kept across redraws, so editing the shape does not throw away what has been typed. */
+    const typed = new Map<number, string>();
+    let sessions: number[] = [];
+
+    const redraw = (): void => {
+      const result = checkShape(layout.value);
+      preview.replaceChildren();
+      commands.replaceChildren();
+
+      if ('error' in result) {
+        problem.textContent = result.error;
+        preview.classList.add('is-bad');
+        sessions = [];
+        return;
+      }
+      problem.textContent = '';
+      preview.classList.remove('is-bad');
+      sessions = result.shape.sessions;
+
+      // Drawn from the same fractions the layout will be built from, so what is shown is what
+      // will happen rather than an artist's impression of it.
+      for (const pane of previewPanes(result.shape.shape)) {
+        const box = document.createElement('div');
+        box.className = 'template-pane';
+        box.style.left = `${String(pane.x * 100)}%`;
+        box.style.top = `${String(pane.y * 100)}%`;
+        box.style.width = `${String(pane.width * 100)}%`;
+        box.style.height = `${String(pane.height * 100)}%`;
+        box.textContent = String(pane.id);
+        preview.append(box);
+      }
+
+      // One box per session, not per pane: the same number twice is one session.
+      for (const id of sessions) {
+        const line = document.createElement('label');
+        line.className = 'template-command';
+        const tag = document.createElement('span');
+        tag.className = 'template-command-tag';
+        tag.textContent = String(id);
+        const input = document.createElement('input');
+        input.className = 'launcher-input';
+        input.placeholder = `Command for session ${String(id)}, staged not run`;
+        input.spellcheck = false;
+        input.value = typed.get(id) ?? '';
+        input.addEventListener('input', () => typed.set(id, input.value));
+        input.addEventListener('keydown', (e) => e.stopPropagation());
+        line.append(tag, input);
+        commands.append(line);
+      }
+    };
+
+    layout.addEventListener('input', redraw);
+    for (const box of [name, description, layout]) {
+      box.addEventListener('keydown', (e) => e.stopPropagation());
     }
+    redraw();
 
     const row = document.createElement('div');
     row.className = 'launcher-buttons';
+
+    const close = (): void => {
+      backdrop.remove();
+      this.#templateFormEl = null;
+    };
 
     const save = document.createElement('button');
     save.className = 'launcher-chip is-selected';
     save.textContent = 'Save template';
     save.addEventListener('click', () => {
       const label = name.value.trim();
-      if (!label) {
+      if (label === '') {
         name.focus();
         return;
       }
+      const result = checkShape(layout.value);
+      if ('error' in result) {
+        layout.focus();
+        return;
+      }
+      const panes = previewPanes(result.shape.shape);
       void this.#opts.onSaveTemplate({
         id: `t-${String(Date.now())}`,
         name: label,
         path,
         shape,
-        panes,
-        commands: commandInputs.map((c) => c.value.trim()),
+        panes: panes.length,
+        // In pane order, which is what opening a template walks. A session used twice
+        // contributes its command to both of its panes.
+        commands: panes.map((pane) => typed.get(pane.id) ?? ''),
+        layout: layout.value.trim(),
+        sessionCommands: Object.fromEntries(
+          sessions.map((id) => [String(id), typed.get(id) ?? '']),
+        ),
+        ...(description.value.trim() === '' ? {} : { description: description.value.trim() }),
       });
-      form.remove();
-      this.#templateFormEl = null;
+      close();
     });
 
     const cancel = document.createElement('button');
     cancel.className = 'launcher-chip';
     cancel.textContent = 'Cancel';
-    cancel.addEventListener('click', () => {
-      form.remove();
-      this.#templateFormEl = null;
-    });
+    cancel.addEventListener('click', close);
 
     row.append(save, cancel);
     form.append(row);
-    this.#dirInput?.parentElement?.append(form);
-    this.#templateFormEl = form;
+
+    // Clicking away, or Escape, is "not now", the same as everywhere else in this product.
+    backdrop.addEventListener('mousedown', (e) => {
+      if (e.target === backdrop) close();
+    });
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      close();
+      document.removeEventListener('keydown', onKey, true);
+    };
+    document.addEventListener('keydown', onKey, true);
+
+    this.#el.append(backdrop);
+    this.#templateFormEl = backdrop;
     name.focus();
   }
 

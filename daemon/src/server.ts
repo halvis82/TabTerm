@@ -53,7 +53,8 @@ import type { PluginHost } from './plugin-api.js';
 import type { ProjectIndex } from './project-index.js';
 import type { WorkspaceStore } from './workspace-store.js';
 import type { Session, SessionManager } from './session-manager.js';
-import type { LayoutShape, LiveSession, ResumableAgentSession } from '@tabterm/shared';
+import type { LayoutShape, LiveSession, ResumableAgentSession, ShapeNode } from '@tabterm/shared';
+import { checkShape } from '@tabterm/shared';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -1990,6 +1991,7 @@ export class DaemonServer {
       panes: number;
       direction: 'horizontal' | 'vertical';
       shape?: LayoutShape;
+      layout?: string;
       createIfMissing: boolean;
       cols: number;
       rows: number;
@@ -2033,7 +2035,32 @@ export class DaemonServer {
      * than always the newest one. Everything else chains from the newest, which is what makes
      * three panes come out evenly rather than nested one deep.
      */
-    if (msg.shape === 'one-plus-two') {
+    /**
+     * A written arrangement, built by following the tree it describes.
+     *
+     * The fixed shapes are five particular trees; this is any of them. Built by splitting the
+     * pane a subtree occupies, which is the same operation the buttons use, so nothing about
+     * how a workspace is assembled changes: only how the shape is decided.
+     */
+    if (msg.layout !== undefined && msg.layout.trim() !== '') {
+      const parsed = checkShape(msg.layout);
+      if ('error' in parsed) {
+        sendError(client.socket, 'workspace-invalid-layout', parsed.error);
+        return;
+      }
+      const build = (node: ShapeNode, pane: string): void => {
+        if (node.kind === 'session') return;
+        // The first child stays where it is; each of the rest takes a new pane split from it.
+        let anchor = pane;
+        const [head, ...rest] = node.children;
+        for (const child of rest) {
+          anchor = split(anchor, node.direction);
+          build(child, anchor);
+        }
+        if (head) build(head, pane);
+      };
+      build(parsed.shape.shape, rootPane);
+    } else if (msg.shape === 'one-plus-two') {
       const right = split(rootPane, 'horizontal');
       split(right, 'vertical');
     } else if (msg.shape === 'quad') {

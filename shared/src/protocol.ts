@@ -366,6 +366,13 @@ export type ClientMessage =
        * old behavior, so nothing that already worked has to change.
        */
       shape?: LayoutShape;
+      /**
+       * An arrangement written down, such as `(1+2)/3`, which the fixed shapes cannot express.
+       *
+       * Wins over `shape` when present. Absent means the old behavior, so every template and
+       * every button saved before this existed opens exactly as it did. See `template-syntax.ts`.
+       */
+      layout?: string;
       createIfMissing: boolean;
       cols: number;
       rows: number;

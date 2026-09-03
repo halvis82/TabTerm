@@ -995,6 +995,8 @@ function buildLauncher(): void {
         panes: template.panes,
         direction: 'horizontal',
         shape: template.shape,
+        // A template saved with a written shape uses it; older ones keep their fixed shape.
+        ...(template.layout ? { layout: template.layout } : {}),
         createIfMissing: true,
         ...size,
       });

@@ -19,6 +19,18 @@ export interface LayoutTemplate {
   panes: number;
   /** One per pane, in pane order. An empty string leaves that pane at a bare prompt. */
   commands: string[];
+  /**
+   * The shape as it was written, such as `(1+2)/3`.
+   *
+   * Kept alongside the old fixed shapes rather than replacing them, so templates saved before
+   * this existed still open. When it is here it is what decides the layout, and the numbers in
+   * it name the sessions: the same number twice is the same session in two places.
+   */
+  layout?: string;
+  /** Keyed by the session numbers used in `layout`. */
+  sessionCommands?: Record<string, string>;
+  /** Optional, for when the name is not enough to remember what this was for. */
+  description?: string;
 }
 
 const KEY = 'tabterm.templates';
@@ -58,6 +70,19 @@ export function parseTemplates(raw: unknown): LayoutTemplate[] {
       shape: t.shape ?? 'single',
       panes: typeof t.panes === 'number' ? t.panes : panesFor(t.shape ?? 'single'),
       commands: Array.isArray(t.commands) ? t.commands.map((c) => String(c)) : [],
+      // Present only when it was written down, so a template from before this existed keeps
+      // opening exactly as it did.
+      ...(typeof t.layout === 'string' && t.layout !== '' ? { layout: t.layout } : {}),
+      ...(typeof t.description === 'string' && t.description !== ''
+        ? { description: t.description }
+        : {}),
+      ...(t.sessionCommands && typeof t.sessionCommands === 'object'
+        ? {
+            sessionCommands: Object.fromEntries(
+              Object.entries(t.sessionCommands).map(([k, v]) => [k, String(v)]),
+            ),
+          }
+        : {}),
     });
   }
   return out;
