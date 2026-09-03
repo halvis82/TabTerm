@@ -443,7 +443,17 @@ function startTestDaemon() {
   };
 }
 
+/**
+ * Every browser this run started, so it can be ended again.
+ *
+ * `launch.sh` uses `nohup ... & disown`, deliberately: a Chrome tied to this process would die
+ * with it mid-suite. The cost is that nothing holds a handle to it, so it has to be found the
+ * way it was made, by the profile directory that is unique to its port.
+ */
+const browserPorts = [];
+
 function startBrowser(port) {
+  browserPorts.push(port);
   execFileSync('bash', [join(HERE, 'launch.sh')], {
     cwd: ROOT,
     stdio: 'ignore',
@@ -480,6 +490,22 @@ const ports = Array.from({ length: width }, (_, i) => BASE_PORT + i);
  * being slow, which is what this file exists to fix.
  */
 const daemon = startTestDaemon();
+
+/**
+ * Installed the moment there is something to clean up, and before a single suite runs.
+ *
+ * This was at the bottom of the file, after the top level `await` that runs everything, so it
+ * was only ever registered once there was nothing left to clean up. Interrupting a run left its
+ * daemon and ten Chrome processes behind, which is the exact failure the handler was written to
+ * prevent, and it looked handled because the code was plainly there.
+ */
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(signal, () => {
+    console.log('\n  interrupted: ending what this run created');
+    endEverythingThisRunMade();
+    process.exit(130);
+  });
+}
 process.env['TT_DAEMON_PORT'] = String(daemon.port);
 process.env['TT_DAEMON_TOKEN'] = daemon.token;
 // The two suites that kill things are told which installation is theirs. Without it they
@@ -551,6 +577,22 @@ try {
  * this process, in a temporary home, and holds nothing a person is using.
  */
 function endEverythingThisRunMade() {
+  /**
+   * The browsers, which nothing else will take with it.
+   *
+   * They are detached on purpose and so survive this process, an interrupt included. Left
+   * behind they are ten idle Chrome processes per run holding a few hundred megabytes, and the
+   * only thing that ever collected them was the next run happening to reuse the same port.
+   */
+  for (const port of browserPorts) {
+    try {
+      execFileSync('pkill', ['-f', `user-data-dir=/tmp/tt-chrome-headless-${String(port)}`], {
+        stdio: 'ignore',
+      });
+    } catch {
+      // pkill exits non-zero when it matched nothing, which is the outcome we wanted.
+    }
+  }
   try {
     daemon.child.kill('SIGKILL');
   } catch {
@@ -610,14 +652,6 @@ function endEverythingThisRunMade() {
   }
 }
 
-for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-  process.on(signal, () => {
-    console.log(`\n  interrupted: ending what this run created`);
-    endEverythingThisRunMade();
-    process.exit(130);
-  });
-}
-
 /**
  * One restart is the point of a suite, not a fault.
  *
@@ -667,6 +701,27 @@ const stray = strayProcesses();
 if (stray > 0) {
   console.log(`  -----  WARNING: ${String(stray)} process(es) from this run are still alive`);
 }
+/**
+ * A budget the suites may not quietly grow past.
+ *
+ * The rise in this count over a run is very nearly the number of terminals the run opened, and
+ * that is the number that matters: macOS hands out a pseudo-terminal once and gives it back on
+ * its own unhurried schedule, so a run that opens two hundred exhausts the machine however
+ * politely it ends every one of them.
+ *
+ * A budget rather than a limit, because the honest fix is fewer tabs in the suites and this
+ * cannot do that for them. What it can do is make growth visible on the run that causes it,
+ * instead of on the afternoon somebody's laptop stops being able to open a terminal.
+ */
+const SESSION_BUDGET = 90;
+const opened = ptysAfter - ptysBefore;
+if (opened > SESSION_BUDGET) {
+  console.log(
+    `  -----  WARNING: this run opened about ${String(opened)} terminals, budget ${String(SESSION_BUDGET)}`,
+  );
+  console.log('  -----  suites should share a tab rather than opening one per check');
+}
+
 if (cap - ptysAfter < 150) {
   console.log(
     `  -----  WARNING: only ${String(cap - ptysAfter)} ptys left before nothing on this machine`,
