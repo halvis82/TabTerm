@@ -71,3 +71,21 @@ export function interleaveByAgent<T extends { agent: AgentKind; modifiedAt: numb
   }
   return out;
 }
+
+/**
+ * Which agent a pane is running, if any, from the program in the foreground.
+ *
+ * Read from what is actually running rather than from what the pane was opened with: a shell
+ * somebody typed `claude` into is an agent pane just as much as one launched as one, and a pane
+ * opened as an agent whose CLI has since exited is not one any more.
+ *
+ * Its own function because a restore has to be honest about the specific thing on the screen,
+ * and "is this an agent" is a question worth being able to answer without a running daemon.
+ */
+export function agentInForeground(program: string | undefined): AgentKind | undefined {
+  if (!program) return undefined;
+  const name = program.slice(program.lastIndexOf('/') + 1);
+  return (Object.keys(AGENT_EXECUTABLE) as AgentKind[]).find(
+    (kind) => AGENT_EXECUTABLE[kind] === name,
+  );
+}

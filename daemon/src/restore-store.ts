@@ -27,6 +27,15 @@ export interface PaneSnapshot {
   command?: readonly string[];
   /** An agent session id that could be resumed into this pane. */
   agentResume?: string;
+  /**
+   * Which agent CLI was running here, if one was.
+   *
+   * Recorded so a restore can be honest about the specific thing somebody is looking at. A pane
+   * that comes back showing a Claude conversation and a line saying only that the shell is new
+   * is technically true and still misleading: the conversation is the thing on the screen, and
+   * it is the thing that is not running.
+   */
+  agent?: string;
   /** The screen as it was, so a restored pane can show what was there before. */
   screen: string;
   savedAt: number;
@@ -70,13 +79,14 @@ export class RestoreStore {
       .run(workspace.id, JSON.stringify(workspace.layout), workspace.createdAt, now);
 
     const insert = this.#db.handle.prepare(
-      `INSERT INTO pane_snapshots (workspace_id, pane_id, session_id, cwd, last_command, command_json, agent_resume, screen, saved_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO pane_snapshots (workspace_id, pane_id, session_id, cwd, last_command, command_json, agent_resume, agent, screen, saved_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(workspace_id, pane_id) DO UPDATE SET
          session_id = excluded.session_id, cwd = excluded.cwd,
          last_command = COALESCE(excluded.last_command, last_command),
          command_json = excluded.command_json,
          agent_resume = COALESCE(excluded.agent_resume, agent_resume),
+         agent = COALESCE(excluded.agent, agent),
          -- An empty screen never overwrites one that was captured. A pane whose renderer was
          -- already gone must not erase what was recorded while it was alive.
          screen = CASE WHEN excluded.screen = '' THEN screen ELSE excluded.screen END,
@@ -96,6 +106,7 @@ export class RestoreStore {
         data.lastCommand ?? null,
         data.command ? JSON.stringify(data.command) : null,
         data.agentResume ?? null,
+        data.agent ?? null,
         data.screen.slice(-MAX_SCREEN_BYTES),
         now,
       );
@@ -207,7 +218,7 @@ export class RestoreStore {
   #panesFor(workspaceId: string): PaneSnapshot[] {
     const rows = this.#db.handle
       .prepare(
-        `SELECT pane_id, session_id, cwd, last_command, command_json, agent_resume, screen, saved_at
+        `SELECT pane_id, session_id, cwd, last_command, command_json, agent_resume, agent, screen, saved_at
          FROM pane_snapshots WHERE workspace_id = ? ORDER BY pane_id`,
       )
       .all(workspaceId) as {
@@ -217,6 +228,7 @@ export class RestoreStore {
       last_command: string | null;
       command_json: string | null;
       agent_resume: string | null;
+      agent: string | null;
       screen: string;
       saved_at: number;
     }[];
@@ -229,6 +241,7 @@ export class RestoreStore {
       savedAt: r.saved_at,
       ...(r.last_command ? { lastCommand: r.last_command } : {}),
       ...(r.agent_resume ? { agentResume: r.agent_resume } : {}),
+      ...(r.agent ? { agent: r.agent } : {}),
       ...argvField(r.command_json),
     }));
   }

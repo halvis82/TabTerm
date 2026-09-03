@@ -489,6 +489,24 @@ then a line written into the terminal state itself:
 That line is not decoration. The one thing this feature must never do is let someone believe
 their build is still running.
 
+**A pane that was running an agent says so specifically:**
+
+```
+[restored 2 hours ago. The claude conversation above is history, not a running session.
+ This is a new shell in ~/code/app. Resume it from the start screen.]
+```
+
+"This is a new shell" is true and, in front of a Claude or Codex transcript, still misleading:
+the conversation is the thing on the screen, and the conversation is what is not running.
+Somebody scrolling up to read what their agent said needs to be told that plainly, and told where
+to pick it back up rather than left to work it out.
+
+Which agent is read from what was **running in the pane**, not from how the pane was opened. A
+shell somebody typed `claude` into is an agent pane just as much as one launched as one, and a
+pane opened as an agent whose CLI has since exited is not one any more. The plain sentence is
+kept for a plain shell, because agent language on every restore is how an honest line becomes one
+people stop reading.
+
 **Replaying the last command is opt-in per restore, and even then it is typed, not run.** The
 command lands at the prompt and waits for Enter. Re-running whatever was last in a pane is
 occasionally exactly right and occasionally destructive, and the daemon cannot tell which.

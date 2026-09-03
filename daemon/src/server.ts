@@ -40,6 +40,7 @@ import { listResumable } from './agent-sessions.js';
 import { listCodexResumable } from './codex-sessions.js';
 import {
   AGENT_EXECUTABLE,
+  agentInForeground,
   interleaveByAgent,
   resumeCommand,
   type AgentKind,
@@ -1884,11 +1885,20 @@ export class DaemonServer {
     this.#restore.save(workspace, (sessionId) => {
       const session = this.#sessions.get(sessionId);
       if (!session) return null;
+      /**
+       * Which agent was here, if one was, so a restore can be honest about the right thing.
+       *
+       * Read from what is actually running rather than from what the pane was opened with: a
+       * shell that someone typed `claude` into is an agent pane just as much as one launched
+       * as one, and a pane opened as an agent whose CLI has since exited is not.
+       */
+      const agent = agentInForeground(session.foregroundProcess ?? session.command?.[0]);
       return {
         cwd: session.cwd,
         screen: session.vt.snapshot(0).screen,
         ...(session.pendingCommand ? { lastCommand: session.pendingCommand } : {}),
         ...(session.command ? { command: session.command } : {}),
+        ...(agent ? { agent } : {}),
       };
     });
   }
@@ -1953,9 +1963,19 @@ export class DaemonServer {
       // The screen as it was, then a line making clear this is not the same process. Written
       // into the VT state so it survives a reattach, and so it is part of what the pane is
       // rather than something drawn over it.
-      const notice =
-        `\r\n\x1b[2m[restored ${describeAge(pane.savedAt)}. ` +
-        `This is a new shell in ${pane.cwd}, not the original process.]\x1b[0m\r\n`;
+      /**
+       * Named specifically when an agent was here.
+       *
+       * "This is a new shell" is true and, in front of a Claude or Codex transcript, still
+       * misleading: the conversation is the thing on the screen, and the conversation is what
+       * is not running. Somebody scrolling up to read what their agent said needs to be told
+       * that plainly, and told where to pick it up rather than left to wonder.
+       */
+      const what = pane.agent
+        ? `The ${pane.agent} conversation above is history, not a running session. ` +
+          `This is a new shell in ${pane.cwd}. Resume it from the start screen.`
+        : `This is a new shell in ${pane.cwd}, not the original process.`;
+      const notice = `\r\n\x1b[2m[restored ${describeAge(pane.savedAt)}. ${what}]\x1b[0m\r\n`;
       session.vt.write(Buffer.from(pane.screen + notice, 'utf8'));
 
       if (msg.replayCommands && pane.lastCommand) {

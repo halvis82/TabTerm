@@ -184,6 +184,15 @@ const MIGRATIONS: { version: number; sql: string }[] = [
         ON saved_items(hotstring) WHERE hotstring IS NOT NULL;
     `,
   },
+  {
+    version: 9,
+    sql: `
+      -- Which agent CLI a pane was running, so a restore after a reboot can say plainly that
+      -- the conversation is not running rather than only that the shell is new. A person
+      -- looking at their agent's last output needs to be told it is history.
+      ALTER TABLE pane_snapshots ADD COLUMN agent TEXT;
+    `,
+  },
 ];
 
 export class Database {
