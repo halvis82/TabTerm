@@ -85,6 +85,19 @@ interface Client {
  */
 const EMPTY_TEMPLATE: ProjectTemplate = { name: '', layout: null, commands: [] };
 
+/**
+ * How many lines of a session's screen are sent for its card.
+ *
+ * Tied to the card, not chosen: the preview box is 101px tall with 12px of padding and its text
+ * is 6px at a line height of 1.42, so a shade over ten lines are visible. Sending more would be
+ * text held in memory for every session on the machine that nothing can display, and sending
+ * fewer would leave the box half empty.
+ *
+ * It was six, for an 88px box at 10px text. If either number in `.session-screen` changes, this
+ * one changes with it.
+ */
+const PREVIEW_LINES = 10;
+
 /** How long a restored tab may still be handed its merged-away session back. */
 const MERGED_AWAY_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -317,7 +330,7 @@ export class DaemonServer {
           ...(session.pendingCommand ? { lastCommand: session.pendingCommand } : {}),
           attached: session.clients.size > 0,
           startedAt: session.createdAt,
-          preview: lines.slice(-6),
+          preview: lines.slice(-PREVIEW_LINES),
           busy: session.commandRunning,
         };
       })

@@ -368,7 +368,6 @@ export class CommandPanel {
       button.classList.toggle('on', isCurrent);
     }
 
-
     /**
      * The search box belongs to the lists, and only to the lists.
      *

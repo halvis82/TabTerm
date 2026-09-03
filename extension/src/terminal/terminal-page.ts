@@ -977,9 +977,30 @@ function buildLauncher(): void {
       sendToFocusedPane(`cd ${quote(path)}\r`);
       launcher?.dismiss();
     },
+    onReorderTemplates: (ids) => {
+      /**
+       * The list is stored in the order it is shown, so the numbering follows the order.
+       *
+       * Nothing else has to know: the shortcut is the position in the list, and the list is
+       * what was dragged into place.
+       */
+      void loadTemplates().then(async (existing) => {
+        const byId = new Map(existing.map((t) => [t.id, t]));
+        const next = ids.flatMap((id) => byId.get(id) ?? []);
+        for (const t of existing) if (!ids.includes(t.id)) next.push(t);
+        await saveTemplates(next);
+        launcher?.setTemplates(next);
+      });
+    },
     onSaveTemplate: (template) => {
       void loadTemplates().then(async (existing) => {
-        const next = [...existing.filter((t) => t.name !== template.name), template];
+        // Edited in place when it is one that already exists, so editing does not move it to
+        // the end and renumber everything after it.
+        const at = existing.findIndex((t) => t.id === template.id);
+        const next =
+          at >= 0
+            ? existing.map((t) => (t.id === template.id ? template : t))
+            : [...existing.filter((t) => t.name !== template.name), template];
         await saveTemplates(next);
         launcher?.setTemplates(next);
         setStatus(`Saved "${template.name}"`, 'ok');
@@ -993,7 +1014,7 @@ function buildLauncher(): void {
         launcher?.setTemplates(next);
       });
     },
-    onRunTemplate: (template) => {
+    onRunTemplate: (template, path) => {
       /**
        * Build the layout, then stage each command in its pane.
        *
@@ -1005,7 +1026,14 @@ function buildLauncher(): void {
       const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
       client?.send({
         t: 'create-layout',
-        path: template.path,
+        /**
+         * The folder in the box, not the one the template was saved in.
+         *
+         * A template is an arrangement and a set of commands; where to apply it is what the
+         * path box is for and what somebody has just finished typing. Opening in the folder it
+         * happened to be saved from meant a template was only ever usable in one project.
+         */
+        path: path || template.path,
         panes: template.panes,
         direction: 'horizontal',
         shape: template.shape,
@@ -1965,15 +1993,28 @@ function onControl(msg: ServerMessage): void {
       applyLayout(msg.layout);
       attached = true;
 
-      // The panes a template asked for now exist, so its commands can be typed into them.
+      /**
+       * A template's commands, once each pane has a prompt to receive them.
+       *
+       * They used to be typed the instant the panes existed, which is before any shell has
+       * drawn a prompt: the text landed above the prompt rather than at it, so it was mangled
+       * on screen and belonged to nothing. Pressing Return did not run it, because the shell
+       * had never received it as input.
+       *
+       * And they are run rather than left sitting. A template is something somebody wrote down
+       * to happen; typing it and waiting is the behavior of the staged-command overlay, which
+       * exists for text that arrived from somewhere else and has to be read before it runs.
+       */
       if (pendingTemplate) {
         const template = pendingTemplate;
         pendingTemplate = null;
         msg.panes.forEach((pane, index) => {
           const command = template.commands[index]?.trim();
-          // No trailing return: the command is left at the prompt for a person to run.
-          const target = panesHost?.get(pane.paneId);
-          if (command && target) client?.write(target.streamId, new TextEncoder().encode(command));
+          if (!command) return;
+          panesHost?.whenSettled(pane.paneId, () => {
+            const target = panesHost?.get(pane.paneId);
+            if (target) client?.write(target.streamId, new TextEncoder().encode(`${command}\r`));
+          });
         });
       }
       for (const p of msg.panes) {

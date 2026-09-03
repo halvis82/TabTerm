@@ -41,6 +41,23 @@ await sleep(600);
 await evaluate(client, `document.querySelector('.cmd-gear')?.click()`);
 await sleep(900);
 
+/**
+ * Turned on first, because the rest of the section only exists while it is.
+ *
+ * The threshold and the per-kind switches are indented under the master switch and appear with
+ * it: a picker for how long a notification you are not receiving has to have taken is a puzzle
+ * rather than a setting.
+ */
+await evaluate(
+  client,
+  `(() => {
+     const box = [...document.querySelectorAll('.set-toggle')]
+       .find((t) => t.textContent.includes('Tell me when something finishes'))?.querySelector('input');
+     if (box && !box.checked) { box.checked = true; box.dispatchEvent(new Event('change', { bubbles: true })); }
+   })()`,
+);
+await sleep(1200);
+
 r.ok(
   'settings offer notifications',
   Number(await evaluate(client, `document.querySelectorAll('.set-toggle').length`)) >= 6,
@@ -68,7 +85,11 @@ const hookRow = await evaluate(
      return row ? row.textContent : '';
    })()`,
 );
-r.ok('agent events can be turned on from here', String(hookRow).includes('Let agents report'), hookRow);
+r.ok(
+  'agent events can be turned on from here',
+  String(hookRow).includes('Let agents report'),
+  hookRow,
+);
 
 const shellRow = await evaluate(
   client,

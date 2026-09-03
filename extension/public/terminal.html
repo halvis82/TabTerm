@@ -360,11 +360,12 @@
     outline: none;
   }
 
+  /* Slimmer than it was: a name and a badge do not need the height of a paragraph. */
   .session-head {
     display: flex;
     align-items: center;
     gap: 7px;
-    padding: 9px 10px 7px;
+    padding: 6px 10px 4px;
   }
   .session-dot {
     flex: none;
@@ -427,25 +428,36 @@
    * Bottom aligned, because a terminal's newest line is at the bottom and a preview that grew
    * downward from the top would show the oldest thing it knows.
    */
+  /**
+   * A window onto the session, sized to show as much as it can rather than as little.
+   *
+   * The text is 6px against the old 10, which is 40 per cent smaller, and the box is 101px
+   * against 88, which is 15 per cent taller. Together with a slimmer head and foot that is
+   * roughly three times the text in a card that grew by an eighth.
+   *
+   * `line-height` is tight because these lines are being scanned for shape, not read: at this
+   * size the leading is what wastes the room rather than the glyphs.
+   */
   .session-screen {
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
-    height: 88px;
-    padding: 8px 10px;
+    height: 101px;
+    padding: 6px 10px;
     overflow: hidden;
     background: #0c0d12;
     border-top: 1px solid rgba(90, 100, 130, 0.14);
     border-bottom: 1px solid rgba(90, 100, 130, 0.14);
     color: #9aa4bd;
     font-family: inherit;
-    font-size: 10px;
-    line-height: 1.5;
+    font-size: 6px;
+    line-height: 1.42;
     /* Faded at the top, so the miniature reads as a window onto something longer. */
-    mask-image: linear-gradient(to bottom, transparent, #000 22px);
-    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 22px);
+    mask-image: linear-gradient(to bottom, transparent, #000 18px);
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px);
   }
-  /* Taller here than on a card: this is the only thing left of the session. */
+  /* Taller and readable here: this is the only thing left of the session, and it is being
+     read rather than glanced at, so it does not take the card's miniature type size. */
   .recovery-screen {
     height: auto;
     max-height: 220px;
@@ -453,6 +465,7 @@
     border-radius: 8px;
     border: 1px solid rgba(90, 100, 130, 0.2);
     font-size: 11px;
+    line-height: 1.5;
   }
   .session-line {
     overflow: hidden;
@@ -471,12 +484,13 @@
     -webkit-mask-image: none;
   }
 
+  /* Slimmer: three short facts, none of which need room around them. */
   .session-foot {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 7px 10px 8px;
-    font-size: 10.5px;
+    padding: 4px 10px 5px;
+    font-size: 10px;
     color: #7d8496;
   }
   .session-what {
@@ -1568,6 +1582,18 @@
   .launcher[hidden] {
     display: none;
   }
+  /**
+   * Opaque, over a terminal that is running underneath it.
+   *
+   * It used to be transparent, on the reasoning that the prompt showing through at the bottom
+   * ties the start screen to the terminal it will become. That holds only while the prompt is
+   * near the bottom. A freshly opened shell has printed one line, so its prompt sits on the
+   * **first** row, and after a reload it was drawn straight through the top of the start screen,
+   * across the path box, as a second line of text belonging to nothing.
+   *
+   * The strip below is still transparent, so what shows through shows through down there, which
+   * is where a prompt belongs.
+   */
   .launcher {
     position: absolute;
     left: 0;
@@ -1579,7 +1605,7 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-    background: transparent;
+    background: var(--bg);
     border: 0;
     overflow: hidden;
   }
@@ -1674,10 +1700,28 @@
     background: rgba(224, 200, 121, 0.22);
   }
 
+  /**
+   * One row that grows to the right and scrolls, rather than wrapping onto a second line.
+   *
+   * Templates live in this row now, so it is as long as somebody's list of them. Wrapping moved
+   * everything below it down every time one was added, which is a layout that changes shape as
+   * you use it. `position: relative` because the hover card is positioned against this row and
+   * has to travel with it when it scrolls.
+   */
   .launcher-buttons {
+    position: relative;
     display: flex;
     gap: 7px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: visible;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
+    scroll-behavior: smooth;
+    scrollbar-color: rgba(90, 100, 130, 0.4) transparent;
+  }
+  .launcher-buttons > * {
+    flex: none;
   }
   .launcher-chip {
     padding: 5px 11px;
@@ -1819,19 +1863,94 @@
   .launcher-template-command {
     font-size: 12px;
   }
-  .launcher-templates {
-    margin-top: 8px;
-  }
   .launcher-template {
     border-style: solid;
     border-color: rgba(122, 162, 247, 0.35);
   }
-  .launcher-template-remove {
-    margin-left: 7px;
-    color: #6f758a;
+  .launcher-template.is-dragging {
+    opacity: 0.4;
   }
-  .launcher-template-remove:hover {
-    color: #ff8a7a;
+  .launcher-template.is-drop-target {
+    border-color: #7aa2f7;
+    box-shadow: -2px 0 0 0 #7aa2f7;
+  }
+  /* The `i`. A card that only appears on hover is a card nobody knows to look for. */
+  .launcher-template-info {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    margin-left: 7px;
+    border-radius: 50%;
+    border: 1px solid rgba(122, 162, 247, 0.45);
+    color: #8fb3f0;
+    font-size: 9.5px;
+    font-style: italic;
+    line-height: 1;
+  }
+  .launcher-template-info:hover {
+    background: rgba(122, 162, 247, 0.22);
+    color: var(--text);
+  }
+
+  /* What a template is, without having to open anything. */
+  .template-card {
+    position: fixed;
+    z-index: 30;
+    width: 260px;
+    padding: 11px 12px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(90, 100, 130, 0.45);
+    background: rgba(18, 20, 27, 0.98);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    animation: template-card-in 120ms ease-out;
+  }
+  @keyframes template-card-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+  }
+  .template-card-name {
+    font-size: 13px;
+    color: var(--text);
+  }
+  .template-card-desc {
+    font-size: 11.5px;
+    color: #8a91a3;
+    line-height: 1.45;
+  }
+  /* The arrangement drawn, which is the one thing a name cannot tell you. */
+  .template-card-preview {
+    position: relative;
+    height: 74px;
+    border-radius: 6px;
+    background: rgba(10, 11, 15, 0.7);
+    overflow: hidden;
+  }
+  .template-card-pane {
+    position: absolute;
+    border: 1px solid rgba(122, 162, 247, 0.4);
+    background: rgba(61, 107, 168, 0.14);
+    font-size: 9.5px;
+    color: #9ec5ff;
+    padding: 2px 3px;
+    overflow: hidden;
+    white-space: nowrap;
+    box-sizing: border-box;
+  }
+  .template-card-shape {
+    font-size: 10.5px;
+    color: #6f758a;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .template-card-actions {
+    display: flex;
+    gap: 6px;
   }
 
   .launcher-add-template {

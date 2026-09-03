@@ -146,7 +146,45 @@ export class PaneHost {
   }
 
   write(streamId: number, data: Uint8Array, ack: (bytes: number) => void): void {
-    this.paneForStream(streamId)?.controller.write(data, ack);
+    const pane = this.paneForStream(streamId);
+    pane?.controller.write(data, ack);
+    if (pane && data.length > 0) this.#sawOutput(pane.paneId);
+  }
+
+  /**
+   * Wait until a pane's shell has actually printed something and then gone quiet.
+   *
+   * A template used to type its commands the moment the panes existed, which is before any
+   * shell has drawn a prompt. The text landed above the prompt rather than at it, so it was
+   * mangled on screen and belonged to nothing: pressing Return did not run it, because the
+   * shell had never received it as input.
+   *
+   * A prompt is the first thing a shell prints, so the first output is the signal. The settle
+   * afterwards is for a prompt that arrives in more than one write, which a themed one always
+   * does.
+   */
+  whenSettled(paneId: string, fn: () => void): void {
+    const existing = this.#waiting.get(paneId);
+    if (existing) clearTimeout(existing.timer);
+    this.#waiting.set(paneId, { fn, timer: 0, seen: existing?.seen ?? false });
+    if (this.#waiting.get(paneId)?.seen === true) this.#sawOutput(paneId);
+  }
+
+  readonly #waiting = new Map<string, { fn: () => void; timer: number; seen: boolean }>();
+
+  #sawOutput(paneId: string): void {
+    const entry = this.#waiting.get(paneId);
+    if (!entry) {
+      // Remembered, so a pane that printed before anybody asked still counts as having printed.
+      this.#waiting.set(paneId, { fn: () => {}, timer: 0, seen: true });
+      return;
+    }
+    entry.seen = true;
+    clearTimeout(entry.timer);
+    entry.timer = window.setTimeout(() => {
+      this.#waiting.delete(paneId);
+      entry.fn();
+    }, 250);
   }
 
   /** Replace a pane's contents with a snapshot from the daemon. */

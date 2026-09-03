@@ -44,7 +44,9 @@ export interface LauncherOptions {
     shape?: LayoutShape,
   ) => void;
   onSaveTemplate: (template: LayoutTemplate) => void;
-  onRunTemplate: (template: LayoutTemplate) => void;
+  onRunTemplate: (template: LayoutTemplate, path: string) => void;
+  /** The whole list, in the order it should be shown and numbered. */
+  onReorderTemplates: (ids: readonly string[]) => void;
   onDeleteTemplate: (id: string) => void;
   /** A drop carried no path, which is what a Finder drag does. See ADR-0014. */
   onDropRejected?: () => void;
@@ -162,6 +164,10 @@ export class Launcher {
   dismiss(): void {
     if (this.#dismissed) return;
     this.#dismissed = true;
+    // The template card lives on the page rather than in this element, so it has to be told.
+    clearTimeout(this.#cardHideTimer);
+    this.#templateCard?.remove();
+    this.#templateCard = null;
     this.#el.hidden = true;
     this.#el.replaceChildren();
     // Anything bound outside this element goes with it. Control and a number is not ours once
@@ -536,7 +542,173 @@ export class Launcher {
    * are session names rather than counts, so using one twice puts the same session in two places
    * and gives it one command box rather than two to keep in step.
    */
-  #showTemplateForm(path: string, shape: LayoutShape = 'single'): void {
+  /**
+   * What a template chip does beyond running: show what it is, and move.
+   *
+   * The chip used to carry only a name and a delete cross, so the description somebody had
+   * written was never visible anywhere and the only thing you could do to a saved template was
+   * destroy it.
+   */
+  #wireTemplateChip(chip: HTMLElement, template: LayoutTemplate, input: HTMLInputElement): void {
+    /**
+     * An `i` on the right, because a card that only appears on hover is a card nobody finds.
+     *
+     * Hovering anywhere on the chip shows the same thing. The dot exists so there is something
+     * to look at that says the card is there at all.
+     */
+    const info = document.createElement('span');
+    info.className = 'launcher-template-info';
+    info.textContent = 'i';
+    info.title = 'What this template does';
+    info.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.#showTemplateCard(chip, template, input, true);
+    });
+    chip.append(info);
+
+    let hoverTimer = 0;
+    chip.addEventListener('mouseenter', () => {
+      // A short delay, so moving the pointer across the row does not flash a card per chip.
+      hoverTimer = window.setTimeout(() => this.#showTemplateCard(chip, template, input), 320);
+    });
+    chip.addEventListener('mouseleave', () => {
+      clearTimeout(hoverTimer);
+      this.#hideTemplateCard();
+    });
+
+    /**
+     * Dragged to reorder, which is also what renumbers the shortcut.
+     *
+     * The number on a chip is its position, so moving it moves the shortcut with it and there
+     * is nothing to keep in step.
+     */
+    chip.draggable = true;
+    chip.dataset['templateId'] = template.id;
+    chip.addEventListener('dragstart', (e) => {
+      chip.classList.add('is-dragging');
+      e.dataTransfer?.setData('text/plain', template.id);
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+    });
+    chip.addEventListener('dragend', () => chip.classList.remove('is-dragging'));
+    chip.addEventListener('dragover', (e) => {
+      if (!e.dataTransfer?.types.includes('text/plain')) return;
+      e.preventDefault();
+      chip.classList.add('is-drop-target');
+    });
+    chip.addEventListener('dragleave', () => chip.classList.remove('is-drop-target'));
+    chip.addEventListener('drop', (e) => {
+      e.preventDefault();
+      chip.classList.remove('is-drop-target');
+      const moved = e.dataTransfer?.getData('text/plain');
+      if (!moved || moved === template.id) return;
+      const order = this.#templates.map((t) => t.id).filter((id) => id !== moved);
+      const at = order.indexOf(template.id);
+      order.splice(at < 0 ? order.length : at, 0, moved);
+      this.#opts.onReorderTemplates(order);
+    });
+  }
+
+  /** The card itself, drawn one at a time, so there is never more than one on screen. */
+  #showTemplateCard(
+    chip: HTMLElement,
+    template: LayoutTemplate,
+    input: HTMLInputElement,
+    pinned = false,
+  ): void {
+    this.#templateCard?.remove();
+    clearTimeout(this.#cardHideTimer);
+    const card = document.createElement('div');
+    card.className = pinned ? 'template-card is-pinned' : 'template-card';
+
+    const title = document.createElement('div');
+    title.className = 'template-card-name';
+    title.textContent = template.name;
+
+    const description = document.createElement('div');
+    description.className = 'template-card-desc';
+    description.textContent =
+      template.description ?? 'No description. Edit this template to add one.';
+
+    // The shape drawn as boxes, which is the one thing a name cannot tell you.
+    const preview = document.createElement('div');
+    preview.className = 'template-card-preview';
+    const parsed = checkShape(template.layout ?? '1');
+    if (!('error' in parsed)) {
+      for (const pane of previewPanes(parsed.shape.shape)) {
+        const box = document.createElement('div');
+        box.className = 'template-card-pane';
+        box.style.left = `${String(pane.x * 100)}%`;
+        box.style.top = `${String(pane.y * 100)}%`;
+        box.style.width = `${String(pane.width * 100)}%`;
+        box.style.height = `${String(pane.height * 100)}%`;
+        box.textContent = template.sessionCommands?.[String(pane.id)] ?? '';
+        preview.append(box);
+      }
+    }
+
+    const shape = document.createElement('div');
+    shape.className = 'template-card-shape';
+    shape.textContent = `Shape ${template.layout ?? '1'}`;
+
+    const actions = document.createElement('div');
+    actions.className = 'template-card-actions';
+    const edit = document.createElement('button');
+    edit.className = 'launcher-chip';
+    edit.textContent = 'Edit';
+    edit.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.#templateCard?.remove();
+      this.#templateCard = null;
+      this.#showTemplateForm(this.#resolved(input.value), template.shape, template);
+    });
+    const remove = document.createElement('button');
+    remove.className = 'launcher-chip';
+    remove.textContent = 'Delete';
+    remove.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.#templateCard?.remove();
+      this.#templateCard = null;
+      this.#opts.onDeleteTemplate(template.id);
+    });
+    actions.append(edit, remove);
+
+    card.append(title, description, preview, shape, actions);
+    /**
+     * On the page rather than inside the row, positioned against the chip.
+     *
+     * The row is rebuilt whenever the start screen redraws, which it does every time the daemon
+     * reports what is running, so a card living inside it lasted until the next update and no
+     * longer. It is also a horizontally scrolling box, which clips anything hanging out of it.
+     */
+    const at = chip.getBoundingClientRect();
+    card.style.left = `${String(Math.max(8, Math.min(at.left, window.innerWidth - 276)))}px`;
+    card.style.top = `${String(at.bottom + 6)}px`;
+    document.body.append(card);
+    this.#templateCard = card;
+    // The pointer can travel from the chip onto the card without it going.
+    card.addEventListener('mouseenter', () => clearTimeout(this.#cardHideTimer));
+    card.addEventListener('mouseleave', () => this.#hideTemplateCard());
+  }
+
+  #templateCard: HTMLElement | null = null;
+  #cardHideTimer = 0;
+
+  /** Also on dismiss, so a card never outlives the start screen it belongs to. */
+  #hideTemplateCard(): void {
+    clearTimeout(this.#cardHideTimer);
+    this.#cardHideTimer = window.setTimeout(() => {
+      this.#templateCard?.remove();
+      this.#templateCard = null;
+    }, 140);
+  }
+
+  /**
+   * The form, for a new template or for one being edited.
+   *
+   * The same form both ways, because "what a template is" is one idea and having two dialogs
+   * that drift apart is how a field ends up editable in one and not the other.
+   */
+  #showTemplateForm(path: string, shape: LayoutShape = 'single', existing?: LayoutTemplate): void {
     this.#templateFormEl?.remove();
 
     const backdrop = document.createElement('div');
@@ -566,8 +738,13 @@ export class Launcher {
     const layout = document.createElement('input');
     layout.className = 'launcher-input template-layout';
     layout.placeholder = '1+2';
-    layout.value = SHAPE_AS_TEXT[shape] ?? '1';
+    layout.value = existing?.layout ?? SHAPE_AS_TEXT[shape] ?? '1';
     layout.spellcheck = false;
+
+    if (existing) {
+      name.value = existing.name;
+      description.value = existing.description ?? '';
+    }
 
     const help = document.createElement('div');
     help.className = 'template-help';
@@ -586,6 +763,11 @@ export class Launcher {
 
     /** Kept across redraws, so editing the shape does not throw away what has been typed. */
     const typed = new Map<number, string>();
+    // Prefilled when editing, so the commands somebody wrote are there to change rather than
+    // to type again from a blank form.
+    for (const [id, command] of Object.entries(existing?.sessionCommands ?? {})) {
+      typed.set(Number(id), command);
+    }
     let sessions: number[] = [];
 
     const redraw = (): void => {
@@ -651,7 +833,7 @@ export class Launcher {
 
     const save = document.createElement('button');
     save.className = 'launcher-chip is-selected';
-    save.textContent = 'Save template';
+    save.textContent = existing ? 'Save changes' : 'Save template';
     save.addEventListener('click', () => {
       const label = name.value.trim();
       if (label === '') {
@@ -665,7 +847,8 @@ export class Launcher {
       }
       const panes = previewPanes(result.shape.shape);
       void this.#opts.onSaveTemplate({
-        id: `t-${String(Date.now())}`,
+        // The same id when editing, so it keeps its place in the row and its shortcut number.
+        id: existing?.id ?? `t-${String(Date.now())}`,
         name: label,
         path,
         shape,
@@ -927,6 +1110,8 @@ export class Launcher {
       run: (path: string) => void;
       title: string;
       shape?: LayoutShape;
+      /** Present when this entry is a saved template rather than a built-in layout. */
+      template?: LayoutTemplate;
     }[] = [
       {
         label: 'Open',
@@ -952,12 +1137,27 @@ export class Launcher {
         shape: 'quad',
         run: (path) => this.#opts.onCreateLayout(path, 4, 'horizontal', 'quad'),
       },
-      {
-        label: 'Open agent here',
-        title: 'Start an agent CLI in this folder',
-        run: (path) => this.#opts.onLaunchAgent(path),
-      },
     ];
+
+    /**
+     * Templates are entries in this same list, not a second row underneath it.
+     *
+     * They were a separate strip with different styling, no keyboard shortcut and no way to see
+     * what one contained. Putting them here means they get the numbering, the selection, Return,
+     * and the folder in the box, for free and by construction rather than by being kept in step.
+     *
+     * `Open agent here` used to sit at the end doing something no template could express. It is
+     * gone, and `claude` and `codex` are ordinary templates that can be renamed, edited,
+     * reordered or deleted.
+     */
+    for (const template of this.#templates) {
+      actions.push({
+        label: template.name,
+        title: template.description ?? `${String(template.panes)} panes`,
+        template,
+        run: (path) => this.#opts.onRunTemplate(template, path),
+      });
+    }
 
     const chips: HTMLButtonElement[] = [];
     const select = (index: number): void => {
@@ -1007,6 +1207,12 @@ export class Launcher {
       });
       // Clicking or tabbing to a chip selects it, so what Return will do is always visible.
       chip.addEventListener('focus', () => select(index));
+
+      if (action.template) {
+        chip.classList.add('launcher-template');
+        this.#wireTemplateChip(chip, action.template, input);
+      }
+
       chips.push(chip);
       buttons.append(chip);
     }
@@ -1058,30 +1264,6 @@ export class Launcher {
         actions[this.#selectedAction]?.run(input.value.trim() || state.home);
       }
     });
-
-    if (this.#templates.length > 0) {
-      const saved = document.createElement('div');
-      saved.className = 'launcher-buttons launcher-templates';
-      for (const template of this.#templates) {
-        const chip = document.createElement('button');
-        chip.className = 'launcher-chip launcher-template';
-        chip.textContent = template.name;
-        chip.title = `${String(template.panes)} panes in ${template.path}`;
-        chip.addEventListener('click', () => this.#opts.onRunTemplate(template));
-        const remove = document.createElement('span');
-        remove.className = 'launcher-template-remove';
-        remove.textContent = '×';
-        remove.title = 'Forget this template';
-        remove.addEventListener('click', (e) => {
-          // Without this the click also runs the template it just removed.
-          e.stopPropagation();
-          this.#opts.onDeleteTemplate(template.id);
-        });
-        chip.append(remove);
-        saved.append(chip);
-      }
-      form.append(saved);
-    }
 
     const note = document.createElement('div');
     note.className = 'launcher-note';
