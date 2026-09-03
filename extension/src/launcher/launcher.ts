@@ -242,7 +242,15 @@ export class Launcher {
     const make = document.createElement('button');
     make.className = 'launcher-create-folder';
     make.textContent = 'Create folder';
-    make.addEventListener('click', () => this.#opts.onCreateFolder(typed));
+    /**
+     * The resolved path, not the raw text.
+     *
+     * The box may say `Downloads/deleteme1`, which is a path relative to nothing in particular
+     * once it leaves this page: the daemon resolved it against its own working directory and
+     * made the folder somewhere nobody was looking, or failed silently. Every other question
+     * asked about this box is resolved first, and this one was the exception.
+     */
+    make.addEventListener('click', () => this.#opts.onCreateFolder(this.#resolved(typed)));
     slot.append(label, make);
   }
 

@@ -2075,17 +2075,19 @@
   }
 
   /* Outside the scrolling area, so it is never the thing that gets cut off. */
+  /* The fade stops short of the bottom, so it never lies on the terminal's top border.
+     Padding alone did not do it: the gradient paints to the element's own edge, so the edge had
+     to move up rather than the text. `background-size` keeps the text where it was and shortens
+     only what is painted behind it. */
   .launcher-hint {
     flex: none;
     color: #6f758a;
     font-size: 11.5px;
     border-top: 1px solid #262a38;
-    /* Room under it, so the fade does not run into the terminal box below. The gradient reaches
-       the bottom edge of this element, and with a small bottom padding that edge sat on top of
-       the box's border rather than clear of it. */
-    padding: 8px 0 14px;
-    margin-bottom: 6px;
-    background: linear-gradient(to top, rgba(16, 18, 22, 0.92), transparent);
+    padding: 8px 0 16px;
+    background-image: linear-gradient(to top, rgba(16, 18, 22, 0.92), transparent);
+    background-repeat: no-repeat;
+    background-size: 100% calc(100% - 12px);
   }
 
   .palette {

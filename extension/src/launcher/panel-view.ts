@@ -653,7 +653,7 @@ export class CommandPanel {
         return;
       case 'Enter':
         e.preventDefault();
-        this.#activate(e.metaKey ? 'copy' : 'paste');
+        this.#activate(e.metaKey ? 'copy' : 'run');
         return;
       case 'Tab':
         // Cycling tabs from the keyboard, since the panel has three of them and reaching for
@@ -684,7 +684,7 @@ export class CommandPanel {
     this.#setTab(order[(at + delta + order.length) % order.length] as PanelTab);
   }
 
-  #activate(how: 'paste' | 'copy'): void {
+  #activate(how: 'paste' | 'copy' | 'run'): void {
     const row = this.#rows[this.#selected];
     if (!row) return;
     if (row.kind === 'action') {
@@ -707,14 +707,21 @@ export class CommandPanel {
       this.close();
       return;
     }
-    /**
-     * Return runs it. Command+Return is the one that hands it over instead.
-     *
-     * Pasting without running left the command sitting at a prompt waiting for a Return that
-     * had, from the person's point of view, already been pressed. The pair is the point:
-     * Return for "do this", Command+Return for "give me this to edit".
-     */
-    this.#opts.onRun(text);
+    if (how === 'run') {
+      /**
+       * Return runs it. Command+Return copies it instead.
+       *
+       * Pasting without running left the command sitting at a prompt waiting for a Return that
+       * had, from the person's point of view, already been pressed. The pair is the point:
+       * Return for "do this", Command+Return for "give me this to edit".
+       */
+      this.#opts.onRun(text);
+      this.close();
+      return;
+    }
+    // A double-click still only pastes. It is a pointing gesture, and running something because
+    // a second click landed too soon is not a mistake anybody should be able to make.
+    this.#opts.onPaste(text);
     this.close();
   }
 
