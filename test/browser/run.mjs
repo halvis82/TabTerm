@@ -267,6 +267,26 @@ function strayProcesses() {
 }
 const ptysBefore = ptyCount();
 
+/**
+ * Refuse to start when the machine is nearly out, rather than being the thing that finishes it.
+ *
+ * A full run needs somewhere around seventy, and the failure at the end of the supply is not a
+ * failing test: it is a laptop that cannot open a terminal in any application until it restarts,
+ * reported as `posix_spawnp failed` with nothing pointing at the cause. Costing somebody a run is
+ * a much smaller thing than costing them their terminals, so this errs early.
+ */
+{
+  const cap = Number(
+    execFileSync('sysctl', ['-n', 'kern.tty.ptmx_max'], { encoding: 'utf8' }).trim(),
+  );
+  if (ptysBefore > 0 && cap - ptysBefore < 120) {
+    console.error(`  ${String(ptysBefore)} of ${String(cap)} ptys are already gone.`);
+    console.error('  A run needs about 70, and running out stops every terminal on this machine.');
+    console.error('  Raise the cap or restart:  sudo sysctl -w kern.tty.ptmx_max=999');
+    process.exit(1);
+  }
+}
+
 const results = [];
 function report(r) {
   results.push(r);
