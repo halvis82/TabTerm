@@ -79,3 +79,37 @@ describe('what counts as long running', () => {
     expect(isLongRunning(now - 6_000, 5_000, now)).toBe(true);
   });
 });
+
+describe('how long the session has been open', () => {
+  /**
+   * The start screen says it and a terminal in use did not, so the moment you started working
+   * the one number that puts the rest in context disappeared.
+   */
+  it('is shown beside what the last command did', () => {
+    const said = describeTime(
+      {
+        lastDurationMs: 1200,
+        lastFinishedAt: 10_000,
+        sessionStartedAt: 0,
+      },
+      600_000,
+    );
+    expect(said).toContain('took');
+    expect(said).toContain('open');
+  });
+
+  it('is left out while the session is still new', () => {
+    // Nobody needs to be told a session is four seconds old.
+    const said = describeTime(
+      { lastDurationMs: 1200, lastFinishedAt: 3000, sessionStartedAt: 0 },
+      4000,
+    );
+    expect(said).not.toContain('open');
+  });
+
+  it('is not shown while something is running, which is the more urgent number', () => {
+    const said = describeTime({ commandStartedAt: 0, sessionStartedAt: 0 }, 600_000);
+    expect(said).toContain('running');
+    expect(said).not.toContain('open');
+  });
+});

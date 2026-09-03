@@ -11,13 +11,23 @@ export function buildStats(stats: SessionStats): HTMLElement {
   wrap.className = 'cmd-stats';
 
   const summary = stats.summarize();
+  /**
+   * Labels that say what the number is.
+   *
+   * `Median` and `Total time` were both ambiguous: the first named a statistic rather than a
+   * meaning, and the second could as easily have been the age of the session as the sum of the
+   * commands. The statistic itself is unchanged and the reason is still good, so it is the words
+   * that changed.
+   */
   const figures: [label: string, value: string][] = [
-    ['Commands', String(summary.total)],
+    ['Commands run', String(summary.total)],
     ['Failed', String(summary.failed)],
-    ['Running', String(summary.running)],
-    ['Median', formatDuration(summary.medianMs)],
-    ['Total time', formatDuration(summary.totalMs)],
-    ['Session started', formatTime(summary.startedAt)],
+    ['Running now', String(summary.running)],
+    // The median, not the mean: one `npm install` should not describe a session of quick
+    // commands, which is exactly what an average does.
+    ['Typical command', formatDuration(summary.medianMs)],
+    ['Time in commands', formatDuration(summary.totalMs)],
+    ['Session open', formatDuration(Date.now() - summary.startedAt)],
   ];
 
   const grid = document.createElement('div');
@@ -35,6 +45,22 @@ export function buildStats(stats: SessionStats): HTMLElement {
     grid.append(cell);
   }
   wrap.append(grid);
+
+  /**
+   * What is counted, said plainly.
+   *
+   * The honest answer to "do agents count, and servers, and background jobs?" is: whatever the
+   * shell reports as a command, which is everything run in the foreground and waited for. An
+   * agent CLI and a dev server are each one long-running command and show under `Running now`
+   * until they stop. Anything sent to the background with `&` is not the foreground process and
+   * is not timed, because nothing marks when it ends.
+   */
+  const note = document.createElement('div');
+  note.className = 'cmd-stats-note';
+  note.textContent =
+    'Counts anything run in the foreground and waited for, agents and servers included. ' +
+    'A job sent to the background with & is not timed.';
+  wrap.append(note);
 
   if (summary.longest) {
     const longest = document.createElement('div');

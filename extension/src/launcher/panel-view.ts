@@ -22,6 +22,8 @@ import {
 export interface PanelOptions {
   root: HTMLElement;
   onPaste: (text: string) => void;
+  /** Sends it and submits it, which is what Return means. */
+  onRun: (text: string) => void;
   onCopy: (text: string) => void;
   onSearch: (query: string) => void;
   /**
@@ -705,7 +707,14 @@ export class CommandPanel {
       this.close();
       return;
     }
-    this.#opts.onPaste(text);
+    /**
+     * Return runs it. Command+Return is the one that hands it over instead.
+     *
+     * Pasting without running left the command sitting at a prompt waiting for a Return that
+     * had, from the person's point of view, already been pressed. The pair is the point:
+     * Return for "do this", Command+Return for "give me this to edit".
+     */
+    this.#opts.onRun(text);
     this.close();
   }
 

@@ -110,6 +110,14 @@ let backgroundTimeout: number | null | undefined;
  * the thing it had just started, which is a tab nobody wanted.
  */
 let layoutRequestedHere = false;
+
+/**
+ * Whether the question "is this tab empty?" can be answered yet.
+ *
+ * False until a reattaching tab has had time to restore its screen. Until then every tab looks
+ * empty, and drawing the start screen on that basis is what made it flash up and vanish.
+ */
+let startScreenDecided = !reattaching;
 /** A template whose commands are waiting for its panes to exist. */
 let pendingTemplate: LayoutTemplate | null = null;
 
@@ -930,6 +938,18 @@ function useColor(use: ColorUse, color: string): void {
   void rememberColor(use, color);
 }
 
+/** Conversations the person has taken out of the resume list. */
+const hiddenResumes = new Set<string>();
+
+function loadHiddenResumes(): void {
+  void chrome.storage.local.get('tabterm.hiddenResumes').then((stored) => {
+    const list: unknown = stored['tabterm.hiddenResumes'];
+    if (!Array.isArray(list)) return;
+    for (const id of list) if (typeof id === 'string') hiddenResumes.add(id);
+    launcher?.setHiddenResumes([...hiddenResumes]);
+  });
+}
+
 function buildLauncher(): void {
   const overlay = document.getElementById('overlays') as HTMLElement;
 
@@ -1116,6 +1136,17 @@ function buildLauncher(): void {
       // Ask again shortly, so the row disappears once it has actually stopped rather than
       // sitting there claiming a server that is gone.
       setTimeout(() => client?.send({ t: 'list-servers' }), 2500);
+    },
+    /**
+     * A conversation dismissed from the list stays dismissed.
+     *
+     * In extension storage rather than the daemon: this is a view of somebody's own history,
+     * and hiding a row is a statement about what they want to see rather than about the
+     * conversation, which is still on disk and still resumable from the agent's own tools.
+     */
+    onHideResume: (sessionId) => {
+      hiddenResumes.add(sessionId);
+      void chrome.storage.local.set({ 'tabterm.hiddenResumes': [...hiddenResumes] });
     },
     onResumeAgent: (session) => {
       const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
@@ -1434,10 +1465,20 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
       run: target(() => detachFocused()),
     },
     {
+      /**
+       * The same panel as Command+K and the button in the corner.
+       *
+       * Three ways to the same place, deliberately: a shortcut for people who know it, a button
+       * for people who look, and a menu entry for people already in the menu.
+       */
+      label: 'Open menu',
+      separated: true,
+      run: () => commandPanel?.open(),
+    },
+    {
       // Reachable from the terminal as well as from the command menu and the toolbar icon.
       // A setting is usually wanted at the moment the thing it governs is annoying you.
       label: 'Settings',
-      separated: true,
       run: () => commandPanel?.openSettings(),
     },
     {
@@ -1603,6 +1644,8 @@ function buildCommandPanel(): void {
   commandPanel = new CommandPanel({
     root: overlay,
     onPaste: (text) => sendToFocusedPane(text),
+    // Return runs it; Command+Return copies it instead, for when it needs editing first.
+    onRun: (text) => sendToFocusedPane(`${text}\r`),
     onCopy: (text) => void navigator.clipboard.writeText(text),
     canScrollTo: (command) => findCommandRow(command) !== null,
     onScrollTo: (command) => {
@@ -1974,8 +2017,15 @@ function onControl(msg: ServerMessage): void {
 
     case 'launcher-state': {
       // The panel is about to be drawn, so the terminal gives up the top of the window.
-      // Drawn for a new tab, and for a reattach that turns out to hold nothing.
-      if ((!reattaching || thisTabIsUnused()) && launcher && !launcher.dismissed) {
+      /**
+       * Drawn for a new tab. For a reattach, only once we know the tab is empty.
+       *
+       * A reattaching tab has nothing on screen until its snapshot arrives, so asking whether
+       * it is empty before then always answers yes: the start screen appeared, the snapshot
+       * landed, and it was taken away again half a second later. That flash is the bug. The
+       * answer is not to decide faster but to not decide until there is something to decide on.
+       */
+      if ((!reattaching || startScreenDecided) && launcher && !launcher.dismissed) {
         root.classList.add('panel-open');
         refitAllPanes();
       }
@@ -2542,6 +2592,7 @@ async function start(): Promise<void> {
   // Read once, so the first right-click already shows the color that was last used.
   refreshRecentColors();
   refreshFlashing();
+  loadHiddenResumes();
   // Before anything is drawn, so a tab never flashes the wrong theme on the way in.
   watchTheme();
   buildHosts();
@@ -2566,7 +2617,11 @@ async function start(): Promise<void> {
    */
   if (reattaching) {
     setTimeout(() => {
-      if (!thisTabIsUnused()) launcher?.dismiss();
+      startScreenDecided = true;
+      // Empty after the snapshot means the tab really has nothing in it, and the start screen
+      // is what belongs there. Anything else keeps its terminal.
+      if (thisTabIsUnused()) launcher?.show();
+      else launcher?.dismiss();
     }, 900);
   }
   // Leaving fullscreen by any route, including the Escape the browser handles itself, must

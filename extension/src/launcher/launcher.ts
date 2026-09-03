@@ -45,6 +45,8 @@ export interface LauncherOptions {
   onDecideProjectTrust: (info: ProjectConfigInfo, decision: 'trusted' | 'denied') => void;
   onOpenProject: (path: string) => void;
   onResumeAgent: (session: ResumableAgentSession) => void;
+  /** Remembered, so a conversation dismissed once does not come back next time. */
+  onHideResume: (sessionId: string) => void;
   onRestore: (workspaceId: string, replayCommands: boolean) => void;
   /** Open a session that already exists, wherever it currently is. */
   onOpenSession: (session: LiveSession) => void;
@@ -135,6 +137,18 @@ export class Launcher {
    * The panel never comes back on its own: once you have started working, having a panel
    * reappear over your terminal would be worse than never having shown it.
    */
+  /**
+   * Draw it after all, for a tab that turned out to be empty.
+   *
+   * A reattaching tab holds its start screen back until its screen has arrived, because until
+   * then every tab looks empty. When it really is empty, this is what puts it up.
+   */
+  show(): void {
+    if (this.#dismissed) return;
+    this.#el.hidden = false;
+    this.render();
+  }
+
   dismiss(): void {
     if (this.#dismissed) return;
     this.#dismissed = true;
@@ -1142,20 +1156,59 @@ export class Launcher {
     if (!this.#dismissed) this.render();
   }
 
+  /** Conversations dismissed from this list, which stay dismissed. */
+  #hiddenResumes = new Set<string>();
+
+  setHiddenResumes(ids: readonly string[]): void {
+    this.#hiddenResumes = new Set(ids);
+    if (!this.#dismissed) this.render();
+  }
+
   #resumeSection(home: string): HTMLElement | null {
-    if (this.#resumable.length === 0) return null;
-    const rows = this.#resumable.slice(0, MAX_RESUME).map((session) => {
+    const offered = this.#resumable.filter((r) => !this.#hiddenResumes.has(r.sessionId));
+    if (offered.length === 0) return null;
+
+    const rows = offered.slice(0, MAX_RESUME).map((session) => {
+      /**
+       * Which agent, when, what was said, and where. In that order.
+       *
+       * The agent comes first because it decides everything else about the row: what resuming
+       * it will do, and which of two conversations about the same folder this is. The time is
+       * next because a list of conversations is read as a history. The text is what identifies
+       * it to a person, and the folder is the detail you check last.
+       */
+      const wrap = document.createElement('div');
+      wrap.className = 'launcher-row-wrap';
+
       const row = document.createElement('button');
-      row.className = 'launcher-row';
-      // Both agents are listed together, so each row says which one it is. Without that, two
-      // conversations about the same folder are indistinguishable.
+      row.className = 'launcher-row is-resume';
+      const when = new Date(session.modifiedAt);
       row.append(
+        badge(session.agent),
+        dim(
+          `${when.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+        ),
         strong(session.summary ?? `Session ${session.sessionId.slice(0, 8)}`),
-        dim(`${session.agent} · ${shorten(session.cwd, home)}`),
+        dim(shorten(session.cwd, home)),
       );
       row.title = session.sessionId;
       row.addEventListener('click', () => this.#opts.onResumeAgent(session));
-      return row;
+
+      // A cross, not a star: a conversation is either worth offering back or it is not, and
+      // there is nothing to keep.
+      const hide = document.createElement('button');
+      hide.className = 'launcher-row-action';
+      hide.title = 'Leave this conversation out of the list';
+      hide.textContent = '\u00d7';
+      hide.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.#hiddenResumes.add(session.sessionId);
+        this.#opts.onHideResume(session.sessionId);
+        this.render();
+      });
+
+      wrap.append(row, hide);
+      return wrap;
     });
     return section('Resume an agent session', rows);
   }
@@ -1328,6 +1381,14 @@ function section(title: string, rows: HTMLElement[]): HTMLElement {
   wrap.className = 'launcher-section';
   wrap.append(heading(title), ...rows);
   return wrap;
+}
+
+/** Which agent a conversation belongs to, said first because it decides what resuming does. */
+function badge(text: string): HTMLElement {
+  const el = document.createElement('span');
+  el.className = 'launcher-agent';
+  el.textContent = text;
+  return el;
 }
 
 function strong(text: string): HTMLElement {

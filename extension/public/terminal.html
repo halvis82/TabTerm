@@ -321,11 +321,16 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(258px, 1fr));
     gap: 10px;
+    /* Room for the lift on hover. Without it a card in the top row moved up under the edge of
+       whatever is above and its top border was clipped off. */
+    padding-top: 2px;
   }
 
   .session-grid.is-scrolling {
     max-height: 300px;
     overflow-y: auto;
+    /* Same reason, and here it matters more: a scrolling box clips by definition. */
+    padding-top: 3px;
     padding-right: 4px;
     /* Scoped to this list, so the scrollbar styling cannot leak into a terminal. */
     scrollbar-width: thin;
@@ -347,6 +352,8 @@
   }
   .session-card:hover,
   .session-card:focus-visible {
+    /* The lift is what clipped the top border: the row it sits in has no room above it, so a
+       card moving up went under the edge. The room is made below in `.session-grid`. */
     transform: translateY(-1px);
     border-color: #3d6ba8;
     background: rgba(30, 33, 45, 0.82);
@@ -484,8 +491,11 @@
   }
   .session-close {
     flex: none;
-    width: 18px;
-    height: 18px;
+    /* Big enough to hit. It was an 18px square holding a glyph, which is below what a pointer
+       can be expected to find, let alone hit on the first try. */
+    width: 26px;
+    height: 26px;
+    font-size: 15px;
     padding: 0;
     border: 0;
     border-radius: 5px;
@@ -512,8 +522,10 @@
   /* The button that opens it. Small, out of the way, and always in the same place. */
   #cmd-button {
     position: absolute;
-    top: 8px;
-    right: 10px;
+    /* Tucked into the corner, clear of the path box which starts just below and runs to the
+       right edge. At the old offsets the two overlapped. */
+    top: 4px;
+    right: 4px;
     z-index: 30;
     width: 26px;
     height: 26px;
@@ -1781,10 +1793,59 @@
     margin-top: 6px;
   }
 
+  /* A row reads as one row. The name is on the left and its star and cross are at the right
+     edge, which on a wide window is a long way apart: a faint rule and a tint on every other
+     one keep the eye on the line it started on. */
   .launcher-row-wrap {
     display: flex;
     align-items: center;
     gap: 4px;
+    padding: 1px 4px;
+    border-radius: 6px;
+    border-bottom: 1px solid rgba(90, 100, 130, 0.12);
+  }
+  .launcher-row-wrap:nth-child(even) {
+    background: rgba(255, 255, 255, 0.016);
+  }
+  .launcher-row-wrap:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+  .launcher-row-wrap:last-child {
+    border-bottom: 0;
+  }
+  .launcher-agent {
+    flex: none;
+    font-size: 11px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    border: 1px solid rgba(90, 100, 130, 0.34);
+    color: var(--dim);
+    text-transform: lowercase;
+  }
+  /* A resume row is mostly its text, so the text takes the room and everything else stays put. */
+  .launcher-row.is-resume > .launcher-strong {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .launcher-row-action {
+    flex: none;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #5b6070;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .launcher-row-action:hover {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.06);
   }
   .launcher-badge {
     font-size: 11px;

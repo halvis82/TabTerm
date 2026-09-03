@@ -49,7 +49,18 @@ export function describeTime(state: TimeState, now = Date.now()): string {
     const took = formatDuration(state.lastDurationMs);
     const failed = state.lastExitCode !== undefined && state.lastExitCode !== 0;
     const status = failed ? ` · exit ${String(state.lastExitCode)}` : '';
-    return `took ${took}${status} · ${formatAgo(state.lastFinishedAt, now)}`;
+    /**
+     * How long the session has been open, alongside what the last command did.
+     *
+     * The start screen says how long a session has been open and a terminal in use did not, so
+     * the moment you started working the one number that puts the rest in context disappeared.
+     * Only once it has been open a while: nobody needs to be told a session is four seconds old.
+     */
+    const open =
+      state.sessionStartedAt !== undefined && now - state.sessionStartedAt > 60_000
+        ? ` · open ${formatDuration(now - state.sessionStartedAt)}`
+        : '';
+    return `took ${took}${status} · ${formatAgo(state.lastFinishedAt, now)}${open}`;
   }
   if (state.sessionStartedAt !== undefined) {
     const open = now - state.sessionStartedAt;

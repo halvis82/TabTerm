@@ -182,6 +182,7 @@ function suiteNames() {
 function runSuite(name, port) {
   return new Promise((resolve) => {
     const started = Date.now();
+
     const child = spawn(process.execPath, [join(SUITES, `${name}.mjs`)], {
       cwd: ROOT,
       env: { ...process.env, TT_CDP_PORT: String(port) },
@@ -216,6 +217,26 @@ function sweep() {
     // Sweeping is best effort by definition.
   }
 }
+
+/**
+ * How many pseudo-terminals exist. Reported before and after every run.
+ *
+ * macOS caps these at `kern.tty.ptmx_max`, and once the cap is reached **nothing on the machine
+ * can open a terminal**: not this product, not iTerm, not anything. A run that leaks them is not
+ * a test problem, it is a broken laptop, and that happened on 2026-09-02.
+ */
+function ptyCount() {
+  try {
+    return Number(
+      execFileSync('bash', ['-c', 'ls /dev/ttys* 2>/dev/null | wc -l'], {
+        encoding: 'utf8',
+      }).trim(),
+    );
+  } catch {
+    return -1;
+  }
+}
+const ptysBefore = ptyCount();
 
 const results = [];
 function report(r) {
@@ -272,10 +293,22 @@ async function freePort() {
   return port;
 }
 
+/** A source of fresh ports, for when one turns out to be taken between asking and binding. */
+const portsTried = {
+  next() {
+    const server = createServer();
+    server.listen(0, '127.0.0.1');
+    const chosen = server.address()?.port ?? 0;
+    server.close();
+    // Synchronous and best effort: this is the retry path, and a wrong guess simply retries.
+    return chosen || 7380 + Math.floor(Math.random() * 500);
+  },
+};
+
 async function startTestDaemon() {
   const home = mkdtempSync(join(tmpdir(), 'tabterm-suite-home-'));
   const port = Number(process.env['TT_DAEMON_PORT'] ?? '') || (await freePort());
-  const state = { child: null, pid: 0, stopping: false, restarts: 0 };
+  const state = { child: null, pid: 0, stopping: false, restarts: 0, port };
 
   /**
    * Restarted when it dies, which is what launchd does for the real one.
@@ -289,7 +322,7 @@ async function startTestDaemon() {
   const spawnOnce = () => {
     const child = spawn(process.execPath, [join(ROOT, 'daemon', 'dist', 'main.js')], {
       cwd: ROOT,
-      env: { ...process.env, TABTERM_HOME: home, TABTERM_PORT: String(port) },
+      env: { ...process.env, TABTERM_HOME: home, TABTERM_PORT: String(state.port) },
       stdio: ['ignore', log, log],
     });
     state.child = child;
@@ -297,6 +330,17 @@ async function startTestDaemon() {
     child.on('exit', (code, signal) => {
       if (state.stopping) return;
       state.restarts++;
+      /**
+       * A port that turned out to be taken is answered with a different one.
+       *
+       * Asking the operating system for a free port and then binding it a moment later is a
+       * race: something else can take it in between. Retrying on the same port loses that race
+       * repeatedly and every suite in the run fails for reasons that look like product bugs.
+       */
+      if (code === 1 && state.restarts <= 3) {
+        state.port = portsTried.next();
+        console.log(`  port was taken, trying ${String(state.port)}`);
+      }
       if (state.restarts > 12) {
         console.log(
           `  the test daemon keeps dying (${String(code ?? signal)}); see ${home}/daemon.log`,
@@ -327,7 +371,15 @@ async function startTestDaemon() {
       throw new Error(`the test daemon never started; see ${home}/daemon.log`);
     execFileSync('sleep', ['0.2']);
   }
-  return { home, port, child, token: readFileSync(tokenFile, 'utf8').trim(), state };
+  return {
+    home,
+    get port() {
+      return state.port;
+    },
+    child,
+    token: readFileSync(tokenFile, 'utf8').trim(),
+    state,
+  };
 }
 
 function startBrowser(port) {
@@ -399,6 +451,7 @@ sweep();
 
 // The daemon and everything it owned. Its PTY host goes with it, which is safe precisely
 // because nothing a person is using was ever in there.
+endEverythingThisRunMade();
 try {
   daemon.child.kill('SIGTERM');
   /**
@@ -425,6 +478,55 @@ try {
   /* a directory that could not be removed is not a failed run */
 }
 
+/**
+ * Everything this run made, ended, whatever happens.
+ *
+ * Interrupting a run is normal and must be safe. It was not: a killed run left its sessions
+ * alive forever, because the reap policy keeps anything no browser has reported on, which is
+ * exactly the state a dead test browser leaves behind. Dozens of interrupted runs filled the
+ * machine's pty table.
+ *
+ * Safe to be blunt here precisely because this daemon is the suites' own: it was created by
+ * this process, in a temporary home, and holds nothing a person is using.
+ */
+function endEverythingThisRunMade() {
+  try {
+    daemon.child.kill('SIGKILL');
+  } catch {
+    /* already gone */
+  }
+  for (const port of [daemon.port]) {
+    try {
+      const held = execFileSync('lsof', ['-t', '-i', `:${String(port)}`, '-sTCP:LISTEN'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+      for (const pid of held.split('\n').filter(Boolean)) process.kill(Number(pid), 'SIGKILL');
+    } catch {
+      /* nothing listening */
+    }
+  }
+  // The host outlives its daemon by design, which is the whole point of it, and is exactly why
+  // it has to be ended explicitly here. Found by this installation's own lock file.
+  try {
+    const lock = join(daemon.home, '.local', 'state', 'tabterm', 'ptyhost.lock');
+    if (existsSync(lock)) {
+      const pid = Number(readFileSync(lock, 'utf8').trim());
+      if (Number.isInteger(pid) && pid > 0) process.kill(pid, 'SIGKILL');
+    }
+  } catch {
+    /* already gone */
+  }
+}
+
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(signal, () => {
+    console.log(`\n  interrupted: ending what this run created`);
+    endEverythingThisRunMade();
+    process.exit(130);
+  });
+}
+
 if (daemon.state.restarts > 0) {
   console.log(`  note: the test daemon restarted ${String(daemon.state.restarts)} time(s)`);
 }
@@ -442,4 +544,20 @@ console.log(
 console.log(
   `  -----  slowest: ${slowest.map((r) => `${r.name} ${r.seconds.toFixed(0)}s`).join(', ')}`,
 );
+/**
+ * A leak, named, at the end of every run.
+ *
+ * macOS caps pseudo-terminals at `kern.tty.ptmx_max`, and once that is reached nothing on the
+ * machine can open a terminal: not this product, not iTerm. Discovering that days later on a
+ * laptop that could no longer open a shell is what made this worth printing every time.
+ */
+const ptysAfter = ptyCount();
+const cap = Number(
+  execFileSync('sysctl', ['-n', 'kern.tty.ptmx_max'], { encoding: 'utf8' }).trim(),
+);
+console.log(`  -----  ptys ${String(ptysBefore)} -> ${String(ptysAfter)} of ${String(cap)}`);
+if (ptysAfter - ptysBefore > 4) {
+  console.log(`  -----  WARNING: this run leaked about ${String(ptysAfter - ptysBefore)} ptys`);
+}
+
 process.exit(fail === 0 ? 0 : 1);

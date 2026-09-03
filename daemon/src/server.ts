@@ -2138,11 +2138,24 @@ export class DaemonServer {
       ...codex.map((s) => ({ ...s, agent: 'codex' as const })),
     ]);
 
+    /**
+     * A conversation that is open right now is not one to resume.
+     *
+     * Resuming a conversation an agent is currently holding is at best confusing and at worst
+     * two processes writing the same history. A running one is easy to recognize: this daemon
+     * started it, so its id is in the argv of a live session.
+     */
+    const running = new Set<string>();
+    for (const live of this.#sessions.all) {
+      for (const argument of live.command ?? []) running.add(argument);
+    }
+
     const offerable: ResumableAgentSession[] = [];
     for (const session of merged) {
       if (offerable.length >= limit) break;
       // Checked here rather than at the reader, so both stores get the same guarantee.
       if (!(await directoryExists(session.cwd))) continue;
+      if (running.has(session.sessionId)) continue;
       offerable.push(session);
     }
     return offerable;
