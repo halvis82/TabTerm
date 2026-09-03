@@ -38,7 +38,16 @@ export type FaviconState =
   | 'waiting'
   | 'approval'
   | 'failed'
-  | 'disconnected';
+  | 'disconnected'
+  /**
+   * The two halves of the attention flash, which alternate until somebody looks.
+   *
+   * Their own states rather than a reuse of `done` and `idle`, which is what the flash used to
+   * alternate: two dark icons a shade apart, so the thing meant to catch your eye across twenty
+   * tabs was invisible. These are saturated and differ in hue as well as in brightness.
+   */
+  | 'attention'
+  | 'attention-alt';
 
 /**
  * Color carries the state, and shape carries it again.
@@ -57,6 +66,9 @@ const COLORS: Record<FaviconState, { bg: string; fg: string }> = {
   approval: { bg: '#5a3f18', fg: '#ffc857' },
   failed: { bg: '#4a2422', fg: '#ff8a7a' },
   disconnected: { bg: '#2b2f3d', fg: '#5b6070' },
+  // Bright on purpose. This pair exists to be seen out of the corner of an eye.
+  attention: { bg: '#1faa5a', fg: '#07281a' },
+  'attention-alt': { bg: '#f2c033', fg: '#3a2a04' },
 };
 
 /**
@@ -101,8 +113,14 @@ export function drawFavicon(state: FaviconState, phase = 0): string {
     return canvas.toDataURL('image/png');
   }
 
-  if (state === 'success') {
-    // A tick, which reads as "done" without depending on the green being seen as green.
+  if (state === 'success' || state === 'attention' || state === 'attention-alt') {
+    /**
+     * A tick, which reads as "done" without depending on the green being seen as green.
+     *
+     * The attention pair draws it too. It means finished rather than succeeded, which is what
+     * the flash is raised for, and at sixteen pixels a shape that changes between frames would
+     * read as two different tabs rather than as one asking for attention.
+     */
     g.beginPath();
     g.moveTo(9, 17);
     g.lineTo(14, 22);

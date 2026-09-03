@@ -45,6 +45,7 @@ export async function setFlashing(sessionId: string, on: boolean): Promise<void>
 /**
  * Two colors, alternating, until somebody looks.
  *
+ *
  * Stopped by the tab being looked at, and, when it is already the tab in front, by any sign of
  * a person: a key, a click, the pointer moving, or leaving. Idling on the tab is not noticing,
  * which is why visibility alone is not enough to call it seen.
@@ -69,7 +70,9 @@ export class TabFlasher {
     this.#timer = window.setInterval(() => {
       this.#phase++;
       this.#paint(this.#phase % 2 === 0);
-    }, 650);
+      // Brisk. At 650ms it read as a slow pulse rather than as something wanting attention, and
+      // a hidden tab's throttling stretches whatever is chosen here anyway.
+    }, 420);
 
     const seen = (): void => this.stop();
     const events: [target: EventTarget, name: string][] = [
