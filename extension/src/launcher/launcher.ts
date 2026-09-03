@@ -264,6 +264,17 @@ export class Launcher {
     if (reply.partial.endsWith('/')) {
       this.#listing = { dir: reply.partial, entries: reply.matches };
       this.#renderFolders();
+      /**
+       * Ask again if this answer is about somewhere we have already left.
+       *
+       * Two requests can be in flight at once, one from a keystroke and one from clicking a
+       * folder, and they can come back in either order. When the older one came back last it
+       * became the stored listing, `#drawFolders` found it was for the wrong directory and drew
+       * nothing, and nothing ever asked again: the list stayed empty until the next keystroke.
+       * It only happened when the daemon was busy enough for the replies to overtake each other,
+       * which is why it looked like a slow test rather than a race.
+       */
+      this.#ensureListing();
       return;
     }
 
@@ -1069,12 +1080,8 @@ export class Launcher {
     // buttons around as it appears and goes.
     const folderState = document.createElement('div');
     folderState.className = 'launcher-folder-state';
-    /**
-     * Browse sits **beside** the box, not above it.
-     *
-     * As a full-width block over the input it read as the primary way to choose a folder, which
-     * it is not: typing is. It is a small button on the left of the thing it helps with.
-     */
+    // The row holds only the box now. The folder list is inserted after it, and there is no
+    // Browse button: see the comment on the picker itself for why both went.
     const pathRow = document.createElement('div');
     pathRow.className = 'launcher-path-row';
     pathRow.append(input);
