@@ -41,6 +41,22 @@ over a 79 MB baseline:
 | `balanced` (default) | 10,000 | **369 MB** | 30.8 MB |
 | `full` | 50,000 | **925 MB** | 77.1 MB |
 
+### And what a smaller scrollback costs, measured
+
+The memory table says what a smaller emulator saves. It says nothing about what it loses, and a
+default cannot be chosen from half the picture.
+
+Measured: **depth, and nothing else.** The screen a reattaching tab is given is byte for byte
+identical at 200 lines and at 10,000, because the screen is the last `rows` lines and the cap
+governs only what is kept above them. What a smaller cap costs is how far back somebody can
+scroll inside the tab, and lowering the cap on a running session drops the older lines
+immediately rather than only applying to sessions started later.
+
+So the trade is legible: `low` costs a quarter of a gigabyte less across a dozen sessions and
+costs scroll depth. Nothing about correctness, reattach, or what a tab shows when it comes back
+changes with it. Pinned in `daemon/src/scrollback-fidelity.test.ts` so it does not have to be
+argued from first principles again.
+
 `full` is expensive and says so. It is for a machine with memory to spare and someone who
 genuinely scrolls back that far; it is not a better default. `low` gives up durability first —
 a shorter grace period is annoying, and a lost scrollback is not recoverable.
