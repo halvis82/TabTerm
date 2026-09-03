@@ -19,7 +19,6 @@
  * nine unrelated product bugs.
  */
 import { execFileSync, spawn } from 'node:child_process';
-import { createServer } from 'node:net';
 import { existsSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -219,11 +218,16 @@ function sweep() {
 }
 
 /**
- * How many pseudo-terminals exist. Reported before and after every run.
+ * How many pseudo-terminal device nodes exist. Reported before and after every run.
  *
  * macOS caps these at `kern.tty.ptmx_max`, and once the cap is reached **nothing on the machine
- * can open a terminal**: not this product, not iTerm, not anything. A run that leaks them is not
- * a test problem, it is a broken laptop, and that happened on 2026-09-02.
+ * can open a terminal**: not this product, not iTerm, not anything. That happened on 2026-09-02.
+ *
+ * Worth knowing before reading the number: a node is not the same as a process. macOS keeps the
+ * `/dev/ttysNNN` entry for a while after whatever held it is gone, and reclaims it on its own
+ * schedule, so this count runs well ahead of what is actually being used and comes down slowly.
+ * It is the right number for headroom against the cap, and the wrong number for blame. For blame
+ * see `strayProcesses`.
  */
 function ptyCount() {
   try {
@@ -234,6 +238,31 @@ function ptyCount() {
     );
   } catch {
     return -1;
+  }
+}
+
+/**
+ * Anything this run started that is somehow still running.
+ *
+ * This is the number that means we did something wrong, and it should always be zero. The pty
+ * host detaches itself on purpose, so it is not in our process group and will not be swept up by
+ * a signal to the group. It has to be found by name and by the home directory this run invented.
+ */
+function strayProcesses() {
+  try {
+    // `-E` prints each process's environment, which is the only place the home this run
+    // invented appears: the host takes its socket path from `TABTERM_HOME`, not from argv.
+    const out = execFileSync(
+      'bash',
+      [
+        '-c',
+        `ps -E -o pid,command | grep -F ${JSON.stringify(daemon.home)} | grep -v grep || true`,
+      ],
+      { encoding: 'utf8' },
+    ).trim();
+    return out ? out.split('\n').length : 0;
+  } catch {
+    return 0;
   }
 }
 const ptysBefore = ptyCount();
@@ -276,39 +305,36 @@ async function pool(names, ports) {
  * Returns what the browsers need to find it.
  */
 /**
- * A free port, from the operating system.
+ * A port for this run's daemon.
  *
- * A fixed one was a running battle: an interrupted run leaves its daemon holding it, the next
- * run cannot bind, its supervisor restarts it a dozen times, and every suite fails for reasons
- * that read as product bugs. Binding to port 0 and reading back what was given cannot collide
- * with a previous run, a colleague, or anything else on the machine.
+ * **Not** by binding port zero and reading back what was given. That is the obvious way and it
+ * loses a race: the port is released the moment it is read, and the operating system hands it
+ * straight to something else before the daemon gets there. Every run began with a failed bind.
+ *
+ * A random port in a quiet range, checked by asking who is listening, is uglier and works. A
+ * collision is still possible and is answered by trying another, which is why the retry exists.
  */
-async function freePort() {
-  const server = createServer();
-  // `listen` is asynchronous, so the address is not there until it says so. Reading it straight
-  // after the call returns null, which is how this first went wrong.
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address();
-  await new Promise((resolve) => server.close(resolve));
-  return port;
+function pickPort() {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const port = 7400 + Math.floor(Math.random() * 400);
+    try {
+      const held = execFileSync('lsof', ['-t', '-i', `:${String(port)}`, '-sTCP:LISTEN'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+      if (held === '') return port;
+    } catch {
+      // `lsof` exits non-zero when nothing holds it, which is the answer we want.
+      return port;
+    }
+  }
+  return 7400 + Math.floor(Math.random() * 400);
 }
 
-/** A source of fresh ports, for when one turns out to be taken between asking and binding. */
-const portsTried = {
-  next() {
-    const server = createServer();
-    server.listen(0, '127.0.0.1');
-    const chosen = server.address()?.port ?? 0;
-    server.close();
-    // Synchronous and best effort: this is the retry path, and a wrong guess simply retries.
-    return chosen || 7380 + Math.floor(Math.random() * 500);
-  },
-};
-
-async function startTestDaemon() {
+function startTestDaemon() {
   const home = mkdtempSync(join(tmpdir(), 'tabterm-suite-home-'));
-  const port = Number(process.env['TT_DAEMON_PORT'] ?? '') || (await freePort());
-  const state = { child: null, pid: 0, stopping: false, restarts: 0, port };
+  const port = Number(process.env['TT_DAEMON_PORT'] ?? '') || pickPort();
+  const state = { child: null, pid: 0, stopping: false, restarts: 0, port, groups: [] };
 
   /**
    * Restarted when it dies, which is what launchd does for the real one.
@@ -320,13 +346,25 @@ async function startTestDaemon() {
    */
   const log = openSync(join(home, 'daemon.log'), 'a');
   const spawnOnce = () => {
+    /**
+     * Its own process group, so everything it starts can be ended with it.
+     *
+     * The daemon spawns a PTY host, the host spawns shells, and each shell holds a pseudo
+     * terminal. Killing the daemon alone orphans all of that, and macOS never gives a pty back
+     * until the machine restarts: one full run leaked sixty-nine of them against a cap of 511.
+     * `detached` makes the daemon a group leader, and a negative pid kills the group.
+     */
     const child = spawn(process.execPath, [join(ROOT, 'daemon', 'dist', 'main.js')], {
       cwd: ROOT,
       env: { ...process.env, TABTERM_HOME: home, TABTERM_PORT: String(state.port) },
       stdio: ['ignore', log, log],
+      detached: true,
     });
     state.child = child;
     state.pid = child.pid ?? 0;
+    // Every group this run has ever started, because a restarted daemon leaves its old group
+    // behind and every shell in it holds a pty the machine will not hand out again.
+    if (child.pid) state.groups.push(child.pid);
     child.on('exit', (code, signal) => {
       if (state.stopping) return;
       state.restarts++;
@@ -338,7 +376,10 @@ async function startTestDaemon() {
        * repeatedly and every suite in the run fails for reasons that look like product bugs.
        */
       if (code === 1 && state.restarts <= 3) {
-        state.port = portsTried.next();
+        state.port = pickPort();
+        // Told to the suites as well, or they go looking for the daemon on the old one: the
+        // two that kill processes find nothing and report that they have no daemon of their own.
+        process.env['TT_DAEMON_PORT'] = String(state.port);
         console.log(`  port was taken, trying ${String(state.port)}`);
       }
       if (state.restarts > 12) {
@@ -418,7 +459,7 @@ const ports = Array.from({ length: width }, (_, i) => BASE_PORT + i);
  * on a browser that was never going to exit. From the outside it looked exactly like the suites
  * being slow, which is what this file exists to fix.
  */
-const daemon = await startTestDaemon();
+const daemon = startTestDaemon();
 process.env['TT_DAEMON_PORT'] = String(daemon.port);
 process.env['TT_DAEMON_TOKEN'] = daemon.token;
 // The two suites that kill things are told which installation is theirs. Without it they
@@ -495,6 +536,19 @@ function endEverythingThisRunMade() {
   } catch {
     /* already gone */
   }
+  /**
+   * The whole group, which is the daemon, its PTY host, and every shell they started.
+   *
+   * Killing the daemon alone leaves the rest orphaned, and every orphaned shell holds a pseudo
+   * terminal that macOS will not hand out again until the machine restarts.
+   */
+  for (const pid of daemon.state.groups) {
+    try {
+      process.kill(-pid, 'SIGKILL');
+    } catch {
+      /* that group is already gone */
+    }
+  }
   for (const port of [daemon.port]) {
     try {
       const held = execFileSync('lsof', ['-t', '-i', `:${String(port)}`, '-sTCP:LISTEN'], {
@@ -506,16 +560,33 @@ function endEverythingThisRunMade() {
       /* nothing listening */
     }
   }
-  // The host outlives its daemon by design, which is the whole point of it, and is exactly why
-  // it has to be ended explicitly here. Found by this installation's own lock file.
+  /**
+   * Anything still holding a file under this run's home.
+   *
+   * The PTY host **detaches itself on purpose**, which is the entire point of it: it has to
+   * survive its daemon being replaced. That also means it escapes the daemon's process group,
+   * so killing the group never reached it, and every shell it held kept its pseudo terminal.
+   * One run left 718 of them behind, against a machine limit of 999.
+   *
+   * Its socket, its lock and its scrollback all live under this run's temporary home, and
+   * nothing else on the machine has that directory open, so this finds exactly the processes
+   * this run is responsible for and nothing else.
+   */
   try {
-    const lock = join(daemon.home, '.local', 'state', 'tabterm', 'ptyhost.lock');
-    if (existsSync(lock)) {
-      const pid = Number(readFileSync(lock, 'utf8').trim());
-      if (Number.isInteger(pid) && pid > 0) process.kill(pid, 'SIGKILL');
+    const holding = execFileSync('lsof', ['-t', '+D', daemon.home], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    for (const pid of holding.split('\n').filter(Boolean)) {
+      if (Number(pid) === process.pid) continue;
+      try {
+        process.kill(Number(pid), 'SIGKILL');
+      } catch {
+        /* already gone */
+      }
     }
   } catch {
-    /* already gone */
+    /* nothing had it open */
   }
 }
 
@@ -551,13 +622,24 @@ console.log(
  * machine can open a terminal: not this product, not iTerm. Discovering that days later on a
  * laptop that could no longer open a shell is what made this worth printing every time.
  */
+// A moment to settle, so anything shutting down has finished doing so before it is counted.
+execFileSync('sleep', ['2']);
 const ptysAfter = ptyCount();
 const cap = Number(
   execFileSync('sysctl', ['-n', 'kern.tty.ptmx_max'], { encoding: 'utf8' }).trim(),
 );
 console.log(`  -----  ptys ${String(ptysBefore)} -> ${String(ptysAfter)} of ${String(cap)}`);
-if (ptysAfter - ptysBefore > 4) {
-  console.log(`  -----  WARNING: this run leaked about ${String(ptysAfter - ptysBefore)} ptys`);
+
+// Two different failures, printed differently because they call for different things.
+const stray = strayProcesses();
+if (stray > 0) {
+  console.log(`  -----  WARNING: ${String(stray)} process(es) from this run are still alive`);
+}
+if (cap - ptysAfter < 150) {
+  console.log(
+    `  -----  WARNING: only ${String(cap - ptysAfter)} ptys left before nothing on this machine`,
+  );
+  console.log('  -----  can open a terminal. Raise it: sudo sysctl -w kern.tty.ptmx_max=999');
 }
 
 process.exit(fail === 0 ? 0 : 1);

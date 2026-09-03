@@ -51,7 +51,9 @@ r.ok(
   await waitFor(fresh.client, "window.__tabterm.resumable().some((s) => s.agent === 'codex')");
   const was = (await listTargets()).filter((t) => (t.url ?? '').includes('terminal.html')).length;
   const workspaceWas = String(await evaluate(fresh.client, 'window.__tabterm.workspaceId()'));
-  const clicked = await realClick(fresh.client, '.launcher-row', 'codex \u00b7 ');
+  // Matched on the agent badge, which now leads the row: agent, then when, then what was said,
+  // then where. The old text `codex · ~` no longer exists.
+  const clicked = await realClick(fresh.client, '.launcher-row.is-resume', 'codex');
   r.ok('a resume row can be pressed', clicked !== false);
   // The resumed agent has started when the tab has changed workspace, which is the thing being
   // asserted. Nine seconds was a guess at how long Codex takes to draw its first frame.

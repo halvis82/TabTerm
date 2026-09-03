@@ -10,6 +10,31 @@ Update this file whenever a new constraint is discovered.
 
 ---
 
+## The machine's own limits
+
+### macOS hands out a fixed number of pseudo-terminals
+
+`kern.tty.ptmx_max` is **511** by default. When that many exist, nothing on the machine can open a
+terminal: not TabTerm, not iTerm, not anything, and the failure is an opaque `posix_spawnp failed`
+that names nothing.
+
+    sysctl kern.tty.ptmx_max        the cap
+    ls /dev/ttys* | wc -l           how many exist
+    sudo sysctl -w kern.tty.ptmx_max=999
+
+It can be raised, but not freely: 999 is accepted and 1024 is rejected, and the setting does not
+survive a reboot.
+
+A device node is not a running process. macOS keeps the `/dev/ttysNNN` entry after whatever held it
+has gone and reclaims it on its own schedule, so the count runs well ahead of what is in use and
+comes down slowly. Reading it as a leak is a mistake that costs an afternoon: check for live
+processes before concluding anything was left behind.
+
+Ordinary use is nowhere near the cap. Running the browser suites repeatedly is, because each run
+opens shells faster than the OS gives the numbers back, so the harness prints the count before and
+after every run and warns separately when a run leaves a process alive and when headroom is short.
+See `AGENTS/BACKLOG.md` WP-27 for the incident this came from.
+
 ## Tier 0 — Impossible
 
 No API exists. No workaround. Design around these.

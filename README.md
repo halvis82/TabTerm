@@ -248,3 +248,28 @@ not permit is documented there with measurements, including the things that cann
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## If terminals stop opening
+
+Every terminal on the machine fails to start, including ones that have nothing to do with
+TabTerm. TabTerm reports `posix_spawnp failed` and iTerm reports a session ending immediately.
+
+macOS caps how many pseudo-terminals it will hand out, and the cap is low:
+
+    sysctl kern.tty.ptmx_max      # 511 by default
+    ls /dev/ttys* | wc -l         # how many exist
+
+When the second number reaches the first, nothing on the machine can open a terminal. Raise it:
+
+    sudo sysctl -w kern.tty.ptmx_max=999
+
+999 rather than a round number: macOS rejects anything at or above 1024. This lasts until the
+machine restarts, and a restart clears the count anyway, so either fixes it. To make it survive a
+restart, put `kern.tty.ptmx_max=999` in `/etc/sysctl.conf`.
+
+Normal use does not approach this. Running the browser test suites repeatedly does, because each
+run opens shells faster than macOS gives the numbers back.
+
+That second count is device nodes, not running processes. macOS keeps the entry for a while after
+whatever held it is gone, so the number lags behind reality and comes down slowly on its own.
+A high count with nothing running is not something leaking, and a restart clears it.
