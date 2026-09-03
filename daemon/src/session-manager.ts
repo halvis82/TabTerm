@@ -225,6 +225,25 @@ export class SessionManager {
     return this.#sessions.get(id);
   }
 
+  /**
+   * A terminal size a terminal could actually have.
+   *
+   * The numbers come off the wire from a page, and a page can say anything. Asking for a session
+   * of `Number.MAX_SAFE_INTEGER` rows makes the VT try to allocate one line object per row: the
+   * daemon dies of an out-of-memory abort, and every terminal on the machine dies with it,
+   * because this process holds them all. Found by throwing malformed messages at the daemon,
+   * which is the first thing that had ever tried.
+   *
+   * Clamped rather than rejected. A wrong size is a cosmetic problem that the next real resize
+   * corrects, and refusing to open somebody's terminal because a measurement arrived garbled
+   * would be a worse answer than opening it slightly wrong. The bounds are far outside any real
+   * display and far inside what can be allocated.
+   */
+  static sane(value: number, fallback: number): number {
+    if (!Number.isFinite(value)) return fallback;
+    return Math.min(1000, Math.max(1, Math.floor(value)));
+  }
+
   create(opts: { cwd?: string; command?: readonly string[]; cols: number; rows: number }): Session {
     const id = randomUUID();
     /**
@@ -237,7 +256,9 @@ export class SessionManager {
      * expanding, rather than every caller remembering to.
      */
     const cwd = expandHome(opts.cwd ?? homedir());
-    const vt = new VtState(opts.cols, opts.rows, this.#config.scrollbackLines);
+    const cols = SessionManager.sane(opts.cols, 80);
+    const rows = SessionManager.sane(opts.rows, 24);
+    const vt = new VtState(cols, rows, this.#config.scrollbackLines);
 
     const session: Session = {
       id,
@@ -269,8 +290,9 @@ export class SessionManager {
     this.#pty.spawn({
       shell: this.#config.shell,
       cwd,
-      cols: opts.cols,
-      rows: opts.rows,
+      // The clamped pair, so the PTY and this daemon's own screen agree about the geometry.
+      cols,
+      rows,
       sessionId: id,
       ...(opts.command ? { command: opts.command } : {}),
     });
@@ -417,6 +439,19 @@ export class SessionManager {
     if (session.state === 'exited' || session.state === 'reaped') {
       throw new Error('session-expired');
     }
+    /**
+     * The size this client claims, clamped before it is believed.
+     *
+     * `#applyResize` takes the smallest size across everything attached and hands it to the VT,
+     * so one client claiming `Number.MAX_SAFE_INTEGER` rows is enough to make the VT try to
+     * allocate a line object per row. The daemon dies of an out-of-memory abort and every
+     * terminal on the machine dies with it, because this process holds them all.
+     *
+     * Clamping at `create` was not enough: this is the other door into the same number, and it
+     * is the one a reattach comes through.
+     */
+    client.cols = SessionManager.sane(client.cols, 80);
+    client.rows = SessionManager.sane(client.rows, 24);
     session.clients.set(client.clientId, client);
     session.lastAttachedAt = Date.now();
     if (session.reapTimer) {
@@ -456,8 +491,8 @@ export class SessionManager {
   resize(session: Session, clientId: string, cols: number, rows: number): void {
     const client = session.clients.get(clientId);
     if (!client) return;
-    client.cols = cols;
-    client.rows = rows;
+    client.cols = SessionManager.sane(cols, client.cols);
+    client.rows = SessionManager.sane(rows, client.rows);
     this.#applyResize(session);
   }
 

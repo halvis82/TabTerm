@@ -30,6 +30,12 @@ has gone and reclaims it on its own schedule, so the count runs well ahead of wh
 comes down slowly. Reading it as a leak is a mistake that costs an afternoon: check for live
 processes before concluding anything was left behind.
 
+A terminal size is clamped to between 1 and 1000 in each direction, whatever a page asks for.
+The VT allocates a line object per row, so a session asked for with `Number.MAX_SAFE_INTEGER`
+rows killed the daemon with an out-of-memory abort, and every terminal on the machine with it.
+Clamped rather than refused: a wrong size is cosmetic and the next real resize corrects it, while
+refusing to open somebody's terminal because a measurement arrived garbled is a worse answer.
+
 TabTerm holds the line at **100 live sessions** in the PTY host, which is the only process that
 knows the total: the daemon can be replaced and Chrome can be closed while these keep running.
 The hundred and first is refused with a sentence in the pane saying why. A hundred is far above
