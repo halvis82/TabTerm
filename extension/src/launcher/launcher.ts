@@ -203,7 +203,18 @@ export class Launcher {
     if (this.#dirInput === null) return;
     // Compared against what was asked, which is the resolved form: the box may say `Documents`
     // while the question was about `~/Documents`.
-    if (this.#resolved(this.#dirInput.value) !== reply.path) return;
+    if (this.#resolved(this.#dirInput.value) !== reply.path) {
+      /**
+       * Ask again about where we actually are.
+       *
+       * Discarding an answer to a question nobody is asking any more is right. Discarding it and
+       * then waiting is not: the question about the current path may have been the one that was
+       * superseded, and then nothing is in flight and the line stays blank for good. The same
+       * shape as the folder listing race, in the other half of the same reply.
+       */
+      this.#askFolderState();
+      return;
+    }
     this.#folderState = reply;
     this.#renderFolderState();
   }
