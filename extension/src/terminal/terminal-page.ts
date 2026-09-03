@@ -1291,6 +1291,37 @@ function refitAllPanes(): void {
   }
 }
 
+/**
+ * Measure again whenever the tab comes back to life.
+ *
+ * A laptop closed overnight wakes with its terminals drawn into a corner of the pane, as though
+ * the window were a quarter of its size, and dragging the window fixes it. The element's box
+ * never changed, so the `ResizeObserver` had nothing to report; what went stale was xterm's own
+ * measurement of a character cell, taken while the display was off or the renderer released.
+ *
+ * There is nothing to detect and no event that says "your measurements are wrong", so it is
+ * simply redone at every moment the tab could have missed one: becoming visible, regaining
+ * focus, and coming back from the back/forward cache. Measuring costs a layout read and is done
+ * a handful of times a day.
+ */
+function installRefitOnWake(): void {
+  let pending = 0;
+  const remeasure = (): void => {
+    clearTimeout(pending);
+    // One frame later, so the browser has finished whatever it was doing to the window first.
+    pending = window.setTimeout(() => {
+      for (const pane of panesHost?.all ?? []) pane.controller.restoreRenderer();
+      refitAllPanes();
+    }, 60);
+  };
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') remeasure();
+  });
+  window.addEventListener('focus', remeasure);
+  window.addEventListener('pageshow', remeasure);
+}
+
 function submitsCommand(data: string): boolean {
   return data.includes('\r') || data.includes('\n');
 }
@@ -2604,6 +2635,7 @@ async function start(): Promise<void> {
   installModifierTracking();
   installShortcuts();
   installAmbientFocus();
+  installRefitOnWake();
   // A reattached session gets the whole window from the start. Nothing about it is new, so
   // there is nothing to offer.
   /**
