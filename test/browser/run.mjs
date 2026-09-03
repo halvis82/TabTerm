@@ -598,8 +598,20 @@ for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   });
 }
 
-if (daemon.state.restarts > 0) {
-  console.log(`  note: the test daemon restarted ${String(daemon.state.restarts)} time(s)`);
+/**
+ * One restart is the point of a suite, not a fault.
+ *
+ * `survives-restart` kills the daemon deliberately, so a clean run reports exactly one. More
+ * than that means something is falling over, and for two days it meant thirteen: the agent
+ * bridge was on a hardcoded port, so a second daemon on the machine died on a number that had
+ * nothing to do with the one it had been given.
+ */
+if (daemon.state.restarts > 1) {
+  console.log(
+    `  WARNING: the test daemon restarted ${String(daemon.state.restarts)} times, expected 1`,
+  );
+} else if (daemon.state.restarts === 1) {
+  console.log('  note: the daemon restarted once, which is survives-restart doing its job');
 }
 
 const pass = results.reduce((n, r) => n + r.pass, 0);
