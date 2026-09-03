@@ -187,8 +187,22 @@ async function closeWorkspaceTab(workspaceId: string, asking?: number): Promise<
  */
 const OPEN_TABS_KEY = 'tabterm.openWorkspaces';
 
+/**
+ * Nothing may overwrite the remembered set until startup has decided what to reopen.
+ *
+ * The record is at its most precious in the first moment of a worker's life, because that is
+ * exactly when the tabs it names do not exist yet. A tab event arriving first, and any event
+ * will, made `reportOpenTabs` write the truthful answer of "no terminal tabs" over the list of
+ * the ones that had just been destroyed, and the reopen then read an empty list and did nothing.
+ *
+ * That is why this feature had never been seen working: not a missing trigger, a race with a
+ * report that was correct in isolation and wrong at that instant.
+ */
+let startupSettled: Promise<void> = Promise.resolve();
+
 async function reportOpenTabs(): Promise<void> {
   try {
+    await startupSettled;
     const base = chrome.runtime.getURL('terminal.html');
     const tabs = await chrome.tabs.query({ url: `${base}*` });
     const workspaceIds = tabs
@@ -264,12 +278,50 @@ chrome.tabs.onUpdated.addListener((_id, changed) => {
 chrome.tabs.onReplaced.addListener(() => void reportOpenTabs());
 chrome.runtime.onStartup.addListener(() => void reopenAfterReload().then(() => reportOpenTabs()));
 /**
- * An update, a reload from chrome://extensions, and a fresh install all land here, and the
- * first two destroyed the tabs. `onStartup` covers Chrome itself being restarted.
+ * An update and a fresh install land here. A reload does not, which is the whole defect.
+ *
+ * `onInstalled` and `onStartup` were the only two triggers, and neither fires when the extension
+ * is reloaded rather than updated or installed. So the tabs were destroyed and nothing put them
+ * back, and it looked handled because the code for putting them back was plainly there and had
+ * never been watched doing it.
  */
 chrome.runtime.onInstalled.addListener(() => {
   void reopenAfterReload().then(() => reportOpenTabs());
 });
+
+/**
+ * Has this extension only just started, or did its service worker merely wake up?
+ *
+ * The two are indistinguishable from inside the worker: both are a fresh global scope running
+ * this file from the top. `chrome.storage.session` tells them apart because it is cleared when
+ * the extension is reloaded, updated, or the browser restarts, and **kept** across the worker
+ * being torn down and started again, which is the one thing that happens constantly.
+ *
+ * So an absent marker means the extension itself is new here, which is exactly when its tabs
+ * have just been destroyed. Getting this wrong in the other direction would reopen a tab
+ * somebody had closed a moment earlier, every thirty seconds, forever.
+ */
+const AWAKE_KEY = 'tabterm.workerAwake';
+
+async function reopenIfTheExtensionJustStarted(): Promise<void> {
+  try {
+    const seen = await chrome.storage.session.get(AWAKE_KEY);
+    if (seen[AWAKE_KEY] === true) return;
+    await chrome.storage.session.set({ [AWAKE_KEY]: true });
+    await reopenAfterReload();
+  } catch {
+    /* Session storage is unavailable in some contexts. Reopening is a convenience. */
+  }
+}
+
+/**
+ * Assigned before anything can report, so the first report waits for this rather than racing it.
+ *
+ * The listeners above are already registered by the time this line runs, and an event can arrive
+ * between the two. Holding the gate from here means it does not matter which order they land in.
+ */
+startupSettled = reopenIfTheExtensionJustStarted();
+void startupSettled.then(() => reportOpenTabs());
 void chrome.alarms.create('tabterm:tab-report', { periodInMinutes: TAB_REPORT_MS / 60_000 });
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'tabterm:tab-report') void reportOpenTabs();

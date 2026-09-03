@@ -30,6 +30,19 @@ has gone and reclaims it on its own schedule, so the count runs well ahead of wh
 comes down slowly. Reading it as a leak is a mistake that costs an afternoon: check for live
 processes before concluding anything was left behind.
 
+### A reloaded extension does not run until something wakes it
+
+An MV3 service worker is event driven. After the extension is reloaded there is no page of ours
+left alive and no event has happened, so nothing runs: not the top of the service worker, and not
+`chrome.runtime.onInstalled`, which a programmatic `chrome.runtime.reload()` does not fire at all.
+
+The tabs therefore come back on the worker's next start rather than at the instant of the reload,
+which in practice is immediately: reloading from `chrome://extensions` fires `onInstalled`, and
+any tab event at all starts the worker.
+
+What this means for the reopen is that the worker's first moment is the one that matters, and it
+is also the moment the record is most fragile. See `07-terminal-fidelity.md`.
+
 ### A unix socket path is capped at about a hundred bytes
 
 `sockaddr_un.sun_path` is 104 bytes on macOS and 108 on Linux. Going over does not truncate or
