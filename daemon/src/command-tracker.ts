@@ -113,6 +113,15 @@ export class CommandTracker {
     // Nothing running means the user pressed Enter on an empty prompt, or ran a builtin. Both
     // are correct outcomes, not failures.
     if (!foreground || isNoise(foreground.command)) return;
+    /**
+     * The shell itself is not a command it ran.
+     *
+     * An idle shell is its own foreground process, so this reported `/bin/zsh -l` as a command
+     * that had been running for as long as the session had existed. Every idle session did it,
+     * which is why five identical notifications arrived at once saying a shell had finished
+     * after twelve minutes.
+     */
+    if (foreground.pid === tracked.shellPid) return;
 
     const startedAt = Date.now();
     tracked.running = { command: foreground.command, pid: foreground.pid, startedAt };
@@ -158,7 +167,7 @@ export class CommandTracker {
 
     // A different command already in the foreground means one finished and the next began
     // between checks, which happens with a `&&` chain. Pick it up rather than missing it.
-    if (foreground && !isNoise(foreground.command)) {
+    if (foreground && foreground.pid !== tracked.shellPid && !isNoise(foreground.command)) {
       const startedAt = Date.now();
       tracked.running = { command: foreground.command, pid: foreground.pid, startedAt };
       this.#events.onStart(sessionId, foreground.command, startedAt);

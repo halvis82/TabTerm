@@ -148,3 +148,38 @@ describe('noise filtering', () => {
     expect(isNoise('')).toBe(false);
   });
 });
+
+describe('the shell is not a command', () => {
+  /**
+   * An idle shell is its own foreground process. It used to be reported as a command that had
+   * been running for as long as the session had existed, so every idle session produced a
+   * notification reading `Finished: /bin/zsh -l` with the age of the session as its duration.
+   * Five sessions meant five identical notifications at once.
+   */
+  it('ignores a foreground process that is the session shell itself', async () => {
+    const started: string[] = [];
+    const tracker = new CommandTracker(
+      { onStart: (_id, command) => started.push(command), onEnd: () => {} },
+      // The shell is what is in the foreground, which is what an idle prompt looks like.
+      () => Promise.resolve({ pid: 4242, command: '/bin/zsh -l' }),
+    );
+    tracker.add('s1', 4242);
+    tracker.onInput('s1', 'ls\r');
+    await new Promise((r) => setTimeout(r, 400));
+    expect(started).toEqual([]);
+    tracker.remove('s1');
+  });
+
+  it('and ignores one named like a shell even under a different pid', async () => {
+    const started: string[] = [];
+    const tracker = new CommandTracker(
+      { onStart: (_id, command) => started.push(command), onEnd: () => {} },
+      () => Promise.resolve({ pid: 9999, command: '-zsh' }),
+    );
+    tracker.add('s2', 4242);
+    tracker.onInput('s2', 'ls\r');
+    await new Promise((r) => setTimeout(r, 400));
+    expect(started).toEqual([]);
+    tracker.remove('s2');
+  });
+});

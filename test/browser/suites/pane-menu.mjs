@@ -110,5 +110,30 @@ r.ok(
   JSON.stringify(rect),
 );
 
+/**
+ * The flash toggle shows its state rather than only changing it.
+ *
+ * A tab can hold several terminals and one can be moved to a tab of its own later, so this
+ * belongs to the session that finishes commands rather than to the tab it happens to be in.
+ */
+r.ok(
+  'a per-session toggle for flashing the tab',
+  items.some((label) => label.startsWith('Flash the tab')),
+  items.join(' | '),
+);
+const tickOf = () =>
+  evaluate(
+    client,
+    `([...document.querySelectorAll('.term-menu-item')].find((b) => (b.textContent ?? '').startsWith('Flash the tab'))?.querySelector('.term-menu-tick')?.textContent ?? 'missing')`,
+  );
+r.ok('drawn with an empty tick while it is off', String(await tickOf()) === '');
+
+await realClick(client, '.term-menu-item', 'Flash the tab when a command finishes');
+await sleep(400);
+await openPaneMenu(client);
+await sleep(300);
+r.ok('and ticked once it is on', String(await tickOf()).includes('\u2713'));
+await evaluate(client, "document.querySelector('.term-menu')?.remove()");
+
 await finish();
 r.done();

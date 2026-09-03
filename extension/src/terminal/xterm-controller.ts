@@ -48,6 +48,8 @@ export interface ControllerOptions {
 export interface PaneMenuAction {
   label: string;
   run: () => void;
+  /** Drawn with a tick when on, so the entry shows its state rather than only changing it. */
+  checked?: boolean;
   /** Shown greyed rather than hidden, so the menu keeps a stable shape. */
   enabled?: boolean;
   /** Draws a rule above this entry, to separate destructive actions from ordinary ones. */
@@ -201,11 +203,20 @@ export class XtermController {
     const menu = document.createElement('div');
     menu.className = 'term-menu';
 
-    const item = (label: string, enabled: boolean, run: () => void) => {
+    const item = (label: string, enabled: boolean, run: () => void, checked?: boolean) => {
       const b = document.createElement('button');
       b.className = 'term-menu-item';
       b.textContent = label;
       b.disabled = !enabled;
+      if (checked !== undefined) {
+        // A tick on the right, so a toggle reads as one rather than as an action that happens
+        // to be reversible.
+        const tick = document.createElement('span');
+        tick.className = 'term-menu-tick';
+        tick.textContent = checked ? '\u2713' : '';
+        b.append(tick);
+        b.classList.add('is-toggle');
+      }
       b.addEventListener('click', () => {
         close();
         run();
@@ -312,7 +323,7 @@ export class XtermController {
         menu.append(rule);
       }
       const before = menu.lastElementChild;
-      item(action.label, action.enabled !== false, action.run);
+      item(action.label, action.enabled !== false, action.run, action.checked);
       if (action.danger === true) {
         (before?.nextElementSibling ?? menu.lastElementChild)?.classList.add('is-danger');
       }

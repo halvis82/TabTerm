@@ -22,6 +22,7 @@ import { chooseOpenAction, describeOpen } from './open-action.js';
 import { needsAttention, StatusMachine, titleStatus } from './status-machine.js';
 import { describeTime, isLongRunning, type TimeState } from './elapsed.js';
 import { applyFavicon, composeTitle, drawFavicon, type FaviconState } from './titles.js';
+import { TabFlasher, flashingSessions, setFlashing } from './flash-on-finish.js';
 import { Launcher } from '../launcher/launcher.js';
 import { CommandPanel } from '../launcher/panel-view.js';
 import { DEFAULT_PLACEMENT, type PanelPlacement } from '../launcher/command-panel.js';
@@ -278,7 +279,31 @@ function showResetConfirmation(sessions: readonly LiveSession[]): void {
   });
 }
 
+/**
+ * Which sessions asked for their tab to flash when a command finishes.
+ *
+ * Held in memory as well as in storage, so the menu can be built and measured without waiting
+ * on a read. Refreshed whenever it changes.
+ */
+let flashing = new Set<string>();
+
+function refreshFlashing(): void {
+  void flashingSessions().then((set) => (flashing = set));
+}
+
+/**
+ * Two alternating icons, painted over whatever the tab would otherwise show.
+ *
+ * `done` and `failed` are the two the product already draws for a finished command, so the
+ * flash is those two rather than a third thing nobody has seen before.
+ */
+const tabFlasher = new TabFlasher((on) => {
+  applyFavicon(drawFavicon(on ? 'done' : 'idle', animPhase));
+});
+
 function setFavicon(state: FaviconState): void {
+  // A flash is a deliberate override and outranks the ordinary icon until it is noticed.
+  if (tabFlasher.flashing) return;
   faviconState = state;
   clearInterval(animTimer);
   animTimer = undefined;
@@ -1334,6 +1359,25 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
       },
     },
     {
+      /**
+       * A toggle, belonging to the session rather than to the tab.
+       *
+       * A tab can hold several terminals and one can be moved to a tab of its own later, so the
+       * setting follows the terminal that finishes commands. A notification is for when you are
+       * in another application; this is for when you are in another tab.
+       */
+      label: 'Flash the tab when a command finishes',
+      enabled: session !== '',
+      checked: flashing.has(session),
+      run: () => {
+        const on = !flashing.has(session);
+        if (on) flashing.add(session);
+        else flashing.delete(session);
+        void setFlashing(session, on);
+        if (!on) tabFlasher.stop();
+      },
+    },
+    {
       // A landmark to scroll back to. Printed into the output rather than typed at the shell,
       // so it cannot run in whatever program is in the foreground.
       label: 'Add a marker here',
@@ -2108,6 +2152,8 @@ function onControl(msg: ServerMessage): void {
 
         paneStatus.finished(pane.paneId, msg.exitCode);
         setFavicon(paneStatus.effective());
+        // Asked for on this session, so the tab says so until somebody notices.
+        if (flashing.has(msg.sessionId)) tabFlasher.start();
         /**
          * The panel is live while it is open.
          *
@@ -2468,6 +2514,7 @@ async function start(): Promise<void> {
 
   // Read once, so the first right-click already shows the color that was last used.
   refreshRecentColors();
+  refreshFlashing();
   // Before anything is drawn, so a tab never flashes the wrong theme on the way in.
   watchTheme();
   buildHosts();

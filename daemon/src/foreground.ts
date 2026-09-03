@@ -88,7 +88,30 @@ function run(file: string, args: readonly string[]): Promise<string | null> {
  * The shell spawns helpers of its own, and a prompt that runs `git branch` to decorate itself
  * would otherwise look like the user running a command every time they press Enter.
  */
-const NOISE = new Set(['ps', 'stty', 'tput', 'locale', 'dircolors', 'tset']);
+/**
+ * Programs that are not a command somebody ran and waited for.
+ *
+ * The shells are here as well as being checked by pid, because a login shell can appear under
+ * several names and a wrapper can put a second one in the foreground. Reporting one as a
+ * finished command produced notifications reading `Finished: /bin/zsh -l` with the age of the
+ * session as their duration.
+ */
+const NOISE = new Set([
+  'ps',
+  'stty',
+  'tput',
+  'locale',
+  'dircolors',
+  'tset',
+  'zsh',
+  '-zsh',
+  'bash',
+  '-bash',
+  'sh',
+  '-sh',
+  'fish',
+  '-fish',
+]);
 
 export function isNoise(command: string): boolean {
   const first = command.trim().split(/\s+/)[0] ?? '';

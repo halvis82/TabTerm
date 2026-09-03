@@ -1004,6 +1004,18 @@
   }
   /* An entry that carries its color beside it. The label takes the width so the swatch stays
      on the right edge, where it reads as a setting for the entry rather than a second entry. */
+  .term-menu-item.is-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+  }
+  .term-menu-tick {
+    color: var(--accent);
+    font-size: 12px;
+    width: 10px;
+    text-align: right;
+  }
   .term-menu-row {
     display: flex;
     align-items: center;
