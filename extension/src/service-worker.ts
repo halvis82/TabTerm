@@ -1,3 +1,4 @@
+import { daemonPort } from './transport/port.js';
 import { getToken } from './transport/token.js';
 import {
   installClickHandler,
@@ -58,6 +59,7 @@ async function ensureOffscreen(): Promise<void> {
       t: 'tabterm:credentials',
       token,
       clientId: await clientId(),
+      port: await daemonPort(),
     });
   } catch {
     /* The document asks for credentials itself if this races. */
@@ -419,7 +421,16 @@ chrome.runtime.onMessage.addListener((msg: NotifyMessage, _sender, sendResponse)
 
   if (msg.t !== 'tabterm:need-credentials') return false;
   void (async () => {
-    sendResponse({ token: await getToken(), clientId: await clientId() });
+    /**
+     * The port travels with the credentials, because the document cannot read it.
+     *
+     * An offscreen document is given only `chrome.runtime`: no `chrome.storage`. So its call to
+     * `daemonPort()` always threw, always fell back to the default, and the control connection
+     * always went to 7377 whatever the installation was configured for. Under the browser
+     * suites that meant every notification, every tab report and every session list came from
+     * the daemon somebody was working in rather than the one the run had started.
+     */
+    sendResponse({ token: await getToken(), clientId: await clientId(), port: await daemonPort() });
   })();
   return true; // keep the channel open for the async reply
 });

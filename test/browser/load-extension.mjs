@@ -43,20 +43,54 @@ if (result.id !== expected) {
 const port = process.env.TT_DAEMON_PORT;
 const token = process.env.TT_DAEMON_TOKEN;
 if (port && token) {
-  const page = (await listTargets()).find((t) =>
-    t.url?.startsWith(`chrome-extension://${result.id}`),
-  );
-  const target = page ?? (await listTargets()).find((t) => t.type === 'page');
-  if (target?.webSocketDebuggerUrl) {
-    const c = connect(target.webSocketDebuggerUrl);
-    await c.ready;
-    await c.send('Runtime.enable');
-    await c.send('Runtime.evaluate', {
-      expression: `chrome.storage.local.set({ 'tabterm.port': ${Number(port)} }).then(() =>
-        chrome.storage.session.set({ 'tabterm.token': ${JSON.stringify(token)} }))`,
-      awaitPromise: true,
-    });
-    console.log(`  pointed at the test daemon on ${port}`);
+  /**
+   * Written from a context that actually has `chrome.storage`.
+   *
+   * This used to take the first extension page it could find and fall back to *any* page, which
+   * straight after loading an unpacked extension is `about:blank`. There is no `chrome` there,
+   * so the expression threw, nothing checked for the exception, and it printed that it had
+   * pointed the browser at the test daemon. It had not. Every suite then ran against the daemon
+   * on 7377, which is the one somebody is working in, and the temporary home and the separate
+   * port were both for nothing.
+   *
+   * The service worker is the context to use: it exists as soon as the extension is loaded and
+   * it has the whole API surface.
+   */
+  const wanted = `chrome-extension://${result.id}`;
+  let host = null;
+  for (let attempt = 0; attempt < 40 && !host; attempt++) {
+    const targets = await listTargets();
+    host =
+      targets.find((t) => t.type === 'service_worker' && t.url?.startsWith(wanted)) ??
+      targets.find((t) => t.type === 'page' && t.url?.startsWith(wanted)) ??
+      null;
+    if (!host) await new Promise((r) => setTimeout(r, 250));
   }
+  if (!host?.webSocketDebuggerUrl) {
+    console.error('no extension context to write the daemon port into');
+    process.exit(1);
+  }
+
+  const c = connect(host.webSocketDebuggerUrl);
+  await c.ready;
+  await c.send('Runtime.enable');
+  const written = await c.send('Runtime.evaluate', {
+    expression: `chrome.storage.local.set({ 'tabterm.port': ${Number(port)} })
+      .then(() => chrome.storage.session.set({ 'tabterm.token': ${JSON.stringify(token)} }))
+      .then(() => chrome.storage.local.get('tabterm.port'))
+      .then((s) => String(s['tabterm.port']))`,
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  // Checked, rather than assumed. Assuming it is what let this fail silently for weeks.
+  if (written.exceptionDetails || String(written.result?.value) !== String(Number(port))) {
+    console.error(
+      `could not point the browser at ${port}: ${
+        written.exceptionDetails?.exception?.description ?? String(written.result?.value)
+      }`,
+    );
+    process.exit(1);
+  }
+  console.log(`  pointed at the test daemon on ${port}`);
 }
 process.exit(0);

@@ -75,6 +75,8 @@ const statusEl = document.getElementById('status') as HTMLElement;
 const recoveryEl = document.getElementById('recovery') as HTMLElement;
 
 let client: DaemonClient | null = null;
+/** Which daemon this tab is talking to, so a test can tell its own from somebody's real one. */
+let connectedPort = 0;
 let panesHost: PaneHost | null = null;
 let splitView: SplitView | null = null;
 let launcher: Launcher | null = null;
@@ -302,11 +304,16 @@ function refreshFlashing(): void {
 /**
  * Two alternating icons, painted over whatever the tab would otherwise show.
  *
- * `done` and `failed` are the two the product already draws for a finished command, so the
- * flash is those two rather than a third thing nobody has seen before.
+ * It used to alternate `done` and `idle`, on the reasoning that the flash should be made of
+ * icons the product already draws rather than a third thing nobody has seen. Both of those sit
+ * on the same dark grey, one with a grey bar and one with a blue caret, so across a strip of
+ * twenty tabs the flash was invisible: which was the entire report.
+ *
+ * A tick on green alternating with a tick on amber. The shape stays put so it reads as one tab
+ * asking for something, and only the ground changes.
  */
 const tabFlasher = new TabFlasher((on) => {
-  applyFavicon(drawFavicon(on ? 'done' : 'idle', animPhase));
+  applyFavicon(drawFavicon(on ? 'attention' : 'attention-alt', animPhase));
 });
 
 /**
@@ -1214,6 +1221,8 @@ function buildLauncher(): void {
       // The terminal takes the whole window back. Its size genuinely changes, so the shell is
       // told, and it redraws into the space it now has.
       root.classList.remove('panel-open');
+      // The strip is gone, so the height it had grown to must not survive it.
+      root.style.removeProperty('--strip-height');
       refitAllPanes();
       panesHost?.focus(splitView?.focused ?? '');
     },
@@ -1362,6 +1371,44 @@ function installRefitOnWake(): void {
   });
   window.addEventListener('focus', remeasure);
   window.addEventListener('pageshow', remeasure);
+}
+
+/**
+ * The strip under the start screen grows upward when a command needs more than one line.
+ *
+ * It was a fixed 4.5rem, so a long command scrolled inside it: the prompt went off the top and
+ * what was being typed had no visible beginning. Growing rather than scrolling keeps the whole
+ * of it in view, which is the entire reason the strip is there.
+ *
+ * Bounded, because this is a strip under a start screen and not the terminal itself. Past the
+ * cap it scrolls again, which is the right behavior for something genuinely long.
+ */
+function growStripToFit(): void {
+  if (!root.classList.contains('panel-open')) return;
+  const pane = panesHost?.all[0];
+  if (!pane) return;
+  const term = pane.controller.term;
+  const buffer = term.buffer.active;
+
+  // The rows actually carrying something, from the top of the viewport down.
+  let used = 0;
+  for (let y = 0; y < term.rows; y++) {
+    const line = buffer.getLine(buffer.viewportY + y);
+    if (line && line.translateToString(true).trim() !== '') used = y + 1;
+  }
+
+  const lineHeight = pane.element.clientHeight / Math.max(1, term.rows);
+  if (!Number.isFinite(lineHeight) || lineHeight <= 0) return;
+  // Two lines of slack, so the next thing typed has somewhere to go before this moves again.
+  const wanted = Math.round((used + 2) * lineHeight) + 12;
+  const min = 72;
+  const max = Math.round(window.innerHeight * 0.4);
+  const height = Math.max(min, Math.min(max, wanted));
+  const current = Number(root.style.getPropertyValue('--strip-height').replace('px', ''));
+  // Only when it actually changed, or every keystroke costs a layout and a refit.
+  if (Math.abs(current - height) < lineHeight / 2) return;
+  root.style.setProperty('--strip-height', `${String(height)}px`);
+  refitAllPanes();
 }
 
 function submitsCommand(data: string): boolean {
@@ -2673,6 +2720,7 @@ function installTestHook(): void {
           streamId: p.streamId,
         })),
         status: lastStatus,
+        port: connectedPort,
       }),
     sendInput: (paneId, data) => {
       const pane = panesHost?.get(paneId);
@@ -2765,14 +2813,16 @@ async function start(): Promise<void> {
   const staged = params.get('staged');
   if (staged) showStaged(staged, params.get('stagedFrom') ?? 'a webpage');
 
+  connectedPort = await daemonPort();
   client = new DaemonClient({
-    port: await daemonPort(),
+    port: connectedPort,
     token,
     clientId: await connectionId(),
     role: 'data',
     onControl,
     onOutput: (streamId, data) => {
       panesHost?.write(streamId, data, (bytes) => client?.ack(streamId, bytes));
+      growStripToFit();
     },
     onStatus: statusFor,
     onProtocolError: (detail) => {

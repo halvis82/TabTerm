@@ -463,11 +463,25 @@ function startBrowser(port) {
     stdio: 'ignore',
     env: { ...process.env, TT_CDP_PORT: String(port) },
   });
-  execFileSync(process.execPath, [join(HERE, 'load-extension.mjs')], {
+  /**
+   * Loud, because this is the step that keeps the suites off somebody's real daemon.
+   *
+   * It was `stdio: 'ignore'`, so when it silently failed to point the browser anywhere the run
+   * carried on against the installed daemon on 7377 and nothing said so. Sessions the suites
+   * created went into the daemon somebody was working in, which is the exact thing the
+   * temporary home and the separate port exist to prevent.
+   */
+  const pointed = execFileSync(process.execPath, [join(HERE, 'load-extension.mjs')], {
     cwd: ROOT,
-    stdio: 'ignore',
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, TT_CDP_PORT: String(port) },
   });
+  if (!pointed.includes('pointed at the test daemon')) {
+    console.error(`  the browser on ${String(port)} was not pointed at this run's daemon:`);
+    console.error(`  ${pointed.trim().split('\n').join('\n  ')}`);
+    process.exit(1);
+  }
 }
 
 const started = Date.now();

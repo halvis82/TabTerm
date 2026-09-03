@@ -1,5 +1,4 @@
 import { DaemonClient } from '../transport/daemon-client.js';
-import { daemonPort } from '../transport/port.js';
 
 /**
  * Offscreen document: the control connection.
@@ -12,13 +11,20 @@ import { daemonPort } from '../transport/port.js';
  * `chrome.storage` and no `chrome.runtime.sendNativeMessage` here, so it cannot fetch the
  * daemon token itself. It asks the service worker, which has the full API surface. Sending a
  * message also wakes the worker if it has already died.
+ *
+ * **The port comes the same way, for the same reason.** It used to call `daemonPort()`, which
+ * reads `chrome.storage` and therefore threw in here every time and fell back to the default.
+ * So this connection went to port 7377 whatever the installation was configured for, and under
+ * the browser suites it meant notifications, tab reports and session lists all came from the
+ * daemon somebody was working in rather than the one the run had started. A fallback that is
+ * always taken is not a fallback.
  */
 
 let client: DaemonClient | null = null;
 
-function start(token: string, clientId: string): void {
+function start(token: string, clientId: string, port: number): void {
   if (client) return;
-  void daemonPort().then((port) => startOn(port, token, clientId));
+  startOn(port, token, clientId);
 }
 
 function startOn(port: number, token: string, clientId: string): void {
@@ -63,6 +69,8 @@ function startOn(port: number, token: string, clientId: string): void {
 interface Credentials {
   token?: string;
   clientId?: string;
+  /** Read by the worker, which has `chrome.storage`, because this document does not. */
+  port?: number;
 }
 
 async function requestCredentials(): Promise<void> {
@@ -70,7 +78,9 @@ async function requestCredentials(): Promise<void> {
     const reply: Credentials | undefined = await chrome.runtime.sendMessage({
       t: 'tabterm:need-credentials',
     });
-    if (reply?.token && reply.clientId) start(reply.token, reply.clientId);
+    if (reply?.token && reply.clientId && reply.port) {
+      start(reply.token, reply.clientId, reply.port);
+    }
   } catch {
     // The worker may be starting up. Retry rather than give up: this document is long lived
     // and the worker is not.
@@ -81,8 +91,8 @@ async function requestCredentials(): Promise<void> {
 // The worker may also push credentials unprompted, right after creating this document.
 chrome.runtime.onMessage.addListener(
   (msg: { t?: string; workspaceIds?: readonly string[] } & Credentials) => {
-    if (msg.t === 'tabterm:credentials' && msg.token && msg.clientId) {
-      start(msg.token, msg.clientId);
+    if (msg.t === 'tabterm:credentials' && msg.token && msg.clientId && msg.port) {
+      start(msg.token, msg.clientId, msg.port);
     }
     /**
      * What Chrome has open, forwarded to the daemon.

@@ -14,6 +14,19 @@ const a = await openTerminal();
 await waitFor(a.client, "document.querySelector('.launcher-input')");
 await type(a.client, 'echo TAKEN-OVER-MARKER\r');
 await sleep(1600);
+r.ok(
+  "both tabs talk to this run's own daemon, not the one somebody is working in",
+  String(await evaluate(a.client, 'JSON.parse(window.__tabterm.transport()).port')) ===
+    String(process.env.TT_DAEMON_PORT),
+  `tab on ${String(await evaluate(a.client, 'JSON.parse(window.__tabterm.transport()).port'))}, run on ${String(process.env.TT_DAEMON_PORT)}`,
+);
+r.ok(
+  'the marker was typed into the terminal, not into the path box',
+  String(await evaluate(a.client, 'window.__tabterm.readScreen() ?? ""')).includes(
+    'TAKEN-OVER-MARKER',
+  ),
+  String(await evaluate(a.client, 'document.activeElement?.className ?? ""')),
+);
 const sourceWorkspace = String(await evaluate(a.client, 'window.__tabterm.workspaceId()'));
 const sourceSession = String(
   await evaluate(a.client, 'JSON.parse(window.__tabterm.transport()).panes[0].sessionId'),
@@ -90,10 +103,22 @@ const clickAttached = `(() => {
   return row.textContent;
 })()`;
 const clicked = String(await evaluate(b.client, clickAttached));
+const offered = String(
+  await evaluate(
+    b.client,
+    `JSON.stringify([...document.querySelectorAll('.pane-chooser-session')].map((r) => (r.dataset.session ?? '').slice(0, 8) + ':' + r.textContent.slice(0, 26)))`,
+  ),
+);
+const tabs = (await listTargets()).filter((t) => t.url.includes('terminal.html'));
+r.ok(
+  'only the tabs this suite opened exist',
+  tabs.length === 2,
+  `${String(tabs.length)} terminal tabs`,
+);
 r.ok(
   'a session open in a tab is marked as such',
   clicked.includes('open in a tab'),
-  clicked.slice(0, 40),
+  `clicked=${clicked.slice(0, 30)} want=${sourceSession.slice(0, 12)} offered=${offered}`,
 );
 
 await sleep(700);
