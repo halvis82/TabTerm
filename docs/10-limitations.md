@@ -30,6 +30,13 @@ has gone and reclaims it on its own schedule, so the count runs well ahead of wh
 comes down slowly. Reading it as a leak is a mistake that costs an afternoon: check for live
 processes before concluding anything was left behind.
 
+TabTerm holds the line at **100 live sessions** in the PTY host, which is the only process that
+knows the total: the daemon can be replaced and Chrome can be closed while these keep running.
+The hundred and first is refused with a sentence in the pane saying why. A hundred is far above
+any honest use and far below the point of no return, and somebody with a hundred live terminals
+has a runaway rather than a workload. It is not a user setting, because a number you can raise
+while something is spawning in a loop is not a safety limit.
+
 Ordinary use is nowhere near the cap. Running the browser suites repeatedly is, because each run
 opens shells faster than the OS gives the numbers back, so the harness prints the count before and
 after every run and warns separately when a run leaves a process alive and when headroom is short.

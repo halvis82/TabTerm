@@ -50,6 +50,29 @@ interface Live {
  */
 const RING_BYTES = 5 * 1024 * 1024;
 
+/**
+ * The most sessions this process will hold at once.
+ *
+ * A last line of defence, and the only place that can be one: this process is the only thing
+ * that knows the total, because the daemon can be replaced and Chrome can be closed while these
+ * keep running.
+ *
+ * macOS hands out a fixed number of pseudo-terminals, `kern.tty.ptmx_max`, which is 511 by
+ * default. Reaching it does not degrade this product, it stops every terminal on the machine:
+ * iTerm included, with an opaque `posix_spawnp failed` that names nothing. That happened on
+ * 2026-09-02 and cost an afternoon. See docs/10-limitations.md.
+ *
+ * A hundred is far above any honest use and far below the point of no return. Somebody with a
+ * hundred live terminals has a runaway, and being told so is more useful than being handed the
+ * hundred and first.
+ *
+ * Deliberately not a user setting. A number you can raise from a preferences pane while
+ * something is spawning in a loop is not a safety limit. It is a constructor argument so that a
+ * test can prove the limit works without opening a hundred shells to do it, which would be a
+ * test about opening too many shells that occasionally breaks the machine it runs on.
+ */
+const MAX_SESSIONS = 100;
+
 export class PtyHost {
   readonly #sessions = new Map<string, Live>();
   /** Per session, set by the daemon from the user's setting. */
@@ -58,8 +81,10 @@ export class PtyHost {
   readonly #server: Server;
   readonly #socketPath: string;
   readonly #store: ScrollbackStore;
+  readonly #maxSessions: number;
 
-  constructor(socketPath: string, scrollbackDirectory: string) {
+  constructor(socketPath: string, scrollbackDirectory: string, maxSessions = MAX_SESSIONS) {
+    this.#maxSessions = maxSessions;
     this.#socketPath = socketPath;
     this.#server = createServer((socket) => this.#accept(socket));
     // The ring redraws a screen after the daemon restarts. This survives the host restarting
@@ -173,6 +198,19 @@ export class PtyHost {
             t: 'spawned',
             sessionId: id,
             pid: this.#sessions.get(id)?.handle.pid,
+          });
+          return;
+        }
+        if (this.#sessions.size >= this.#maxSessions) {
+          this.#send(socket, {
+            t: 'spawn-failed',
+            sessionId: id,
+            error:
+              `${String(this.#maxSessions)} terminals are already running, which is the most ` +
+              'TabTerm ' +
+              'will hold. Close some, or restart the machine if they are not yours. The limit ' +
+              'exists because macOS stops every terminal on the machine, in every application, ' +
+              'once it runs out of pseudo-terminals.',
           });
           return;
         }
