@@ -407,6 +407,13 @@ prompt, leaving one line carrying two prompts. The restored text ends with the p
 shell drew before the clear, which is the same text ending at the same column, so overwriting the
 line puts the cursor exactly where the shell already believes it is.
 
+It restores the screen as escape sequences rather than as text, so the colors come back with it.
+Reading the buffer as plain text was simpler and wrong: an hour of build output came back in a
+uniform gray, every error that had been red and every path that had been blue flattened. Getting
+back what was there is the entire point, and a gray copy of it is not what was there. The
+serialization is the same one the daemon uses to hand its VT state to a restarting process, which
+is the same problem stated differently.
+
 Dismissed by a new command, because an undo offered over fresh output would put the old screen
 underneath the new one.
 

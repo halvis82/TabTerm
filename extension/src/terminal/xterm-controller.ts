@@ -1,6 +1,7 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
+import { SerializeAddon } from '@xterm/addon-serialize';
 import type { ILinkProvider } from '@xterm/xterm';
 import { classifyKey, xtermShouldHandle } from './keymap.js';
 import { placeMenu } from './menu-position.js';
@@ -72,6 +73,7 @@ export class XtermController {
   #webgl: WebglAddon | null = null;
 
   #undoText = '';
+  readonly #serializer = new SerializeAddon();
   /** Landmarks in the scrollback, and the rail beside the scrollbar that finds them. */
   #markers: MarkerRail | null = null;
   #markerTimer = 0;
@@ -112,6 +114,8 @@ export class XtermController {
 
     this.#fit = new FitAddon();
     this.term.loadAddon(this.#fit);
+    // Only ever read, and only when a clear is undone. It holds no state of its own.
+    this.term.loadAddon(this.#serializer);
 
     this.term.open(opts.container);
     this.#tryWebgl();
@@ -566,14 +570,30 @@ export class XtermController {
     this.#undoText = '';
   }
 
+  /**
+   * The screen as escape sequences, colors and all.
+   *
+   * This was `translateToString`, which is the text and nothing else, so undoing a clear brought
+   * back an hour of build output in a uniform gray: every error that had been red, every path
+   * that had been blue, flattened. The point of undoing is to get back what was there.
+   *
+   * The same addon the daemon uses to hand its VT state to a restarting process, which is the
+   * same problem stated differently: turn a buffer back into the stream that would produce it.
+   */
   #allText(): string {
-    const buffer = this.term.buffer.active;
-    const lines: string[] = [];
-    for (let i = 0; i < buffer.length; i++) {
-      lines.push(buffer.getLine(i)?.translateToString(true) ?? '');
-    }
-    // Trailing blank lines are noise when this is written back.
-    while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+    const serialized = this.#serializer.serialize();
+    /**
+     * Trailing blank lines are noise when this is written back.
+     *
+     * They are also not always blank: a line that was cleared still carries the attributes it
+     * was cleared with, so the serializer emits escape sequences for lines that show nothing.
+     * A line counts as empty when it has no visible characters, whatever it is wearing.
+     */
+    const lines = serialized.split('\r\n');
+    const blank = (line: string): boolean =>
+      // eslint-disable-next-line no-control-regex
+      line.replace(/\u001b\[[0-9;:]*[a-zA-Z]/g, '').trim() === '';
+    while (lines.length > 0 && blank(lines[lines.length - 1] ?? '')) lines.pop();
     return lines.join('\r\n');
   }
 

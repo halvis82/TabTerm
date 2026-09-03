@@ -53,9 +53,40 @@ r.ok(
 r.ok('it actually moved', (await lines()).join(' ').includes('Documents'));
 
 // Now clear, then take it back.
-await type(client, 'echo before-the-clear\r');
+/**
+ * Printed in color on purpose.
+ *
+ * Undo used to bring back the text and nothing else: an hour of build output came back in a
+ * uniform gray, every error that had been red and every path that had been blue flattened. The
+ * escape sequence here is the plainest possible one, red then back to default, so the check is
+ * about whether attributes survive rather than about any particular palette.
+ */
+const RED = 'before-the-clear';
+await type(client, `printf '\\033[31m${RED}\\033[0m\\n'\r`);
 await sleep(1400);
 const was = await lines();
+const colorOf = async (needle) =>
+  JSON.parse(
+    await evaluate(
+      client,
+      `(() => {
+         // From the bottom. The line the shell echoed carries the text as well, because it is
+         // part of the command that printed it, and that line is not colored.
+         for (let y = 59; y >= 0; y--) {
+           const runs = window.__tabterm.lineColors(y);
+           const hit = runs.find((run) => run.text.includes(${JSON.stringify(needle)}));
+           if (hit) return JSON.stringify(hit.fg);
+         }
+         return JSON.stringify(null);
+       })()`,
+    ),
+  );
+const wasColored = await colorOf(RED);
+r.ok(
+  'the text was printed in a color to begin with',
+  wasColored !== null && wasColored !== -1,
+  String(wasColored),
+);
 await openPaneMenu(client, 60, 60);
 await realClick(client, '.term-menu-item', 'Clear');
 await sleep(1500);
@@ -79,6 +110,11 @@ r.ok(
   'and puts the screen back exactly as it was',
   JSON.stringify(restored) === JSON.stringify(was),
   JSON.stringify({ was, restored }),
+);
+r.ok(
+  'and brings the colors back with it, not only the text',
+  (await colorOf(RED)) === wasColored,
+  `was ${String(wasColored)}, now ${String(await colorOf(RED))}`,
 );
 const doubled = restored.filter((l) => l.split('%').length > 2 && l.includes('@'));
 r.ok('with no line carrying two prompts', doubled.length === 0, JSON.stringify(doubled));

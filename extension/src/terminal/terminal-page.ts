@@ -2402,6 +2402,13 @@ declare global {
   interface Window {
     __tabterm?: {
       readScreen: (paneId?: string) => string;
+      /**
+       * The colors on a line, which the WebGL renderer paints on a canvas nothing can query.
+       *
+       * One entry per run of identical color, so a check can ask whether a line came back
+       * wearing what it had on rather than having to name a cell by number.
+       */
+      lineColors: (row: number, paneId?: string) => { text: string; fg: number }[];
       /** What is selected, which the WebGL renderer paints on a canvas nothing can query. */
       selection: () => string;
       /** What the daemon said could be resumed, before the launcher trims it for display. */
@@ -2554,6 +2561,27 @@ function installTestHook(): void {
       for (const pane of panesHost?.all ?? []) {
         if (pane.sessionId) client?.send({ t: 'kill-session', sessionId: pane.sessionId });
       }
+    },
+    lineColors: (row, paneId) => {
+      const target = paneId ?? splitView?.focused ?? panesHost?.all[0]?.paneId;
+      const pane = target ? panesHost?.get(target) : undefined;
+      const line = pane?.controller.term.buffer.active.getLine(row);
+      if (!line) return [];
+      const runs: { text: string; fg: number }[] = [];
+      // Reused across the row, which is how xterm intends a buffer to be walked: allocating a
+      // cell per column on a wide terminal is thousands of objects for one answer.
+      const cell = line.getCell(0);
+      if (!cell) return [];
+      for (let x = 0; x < line.length; x++) {
+        if (!line.getCell(x, cell)) continue;
+        const chars = cell.getChars();
+        if (chars === '') continue;
+        const fg = cell.isFgDefault() ? -1 : cell.getFgColor();
+        const last = runs[runs.length - 1];
+        if (last && last.fg === fg) last.text += chars;
+        else runs.push({ text: chars, fg });
+      }
+      return runs;
     },
     readScreen: (paneId) => {
       const target = paneId ?? splitView?.focused ?? panesHost?.all[0]?.paneId;
