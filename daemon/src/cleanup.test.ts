@@ -20,6 +20,7 @@ const base: ReapInput = {
   hasExplicitCommand: false,
   neverUsed: false,
   keepBackgroundSeconds: null,
+  detachedForSeconds: 0,
 };
 
 const decide = (over: Partial<ReapInput>) => decideReap({ ...base, ...over }, config);
@@ -222,12 +223,66 @@ describe('a tab that still exists', () => {
   });
 
   it('is kept when nobody could tell us either way', () => {
-    // Chrome closed, crashed, or not yet reported. All of them are a gap in what we know, and
-    // the only safe reading of "I do not know" is to keep the terminal.
-    expect(decide({ hasOpenTab: null, inWorkspace: true, keepBackgroundSeconds: 60 })).toEqual({
+    /**
+     * Chrome closed, crashed, or not yet reported. All of them are a gap in what we know, and
+     * the only safe reading of "I do not know" is to keep the terminal.
+     *
+     * Kept, not kept forever. The clock it gets is the abandonment horizon, which is a week
+     * rather than the background timeout, so the sixty seconds asked for here is ignored: this
+     * tab has not been reported closed, so the rule about closed tabs does not apply to it.
+     */
+    const decision = decide({ hasOpenTab: null, inWorkspace: true, keepBackgroundSeconds: 60 });
+    expect(decision.reason).toBe('abandoned');
+    expect(decision.afterSeconds).toBe(config.abandonUnclaimedSeconds);
+    expect(decision.afterSeconds).toBeGreaterThan(24 * 60 * 60);
+  });
+
+  /**
+   * A browser that stopped existing weeks ago.
+   *
+   * This is the hole that filled the machine's supply of pseudo-terminals on 2026-09-02 and
+   * stopped every terminal in every application. Three correct rules combined to make these
+   * sessions immortal: a terminal outlives the things around it, "nobody told me" means keep,
+   * and a killed browser never reports again. See AGENTS/BACKLOG.md WP-27.
+   */
+  it('does not keep an unclaimed session forever', () => {
+    const week = config.abandonUnclaimedSeconds ?? 0;
+    // Most of the way there, and still keeping it.
+    expect(decide({ hasOpenTab: null, detachedForSeconds: week / 2 }).afterSeconds).toBeGreaterThan(
+      0,
+    );
+    // Past the horizon, and it goes now rather than at some point after.
+    expect(decide({ hasOpenTab: null, detachedForSeconds: week + 1 })).toEqual({
+      afterSeconds: 0,
+      reason: 'abandoned',
+    });
+  });
+
+  it('never applies the horizon to something somebody is plainly using', () => {
+    const week = (config.abandonUnclaimedSeconds ?? 0) + 1;
+    // A listening port outlives it. Killing somebody's server is the most annoying thing this
+    // product can do, and a week of a closed browser is not enough certainty to do it.
+    expect(decide({ hasOpenTab: null, detachedForSeconds: week, listeningPort: 3000 })).toEqual({
       afterSeconds: null,
       reason: 'no-report',
     });
+    // Pinned and persistent are decided before any of this is reached.
+    expect(
+      decide({ hasOpenTab: null, detachedForSeconds: week, pinned: true }).afterSeconds,
+    ).toBeNull();
+    expect(
+      decide({ hasOpenTab: null, detachedForSeconds: week, persistent: true }).afterSeconds,
+    ).toBeNull();
+    // And so is a tab that is open, however long the socket has been gone: a discarded tab and a
+    // slept machine both look like this, and neither means somebody is finished.
+    expect(decide({ hasOpenTab: true, detachedForSeconds: week }).afterSeconds).toBeNull();
+  });
+
+  it('keeps everything forever when the horizon is turned off', () => {
+    const forever: Config = { ...config, abandonUnclaimedSeconds: null };
+    expect(decideReap({ ...base, hasOpenTab: null, detachedForSeconds: 10 ** 9 }, forever)).toEqual(
+      { afterSeconds: null, reason: 'no-report' },
+    );
   });
 
   it('starts its clock only once the tab is actually gone', () => {

@@ -48,7 +48,9 @@ export interface PtyBackend {
   onData(fn: (sessionId: string, data: Buffer) => void): void;
   onExit(fn: (sessionId: string, exitCode: number, signal?: number) => void): void;
   /** Sessions that already exist, which is empty for anything that cannot outlive the daemon. */
-  adoptable(): Promise<{ sessionId: string; pid: number; cwd: string; seq: number }[]>;
+  adoptable(): Promise<
+    { sessionId: string; pid: number; cwd: string; seq: number; startedAt?: number }[]
+  >;
   close(): void;
 }
 
@@ -122,7 +124,9 @@ export class LocalPtyBackend implements PtyBackend {
   }
 
   /** Nothing. A PTY in this process cannot have outlived this process. */
-  adoptable(): Promise<{ sessionId: string; pid: number; cwd: string; seq: number }[]> {
+  adoptable(): Promise<
+    { sessionId: string; pid: number; cwd: string; seq: number; startedAt?: number }[]
+  > {
     return Promise.resolve([]);
   }
 

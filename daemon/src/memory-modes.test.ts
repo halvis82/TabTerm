@@ -88,6 +88,7 @@ describe('applying a mode', () => {
       hasExplicitCommand: false,
       neverUsed: false,
       keepBackgroundSeconds: null,
+      detachedForSeconds: 0,
     };
     const low = decideReap(idle, applyMemoryMode(DEFAULTS, 'low')).afterSeconds;
     const full = decideReap(idle, applyMemoryMode(DEFAULTS, 'full')).afterSeconds;
@@ -109,6 +110,7 @@ describe('applying a mode', () => {
         hasExplicitCommand: false,
         neverUsed: false,
         keepBackgroundSeconds: null,
+        detachedForSeconds: 0,
       };
       expect(decideReap(pinned, config).afterSeconds).toBeNull();
     }

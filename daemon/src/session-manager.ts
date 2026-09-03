@@ -348,15 +348,28 @@ export class SessionManager {
     command?: readonly string[];
     cols: number;
     rows: number;
+    /** When the host started it, which is older than this daemon and usually older than the last. */
+    startedAt?: number;
   }): Session {
     const vt = new VtState(info_.cols, info_.rows, this.#config.scrollbackLines);
+    /**
+     * The host's own idea of when this began, not the moment we noticed it.
+     *
+     * Treating an adopted session as brand new resets the clock that eventually lets go of one
+     * nobody has claimed in weeks, and a daemon restart happens on every update, so on a machine
+     * that keeps itself current that clock would never have run out.
+     *
+     * Safe to date it this way because a tab that is genuinely watching reconnects within
+     * seconds of the daemon coming back, and attaching sets the clock forward honestly.
+     */
+    const began = info_.startedAt ?? Date.now();
     const session: Session = {
       id: info_.sessionId,
       // Live with nobody attached, which is exactly what an adopted session is until a tab
       // reconnects to it.
       state: 'detached',
-      createdAt: Date.now(),
-      lastAttachedAt: Date.now(),
+      createdAt: began,
+      lastAttachedAt: began,
       cwd: info_.cwd,
       // Adopted, so nobody knows where it began. Its current directory is the honest answer,
       // and it is marked as having run something anyway, so nothing depends on this.
@@ -717,7 +730,15 @@ export class SessionManager {
     // timer nobody is waiting for happened to fire.
     timer.unref();
     session.reapTimer = timer;
-    this.#transition(session, 'expiring');
+    /**
+     * A week away is not expiring.
+     *
+     * `expiring` is what a person is shown and what other rules read: it means this terminal is
+     * going soon unless something changes. The abandonment horizon is a backstop measured in
+     * days, for a browser that stopped existing, and marking every unreported session as
+     * expiring the moment Chrome closes would say something untrue about all of them.
+     */
+    if (decision.reason !== 'abandoned') this.#transition(session, 'expiring');
     debug('session.reap.scheduled', { sessionId: session.id, policy: describeReap(decision) });
   }
 

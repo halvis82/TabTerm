@@ -50,11 +50,19 @@ export class HostPtyBackend implements PtyBackend {
     this.#client.onExit(fn);
   }
 
-  async adoptable(): Promise<{ sessionId: string; pid: number; cwd: string; seq: number }[]> {
+  async adoptable(): Promise<
+    { sessionId: string; pid: number; cwd: string; seq: number; startedAt?: number }[]
+  > {
     const sessions = await this.#client.list();
     return sessions
       .filter((s) => s.alive)
-      .map((s) => ({ sessionId: s.sessionId, pid: s.pid, cwd: s.cwd, seq: s.seq }));
+      .map((s) => ({
+        sessionId: s.sessionId,
+        pid: s.pid,
+        cwd: s.cwd,
+        seq: s.seq,
+        startedAt: s.startedAt,
+      }));
   }
 
   /** Ask for everything after a sequence number, so a restarted daemon can rebuild a screen. */

@@ -19,6 +19,15 @@ export interface AdoptableSession {
   pid: number;
   cwd: string;
   seq: number;
+  /**
+   * When the host started this process, which outlives every daemon that has watched it.
+   *
+   * Carried through because the daemon has no other way to know how old an adopted session is,
+   * and treating one as new on every restart resets the clock that decides when a session
+   * nobody has claimed in weeks is finally let go. A restart happens on every update, so that
+   * clock would never have run out on a machine that keeps itself current.
+   */
+  startedAt?: number;
 }
 
 export interface AdoptionPlan {
@@ -29,6 +38,7 @@ export interface AdoptionPlan {
     shell: string;
     command?: readonly string[];
     workspaceId?: string;
+    startedAt?: number;
   }[];
   workspaces: { id: string; layout: LayoutNode }[];
 }
@@ -70,6 +80,7 @@ export function planAdoption(
     plan.sessions.push({
       sessionId: session.sessionId,
       pid: session.pid,
+      ...(session.startedAt === undefined ? {} : { startedAt: session.startedAt }),
       cwd: row?.cwd ?? session.cwd,
       shell: row?.shell ?? defaultShell,
       ...(command ? { command } : {}),

@@ -101,7 +101,7 @@ ends when, and only when:
 | Closing a session card | A person, from the start screen | Explicit |
 | Closing a pane | A person | Explicit. Closes the tab when it is the only pane |
 | `Reset everything` | A person, behind a confirmation | Explicit |
-| The reap policy | The daemon, on a timer | Never while a tab exists, and never while nobody has said. §4 |
+| The reap policy | The daemon, on a timer | Never while a tab exists. Never while nobody has said, until the abandonment horizon. §4 |
 | The PTY host dying | A crash, or `kill` | The one path with no guard. The host holds the file descriptors, so nothing survives it |
 
 Nothing else. In particular **no timer, no cleanup pass and no restart may end one**, and nothing
@@ -161,7 +161,7 @@ if Chrome still has a tab for this session's workspace:
     never reap
 
 if nobody has said whether a tab exists:
-    never reap
+    never reap, until the abandonment horizon: reap after 7 days undetached
 
 if child process has exited:
     retain metadata per the retention table, then reap
@@ -187,6 +187,38 @@ cancels the reap. Every reap is logged with the matched rule.
 
 Reap escalation: `SIGHUP` → wait → `SIGTERM` → wait → `SIGKILL`. A process group is signalled, not
 just the leader, so orphaned children do not survive.
+
+---
+
+### The abandonment horizon
+
+"Nobody has said" keeps a terminal, and it has to: a closed Chrome, a crashed Chrome and an
+extension that has not reported yet are indistinguishable from the daemon, and all of them come
+back. What it must not do is keep one **forever**.
+
+A browser that stopped existing never reports again. Its sessions are then held by three rules
+each of which is right on its own: a terminal outlives the things around it, "nobody told me"
+means keep, and a killed browser cannot tell anybody anything. On 2026-09-02 enough of those
+accumulated to exhaust `kern.tty.ptmx_max` and stop every terminal on the machine, in every
+application, including ones that share no code with this project.
+
+So an unclaimed session is let go after **seven days undetached**. Long enough that a closed
+laptop, a holiday and a browser crash all cost nothing; short enough that abandoned work does not
+accumulate without limit.
+
+What makes ending one acceptable is that it loses nothing anybody can point at. The scrollback is
+on disk, and the tab's recovery page still shows the last screen, the folder, and the last command
+(§8). Only a process nobody has watched for a week ends.
+
+It does not apply to a pinned session, a persistent one, or one holding a listening socket, and a
+session on this horizon is **not** marked `expiring`: that word means "going soon unless something
+changes", and a week away is not that.
+
+The clock is the time since anything was attached, and it survives a daemon restart. An adopted
+session is dated from when the PTY host started it rather than from when this daemon noticed it,
+because a restart happens on every update, and a clock that resets then would never run out. That
+is safe because a tab that is genuinely watching reconnects within seconds of the daemon coming
+back, which sets the clock forward honestly.
 
 ---
 

@@ -51,6 +51,26 @@ export interface Config {
   reapIdleShellSeconds: number;
   reapAgentOrEditorSeconds: number;
   reapDefaultSeconds: number;
+  /**
+   * How long a session survives with nobody able to speak for it, or null to keep it forever.
+   *
+   * Not the same question as the background timeout, and the difference is the whole reason this
+   * exists. The background timeout applies when Chrome has **said** a tab was closed. This
+   * applies when Chrome has said nothing at all, for a very long time: closed, crashed, or on a
+   * machine whose browser never came back.
+   *
+   * "Nobody told us" is read as a gap in what we know rather than as permission to end a
+   * terminal, which is right and which is also how a machine ends up holding sessions from a
+   * browser that stopped existing weeks ago. Three correct rules combined to make those
+   * immortal, and on 2026-09-02 that filled the machine's supply of pseudo-terminals and stopped
+   * every terminal in every application. See AGENTS/BACKLOG.md WP-27.
+   *
+   * Seven days. Long enough that a closed laptop, a holiday and a browser crash all cost
+   * nothing, short enough that abandoned work does not accumulate forever. What makes ending
+   * one acceptable at all is that it does not lose anything: the scrollback is on disk and the
+   * tab's recovery page still shows the last screen and the folder it was in.
+   */
+  abandonUnclaimedSeconds: number | null;
   shell: string;
   /**
    * Foreground processes that get the longer detached grace period. An editor or an agent CLI
@@ -89,6 +109,7 @@ export const DEFAULTS: Config = {
   reapIdleShellSeconds: 180,
   reapAgentOrEditorSeconds: 600,
   reapDefaultSeconds: 300,
+  abandonUnclaimedSeconds: 7 * 24 * 60 * 60,
   shell: process.env['SHELL'] ?? '/bin/zsh',
   longLivedPrograms: ['vim', 'nvim', 'emacs', 'ssh', 'claude', 'agent'],
   coalesceMs: 6,

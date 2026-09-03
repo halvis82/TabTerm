@@ -17,6 +17,7 @@ export type ReapReason =
   | 'still-attached'
   | 'tab-open'
   | 'no-report'
+  | 'abandoned'
   | 'in-a-workspace'
   | 'server-listening'
   | 'process-exited'
@@ -63,6 +64,14 @@ export interface ReapInput {
    * shells in the home directory.
    */
   neverUsed: boolean;
+  /**
+   * How long since anything was attached to this session.
+   *
+   * Only consulted when nobody can speak for it at all. A tab that is open but disconnected is
+   * protected by an earlier rule, so this cannot be read as "your tab has been in the background
+   * a long time".
+   */
+  detachedForSeconds: number;
 }
 
 /** Long enough that reopening an accidentally closed tab still finds it. */
@@ -90,7 +99,30 @@ export function decideReap(input: ReapInput, config: Config): ReapDecision {
    * a gap in what we know rather than evidence that a tab was closed, and the only safe reading
    * of "I do not know" is to keep the terminal. Chrome comes back and says what it has.
    */
-  if (input.hasOpenTab === null) return { afterSeconds: null, reason: 'no-report' };
+  if (input.hasOpenTab === null) {
+    /**
+     * Unless nobody has been able to speak for it in a very long time.
+     *
+     * "I do not know" keeps a terminal, and it has to, because a closed Chrome and a crashed one
+     * are indistinguishable from here and both come back. What it must not do is keep one
+     * forever: a browser that stopped existing weeks ago leaves sessions nothing will ever
+     * claim, and on 2026-09-02 enough of those accumulated to exhaust the machine's supply of
+     * pseudo-terminals and stop every terminal in every application.
+     *
+     * Ending one here is acceptable precisely because it loses nothing anybody can point at.
+     * The scrollback is on disk, the recovery page still shows the last screen and the folder,
+     * and the only thing that ends is a process that has had nobody watching it for a week.
+     *
+     * A listening port still wins, because killing somebody's server is the most annoying thing
+     * this product could do and a week is not enough certainty to do it.
+     */
+    const horizon = config.abandonUnclaimedSeconds;
+    if (horizon !== null && input.listeningPort === undefined) {
+      const remaining = horizon - input.detachedForSeconds;
+      return { afterSeconds: Math.max(0, remaining), reason: 'abandoned' };
+    }
+    return { afterSeconds: null, reason: 'no-report' };
+  }
 
   /**
    * A pane in a workspace, with no tab showing it.
@@ -175,6 +207,7 @@ export function reapInputFor(
       opts.keepBackgroundSeconds === undefined ? null : opts.keepBackgroundSeconds,
     foregroundProgram: session.foregroundProcess ?? session.command?.[0],
     hasExplicitCommand: Boolean(session.command),
+    detachedForSeconds: Math.max(0, (Date.now() - session.lastAttachedAt) / 1000),
   };
 }
 
