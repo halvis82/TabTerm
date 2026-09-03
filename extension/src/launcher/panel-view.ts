@@ -355,9 +355,19 @@ export class CommandPanel {
   }
 
   render(): void {
+    /**
+     * Settings are not one of the tabs, so while they are open none of the tabs is current.
+     *
+     * The highlight followed `placement.tab` alone, which is remembered so that closing settings
+     * returns you where you were. That is right for remembering and wrong for showing: pressing
+     * the gear left Actions still lit, which says you are on a page you are not on.
+     */
     for (const button of this.#tabBar.children) {
-      button.classList.toggle('on', (button as HTMLElement).dataset['tab'] === this.#placement.tab);
+      const isCurrent =
+        !this.#showingSettings && (button as HTMLElement).dataset['tab'] === this.#placement.tab;
+      button.classList.toggle('on', isCurrent);
     }
+
 
     /**
      * The search box belongs to the lists, and only to the lists.
@@ -542,7 +552,9 @@ export class CommandPanel {
     hints.textContent = selectable ? operationsFor(row).join(' · ') : '';
 
     const gear = document.createElement('button');
-    gear.className = 'cmd-icon cmd-gear';
+    // Lit while settings are open, the way a tab is lit while you are on it. Set here rather
+    // than in `render`, which rebuilds this footer afterwards and would wipe it.
+    gear.className = this.#showingSettings ? 'cmd-icon cmd-gear on' : 'cmd-icon cmd-gear';
     gear.title = 'Settings';
     gear.textContent = '⚙';
     gear.addEventListener('click', () => {

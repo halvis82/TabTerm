@@ -36,6 +36,8 @@ export interface SettingsOptions {
 const TIMEOUT_CHOICES: [seconds: number | null, label: string][] = [
   [5 * 60, '5 minutes'],
   [15 * 60, '15 minutes'],
+  // Thirty, because the jump from fifteen minutes to an hour was the whole middle of the range.
+  [30 * 60, '30 minutes'],
   [60 * 60, '1 hour'],
   [4 * 60 * 60, '4 hours'],
   [null, 'Keep forever'],
@@ -77,66 +79,99 @@ const PAGE_KEYS: [keys: string, does: string][] = [
   ['Esc', 'Restore a maximized pane'],
 ];
 
-export function buildSettings(options: SettingsOptions): HTMLElement {
-  const wrap = document.createElement('div');
-  wrap.className = 'cmd-settings';
+/**
+ * One section, with a heading that says what the settings under it are about.
+ *
+ * The panel used to be a single flat column of controls in five different type sizes, with each
+ * description glued to the end of the label it belonged to. Nothing said which control went with
+ * which explanation, so the whole thing read as a list of unrelated switches.
+ */
+function section(title: string): HTMLElement {
+  const el = document.createElement('div');
+  el.className = 'set-section';
+  const heading = document.createElement('h3');
+  heading.className = 'set-heading';
+  heading.textContent = title;
+  el.append(heading);
+  return el;
+}
 
-  const theme = document.createElement('label');
-  theme.className = 'cmd-field';
-  const themeLabel = document.createElement('span');
-  themeLabel.textContent = 'Theme';
+/**
+ * A labelled control with its explanation on its own line, under the label and above the control.
+ *
+ * The order is deliberate: what it is, then what it means, then the thing you change. Reading it
+ * top to bottom answers the question before offering the answer.
+ */
+function field(labelText: string, description: string, control: HTMLElement): HTMLElement {
+  const row = document.createElement('label');
+  row.className = 'set-field';
+  const label = document.createElement('span');
+  label.className = 'set-label';
+  label.textContent = labelText;
+  const note = document.createElement('span');
+  note.className = 'set-desc';
+  note.textContent = description;
+  row.append(label, note, control);
+  return row;
+}
+
+/** A `select` built from a table, so the options and the values cannot drift apart. */
+function chooser(
+  choices: readonly (readonly [value: string, label: string])[],
+  current: string,
+  onChange: (value: string) => void,
+): HTMLSelectElement {
   const select = document.createElement('select');
-  for (const [value, label] of THEMES) {
+  for (const [value, label] of choices) {
     const option = document.createElement('option');
     option.value = value;
     option.textContent = label;
     select.append(option);
   }
+  select.value = current;
+  select.addEventListener('change', () => onChange(select.value));
+  return select;
+}
+
+export function buildSettings(options: SettingsOptions): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'cmd-settings';
+
+  // --- Appearance ---------------------------------------------------------
+  const look = section('Appearance');
+  const themeSelect = chooser(THEMES, 'dark', (value) => options.onChangeTheme(value));
   void chrome.storage.local.get('tabterm.theme').then((stored) => {
-    select.value = (stored['tabterm.theme'] as string | undefined) ?? 'dark';
+    themeSelect.value = (stored['tabterm.theme'] as string | undefined) ?? 'dark';
   });
-  select.addEventListener('change', () => options.onChangeTheme(select.value));
-  theme.append(themeLabel, select);
-  wrap.append(theme);
+  look.append(field('Theme', 'Colors for the terminal and this panel', themeSelect));
+  wrap.append(look);
+
+  // --- Terminals ----------------------------------------------------------
+  const terminals = section('Terminals');
+  let hasTerminalSettings = false;
 
   const scrollback = options.scrollbackBytes();
   if (scrollback !== null) {
-    const field = document.createElement('label');
-    field.className = 'cmd-field';
-    const label = document.createElement('span');
-    label.textContent = 'History kept per terminal';
-    const note = document.createElement('small');
-    note.textContent = 'Applies everywhere it is stored, including what survives an update';
-    label.append(note);
-    const select = document.createElement('select');
-    for (const [bytes, text] of SCROLLBACK_CHOICES) {
-      const option = document.createElement('option');
-      option.value = String(bytes);
-      option.textContent = text;
-      select.append(option);
-    }
-    select.value = String(scrollback);
-    select.addEventListener('change', () => options.onChangeScrollback(Number(select.value)));
-    field.append(label, select);
-    wrap.append(field);
+    hasTerminalSettings = true;
+    terminals.append(
+      field(
+        'Scrollback kept per terminal',
+        'How far back you can scroll. Kept on disk too, so it survives an update.',
+        chooser(
+          SCROLLBACK_CHOICES.map(([bytes, label]) => [String(bytes), label] as const),
+          String(scrollback),
+          (value) => options.onChangeScrollback(Number(value)),
+        ),
+      ),
+    );
   }
 
   const timeout = options.backgroundTimeout();
   if (timeout !== undefined) {
-    const field = document.createElement('label');
-    field.className = 'cmd-field';
-    const label = document.createElement('span');
-    label.textContent = 'Keep a terminal with no tab for';
-    const note = document.createElement('small');
-    note.textContent = 'Anything running a server, or open in a tab, is never ended on a timer';
-    label.append(note);
-    const select = document.createElement('select');
-    for (const [seconds, text] of TIMEOUT_CHOICES) {
-      const option = document.createElement('option');
-      option.value = seconds === null ? 'forever' : String(seconds);
-      option.textContent = text;
-      select.append(option);
-    }
+    hasTerminalSettings = true;
+    const choices = TIMEOUT_CHOICES.map(
+      ([seconds, label]) => [seconds === null ? 'forever' : String(seconds), label] as const,
+    );
     /**
      * A stored value that is not one of the offered choices still has to select something.
      *
@@ -145,65 +180,59 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
      * timeout could silently turn the timeout off, which is the opposite of what was clicked.
      */
     const wanted = timeout === null ? 'forever' : String(timeout);
-    if (
-      !TIMEOUT_CHOICES.some(
-        ([seconds]) => (seconds === null ? 'forever' : String(seconds)) === wanted,
-      )
-    ) {
-      const custom = document.createElement('option');
-      custom.value = wanted;
-      custom.textContent = `${String(Math.round((timeout ?? 0) / 60))} minutes`;
-      select.append(custom);
-    }
-    select.value = wanted;
-    select.addEventListener('change', () => {
-      if (select.value === 'forever') {
-        options.onChangeBackgroundTimeout(null);
-        return;
-      }
-      const seconds = Number(select.value);
-      // Never send a zero. Only an explicit "keep forever" should turn the timeout off.
-      if (Number.isFinite(seconds) && seconds > 0) options.onChangeBackgroundTimeout(seconds);
-    });
-    field.append(label, select);
-    wrap.append(field);
+    const offered = choices.some(([value]) => value === wanted)
+      ? choices
+      : [...choices, [wanted, `${String(Math.round((timeout ?? 0) / 60))} minutes`] as const];
+
+    terminals.append(
+      field(
+        'Keep a terminal running after its tab closes',
+        'Reopen the tab within this time and everything is still there. A terminal running a ' +
+          'server, or still open in a tab, is never ended on a timer.',
+        chooser(offered, wanted, (value) => {
+          if (value === 'forever') {
+            options.onChangeBackgroundTimeout(null);
+            return;
+          }
+          const seconds = Number(value);
+          // Never send a zero. Only an explicit "keep forever" should turn the timeout off.
+          if (Number.isFinite(seconds) && seconds > 0) options.onChangeBackgroundTimeout(seconds);
+        }),
+      ),
+    );
   }
+  if (hasTerminalSettings) wrap.append(terminals);
 
   wrap.append(buildNotifications(options));
 
-  const keysHeading = document.createElement('div');
-  keysHeading.className = 'cmd-note';
-  keysHeading.textContent = 'Shortcuts inside a terminal tab';
-  wrap.append(keysHeading);
-
+  // --- Shortcuts ----------------------------------------------------------
+  const keys = section('Keyboard shortcuts');
   const list = document.createElement('div');
   list.className = 'cmd-keys';
-  for (const [keys, does] of PAGE_KEYS) {
+  for (const [combo, does] of PAGE_KEYS) {
     const row = document.createElement('div');
     row.className = 'cmd-key-row';
-    const combo = document.createElement('kbd');
-    combo.textContent = keys;
+    const kbd = document.createElement('kbd');
+    kbd.textContent = combo;
     const description = document.createElement('span');
     description.textContent = does;
-    row.append(combo, description);
+    row.append(kbd, description);
     list.append(row);
   }
-  wrap.append(list);
+  keys.append(list);
 
-  const chromeNote = document.createElement('div');
-  chromeNote.className = 'cmd-note';
+  const chromeNote = document.createElement('p');
+  chromeNote.className = 'set-desc';
   chromeNote.textContent =
-    'The shortcut that opens a terminal belongs to Chrome, not to TabTerm, so it can only be ' +
-    'changed there.';
-  wrap.append(chromeNote);
-
+    'The shortcut that opens a terminal belongs to Chrome, so it can only be changed there.';
   const openShortcuts = document.createElement('button');
   openShortcuts.className = 'cmd-button';
-  openShortcuts.textContent = 'Chrome shortcuts';
+  openShortcuts.textContent = 'Change it in Chrome';
   openShortcuts.addEventListener('click', () => {
     void chrome.tabs.create({ url: 'chrome://extensions/shortcuts', active: true });
   });
-  wrap.append(openShortcuts);
+  keys.append(chromeNote, openShortcuts);
+  wrap.append(keys);
 
   return wrap;
 }
@@ -215,11 +244,18 @@ function toggle(
   hint?: string,
 ): HTMLElement {
   const row = document.createElement('label');
-  row.className = 'cmd-field cmd-toggle';
+  row.className = 'set-toggle';
   const text = document.createElement('span');
-  text.textContent = label;
+  text.className = 'set-toggle-text';
+  const name = document.createElement('span');
+  name.className = 'set-label';
+  name.textContent = label;
+  text.append(name);
   if (hint !== undefined) {
-    const note = document.createElement('small');
+    // A sibling, not a child of the label. Appending it inside meant the two ran together as
+    // one sentence: "History kept per terminalApplies everywhere it is stored".
+    const note = document.createElement('span');
+    note.className = 'set-desc';
     note.textContent = hint;
     text.append(note);
   }
@@ -239,72 +275,84 @@ function toggle(
  * apart from an agent that never needed anything. See docs/09-agent-integration.md.
  */
 function buildNotifications(options: SettingsOptions): HTMLElement {
-  const section = document.createElement('div');
-  section.className = 'cmd-section';
-
-  const heading = document.createElement('div');
-  heading.className = 'cmd-note';
-  heading.textContent = 'Tell me when something finishes';
-  section.append(heading);
+  const wrap = section('Notifications');
 
   const policy = options.notify();
   if (!policy) {
-    const pending = document.createElement('div');
-    pending.className = 'cmd-note cmd-dim';
+    const pending = document.createElement('p');
+    pending.className = 'set-desc';
     pending.textContent = 'Waiting for the daemon.';
-    section.append(pending);
-    return section;
+    wrap.append(pending);
+    return wrap;
   }
 
-  section.append(
-    toggle('Desktop notifications', policy.enabled, (enabled) =>
-      options.onChangeNotify({ enabled }),
-    ),
-  );
-
-  const threshold = document.createElement('label');
-  threshold.className = 'cmd-field';
-  const thresholdLabel = document.createElement('span');
-  thresholdLabel.textContent = 'Only if it took longer than';
-  const select = document.createElement('select');
-  for (const [ms, label] of THRESHOLDS) {
-    const option = document.createElement('option');
-    option.value = String(ms);
-    option.textContent = label;
-    select.append(option);
-  }
-  select.value = String(policy.thresholdMs);
-  select.addEventListener('change', () =>
-    options.onChangeNotify({ thresholdMs: Number(select.value) }),
-  );
-  threshold.append(thresholdLabel, select);
-  section.append(threshold);
-
-  section.append(
-    toggle('Shell commands', policy.commands, (commands) => options.onChangeNotify({ commands })),
-    toggle('Agent turns', policy.agentTurns, (agentTurns) =>
-      options.onChangeNotify({ agentTurns }),
-    ),
+  wrap.append(
     toggle(
-      'Stay quiet while I am looking',
-      policy.onlyWhenUnfocused,
-      (onlyWhenUnfocused) => options.onChangeNotify({ onlyWhenUnfocused }),
-      'Nothing for a pane already on screen',
+      'Tell me when something finishes',
+      policy.enabled,
+      (enabled) => options.onChangeNotify({ enabled }),
+      'A desktop notification naming the command that ended',
     ),
   );
+
+  /**
+   * The threshold, only while notifications are on.
+   *
+   * A picker for how long a notification you are not receiving has to have taken is not a
+   * setting, it is a puzzle. It is indented under the switch that governs it, so it reads as
+   * belonging to that switch rather than as the next unrelated thing in the list.
+   */
+  if (policy.enabled) {
+    const threshold = field(
+      'Only for commands that took longer than',
+      'Short commands finish before you have looked away, so telling you about them is noise.',
+      chooser(
+        THRESHOLDS.map(([ms, label]) => [String(ms), label] as const),
+        String(policy.thresholdMs),
+        (value) => options.onChangeNotify({ thresholdMs: Number(value) }),
+      ),
+    );
+    threshold.classList.add('set-nested');
+    wrap.append(threshold);
+
+    wrap.append(
+      nested(
+        toggle('For shell commands', policy.commands, (commands) =>
+          options.onChangeNotify({ commands }),
+        ),
+      ),
+      nested(
+        toggle('For agent turns', policy.agentTurns, (agentTurns) =>
+          options.onChangeNotify({ agentTurns }),
+        ),
+      ),
+      nested(
+        toggle(
+          'Not for a pane I am already looking at',
+          policy.onlyWhenUnfocused,
+          (onlyWhenUnfocused) => options.onChangeNotify({ onlyWhenUnfocused }),
+        ),
+      ),
+    );
+  }
 
   const hooks = options.agentHooks();
   if (hooks) {
-    section.append(
-      toggle('Agent events', hooks.installed, options.onChangeAgentHooks, describeHooks(hooks)),
+    wrap.append(
+      toggle(
+        'Let agents report what they are doing',
+        hooks.installed,
+        options.onChangeAgentHooks,
+        describeHooks(hooks),
+      ),
     );
   }
 
   const shell = options.shellIntegration();
   if (shell) {
-    section.append(
+    wrap.append(
       toggle(
-        'Shell integration',
+        'Tell finished from failed',
         shell.installed || shell.sourcedElsewhere,
         options.onChangeShellIntegration,
         describeShell(shell),
@@ -312,7 +360,13 @@ function buildNotifications(options: SettingsOptions): HTMLElement {
     );
   }
 
-  return section;
+  return wrap;
+}
+
+/** Indented, so it reads as belonging to the switch above it rather than standing on its own. */
+function nested(el: HTMLElement): HTMLElement {
+  el.classList.add('set-nested');
+  return el;
 }
 
 /**

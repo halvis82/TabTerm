@@ -776,6 +776,12 @@
     font-size: 19px;
     padding: 2px 8px;
     color: var(--dim);
+    border-radius: 6px;
+  }
+  /* Lit while settings are open, the way a tab is lit while you are on it. */
+  .cmd-gear.on {
+    color: var(--text);
+    background: rgba(61, 107, 168, 0.28);
   }
   .cmd-icon:hover {
     color: var(--text);
@@ -889,8 +895,7 @@
     border-color: #3d6ba8;
   }
 
-  .cmd-edit,
-  .cmd-settings {
+  .cmd-edit {
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -913,46 +918,101 @@
     font: inherit;
     font-size: 13px;
   }
-  /* A group of related switches, set apart without a heavy rule between them. */
-  .cmd-section {
+
+  /* --- settings -------------------------------------------------------- */
+  /**
+   * One type scale, three sizes, and that is all.
+   *
+   * The panel had five: an 11px label over a 13px control beside a 12px switch with a 10.5px
+   * note under it and a 12px heading above. Nothing lined up and nothing read as belonging to
+   * anything, which is what "hard to tell what belongs to what" was describing.
+   *
+   *   heading  11px, uppercase, dim      what this group is about
+   *   label    13px, bright              the thing itself
+   *   desc     12px, dim                 what it means, on its own line
+   */
+  .cmd-settings {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding-bottom: 4px;
-    border-bottom: 1px solid rgba(90, 100, 130, 0.18);
+    gap: 22px;
+    padding: 14px 12px 16px;
   }
-  .cmd-section .cmd-note {
-    padding: 2px 0 0;
-    color: #9aa0a6;
-    font-weight: 500;
+  .set-section {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
   }
-  /* Label first, control at the end, so the switches line up down the right edge. */
-  .cmd-toggle {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    font-size: 12px;
-    color: #cdd2dd;
+  .set-heading {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #6f758a;
+  }
+  .set-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
     cursor: pointer;
   }
-  .cmd-toggle span {
+  .set-label {
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.35;
+  }
+  .set-desc {
+    margin: 0;
+    font-size: 12px;
+    color: #7d8496;
+    line-height: 1.45;
+  }
+  .set-field select {
+    margin-top: 2px;
+    padding: 7px 9px;
+    border-radius: 7px;
+    border: 1px solid rgba(90, 100, 130, 0.35);
+    background: rgba(16, 18, 22, 0.7);
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+  }
+  /* Label on the left, switch on the right, descriptions under the label where they belong. */
+  .set-toggle {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    cursor: pointer;
+  }
+  .set-toggle-text {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 4px;
+    min-width: 0;
   }
-  .cmd-toggle small {
-    font-size: 10.5px;
-    color: #7d8496;
-  }
-  .cmd-toggle input[type='checkbox'] {
+  .set-toggle input[type='checkbox'] {
     flex: none;
+    margin-top: 1px;
     width: 16px;
     height: 16px;
-    padding: 0;
     accent-color: #3d6ba8;
     cursor: pointer;
   }
+  /* Belongs to the switch above it, and says so by sitting under it. */
+  .set-nested {
+    margin-left: 14px;
+    padding-left: 12px;
+    border-left: 1px solid rgba(90, 100, 130, 0.22);
+  }
+  .set-section .cmd-keys {
+    margin: 0;
+  }
+  .set-section .cmd-button {
+    align-self: flex-start;
+  }
+
   .cmd-dim {
     color: #6b7286;
   }

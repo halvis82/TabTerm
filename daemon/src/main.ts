@@ -32,6 +32,9 @@ import { LocalPtyBackend } from './pty-backend.js';
 import { PtyHostClient } from './pty-host/client.js';
 import { HostPtyBackend } from './pty-host/backend.js';
 import { HOST_LOCK, HOST_POINTER, HOST_SOCKET } from './pty-host/paths.js';
+
+/** The shortest the settings panel will offer. Anything under it was never chosen by a person. */
+const SHORTEST_OFFERED_TIMEOUT = 5 * 60;
 import { planAdoption, prunePanes } from './adopt.js';
 import { readUserSettings } from './user-settings.js';
 
@@ -100,9 +103,18 @@ async function main(): Promise<void> {
   if (!usingHost) warn('pty-host.falling-back', { detail: 'PTYs will not survive a restart' });
 
   const sessions = new SessionManager(config, events, ptyBackend);
-  // A preference the user set, which has to outlive the daemon that was told about it.
+  /**
+   * A preference the user set, which has to outlive the daemon that was told about it.
+   *
+   * `null` means keep forever and is a real choice. A number below the shortest the settings
+   * panel offers is not: nobody could have picked it there, so it came from something else
+   * clamping a bad value, and it is ignored in favour of the default. One machine had sixty
+   * seconds stored this way and showed "1 minutes" in a picker whose shortest option is five.
+   */
   const storedTimeout = readUserSettings()['keepBackgroundSeconds'];
-  if (storedTimeout === null || typeof storedTimeout === 'number') {
+  if (storedTimeout === null) {
+    sessions.keepBackgroundSeconds = null;
+  } else if (typeof storedTimeout === 'number' && storedTimeout >= SHORTEST_OFFERED_TIMEOUT) {
     sessions.keepBackgroundSeconds = storedTimeout;
   }
   const workspaces = new WorkspaceStore();

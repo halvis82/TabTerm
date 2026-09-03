@@ -143,15 +143,21 @@ export class SessionManager {
   readonly #events: SessionEvents;
   readonly #pty: PtyBackend;
   /**
-   * How long a session is kept after **its tab has been closed**. Thirty minutes.
+   * How long a session is kept after **its tab has been closed**. One hour.
    *
-   * It used to be fifteen, and it used to start whenever no client was attached, which is not
-   * the same thing at all: a tab that was merely backgrounded or discarded started the clock.
-   * Now nothing starts until Chrome says the tab is gone, so the number can be generous. Long
-   * enough that closing a tab by mistake costs nothing, short enough that a day's work does not
-   * leave fifty shells behind. `null` keeps them until something else ends them.
+   * It used to be fifteen minutes, and it used to start whenever no client was attached, which
+   * is not the same thing at all: a tab that was merely backgrounded or discarded started the
+   * clock. Nothing starts until Chrome says the tab is gone, so the number can be generous.
+   *
+   * Then thirty minutes, and now an hour, because what made a long one expensive is gone. Every
+   * session used to cost a pseudo-terminal for the life of the PTY host, so keeping them was
+   * spending a machine-wide resource that never came back. That was a leak in node-pty and it
+   * is fixed, so keeping a session longer now costs memory and nothing else, and memory is the
+   * cheaper thing to spend than somebody's work.
+   *
+   * `null` keeps them until something else ends them.
    */
-  keepBackgroundSeconds: number | null = 30 * 60;
+  keepBackgroundSeconds: number | null = 60 * 60;
 
   /**
    * Re-apply the reap policy to every detached session.

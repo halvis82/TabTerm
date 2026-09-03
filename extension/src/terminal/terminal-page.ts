@@ -2409,6 +2409,8 @@ declare global {
   interface Window {
     __tabterm?: {
       readScreen: (paneId?: string) => string;
+      /** What the daemon last said about how long a tabless terminal is kept. */
+      keepAlive: () => number | null | undefined;
       /**
        * The colors on a line, which the WebGL renderer paints on a canvas nothing can query.
        *
@@ -2570,6 +2572,7 @@ function installTestHook(): void {
         if (pane.sessionId) client?.send({ t: 'kill-session', sessionId: pane.sessionId });
       }
     },
+    keepAlive: () => backgroundTimeout,
     lineColors: (row, paneId) => {
       const target = paneId ?? splitView?.focused ?? panesHost?.all[0]?.paneId;
       const pane = target ? panesHost?.get(target) : undefined;

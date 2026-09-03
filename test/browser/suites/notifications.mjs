@@ -43,8 +43,8 @@ await sleep(900);
 
 r.ok(
   'settings offer notifications',
-  Number(await evaluate(client, `document.querySelectorAll('.cmd-toggle').length`)) >= 6,
-  `${String(await evaluate(client, `document.querySelectorAll('.cmd-toggle').length`))} switches`,
+  Number(await evaluate(client, `document.querySelectorAll('.set-toggle').length`)) >= 6,
+  `${String(await evaluate(client, `document.querySelectorAll('.set-toggle').length`))} switches`,
 );
 
 const thresholds = JSON.parse(
@@ -63,18 +63,18 @@ r.ok(
 const hookRow = await evaluate(
   client,
   `(() => {
-     const row = [...document.querySelectorAll('.cmd-toggle')]
-       .find(t => t.textContent.includes('Agent events'));
+     const row = [...document.querySelectorAll('.set-toggle')]
+       .find(t => t.textContent.includes('Let agents report'));
      return row ? row.textContent : '';
    })()`,
 );
-r.ok('agent events can be turned on from here', String(hookRow).includes('Agent events'), hookRow);
+r.ok('agent events can be turned on from here', String(hookRow).includes('Let agents report'), hookRow);
 
 const shellRow = await evaluate(
   client,
   `(() => {
-     const row = [...document.querySelectorAll('.cmd-toggle')]
-       .find(t => t.textContent.includes('Shell integration'));
+     const row = [...document.querySelectorAll('.set-toggle')]
+       .find(t => t.textContent.includes('Tell finished from failed'));
      return row ? row.textContent : '';
    })()`,
 );
