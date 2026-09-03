@@ -94,7 +94,17 @@ export const DEFAULTS: Config = {
   coalesceMs: 6,
   maxChunkBytes: 64 * 1024,
   creditWindowBytes: 256 * 1024,
-  agentBridgePort: 7378,
+  /**
+   * Follows the main port, so a separate installation gets a separate bridge.
+   *
+   * It was a fixed 7378, which meant only one daemon on the machine could ever start: a second
+   * one bound its own port fine and then died on this, and the failure said `EADDRINUSE 7378`
+   * with no hint that the bridge was what it was about. That is the whole reason the test
+   * daemon looked flaky for days.
+   */
+  agentBridgePort:
+    Number(process.env['TABTERM_AGENT_PORT'] ?? '') ||
+    (Number(process.env['TABTERM_PORT'] ?? '') || 7377) + 1,
   agentCommand: ['claude'],
   editor: 'nvim',
   guiEditor: 'code',
