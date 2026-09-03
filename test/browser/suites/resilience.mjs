@@ -46,11 +46,26 @@ if (daemonPid === null) {
 await waitUntil(() => ownHostPid() !== null && ownDaemonPid() !== null);
 r.ok('the PTY host outlives the daemon being killed', ownHostPid() !== null);
 
-const after = String(await readScreen(client));
+/**
+ * Waited for, because finishing is the claim.
+ *
+ * The loop runs for eight seconds and the daemon was killed about three seconds in, so reading
+ * the screen the moment the daemon is back reads it mid-loop and finds tick three. That is not
+ * the command having died, it is the check having been asked too early, and it stayed hidden
+ * because these two checks could not run at all until the host could be found.
+ */
+const finished = await waitFor(
+  client,
+  `(window.__tabterm.readScreen() ?? '').includes(${JSON.stringify(`tick-${TAG}-8`)})`,
+  20000,
+);
 r.ok(
   'a command keeps running through it and finishes',
-  after.includes(`tick-${TAG}-8`),
-  after.split('\n').filter(Boolean).slice(-1)[0] ?? '',
+  finished,
+  String(await readScreen(client))
+    .split('\n')
+    .filter(Boolean)
+    .slice(-1)[0] ?? '',
 );
 
 await type(client, `echo usable-${TAG}`);

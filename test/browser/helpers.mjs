@@ -129,7 +129,18 @@ export function ownHostPid() {
   const home = process.env.TT_DAEMON_HOME;
   if (!home) return null;
   try {
-    const pid = Number(readFileSync(`${home}/.local/state/tabterm/ptyhost.lock`, 'utf8').trim());
+    /**
+     * Read from the pointer the daemon writes, not from a path assembled here.
+     *
+     * The lock is not always in the state directory. A unix socket path is capped at about a
+     * hundred bytes, and the temporary home this runner invents is long enough to push it over,
+     * so the host moves to the temporary directory and the daemon writes down where it went.
+     * Assembling the path here instead is how this helper found nothing for weeks while the
+     * checks that needed it sat disabled.
+     */
+    const pointer = `${home}/.local/state/tabterm/ptyhost.where`;
+    const lockPath = readFileSync(pointer, 'utf8').trim().split('\n')[1];
+    const pid = Number(readFileSync(lockPath, 'utf8').trim());
     if (!Number.isInteger(pid) || pid <= 0) return null;
     // A lock left by a host that has died names a pid that is not there any more.
     return pidAlive(pid) ? pid : null;

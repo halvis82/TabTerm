@@ -30,6 +30,18 @@ has gone and reclaims it on its own schedule, so the count runs well ahead of wh
 comes down slowly. Reading it as a leak is a mistake that costs an afternoon: check for live
 processes before concluding anything was left behind.
 
+### A unix socket path is capped at about a hundred bytes
+
+`sockaddr_un.sun_path` is 104 bytes on macOS and 108 on Linux. Going over does not truncate or
+warn: `listen` fails with `EINVAL`, which says nothing about length.
+
+That is worth knowing because of what it broke. The PTY host's socket lived in the state
+directory, so a deep enough home pushed it over the limit, the host never started, and the daemon
+fell back to owning the PTYs itself. Terminals then stopped surviving a daemon restart, which is
+the product's central promise, and the only trace was one warning line in a log. The socket moves
+to the per-user temporary directory when the natural path does not fit, and the daemon writes
+`ptyhost.where` in the state directory saying where it went.
+
 A terminal size is clamped to between 1 and 1000 in each direction, whatever a page asks for.
 The VT allocates a line object per row, so a session asked for with `Number.MAX_SAFE_INTEGER`
 rows killed the daemon with an out-of-memory abort, and every terminal on the machine with it.

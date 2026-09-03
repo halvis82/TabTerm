@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,7 +31,7 @@ import { TurnTracker } from './agent-turns.js';
 import { LocalPtyBackend } from './pty-backend.js';
 import { PtyHostClient } from './pty-host/client.js';
 import { HostPtyBackend } from './pty-host/backend.js';
-import { HOST_LOCK, HOST_SOCKET } from './pty-host/paths.js';
+import { HOST_LOCK, HOST_POINTER, HOST_SOCKET } from './pty-host/paths.js';
 import { planAdoption, prunePanes } from './adopt.js';
 import { readUserSettings } from './user-settings.js';
 
@@ -75,6 +82,19 @@ async function main(): Promise<void> {
     socketPath: HOST_SOCKET,
     hostScript: hostScriptPath(),
   });
+  /**
+   * Where the host ended up, written down before we try to reach it.
+   *
+   * The socket is not always in the state directory: a unix socket path is capped at about a
+   * hundred bytes, so a deep enough home pushes it into the temporary directory instead. Writing
+   * the answer down means nothing else has to know the rule.
+   */
+  try {
+    mkdirSync(dirname(HOST_POINTER), { recursive: true, mode: 0o700 });
+    writeFileSync(HOST_POINTER, `${HOST_SOCKET}\n${HOST_LOCK}\n`, { mode: 0o600 });
+  } catch {
+    // A pointer that could not be written is a debugging inconvenience, not a reason to stop.
+  }
   const usingHost = await hostClient.connect();
   const ptyBackend = usingHost ? new HostPtyBackend(hostClient) : new LocalPtyBackend();
   if (!usingHost) warn('pty-host.falling-back', { detail: 'PTYs will not survive a restart' });

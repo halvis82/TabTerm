@@ -63,26 +63,30 @@ const FIRST = [
  * daemon. Nothing may be in flight while these run.
  */
 /**
- * `resilience` kills the PTY host, which ends **every terminal on the machine**, including ones
- * a person is working in. It is not part of an ordinary run for that reason: set
- * `TT_DESTRUCTIVE=1` when you mean it, on a machine where losing every shell is acceptable.
+ * `resilience` kills a PTY host, and it has to: no other check can show that a terminal outlives
+ * the process holding it. It runs last because it also kills the daemon.
  *
- * `survives-restart` only restarts the daemon, which sessions are designed to outlive, so it
- * stays in every run.
+ * It was opt-in for a long time, and the reason was real. The suites' daemon could not start a
+ * host of its own, so it fell back to owning the PTYs itself and `ownHostPid()` found nothing;
+ * the only host on the machine was the installed one, holding terminals somebody was working in.
+ *
+ * That is fixed, and the fix is why this can run by default. The socket path was over the
+ * hundred byte limit a unix socket has, so the host never started under a temporary home. The
+ * suites' daemon now has its own host, and the pid is read from the pointer that daemon writes
+ * rather than assembled by matching on a process name. Confirmed by watching the installed
+ * host's pid across a run: unchanged.
  */
 const LAST = ['survives-restart', 'resilience'];
 
 /**
- * Left out of an ordinary run unless asked for.
+ * Nothing is skipped by default any more.
  *
- * `resilience` kills the PTY host. Against the suites' own daemon that costs nothing, but the
- * cost of getting the wiring wrong once is somebody's work, so it stays opt-in.
- *
- * Excluded from the **whole** run, not merely from the last phase. Taking it out of the phase
- * list alone quietly promoted it into the parallel pool, where it killed a host while four
- * browsers were using it: a worse outcome than leaving it where it was.
+ * Kept as a mechanism rather than deleted, because a suite that must be excluded from the
+ * **whole** run rather than merely from a phase is a distinction worth keeping: taking one out
+ * of the phase list alone quietly promotes it into the parallel pool, where `resilience` once
+ * killed a host while four browsers were using it.
  */
-const SKIP = process.env['TT_DESTRUCTIVE'] === '1' ? [] : ['resilience'];
+const SKIP = [];
 
 const SERIAL = [...FIRST, ...LAST];
 
@@ -653,19 +657,25 @@ function endEverythingThisRunMade() {
 }
 
 /**
- * One restart is the point of a suite, not a fault.
+ * A restart per suite that kills the daemon is the point, not a fault.
  *
- * `survives-restart` kills the daemon deliberately, so a clean run reports exactly one. More
- * than that means something is falling over, and for two days it meant thirteen: the agent
- * bridge was on a hardcoded port, so a second daemon on the machine died on a number that had
- * nothing to do with the one it had been given.
+ * `survives-restart` and `resilience` each kill it deliberately, so a clean full run reports
+ * two. More than that means something is falling over, and for two days it meant thirteen: the
+ * agent bridge was on a hardcoded port, so a second daemon on the machine died on a number that
+ * had nothing to do with the one it had been given.
+ *
+ * Counted from the suites that actually ran, because a run of one suite should not be warned at
+ * for the restarts of suites it did not include.
  */
-if (daemon.state.restarts > 1) {
+const killers = ['survives-restart', 'resilience'].filter((n) => names.includes(n)).length;
+if (daemon.state.restarts > killers) {
   console.log(
-    `  WARNING: the test daemon restarted ${String(daemon.state.restarts)} times, expected 1`,
+    `  WARNING: the test daemon restarted ${String(daemon.state.restarts)} times, expected ${String(killers)}`,
   );
-} else if (daemon.state.restarts === 1) {
-  console.log('  note: the daemon restarted once, which is survives-restart doing its job');
+} else if (daemon.state.restarts > 0) {
+  console.log(
+    `  note: the daemon restarted ${String(daemon.state.restarts)} time(s), which is the suites that kill it doing their job`,
+  );
 }
 
 const pass = results.reduce((n, r) => n + r.pass, 0);
