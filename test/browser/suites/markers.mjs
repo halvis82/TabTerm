@@ -84,5 +84,37 @@ r.ok(
   `${String(before)} -> ${String(after)}`,
 );
 
+/**
+ * The bar spans the pane it was printed into.
+ *
+ * A landmark is found by looking like a solid full-width bar, so one printed narrower than the
+ * pane is both ugly and, at the far columns, not a landmark at all. The width used to come from
+ * the daemon's idea of the terminal size, which is 80 columns for a session adopted after a
+ * daemon restart until a tab reattaches and resizes it. The pane sends its own width now.
+ */
+const spans = JSON.parse(
+  await evaluate(
+    client,
+    `(() => {
+       const cols = window.__tabterm.geometry()?.cols ?? 0;
+       // The bar is painted with an explicit background on every cell, so its width is the run
+       // of colored cells on its line. Two columns of slack: the block is deliberately one
+       // short of the terminal, because a line written to the last column wraps on its own.
+       for (let y = 0; y < 60; y++) {
+         const runs = window.__tabterm.lineColors(y);
+         if (runs.length === 1 && runs[0].text.trim() === '' && runs[0].text.length > 20) {
+           return JSON.stringify({ cols, width: runs[0].text.length });
+         }
+       }
+       return JSON.stringify({ cols, width: 0 });
+     })()`,
+  ),
+);
+r.ok(
+  'the bar spans the pane it was printed into',
+  spans.width > 0 && spans.cols - spans.width <= 2,
+  JSON.stringify(spans),
+);
+
 await finish();
 r.done();

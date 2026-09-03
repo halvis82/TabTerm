@@ -258,6 +258,15 @@ export type ClientMessage =
       sessionId: string;
       label: string;
       color?: string;
+      /**
+       * How wide the pane actually is, so the bar spans it.
+       *
+       * The daemon has its own idea of the width and it can be stale: a session adopted after a
+       * daemon restart starts at 80 columns until a tab reattaches and resizes it, so a landmark
+       * printed in that window was a short bar in a wide pane. The pane knows its own width and
+       * is the right authority for how wide to paint something.
+       */
+      cols?: number;
     }
   | {
       /** Does this folder exist? Asked as somebody types, so the answer can be shown live. */

@@ -1498,7 +1498,14 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
           onSubmit: (label, color) => {
             document.querySelector('.pane-label-form')?.remove();
             useColor('marker', color);
-            client?.send({ t: 'insert-marker', sessionId: pane.sessionId, label, color });
+            // Its own width, because the daemon's copy can be stale after a restart.
+            client?.send({
+              t: 'insert-marker',
+              sessionId: pane.sessionId,
+              label,
+              color,
+              cols: pane.controller.term.cols,
+            });
           },
           onCancel: () => document.querySelector('.pane-label-form')?.remove(),
         });
@@ -2527,6 +2534,7 @@ function installTestHook(): void {
         sessionId: pane.sessionId,
         label,
         ...(color === undefined ? {} : { color }),
+        cols: pane.controller.term.cols,
       });
     },
     markers: () => {

@@ -710,7 +710,8 @@ export class DaemonServer {
           markerBlock({
             label: msg.label,
             ...(msg.color === undefined ? {} : { color: msg.color }),
-            cols: session.vt.cols,
+            // The pane's own width when it offers one. See the note on the message.
+            cols: msg.cols ?? session.vt.cols,
           }),
         );
         /**
