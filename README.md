@@ -267,8 +267,8 @@ When the second number reaches the first, nothing on the machine can open a term
 machine restarts, and a restart clears the count anyway, so either fixes it. To make it survive a
 restart, put `kern.tty.ptmx_max=999` in `/etc/sysctl.conf`.
 
-Normal use does not approach this. Running the browser test suites repeatedly does, because each
-run opens shells faster than macOS gives the numbers back.
+Normal use does not approach this. Running the browser test suites repeatedly does, because a
+slot is never given back until the machine restarts.
 
 That second count is device nodes, not running processes: measured on a machine sitting at 827,
 only 13 of them were open by anything at all. macOS numbers them contiguously and keeps the entry
