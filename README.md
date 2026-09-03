@@ -270,6 +270,10 @@ restart, put `kern.tty.ptmx_max=999` in `/etc/sysctl.conf`.
 Normal use does not approach this. Running the browser test suites repeatedly does, because each
 run opens shells faster than macOS gives the numbers back.
 
-That second count is device nodes, not running processes. macOS keeps the entry for a while after
-whatever held it is gone, so the number lags behind reality and comes down slowly on its own.
-A high count with nothing running is not something leaking, and a restart clears it.
+That second count is device nodes, not running processes: measured on a machine sitting at 827,
+only 13 of them were open by anything at all. macOS numbers them contiguously and keeps the entry
+for the rest of the boot, so **the count only ever goes up, and only a restart clears it**.
+
+Which means the number to watch is not how many terminals you have open, it is how many have been
+opened since the machine last started. Ordinary use adds a handful a day. A full browser test run
+adds about eighty, so from a fresh boot there is room for roughly a dozen of them.

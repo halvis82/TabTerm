@@ -25,10 +25,19 @@ that names nothing.
 It can be raised, but not freely: 999 is accepted and 1024 is rejected, and the setting does not
 survive a reboot.
 
-A device node is not a running process. macOS keeps the `/dev/ttysNNN` entry after whatever held it
-has gone and reclaims it on its own schedule, so the count runs well ahead of what is in use and
-comes down slowly. Reading it as a leak is a mistake that costs an afternoon: check for live
-processes before concluding anything was left behind.
+A device node is not a running process, and the count is not a measure of what is in use.
+Measured on a machine sitting at 827 nodes: **13** were open by any process. The entries are
+numbered contiguously from `ttys000`, macOS creates one the first time a slot is used, and it
+keeps it for the rest of the boot.
+
+So the count is closest to *how many pseudo-terminals have been created since the machine
+started*. It only goes up. Cycling `kern.tty.ptmx_max` down and back reclaims nothing, and a
+restart is the only reset.
+
+Two mistakes to avoid, both made here. Reading a high count as a leak sends you chasing cleanup
+code that is already correct: check for live processes first. Reading a falling count as
+reclamation is the opposite error, and it is what a run's own sessions closing looks like on the
+way back down to a floor that never moves.
 
 ### A reloaded extension does not run until something wakes it
 
@@ -68,9 +77,10 @@ any honest use and far below the point of no return, and somebody with a hundred
 has a runaway rather than a workload. It is not a user setting, because a number you can raise
 while something is spawning in a loop is not a safety limit.
 
-Ordinary use is nowhere near the cap. Running the browser suites repeatedly is, because each run
-opens shells faster than the OS gives the numbers back, so the harness prints the count before and
-after every run and warns separately when a run leaves a process alive and when headroom is short.
+Ordinary use adds a handful a day and is nowhere near the cap. A full browser run adds about
+eighty, so from a fresh boot there is room for roughly a dozen of them. The harness prints the
+count before and after every run, warns separately when a run leaves a process alive and when
+headroom is short, and refuses to start below 120 free.
 See `AGENTS/BACKLOG.md` WP-27 for the incident this came from.
 
 ## Tier 0 — Impossible
