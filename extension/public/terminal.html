@@ -139,15 +139,23 @@
   #terminal.panel-open {
     align-items: flex-end;
   }
+  /**
+   * The strip under the start screen, which grows upward when what is typed needs the room.
+   *
+   * A definite height rather than a cap: `flex: 1 1 0` against `align-items: flex-end` shrinks
+   * to content, which is a couple of pixels, and `flex: 0 0 auto` alone sizes to content in
+   * both directions, which collapsed it horizontally to nothing.
+   *
+   * The height is a variable so the page can raise it as a command outgrows one line. A long
+   * one used to scroll inside a fixed box, which pushed the prompt off the top and left the
+   * thing being typed with no visible beginning.
+   */
   #terminal.panel-open > .pane,
   #terminal.panel-open > .split-node {
-    /* A fixed height, not a cap: `flex: 1 1 0` against `align-items: flex-end` shrinks to
-       content, which is a couple of pixels. */
-    /* Fixed height, full width. `flex: 0 0 auto` alone sizes to content in both directions,
-       which collapsed the strip horizontally to nothing. */
     flex: 0 0 auto;
     width: 100%;
-    height: 4.5rem;
+    height: var(--strip-height, 4.5rem);
+    transition: height 90ms ease-out;
   }
   .xterm-viewport::-webkit-scrollbar {
     width: 9px;
@@ -1599,8 +1607,14 @@
     left: 0;
     right: 0;
     top: 0;
-    /* Stops short of the bottom, leaving the prompt visible underneath. */
-    bottom: 4.5rem;
+    /**
+     * Stops short of the strip, and of its top border.
+     *
+     * Exactly `4.5rem` put this element's opaque edge on the pane's own one-pixel border, so
+     * the box around the input had no visible top. The three pixels are that border and a
+     * little air.
+     */
+    bottom: calc(var(--strip-height, 4.5rem) + 3px);
     padding: 14px 18px 0;
     display: flex;
     flex-direction: column;
@@ -2229,14 +2243,26 @@
   /* Shown only when Tab could not decide, so it is never permanent furniture. */
   /* Under the box, wrapping, and bounded: a home directory can hold hundreds and this is a
      means of getting somewhere rather than a view of the filesystem. */
+  /**
+   * As tall as the folders need, up to three rows, and no taller.
+   *
+   * It had a fixed 132px with a scrollbar, so a home directory with a handful of folders left a
+   * band of empty space between the list and the buttons under it, and one with many hid the
+   * rest behind a scrollbar nobody looks for. Three rows is enough to recognise where you are;
+   * past that the box says so and typing is the faster way there anyway.
+   */
   .launcher-completions {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
     margin-top: 6px;
-    max-height: 132px;
-    overflow-y: auto;
+    overflow: hidden;
     align-content: flex-start;
+  }
+  .launcher-completion.is-more {
+    border-style: dashed;
+    color: #6f758a;
+    cursor: default;
   }
   .launcher-completion {
     padding: 3px 8px;

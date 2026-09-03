@@ -529,6 +529,47 @@ export class Launcher {
      */
     input.parentElement?.insertAdjacentElement('afterend', list);
     this.#completionList = list;
+    this.#trimFolderRows(list);
+  }
+
+  /**
+   * Three rows of folders, then a `...`.
+   *
+   * The list used to be a fixed 132px box with a scrollbar: a home directory with six folders
+   * left a band of empty space between it and the buttons, and one with sixty hid the rest
+   * behind a scrollbar nobody goes looking for. Three rows is enough to recognise where you
+   * are, and past that typing is faster than hunting anyway.
+   *
+   * Measured rather than counted, because how many chips fit on a row depends on how long the
+   * folder names are. Done after the list is in the document, which is the only time offsets
+   * mean anything.
+   */
+  #trimFolderRows(list: HTMLElement): void {
+    const children = [...list.children] as HTMLElement[];
+    if (children.length === 0) return;
+    const rows: number[] = [];
+    for (const child of children) {
+      if (!rows.includes(child.offsetTop)) rows.push(child.offsetTop);
+    }
+    if (rows.length <= 3) return;
+
+    const cutoff = rows[3] as number;
+    let hidden = 0;
+    for (const child of children) {
+      if (child.offsetTop < cutoff) continue;
+      child.remove();
+      hidden++;
+    }
+    const more = document.createElement('span');
+    more.className = 'launcher-completion is-more';
+    more.textContent = '...';
+    more.title = `${String(hidden)} more. Type to narrow the list.`;
+    list.append(more);
+    // Adding it can itself push a chip onto a fourth row, so one more is taken off if so.
+    if (more.offsetTop >= cutoff) {
+      const last = list.children[list.children.length - 2];
+      last?.remove();
+    }
   }
 
   /**
@@ -1265,10 +1306,6 @@ export class Launcher {
       }
     });
 
-    const note = document.createElement('div');
-    note.className = 'launcher-note';
-    note.textContent = 'The folder is created if it does not exist.';
-
     // Between the box and the buttons: it is about what was typed, and it must not move the
     // buttons around as it appears and goes.
     const folderState = document.createElement('div');
@@ -1282,7 +1319,15 @@ export class Launcher {
     // Drawn straight away, so the folders are there before anything is typed.
     this.#ensureListing();
     setTimeout(() => this.#renderFolders(), 0);
-    wrap.append(form, note);
+    /**
+     * No note under the buttons.
+     *
+     * It said the folder would be created if it did not exist, which stopped being the whole
+     * truth once the validity line under the box started saying so itself, with a button to do
+     * it. Two answers to the same question, one of them a sentence that is always there whether
+     * it applies or not.
+     */
+    wrap.append(form);
     return wrap;
   }
 
