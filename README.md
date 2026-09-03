@@ -254,26 +254,31 @@ MIT. See [LICENSE](LICENSE).
 Every terminal on the machine fails to start, including ones that have nothing to do with
 TabTerm. TabTerm reports `posix_spawnp failed` and iTerm reports a session ending immediately.
 
-macOS caps how many pseudo-terminals it will hand out, and the cap is low:
+macOS caps how many pseudo-terminals exist at once, and the cap is low:
 
     sysctl kern.tty.ptmx_max      # 511 by default
-    ls /dev/ttys* | wc -l         # how many exist
+    ls /dev/ttys* | wc -l         # how many are allocated
 
-When the second number reaches the first, nothing on the machine can open a terminal. Raise it:
+When the second number reaches the first, nothing on the machine can open a terminal. Two ways
+out, and the first does not need a restart:
 
-    sudo sysctl -w kern.tty.ptmx_max=999
+    pkill -f 'libexec/tabterm/pty-host'     # frees everything TabTerm was holding
+    sudo sysctl -w kern.tty.ptmx_max=999    # raises the cap, until the next reboot
 
-999 rather than a round number: macOS rejects anything at or above 1024. This lasts until the
-machine restarts, and a restart clears the count anyway, so either fixes it. To make it survive a
-restart, put `kern.tty.ptmx_max=999` in `/etc/sysctl.conf`.
+Restarting the PTY host ends the terminals it was running, which is the price, and it is a smaller
+one than rebooting. 999 rather than a round number: macOS rejects anything at or above 1024. To
+make the cap survive a restart, put `kern.tty.ptmx_max=999` in `/etc/sysctl.conf`.
 
-Normal use does not approach this. Running the browser test suites repeatedly does, because a
-slot is never given back until the machine restarts.
+### Why it filled up
 
-That second count is device nodes, not running processes: measured on a machine sitting at 827,
-only 13 of them were open by anything at all. macOS numbers them contiguously and keeps the entry
-for the rest of the boot, so **the count only ever goes up, and only a restart clears it**.
+A pseudo-terminal stays allocated while its master handle is open, and **node-pty 1.1.0 never
+closed that handle**. Every session cost one pseudo-terminal for the entire life of the PTY host,
+which is designed to run for months, so the supply drained a session at a time until nothing on
+the machine could open a terminal.
 
-Which means the number to watch is not how many terminals you have open, it is how many have been
-opened since the machine last started. Ordinary use adds a handful a day. A full browser test run
-adds about eighty, so from a fresh boot there is room for roughly a dozen of them.
+Measured on a machine at 827 allocated: TabTerm's host held 820 of them, and only 13 were open by
+any process. Fixed by moving to node-pty 1.2.0-beta.15, where spawning and killing twenty
+terminals moves the count by zero.
+
+Other applications leak the same way. iTerm held 101 on the same machine, and only a reboot
+clears those.

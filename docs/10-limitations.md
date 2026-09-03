@@ -14,30 +14,52 @@ Update this file whenever a new constraint is discovered.
 
 ### macOS hands out a fixed number of pseudo-terminals
 
-`kern.tty.ptmx_max` is **511** by default. When that many exist, nothing on the machine can open a
-terminal: not TabTerm, not iTerm, not anything, and the failure is an opaque `posix_spawnp failed`
-that names nothing.
+`kern.tty.ptmx_max` is **511** by default. When that many are allocated, nothing on the machine
+can open a terminal: not TabTerm, not iTerm, not anything, and the failure is an opaque
+`posix_spawnp failed` that names nothing.
 
     sysctl kern.tty.ptmx_max        the cap
-    ls /dev/ttys* | wc -l           how many exist
+    ls /dev/ttys* | wc -l           how many are allocated
     sudo sysctl -w kern.tty.ptmx_max=999
 
 It can be raised, but not freely: 999 is accepted and 1024 is rejected, and the setting does not
 survive a reboot.
 
-A device node is not a running process, and the count is not a measure of what is in use.
-Measured on a machine sitting at 827 nodes: **13** were open by any process. The entries are
-numbered contiguously from `ttys000`, macOS creates one the first time a slot is used, and it
-keeps it for the rest of the boot.
+#### What actually consumed them, and it was us
 
-So the count is closest to *how many pseudo-terminals have been created since the machine
-started*. It only goes up. Cycling `kern.tty.ptmx_max` down and back reclaims nothing, and a
-restart is the only reset.
+Two wrong explanations were written here before the right one, so the evidence is recorded rather
+than the conclusion alone.
 
-Two mistakes to avoid, both made here. Reading a high count as a leak sends you chasing cleanup
-code that is already correct: check for live processes first. Reading a falling count as
-reclamation is the opposite error, and it is what a run's own sessions closing looks like on the
-way back down to a floor that never moves.
+A pseudo-terminal is allocated while its **master** handle is open, and the kernel frees it on the
+last close of that handle (`ptmx_free_ioctl` in `bsd/kern/tty_ptmx.c`, and the limit is checked as
+`pis_total - pis_free`, which is how many are allocated right now). Counting who held the
+**slave** side found 13 on a machine sitting at 827, which is what made this look like a macOS
+quirk. Counting masters found the answer:
+
+    node    82123   820 handles on /dev/ptmx     <- TabTerm's own PTY host
+    iTerm2  47521   101
+
+**node-pty 1.1.0 never closes the master.** Measured directly: spawn ten, kill all ten, and ten
+pseudo-terminals stay allocated. Repeat and it grows by ten each time. Killing the process group,
+calling `pty.kill()`, `destroy()`, `_close()`, and closing the socket's file descriptor by hand
+all leave it held. Every one of them comes back the instant the owning process exits.
+
+So the cost is **one pseudo-terminal per session ever created, for the life of the PTY host**, and
+the host is designed to run for months. That is not a testing artifact, it is the product slowly
+consuming the machine's supply until no application can open a terminal. It is exactly the
+2026-09-02 incident.
+
+**Fixed by node-pty 1.2.0-beta.15**, where the same measurement moves the count by zero.
+
+#### Reclaiming without a reboot
+
+Restarting the PTY host frees every handle it holds, immediately. It ends the terminals that host
+is running, which is the price, and it is a smaller one than a reboot:
+
+    pkill -f 'libexec/tabterm/pty-host'
+
+A reboot also works and is the only thing that resets the count for other applications leaking the
+same way.
 
 ### A reloaded extension does not run until something wakes it
 
