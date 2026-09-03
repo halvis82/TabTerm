@@ -33,22 +33,49 @@ export function commonPrefix(values: readonly string[]): string {
   return prefix;
 }
 
+/**
+ * What a person means by a path they typed, as an absolute path.
+ *
+ * Three forms, and all three are the reading somebody actually intends:
+ *
+ * - `/Users/them/work` is taken literally, because an absolute path is unambiguous
+ * - `~/work` is their home, because that is what a tilde has meant for fifty years
+ * - `work` is **also** their home, because a bare name typed into a box that asks for a folder
+ *   means one inside their own, and nobody typing it means "wherever the daemon happens to be"
+ *
+ * That last case is the one worth being careful about. This process is started by launchd with a
+ * working directory of `/`, so leaving a relative path alone does not leave it relative to
+ * anything a person could name: it silently becomes a path under the root. That produced three
+ * failures of the same shape, each looking like a different bug. `Documents/personal_coding/wif`
+ * completed to nothing, because `/Documents` does not exist. `Create folder` on a relative path
+ * either failed on permissions or made a folder somewhere nobody was looking. And a session
+ * asked for with a relative cwd would have started in `/`.
+ *
+ * So it is resolved here, once, at the edge where text from a browser becomes a path. The
+ * alternative was every caller remembering to do it, and the evidence is that they did not.
+ */
 export function expandHome(path: string, home = homedir()): string {
+  if (path === '') return path;
   if (path === '~') return home;
+
+  /**
+   * A trailing slash has to survive, and `join` is inconsistent about it.
+   *
+   * The slash is the whole difference between listing a directory and matching its name against
+   * what sits beside it: `~/` once became the home directory without one, which read as "the
+   * fragment `halvis82` inside `/Users`" and listed the parent of home. So it is taken off, the
+   * join is done, and it is put back exactly when it was asked for.
+   */
+  const wantsSlash = path.endsWith('/');
+  const withSlash = (full: string): string =>
+    wantsSlash && !full.endsWith('/') ? `${full}/` : full;
+
   if (path.startsWith('~/')) {
-    const rest = path.slice(2);
-    /**
-     * A trailing slash has to survive.
-     *
-     * `join` drops it for an empty remainder, so `~/` became the home directory with no slash,
-     * which reads as "the fragment `halvis82` inside `/Users`" and listed the parent of home
-     * rather than home. The slash is the whole difference between listing a directory and
-     * matching its name.
-     */
-    if (rest === '') return `${home}/`;
-    return join(home, rest);
+    const rest = path.slice(2).replace(/\/+$/, '');
+    return rest === '' ? `${home}/` : withSlash(join(home, rest));
   }
-  return path;
+  if (path.startsWith('/')) return path;
+  return withSlash(join(home, path.replace(/\/+$/, '')));
 }
 
 /** Put `~` back, so what is shown matches what was typed. */

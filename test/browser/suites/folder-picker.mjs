@@ -75,5 +75,31 @@ await realClick(client, '.launcher-completion', '..');
 await sleep(1000);
 r.ok('and `..` goes back up', String(await boxValue()) === '', String(await boxValue()));
 
+/**
+ * A path typed several levels deep, without a tilde.
+ *
+ * `Documents/personal_coding/wif` found nothing. The daemon is started with a working directory
+ * of `/`, so a relative path was resolved against the root rather than against home, and the
+ * answer was an empty list with no error to explain it.
+ *
+ * Two levels, because one level is the case the box already handles on the way in. The second
+ * level is discovered rather than written down, so this does not depend on any particular folder
+ * existing on the machine running it.
+ */
+await typeInBox('Documents/');
+const insideDocuments = JSON.parse(await names()).filter((n) => n !== '..');
+const child = insideDocuments[0];
+if (child === undefined) {
+  r.ok('a relative path two levels down still lists', false, 'no folder inside ~/Documents');
+} else {
+  await typeInBox(`Documents/${child}/`);
+  const deep = await waitFor(
+    client,
+    "document.querySelectorAll('.launcher-completion').length > 0",
+    8000,
+  );
+  r.ok(`a relative path two levels down still lists (Documents/${child}/)`, deep, await names());
+}
+
 await finish();
 r.done();

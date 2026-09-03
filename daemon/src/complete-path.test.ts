@@ -82,6 +82,24 @@ describe('the pieces', () => {
   it('round trips a home path', () => {
     expect(expandHome('~/x', '/Users/someone')).toBe('/Users/someone/x');
     expect(expandHome('~', '/Users/someone')).toBe('/Users/someone');
+    expect(expandHome('~/', '/Users/someone')).toBe('/Users/someone/');
+    // Absolute is taken literally, which is the whole meaning of a leading slash.
+    expect(expandHome('/etc/hosts', '/Users/someone')).toBe('/etc/hosts');
+  });
+
+  it('reads a relative path as one inside home, never inside the daemon working directory', () => {
+    // The daemon is started by launchd with a working directory of `/`, so anything left
+    // relative silently becomes a path under the root. A person typing `Documents` into a box
+    // that asks for a folder means their own.
+    expect(expandHome('Documents', '/Users/someone')).toBe('/Users/someone/Documents');
+    expect(expandHome('Documents/personal_coding/wif', '/Users/someone')).toBe(
+      '/Users/someone/Documents/personal_coding/wif',
+    );
+    // A trailing slash survives, because it is the difference between listing a directory and
+    // matching a name against what is beside it.
+    expect(expandHome('Documents/', '/Users/someone')).toBe('/Users/someone/Documents/');
+    // Empty is not a path, and answering it with home would answer a question nobody asked.
+    expect(expandHome('', '/Users/someone')).toBe('');
     expect(contractHome('/Users/someone/x', '/Users/someone')).toBe('~/x');
     expect(contractHome('/etc', '/Users/someone')).toBe('/etc');
   });
