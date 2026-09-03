@@ -301,6 +301,31 @@ const tabFlasher = new TabFlasher((on) => {
   applyFavicon(drawFavicon(on ? 'done' : 'idle', animPhase));
 });
 
+/**
+ * Remove the lone `%` zsh sometimes leaves above the first prompt.
+ *
+ * It is zsh's partial-line marker: output that did not end in a newline gets an inverse `%` so
+ * the prompt starts on a clean line. It is correct and it is noise, and on the start screen,
+ * where the terminal is a two-line strip, it takes half of what you can see.
+ *
+ * Removed by asking the shell to redraw rather than by editing the buffer, so the screen stays
+ * something the shell produced. Only when it is the only thing above the prompt, and only while
+ * the start screen is up: over real output that marker is telling you something true.
+ */
+function tidyPartialLine(paneId: string): void {
+  const pane = panesHost?.get(paneId);
+  if (!pane || launcher?.dismissed !== false) return;
+  const buffer = pane.controller.term.buffer.active;
+  const lines: string[] = [];
+  for (let y = 0; y < buffer.length && lines.length < 3; y++) {
+    const text = (buffer.getLine(y)?.translateToString(true) ?? '').trim();
+    if (text !== '') lines.push(text);
+  }
+  if (lines.length !== 2 || lines[0] !== '%') return;
+  // Ctrl+L: the shell's own clear-and-redraw, which is what puts the prompt back cleanly.
+  client?.write(pane.streamId, new TextEncoder().encode(String.fromCharCode(12)));
+}
+
 function setFavicon(state: FaviconState): void {
   // A flash is a deliberate override and outranks the ordinary icon until it is noticed.
   if (tabFlasher.flashing) return;
@@ -1923,6 +1948,8 @@ function onControl(msg: ServerMessage): void {
     case 'snapshot': {
       const pane = panesHost?.paneForStream(msg.snapshot.streamId);
       if (pane) panesHost?.restore(pane.paneId, msg.snapshot.screen);
+      // A leftover partial-line marker above the first prompt. See `tidyPartialLine`.
+      if (pane) tidyPartialLine(pane.paneId);
       return;
     }
 

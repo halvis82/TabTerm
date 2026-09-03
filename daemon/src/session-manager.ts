@@ -7,6 +7,7 @@ import type { PtyBackend } from './pty-backend.js';
 import { OscScanner } from './osc.js';
 import { decideReap, describeReap, reapInputFor } from './cleanup.js';
 import { plainText } from './plain-text.js';
+import { expandHome } from './complete-path.js';
 import { listeningPorts } from './server-detect.js';
 import { assertTransition } from './session-state.js';
 import { VtState } from './vt-state.js';
@@ -226,7 +227,16 @@ export class SessionManager {
 
   create(opts: { cwd?: string; command?: readonly string[]; cols: number; rows: number }): Session {
     const id = randomUUID();
-    const cwd = opts.cwd ?? homedir();
+    /**
+     * A tilde is expanded here, once, for every way a session can be created.
+     *
+     * A page may legitimately hold a path as `~/Documents`: that is what somebody typed and it
+     * is what should be shown back to them. It is not a directory any process can start in, and
+     * handing it to `spawn` fails with `posix_spawnp failed`, which names nothing and reads as
+     * the product being broken. The daemon owns the filesystem, so the daemon does the
+     * expanding, rather than every caller remembering to.
+     */
+    const cwd = expandHome(opts.cwd ?? homedir());
     const vt = new VtState(opts.cols, opts.rows, this.#config.scrollbackLines);
 
     const session: Session = {

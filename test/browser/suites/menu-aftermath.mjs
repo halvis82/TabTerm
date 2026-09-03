@@ -77,7 +77,13 @@ const typePath = async (text) => {
     fresh.client,
     `(() => { const i = document.querySelector('.launcher-input'); i.focus(); i.value = ${JSON.stringify(text)}; i.dispatchEvent(new Event('input', { bubbles: true })); })()`,
   );
-  await sleep(1300);
+  // Waited for, not slept through. The check is debounced and answered by the daemon, so under
+  // load a fixed wait is a race that loses occasionally and reads as the feature being broken.
+  await waitFor(
+    fresh.client,
+    "(document.querySelector('.launcher-folder-state')?.textContent ?? '') !== ''",
+    8000,
+  );
   return String(
     await evaluate(
       fresh.client,
@@ -86,7 +92,8 @@ const typePath = async (text) => {
   );
 };
 
-r.ok('a folder that exists says so', (await typePath('~/Documents')).includes('exists'));
+const saidTilde = await typePath('~/Documents');
+r.ok('a folder that exists says so', saidTilde.includes('exists'), JSON.stringify(saidTilde));
 // And a bare name means the same thing, since typing `~/` first is something everybody assumes.
 r.ok(
   'and so does a bare name, taken as being under home',

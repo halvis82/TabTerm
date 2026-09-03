@@ -19,7 +19,8 @@
  * nine unrelated product bugs.
  */
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { createServer } from 'node:net';
+import { existsSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -253,33 +254,60 @@ async function pool(names, ports) {
  *
  * Returns what the browsers need to find it.
  */
-function startTestDaemon() {
+/**
+ * A free port, from the operating system.
+ *
+ * A fixed one was a running battle: an interrupted run leaves its daemon holding it, the next
+ * run cannot bind, its supervisor restarts it a dozen times, and every suite fails for reasons
+ * that read as product bugs. Binding to port 0 and reading back what was given cannot collide
+ * with a previous run, a colleague, or anything else on the machine.
+ */
+async function freePort() {
+  const server = createServer();
+  // `listen` is asynchronous, so the address is not there until it says so. Reading it straight
+  // after the call returns null, which is how this first went wrong.
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  await new Promise((resolve) => server.close(resolve));
+  return port;
+}
+
+async function startTestDaemon() {
   const home = mkdtempSync(join(tmpdir(), 'tabterm-suite-home-'));
-  const port = Number(process.env['TT_DAEMON_PORT'] ?? '7378');
-  const state = { child: null, pid: 0, stopping: false };
+  const port = Number(process.env['TT_DAEMON_PORT'] ?? '') || (await freePort());
+  const state = { child: null, pid: 0, stopping: false, restarts: 0 };
 
   /**
    * Restarted when it dies, which is what launchd does for the real one.
    *
    * `survives-restart` kills it on purpose to prove that terminals outlive a daemon being
    * replaced. Without something putting it back, that check would be testing a machine with no
-   * daemon on it.
+   * daemon on it. Bounded, so a daemon that cannot start at all says so instead of failing
+   * quietly a hundred times.
    */
+  const log = openSync(join(home, 'daemon.log'), 'a');
   const spawnOnce = () => {
     const child = spawn(process.execPath, [join(ROOT, 'daemon', 'dist', 'main.js')], {
       cwd: ROOT,
       env: { ...process.env, TABTERM_HOME: home, TABTERM_PORT: String(port) },
-      stdio: 'ignore',
+      stdio: ['ignore', log, log],
     });
     state.child = child;
     state.pid = child.pid ?? 0;
-    process.env['TT_DAEMON_PID'] = String(state.pid);
-    child.on('exit', () => {
+    child.on('exit', (code, signal) => {
       if (state.stopping) return;
+      state.restarts++;
+      if (state.restarts > 12) {
+        console.log(
+          `  the test daemon keeps dying (${String(code ?? signal)}); see ${home}/daemon.log`,
+        );
+        return;
+      }
       spawnOnce();
     });
   };
   spawnOnce();
+
   const child = {
     get pid() {
       return state.pid;
@@ -295,10 +323,11 @@ function startTestDaemon() {
   const deadline = Date.now() + 15_000;
   for (;;) {
     if (existsSync(tokenFile)) break;
-    if (Date.now() > deadline) throw new Error('the test daemon never wrote a token');
+    if (Date.now() > deadline)
+      throw new Error(`the test daemon never started; see ${home}/daemon.log`);
     execFileSync('sleep', ['0.2']);
   }
-  return { home, port, child, token: readFileSync(tokenFile, 'utf8').trim() };
+  return { home, port, child, token: readFileSync(tokenFile, 'utf8').trim(), state };
 }
 
 function startBrowser(port) {
@@ -337,7 +366,7 @@ const ports = Array.from({ length: width }, (_, i) => BASE_PORT + i);
  * on a browser that was never going to exit. From the outside it looked exactly like the suites
  * being slow, which is what this file exists to fix.
  */
-const daemon = startTestDaemon();
+const daemon = await startTestDaemon();
 process.env['TT_DAEMON_PORT'] = String(daemon.port);
 process.env['TT_DAEMON_TOKEN'] = daemon.token;
 // The two suites that kill things are told which installation is theirs. Without it they
@@ -389,9 +418,15 @@ try {
   /* already gone */
 }
 try {
-  rmSync(daemon.home, { recursive: true, force: true });
+  // Kept when something went wrong, because the daemon's log is the only evidence of why.
+  if (daemon.state.restarts === 0) rmSync(daemon.home, { recursive: true, force: true });
+  else console.log(`  kept ${daemon.home} for its daemon.log`);
 } catch {
   /* a directory that could not be removed is not a failed run */
+}
+
+if (daemon.state.restarts > 0) {
+  console.log(`  note: the test daemon restarted ${String(daemon.state.restarts)} time(s)`);
 }
 
 const pass = results.reduce((n, r) => n + r.pass, 0);

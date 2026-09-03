@@ -151,9 +151,6 @@ export class Launcher {
   /** Which layout Return will run. Open, because that is what almost everybody wants. */
   #selectedAction = 0;
   #completionList: HTMLElement | null = null;
-  #browsing = false;
-  #browsePath = '~/';
-  #browserEl: HTMLElement | null = null;
   /** What the daemon last said about the folder in the box. */
   #folderState: { path: string; exists: boolean; isFile?: boolean; error?: string } | null = null;
   #checkTimer = 0;
@@ -226,11 +223,18 @@ export class Launcher {
   }
 
   pathCompletion(reply: { partial: string; completed: string; matches: readonly string[] }): void {
-    // While browsing, a reply is a directory listing rather than a suggestion for the box.
-    if (this.#browsing && reply.partial === this.#browsePath) {
-      this.#renderBrowser(reply.matches);
+    /**
+     * A reply about a directory is the list; a reply about a fragment is a completion.
+     *
+     * Both come from the same `complete-path`, which is what keeps "what folders are in here"
+     * a single answer rather than two that can disagree.
+     */
+    if (reply.partial.endsWith('/')) {
+      this.#listing = { dir: reply.partial, entries: reply.matches };
+      this.#renderFolders();
       return;
     }
+
     const input = this.#dirInput;
     // A reply to a keystroke that has since been replaced is not an answer to anything.
     if (!input || this.#resolved(input.value) !== reply.partial) return;
@@ -239,26 +243,9 @@ export class Launcher {
     // tilde appearing under their cursor.
     if (reply.completed !== reply.partial) {
       input.value = unresolveTypedPath(reply.completed, input.value);
+      this.#ensureListing();
     }
-    this.#clearCompletion();
-    if (reply.matches.length < 2) return;
-
-    const list = document.createElement('div');
-    list.className = 'launcher-completions';
-    for (const match of reply.matches) {
-      const item = document.createElement('button');
-      item.className = 'launcher-completion';
-      item.textContent = match;
-      item.addEventListener('click', () => {
-        const base = input.value.slice(0, input.value.lastIndexOf('/') + 1);
-        input.value = `${base}${match}/`;
-        this.#clearCompletion();
-        input.focus();
-      });
-      list.append(item);
-    }
-    input.parentElement?.append(list);
-    this.#completionList = list;
+    this.#renderFolders();
   }
 
   /**
@@ -312,82 +299,176 @@ export class Launcher {
   /** Listeners on things this class does not own, removed when the start screen goes. */
   readonly #teardown: (() => void)[] = [];
 
-  #openBrowser(): void {
-    const input = this.#dirInput;
-    if (!input) return;
-    const at = this.#resolved(input.value);
-    this.#browsePath = at.endsWith('/') ? at : `${at}/`;
-    this.#opts.onCompletePath(this.#browsePath);
+  /**
+   * The folders inside wherever the box currently points, always shown.
+   *
+   * There used to be two ways to find a folder: a `Browse` button that opened a panel beside
+   * the box, and a completion list that appeared under it after pressing Tab. They answered the
+   * same question with different code, they looked nothing alike, and the panel resized the row
+   * it was in, so opening it moved the very box you were typing into.
+   *
+   * One list now, under the box, filtered by what has been typed. Clicking a folder puts it in
+   * the box with a trailing slash and leaves the cursor there, so a path is built by clicking,
+   * typing, or Tab, in any mixture, without ever changing tool.
+   */
+  #listing: { dir: string; entries: readonly string[] } | null = null;
+
+  /** How many to draw. A home directory can hold hundreds and the list is a means, not a view. */
+  static readonly #MAX_FOLDERS = 40;
+
+  /**
+   * The directory part of what is typed, always ending in a slash.
+   *
+   * Taken from the typed text and resolved afterwards, not the other way round. Resolving first
+   * turns an empty box into the home directory **without** a trailing slash, and cutting at the
+   * last slash then listed its parent: an empty box showed the contents of `/Users`.
+   */
+  #currentDir(): string {
+    const typed = this.#dirInput?.value ?? '';
+    const cut = typed.lastIndexOf('/');
+    const dir = cut === -1 ? '' : typed.slice(0, cut + 1);
+    const resolved = this.#resolved(dir);
+    return resolved.endsWith('/') ? resolved : `${resolved}/`;
   }
 
-  #closeBrowser(): void {
-    this.#browsing = false;
-    this.#browserEl?.remove();
-    this.#browserEl = null;
+  /** The part after the last slash, which is what filters the list. */
+  #currentFragment(): string {
+    const typed = this.#dirInput?.value ?? '';
+    const cut = typed.lastIndexOf('/');
+    return cut === -1 ? typed.trim() : typed.slice(cut + 1).trim();
   }
 
-  /** Draw the listing for wherever the browser currently is. */
-  #renderBrowser(entries: readonly string[]): void {
+  /**
+   * Ask for a listing, but only when the directory has actually changed.
+   *
+   * Typing inside one directory filters what is already here, so a keystroke costs nothing.
+   * Moving into another asks the daemon once.
+   */
+  #ensureListing(): void {
+    const dir = this.#currentDir();
+    if (this.#listing?.dir === dir) return;
+    this.#opts.onCompletePath(dir);
+  }
+
+  /**
+   * Ask whether what is in the box is a folder.
+   *
+   * Debounced, because otherwise this is a filesystem call per keystroke and the answer for a
+   * half-typed path is never the interesting one. Called from clicking as well as typing:
+   * setting a value from code fires no `input` event, so choosing a folder used to leave the
+   * validity line blank as though nothing had been asked.
+   */
+  #askFolderState(): void {
+    clearTimeout(this.#checkTimer);
+    const typed = this.#dirInput?.value.trim() ?? '';
+    if (typed === '') return;
+    const asked = this.#resolved(typed);
+    this.#checkTimer = window.setTimeout(() => this.#opts.onCheckFolder(asked), 260);
+  }
+
+  #renderFolders(): void {
+    try {
+      this.#drawFolders();
+    } catch {
+      // A list that could not be drawn is a missing convenience. It must never take out the
+      // handler it was called from, which also asks whether the folder exists.
+    }
+  }
+
+  #drawFolders(): void {
     const input = this.#dirInput;
     if (!input) return;
-    this.#browserEl?.remove();
+    this.#completionList?.remove();
+    this.#completionList = null;
 
-    const panel = document.createElement('div');
-    panel.className = 'launcher-browser';
-
-    const header = document.createElement('div');
-    header.className = 'launcher-browser-path';
-    header.textContent = this.#browsePath;
-    panel.append(header);
+    const dir = this.#currentDir();
+    if (this.#listing?.dir !== dir) return;
+    const fragment = this.#currentFragment().toLowerCase();
+    const matching = this.#listing.entries.filter((name) =>
+      name.toLowerCase().startsWith(fragment),
+    );
 
     const list = document.createElement('div');
-    list.className = 'launcher-browser-list';
+    list.className = 'launcher-completions';
 
-    const go = (path: string): void => {
-      this.#browsePath = path.endsWith('/') ? path : `${path}/`;
-      this.#opts.onCompletePath(this.#browsePath);
+    /** What has been typed, up to and including the last slash. Empty when there is none. */
+    const typedDir = (): string => {
+      const typed = input.value;
+      const cut = typed.lastIndexOf('/');
+      return cut === -1 ? '' : typed.slice(0, cut + 1);
     };
 
-    // Up first, since it is the one entry that is always there and always in the same place.
-    if (this.#browsePath !== '/' && this.#browsePath !== '~/') {
+    const go = (name: string): void => {
+      /**
+       * Built from what was typed, not from the resolved path.
+       *
+       * Resolving turns `Documents` into an absolute path, and putting that back in the box
+       * replaced what somebody had written with `/Users/them/Documents/`. The box keeps the
+       * form they chose; only the questions asked of the daemon are resolved.
+       *
+       * The trailing slash is the point: it says "and now the next one", and it is what moves
+       * the list into the folder just chosen.
+       */
+      input.value = `${typedDir()}${name}/`;
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+      this.#folderState = null;
+      this.#ensureListing();
+      this.#renderFolders();
+      this.#renderFolderState();
+      this.#askFolderState();
+    };
+
+    // Up, when there is anywhere to go. Always first, so it never moves.
+    if (dir !== '/' && dir !== '~/') {
       const up = document.createElement('button');
-      up.className = 'launcher-browser-item is-up';
+      up.className = 'launcher-completion is-up';
       up.textContent = '..';
       up.addEventListener('click', () => {
-        const trimmed = this.#browsePath.replace(/\/$/, '');
-        const parent = trimmed.slice(0, trimmed.lastIndexOf('/'));
-        go(parent === '' ? '/' : parent);
+        // One segment off what is typed. An empty box means home, which is where `..` from the
+        // first level lands anyway.
+        const trimmed = typedDir().replace(/\/$/, '');
+        input.value = trimmed === '' ? '' : `${trimmed.slice(0, trimmed.lastIndexOf('/') + 1)}`;
+        input.focus();
+        this.#folderState = null;
+        this.#ensureListing();
+        this.#renderFolders();
+        this.#renderFolderState();
+        this.#askFolderState();
       });
       list.append(up);
     }
 
-    for (const name of entries) {
+    for (const name of matching.slice(0, Launcher.#MAX_FOLDERS)) {
       const item = document.createElement('button');
-      item.className = 'launcher-browser-item';
+      item.className = 'launcher-completion';
       item.textContent = name;
-      item.addEventListener('click', () => go(`${this.#browsePath}${name}`));
+      item.addEventListener('click', () => go(name));
       list.append(item);
     }
-    if (entries.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'launcher-browser-empty';
-      empty.textContent = 'No folders in here';
-      list.append(empty);
+
+    if (matching.length > Launcher.#MAX_FOLDERS) {
+      const more = document.createElement('div');
+      more.className = 'launcher-completion-more';
+      more.textContent = `and ${String(matching.length - Launcher.#MAX_FOLDERS)} more, keep typing`;
+      list.append(more);
     }
-    panel.append(list);
+    if (matching.length === 0) {
+      const none = document.createElement('div');
+      none.className = 'launcher-completion-more';
+      none.textContent = fragment === '' ? 'no folders in here' : 'nothing matching';
+      list.append(none);
+    }
 
-    const use = document.createElement('button');
-    use.className = 'launcher-chip is-selected';
-    use.textContent = 'Use this folder';
-    use.addEventListener('click', () => {
-      input.value = this.#browsePath.replace(/\/$/, '') || '/';
-      this.#closeBrowser();
-      input.focus();
-    });
-    panel.append(use);
-
-    input.parentElement?.append(panel);
-    this.#browserEl = panel;
+    /**
+     * Directly under the box, not at the end of the form.
+     *
+     * Appending to the form put it after the layout chips and the hint, where it drew over
+     * them and over the terminal below. The list belongs to the box, so it goes immediately
+     * after the row holding it.
+     */
+    input.parentElement?.insertAdjacentElement('afterend', list);
+    this.#completionList = list;
   }
 
   /**
@@ -568,25 +649,17 @@ export class Launcher {
     form.className = 'launcher-form';
 
     /**
-     * Browse for a folder.
+     * There is no Browse button.
      *
-     * Not a native dialog: a Chrome extension cannot learn an absolute path from one, since
-     * `webkitdirectory` reports paths relative to whatever was chosen and the File System Access
-     * API returns an opaque handle. This asks the daemon instead, which can read the filesystem,
-     * and reuses the same completion the box already uses: a path ending in a slash lists what
-     * is inside it.
+     * The folders are simply shown, under the box, for wherever the box points. A button that
+     * opens a list is a step between wanting a folder and seeing one, and this list is useful
+     * often enough that it should not have to be asked for.
+     *
+     * Not a native dialog either: a Chrome extension cannot learn an absolute path from one,
+     * since `webkitdirectory` reports paths relative to whatever was chosen and the File System
+     * Access API returns an opaque handle. The daemon reads the filesystem instead, through the
+     * same `complete-path` the box uses for Tab.
      */
-    const browse = document.createElement('button');
-    browse.className = 'launcher-browse';
-    browse.type = 'button';
-    browse.title = 'Browse for a folder';
-    browse.textContent = 'Browse';
-    browse.addEventListener('click', () => {
-      this.#browsing = !this.#browsing;
-      if (this.#browsing) this.#openBrowser();
-      else this.#closeBrowser();
-    });
-
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'launcher-input';
@@ -617,22 +690,29 @@ export class Launcher {
         this.#opts.onCompletePath(this.#resolved(input.value));
       }
     });
-    // A new keystroke makes any pending suggestion stale.
     input.addEventListener('input', () => {
-      this.#clearCompletion();
       /**
-       * Ask whether the folder is there, once typing settles.
+       * Typing filters the list, and moving into another folder fetches it.
        *
-       * Debounced, because this is a filesystem call per keystroke otherwise, and the answer
-       * for a half-typed path is never the interesting one.
+       * Both on every keystroke, because the filtering is local and the fetch only happens when
+       * the directory part has actually changed. Typing and clicking and Tab are the same
+       * feature from here on: they all end as a value in this box with a list under it.
+       */
+      /**
+       * The question first, the drawing second.
+       *
+       * Both used to be in this handler with the drawing first, and anything that threw while
+       * rendering the folder list took the rest of the handler with it: the check was never
+       * scheduled, the daemon was never asked, and the validity line stayed blank as though
+       * the feature had been removed. What the page asks for must not depend on what it manages
+       * to draw.
        */
       this.#folderState = null;
       this.#renderFolderState();
-      clearTimeout(this.#checkTimer);
-      const typed = input.value.trim();
-      if (typed === '') return;
-      const asked = this.#resolved(typed);
-      this.#checkTimer = window.setTimeout(() => this.#opts.onCheckFolder(asked), 260);
+      this.#askFolderState();
+
+      this.#ensureListing();
+      this.#renderFolders();
     });
 
     /**
@@ -854,8 +934,11 @@ export class Launcher {
      */
     const pathRow = document.createElement('div');
     pathRow.className = 'launcher-path-row';
-    pathRow.append(browse, input);
+    pathRow.append(input);
     form.append(pathRow, folderState, buttons);
+    // Drawn straight away, so the folders are there before anything is typed.
+    this.#ensureListing();
+    setTimeout(() => this.#renderFolders(), 0);
     wrap.append(form, note);
     return wrap;
   }

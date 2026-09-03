@@ -23,7 +23,9 @@ export async function flashingSessions(): Promise<Set<string>> {
   try {
     const stored = await chrome.storage.local.get(KEY);
     const list: unknown = stored[KEY];
-    return new Set(Array.isArray(list) ? list.filter((v): v is string => typeof v === 'string') : []);
+    return new Set(
+      Array.isArray(list) ? list.filter((v): v is string => typeof v === 'string') : [],
+    );
   } catch {
     return new Set();
   }
