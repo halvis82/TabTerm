@@ -315,8 +315,18 @@ This terminal session expired.
   [Close tab]
 ```
 
-Nothing runs automatically. The previous cwd and last command come from SQLite, which retains
-expired session metadata per the retention table.
+The offer of a shell in the previous directory is focused, so Return takes it. Landing here from
+Command+Shift+T is ordinary rather than exceptional, and a page whose only way forward is finding
+a button with a mouse makes the restore read as a dead end when what somebody wanted was a shell
+in that folder.
+
+Focused, not taken. Nothing runs automatically, and that is what makes the page safe to land on:
+a restored tab that started a shell by itself would mean Chrome reopening ten tabs starts ten
+shells, in ten directories nobody asked about, against a pseudo-terminal supply that is finite
+(`10-limitations.md`).
+
+The previous cwd and last command come from SQLite, which retains expired session metadata per
+the retention table.
 
 ---
 

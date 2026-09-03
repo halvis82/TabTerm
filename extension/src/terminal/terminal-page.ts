@@ -499,17 +499,31 @@ function renderRecoveryActions(recall: {
     }
   }
 
-  const button = (label: string, onClick: () => void) => {
+  const button = (label: string, onClick: () => void, primary = false) => {
     const b = document.createElement('button');
-    b.className = 'launcher-chip';
+    // `is-selected` already means 'the one Return will run' everywhere else on the page.
+    b.className = primary ? 'launcher-chip is-selected' : 'launcher-chip';
     b.textContent = label;
     b.addEventListener('click', onClick);
     actions.append(b);
+    /**
+     * The first offer takes focus, so Return is enough.
+     *
+     * Chrome cannot be asked to forget one entry in its recently-closed stack, so landing here
+     * from Command+Shift+T is ordinary. Arriving at a page whose only way forward is finding a
+     * button with the mouse makes the restore feel like a dead end, when what somebody wanted
+     * was a shell in that folder.
+     *
+     * Focused, not run. Nothing on this page starts by itself, which is the rule in
+     * docs/04-session-lifecycle.md and the reason the page can be trusted at all: a restored tab
+     * that spawned a shell on its own would mean Chrome reopening ten tabs spawns ten shells.
+     */
+    if (primary) b.focus();
   };
 
   if (recall.found && recall.cwd) {
     const cwd = recall.cwd;
-    button('Start a shell here again', () => startFresh(cwd));
+    button('Start a shell here again', () => startFresh(cwd), true);
 
     // If an agent was working here, picking that conversation back up is usually what someone
     // wants after an expiry. Offered, never done automatically.
@@ -528,7 +542,7 @@ function renderRecoveryActions(recall: {
       });
     }
   }
-  button('Start a shell in home', () => startFresh(undefined));
+  button('Start a shell in home', () => startFresh(undefined), !(recall.found && recall.cwd));
   button('Close tab', () => window.close());
 }
 

@@ -95,5 +95,43 @@ r.ok(
   revisited.slice(0, 60).replace(/\n+/g, ' | '),
 );
 
+/**
+ * The tab Chrome brings back with Command+Shift+T.
+ *
+ * Chrome cannot be asked to forget one entry in its recently-closed stack, so restoring the URL
+ * of a session that is gone is ordinary rather than exceptional. The page has to be worth
+ * landing on: it must say where the session was and offer a shell in that same folder, one
+ * press away. Nothing starts by itself, which is the rule in docs/04-session-lifecycle.md.
+ */
+const offers = String(
+  await evaluate(revisit.client, `document.querySelector('#recovery-actions')?.innerText ?? ''`),
+);
+const detail = String(
+  await evaluate(revisit.client, `document.querySelector('#recovery-detail')?.innerText ?? ''`),
+);
+r.ok(
+  'the expired tab says which folder the session was in',
+  detail.includes('Last directory'),
+  detail.slice(0, 120).replace(/\n+/g, ' | '),
+);
+r.ok(
+  'and offers a shell in that same folder',
+  offers.toLowerCase().includes('here'),
+  offers.replace(/\n+/g, ' | '),
+);
+// One press away, and nothing has started by itself. Both halves matter: the offer is focused so
+// Return takes it, and no pane exists until somebody does.
+r.ok(
+  'that offer is what Return will take',
+  String(await evaluate(revisit.client, `document.activeElement?.textContent ?? ''`)).includes(
+    'here',
+  ),
+  String(await evaluate(revisit.client, `document.activeElement?.textContent ?? ''`)),
+);
+r.ok(
+  'and nothing has started on its own',
+  Number(await evaluate(revisit.client, `document.querySelectorAll('.pane').length`)) === 0,
+);
+
 await finish();
 r.done();
