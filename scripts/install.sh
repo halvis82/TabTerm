@@ -132,6 +132,12 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   sleep 0.5
 done
 
+# The extension's code on disk is not the code Chrome is running: it reads an extension when it
+# loads it and never again. So the last step of installing is asking the one thing that can do
+# something about that, which is the extension itself. Nothing happens if Chrome is not running,
+# and the terminals are in the PTY host either way.
+"$NODE" "$REPO/scripts/reload-extension.mjs" || true
+
 "$REPO/scripts/doctor.sh" || true
 
 # Agent CLI hooks. Asked rather than assumed, because this writes to a configuration file we

@@ -240,6 +240,17 @@ export type ClientMessage =
   | { t: 'close-pane'; workspaceId: string; paneId: string }
   | {
       /**
+       * Ask the extension to reload itself.
+       *
+       * Sent by the installer, because an extension's code only reaches Chrome when the
+       * extension is loaded, and nothing outside Chrome can make that happen: reloading is
+       * either a person clicking reload on `chrome://extensions`, or the extension calling
+       * `chrome.runtime.reload()` on itself. This is how it gets asked to.
+       */
+      t: 'reload-extension';
+    }
+  | {
+      /**
        * Put a pane that was closed back into its workspace.
        *
        * Named by session rather than by pane: the pane is gone, and the session is the thing
@@ -707,6 +718,16 @@ export type ServerMessage =
       error?: string;
     }
   | { t: 'mergeable-sessions'; sessions: readonly MergeableSession[] }
+  | {
+      /**
+       * Reload yourself, because your code on disk is newer than the code that is running.
+       *
+       * The terminals are in the PTY host and are untouched by this. The tabs are destroyed by
+       * Chrome and put back by the worker, which claims their workspaces before it does so, or
+       * the shells in them would be ended for having no tab. See `06-chrome-integration.md`.
+       */
+      t: 'reload-extension';
+    }
   | {
       /**
        * A pane was closed, and its terminal is being held in case that was a mistake.

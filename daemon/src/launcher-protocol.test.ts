@@ -208,6 +208,26 @@ describe('launcher protocol', () => {
   });
 });
 
+/**
+ * Asking the extension to reload itself, which is the only way its code ever changes.
+ *
+ * Chrome reads an extension when it loads it and never again, and nothing outside Chrome can
+ * make it re-read one: no API, no file to touch, no signal. The two ways are a person clicking
+ * reload, and the extension calling `chrome.runtime.reload()` on itself. The daemon's part is to
+ * carry the question over a connection the extension already holds.
+ */
+describe('asking the extension to reload itself', () => {
+  it('reaches every connected client, including one that did not ask', async () => {
+    const asker = await Client.connect();
+    const listener = await Client.connect();
+    asker.send({ t: 'reload-extension' });
+    const heard = await listener.waitFor('reload-extension');
+    expect(heard.t).toBe('reload-extension');
+    asker.close();
+    listener.close();
+  });
+});
+
 describe('the folder box asks the daemon whether a folder is there', () => {
   /**
    * A page cannot look at the disk, so the answer has to come from here, and it has to be

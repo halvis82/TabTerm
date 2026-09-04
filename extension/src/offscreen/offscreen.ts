@@ -55,6 +55,18 @@ function startOn(port: number, token: string, clientId: string): void {
             /* the worker may be mid-restart; a dropped notification is not worth retrying */
           });
       }
+      /**
+       * The installer asking the extension to reload itself.
+       *
+       * Relayed to the worker rather than done here, because `chrome.runtime.reload` ends this
+       * document along with everything else and the worker is the context that owns the
+       * extension's lifetime. It also has the code that puts the tabs back afterwards.
+       */
+      if (msg.t === 'reload-extension') {
+        void chrome.runtime.sendMessage({ t: 'tabterm:reload-extension' }).catch(() => {
+          /* If the worker cannot be reached, the reload simply does not happen. */
+        });
+      }
     },
     onOutput: () => {
       /* The control connection carries no terminal output. */

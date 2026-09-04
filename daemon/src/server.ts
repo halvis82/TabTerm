@@ -767,6 +767,18 @@ export class DaemonServer {
        * else: an undo that produces a different terminal from the one that was closed is worse
        * than an undo that says it cannot.
        */
+      /**
+       * Passed straight through to the extension, which is the only thing that can do it.
+       *
+       * Accepted from any authenticated client because it destroys nothing: the terminals live
+       * in the PTY host, and the worst it can do is make Chrome reload an extension.
+       */
+      case 'reload-extension': {
+        info('extension.reload.requested', {});
+        this.#tellEveryone({ t: 'reload-extension' });
+        return;
+      }
+
       case 'reopen-pane': {
         const record = this.#closedPanes.get(msg.sessionId);
         const session = this.#sessions.get(msg.sessionId);

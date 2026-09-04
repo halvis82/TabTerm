@@ -463,8 +463,17 @@ chrome.runtime.onMessage.addListener((msg: NotifyMessage, _sender, sendResponse)
   }
 
   if (msg.t === 'tabterm:reload-extension') {
-    // Last step of a reset, and the reason it is last: nothing after this runs.
-    setTimeout(() => chrome.runtime.reload(), 300);
+    /**
+     * Write down which tabs are open, then reload. In that order.
+     *
+     * A reload destroys every page this extension owns, and what brings them back is the record
+     * of which workspaces had tabs. That record is written on tab events and on a slow alarm, so
+     * a tab opened a moment ago while the worker was asleep may not be in it yet. Reloading
+     * first and asking afterwards is asking a process that no longer exists.
+     *
+     * Last step of whatever asked for it, and the reason it is last: nothing after this runs.
+     */
+    void reportOpenTabs().finally(() => setTimeout(() => chrome.runtime.reload(), 300));
     sendResponse({ ok: true });
     return false;
   }

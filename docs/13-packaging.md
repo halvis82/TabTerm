@@ -311,3 +311,27 @@ development is what makes crash recovery correct in production.
 | `plugins/` | No, except `.gitkeep` | Local personal customizations |
 | `*.sqlite`, `state/`, `logs/`, `dist/`, `node_modules/` | No | `.gitignore` |
 | Signing key | **No, and never in the repo** | Kept outside the working tree |
+
+## Installing reloads the extension
+
+An extension's code on disk is not the code Chrome is running. Chrome reads an extension when it
+loads it and never again, and nothing outside Chrome can change that: there is no API, no file to
+touch, no signal to send, and a browser started without a debugging port cannot be driven at all.
+The only two ways are a person clicking reload on `chrome://extensions`, and the extension calling
+`chrome.runtime.reload()` on itself.
+
+So the last step of `install.sh` asks it to. The request goes to the daemon, which relays it over
+the connection the extension already holds: daemon, offscreen document, service worker, reload.
+`npm run reload-extension` does the same thing on its own.
+
+Nothing here has power over Chrome. If Chrome is not running, or the extension is not loaded, the
+request reaches nobody and the script says so rather than claiming a reload happened.
+
+**It is not destructive.** The terminals are in the PTY host, a separate process that knows
+nothing about Chrome. The tabs are destroyed by Chrome and put back by the worker, which writes
+down which workspaces have tabs before it reloads and claims them as open while they are gone, so
+the shells in them are not ended for having no tab. See `06-chrome-integration.md`.
+
+**The first time still needs a hand.** The receiver for this request is part of the extension, so
+an extension that predates it cannot be asked. One manual reload installs the thing that means
+there never has to be another.

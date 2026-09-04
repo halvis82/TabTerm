@@ -15,6 +15,7 @@
   ],
   "scripts": {
     "build": "npm run build:daemon && npm run build:extension",
+    "reload-extension": "node scripts/reload-extension.mjs",
     "build:daemon": "node scripts/build-daemon.mjs",
     "build:extension": "node scripts/build-extension.mjs",
     "package:app": "npm run build:daemon && node scripts/build-app-bundle.mjs",
