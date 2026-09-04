@@ -2,6 +2,7 @@
 import { closeTab, connect, evaluate, newTab, sleep } from './cdp.mjs';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { inflateSync } from 'node:zlib';
 
 const root = new URL('../../', import.meta.url);
 export const EXT_ID = JSON.parse(readFileSync(new URL('package.json', root), 'utf8')).tabterm
@@ -348,6 +349,133 @@ export async function launcherSection(client, heading) {
     })()`,
   );
   return JSON.parse(raw ?? '{"found":false}');
+}
+
+/**
+ * How many pixels in a region are not the background.
+ *
+ * Pixels, because a buffer is not a screen. "The prompt is gone from the box at the bottom" was
+ * reported three times and called fixed twice, and both fixes were checked by reading the
+ * terminal buffer. The text was in the buffer every time. It was drawn at the top of a
+ * full-height terminal, behind the opaque start screen, and the box at the bottom was showing
+ * row 24 of a screen whose only line was row 1. Nothing that reads text could have caught it.
+ *
+ * The PNG is decoded here rather than by a dependency: a screenshot from Chrome is 8-bit,
+ * non-interlaced, and either RGB or RGBA, which is a short and completely defined problem.
+ */
+export async function inkIn(client, rect, { threshold = 26 } = {}) {
+  const { data } = await client.send('Page.captureScreenshot', { format: 'png' });
+  const image = decodePng(Buffer.from(data, 'base64'));
+  const x0 = Math.max(0, Math.round(rect.x));
+  const y0 = Math.max(0, Math.round(rect.y));
+  const x1 = Math.min(image.width, Math.round(rect.x + rect.width));
+  const y1 = Math.min(image.height, Math.round(rect.y + rect.height));
+  if (x1 <= x0 || y1 <= y0) return { ink: 0, sampled: 0 };
+
+  /**
+   * The background is taken from the region itself, as its most common color.
+   *
+   * Naming a hex value here would be a second copy of the theme, and would start lying the first
+   * time anybody changed it.
+   */
+  const counts = new Map();
+  const at = (x, y) => {
+    const i = (y * image.width + x) * image.channels;
+    return (image.pixels[i] << 16) | (image.pixels[i + 1] << 8) | image.pixels[i + 2];
+  };
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      const rgb = at(x, y);
+      counts.set(rgb, (counts.get(rgb) ?? 0) + 1);
+    }
+  }
+  let background = 0;
+  let best = -1;
+  for (const [rgb, n] of counts) {
+    if (n > best) {
+      best = n;
+      background = rgb;
+    }
+  }
+  const br = (background >> 16) & 255;
+  const bg = (background >> 8) & 255;
+  const bb = background & 255;
+
+  let ink = 0;
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      const i = (y * image.width + x) * image.channels;
+      const d =
+        Math.abs(image.pixels[i] - br) +
+        Math.abs(image.pixels[i + 1] - bg) +
+        Math.abs(image.pixels[i + 2] - bb);
+      if (d > threshold) ink++;
+    }
+  }
+  return { ink, sampled: (x1 - x0) * (y1 - y0) };
+}
+
+/** The rectangle of an element, in the page's own coordinates, which is what a clip needs. */
+export async function boxOf(client, selector) {
+  const raw = await evaluate(
+    client,
+    `(() => { const el = document.querySelector(${JSON.stringify(selector)});
+       if (!el) return 'null';
+       const b = el.getBoundingClientRect();
+       return JSON.stringify({ x: b.x, y: b.y, width: b.width, height: b.height }); })()`,
+  );
+  return raw === 'null' ? null : JSON.parse(raw);
+}
+
+/** Enough of PNG to read a screenshot: 8-bit, non-interlaced, RGB or RGBA. */
+function decodePng(buffer) {
+  let at = 8; // past the signature
+  let width = 0;
+  let height = 0;
+  let channels = 4;
+  const parts = [];
+  while (at < buffer.length) {
+    const length = buffer.readUInt32BE(at);
+    const type = buffer.toString('ascii', at + 4, at + 8);
+    const body = buffer.subarray(at + 8, at + 8 + length);
+    if (type === 'IHDR') {
+      width = body.readUInt32BE(0);
+      height = body.readUInt32BE(4);
+      const depth = body[8];
+      const colorType = body[9];
+      if (depth !== 8 || body[12] !== 0) throw new Error(`unexpected PNG: depth ${depth}`);
+      channels = colorType === 6 ? 4 : colorType === 2 ? 3 : 0;
+      if (channels === 0) throw new Error(`unexpected PNG color type ${colorType}`);
+    } else if (type === 'IDAT') parts.push(body);
+    else if (type === 'IEND') break;
+    at += 12 + length;
+  }
+  const raw = inflateSync(Buffer.concat(parts));
+  const stride = width * channels;
+  const pixels = Buffer.alloc(stride * height);
+  // Standard PNG filtering, undone one scanline at a time against the line above.
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)];
+    const line = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
+    for (let i = 0; i < stride; i++) {
+      const a = i >= channels ? pixels[y * stride + i - channels] : 0;
+      const b = y > 0 ? pixels[(y - 1) * stride + i] : 0;
+      const c = y > 0 && i >= channels ? pixels[(y - 1) * stride + i - channels] : 0;
+      let value = line[i];
+      if (filter === 1) value += a;
+      else if (filter === 2) value += b;
+      else if (filter === 3) value += (a + b) >> 1;
+      else if (filter === 4) {
+        const p = a + b - c;
+        const pa = Math.abs(p - a);
+        const pb = Math.abs(p - b);
+        const pc = Math.abs(p - c);
+        value += pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+      }
+      pixels[y * stride + i] = value & 255;
+    }
+  }
+  return { width, height, channels, pixels };
 }
 
 export { sleep, evaluate, newTab, connect };

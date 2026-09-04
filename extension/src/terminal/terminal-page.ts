@@ -1,4 +1,5 @@
 import type { Terminal } from '@xterm/xterm';
+import { UNDO_WINDOW_MS, UndoStack, offerLabel, type UndoOffer } from './undo-offers.js';
 import type {
   LayoutNode,
   MergeableSession,
@@ -1137,6 +1138,124 @@ function syncPaneChoosers(): void {
  * Deliberately conservative. Anything it cannot be sure about counts as used, because closing a
  * tab somebody was working in is far worse than leaving an empty one.
  */
+/**
+ * Draw the start screen, **and give it the room it needs**.
+ *
+ * There were two places that put the start screen up and only one of them told the terminal to
+ * make way. The other, the deferred decision a reattaching tab makes once its snapshot has
+ * arrived, called `launcher.show()` on its own: the panel appeared over a terminal still using
+ * the whole window, so the prompt was drawn at the top of the window, behind the opaque panel,
+ * and the strip at the bottom showed row 24 of a screen whose only line was row 1.
+ *
+ * That is the empty box reported three times as "the prompt is gone". It was on screen the whole
+ * time, under something. Both attempts to fix it looked at the buffer, which was right, and at
+ * scrolling, which could not help: a terminal filling the window has nothing to scroll.
+ */
+function openStartScreen(): void {
+  if (!launcher || launcher.dismissed || hasLaunched()) return;
+  launcher.show();
+  root.classList.add('panel-open');
+  refitAllPanes();
+}
+
+/**
+ * Ways back from closing a pane and from moving one to its own tab.
+ *
+ * The daemon holds a closed pane's terminal for five minutes rather than ending it, and a
+ * detached one is alive in the tab it moved to, so both are genuinely recoverable for a while.
+ * This is the offer, and Command+Z is the same offer reached the way undo is reached everywhere.
+ */
+const undoStack = new UndoStack();
+let undoOfferHidden = false;
+let undoOfferTimer: number | undefined;
+
+function offerUndo(offer: UndoOffer): void {
+  undoStack.setDepth(Math.max(1, layout ? collectPanes(layout).length + 1 : 1));
+  undoStack.push(offer);
+  undoOfferHidden = false;
+  drawUndoOffer();
+}
+
+/**
+ * Draw the topmost offer, or nothing.
+ *
+ * Redrawn on a timer as well as on every change, because an offer expires by the clock and a
+ * button that has quietly stopped working is worse than no button.
+ */
+function drawUndoOffer(): void {
+  const wrap = document.getElementById('undo-offer');
+  const act = document.getElementById('undo-offer-do');
+  const hide = document.getElementById('undo-offer-hide');
+  if (!(wrap instanceof HTMLElement) || !(act instanceof HTMLButtonElement)) return;
+  if (hide instanceof HTMLButtonElement) {
+    hide.onclick = () => {
+      // Hidden, not given up. The key keeps working for the rest of the window.
+      undoOfferHidden = true;
+      drawUndoOffer();
+    };
+  }
+
+  const offer = undoStack.next();
+  clearTimeout(undoOfferTimer);
+  if (!offer) {
+    wrap.hidden = true;
+    return;
+  }
+  // Checked again when it should have expired, so the button goes on its own.
+  undoOfferTimer = window.setTimeout(drawUndoOffer, Math.max(1000, UNDO_WINDOW_MS / 30));
+  if (undoOfferHidden) {
+    wrap.hidden = true;
+    return;
+  }
+  wrap.hidden = false;
+  act.textContent = offerLabel(offer, launcherHome);
+  act.title =
+    offer.kind === 'closed'
+      ? 'Bring this terminal back into this tab. Command+Z'
+      : 'Bring this terminal back from the tab it moved to. Command+Z';
+  act.onclick = () => takeUndoOffer();
+}
+
+/**
+ * Take the most recent offer, which is what both the button and Command+Z do.
+ *
+ * Returns whether anything was taken, so the key can fall through to the shell when there was
+ * nothing on offer.
+ */
+function takeUndoOffer(): boolean {
+  const offer = undoStack.next();
+  if (!offer || !workspaceId) return false;
+  undoStack.remove(offer.sessionId);
+  // The focused pane, or any pane: this tab has at least one, and an empty id would be refused.
+  const targetPaneId = splitView?.focused ?? (layout ? collectPanes(layout)[0] : undefined);
+  if (offer.kind === 'closed') {
+    client?.send({
+      t: 'reopen-pane',
+      workspaceId,
+      sessionId: offer.sessionId,
+      ...(targetPaneId ? { targetPaneId } : {}),
+    });
+  } else {
+    /**
+     * A detached pane comes back the way any session is brought in, which also closes the tab
+     * it went to.
+     *
+     * The daemon refuses if it has since been taken somewhere else, and the tab that holds it
+     * is told it has been taken over rather than that it expired.
+     */
+    if (offer.workspaceId) takingOverFrom.add(offer.workspaceId);
+    client?.send({
+      t: 'merge-into',
+      workspaceId,
+      targetPaneId: targetPaneId ?? '',
+      sessionId: offer.sessionId,
+      direction: 'horizontal',
+    });
+  }
+  drawUndoOffer();
+  return true;
+}
+
 function thisTabIsUnused(): boolean {
   /**
    * A tab that has already started something never goes back to the start screen.
@@ -2741,10 +2860,19 @@ function installShortcuts(): void {
         e.preventDefault();
         return;
       }
-      // Command+Z takes back a clear, but only while one is being offered.
-      if (e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'z' && undoClearIfOffered()) {
-        e.preventDefault();
-        return;
+      /**
+       * Command+Z is undo, for whichever of the two things is on offer.
+       *
+       * A clear first, because it is the shorter window and the more urgent mistake: ten seconds
+       * against five minutes, and the pane it happened in is the one being looked at. Then a
+       * closed or detached pane. Outside both windows the key is not ours, and it goes to the
+       * shell, where Command+Z means nothing anyway.
+       */
+      if (e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        if (undoClearIfOffered() || takeUndoOffer()) {
+          e.preventDefault();
+          return;
+        }
       }
 
       /**
@@ -2930,7 +3058,38 @@ function onControl(msg: ServerMessage): void {
           ...(here?.index === undefined ? {} : { index: here.index + 1 }),
         });
       });
+      /**
+       * And a way back, because moving a pane out is as easy to do by accident as closing one.
+       *
+       * It is alive in the tab it moved to, so bringing it back is an ordinary merge, which also
+       * closes that tab. The offer lasts the same five minutes as the one for a closed pane:
+       * there is no technical deadline here, and two different windows would be two things to
+       * remember.
+       */
+      if (msg.sessionId) {
+        offerUndo({
+          sessionId: msg.sessionId,
+          kind: 'detached',
+          workspaceId: msg.newWorkspaceId,
+          title: msg.cwd ?? '',
+          at: Date.now(),
+        });
+      }
       client?.send({ t: 'attach-workspace', workspaceId, cols: 80, rows: 24 });
+      return;
+    }
+
+    case 'pane-closed': {
+      /**
+       * Offered only in the tab the pane was closed in.
+       *
+       * Every tab is told, because whether a terminal can still be brought back is a fact about
+       * the session rather than about a tab, and another tab may be showing a stale offer for
+       * the same one. But the offer to put it back belongs where it was.
+       */
+      if (msg.workspaceId === workspaceId) {
+        offerUndo({ sessionId: msg.sessionId, kind: 'closed', title: msg.title, at: Date.now() });
+      } else undoStack.remove(msg.sessionId);
       return;
     }
 
@@ -2991,15 +3150,7 @@ function onControl(msg: ServerMessage): void {
        */
       // A tab that has already started something never draws the start screen over it, whatever
       // its panes happen to contain right now.
-      if (
-        (!reattaching || startScreenDecided) &&
-        launcher &&
-        !launcher.dismissed &&
-        !hasLaunched()
-      ) {
-        root.classList.add('panel-open');
-        refitAllPanes();
-      }
+      if (!reattaching || startScreenDecided) openStartScreen();
       launcher?.setState(msg.state);
       launcherHome = msg.state.home;
       savedItems = [...msg.state.saved];
@@ -3676,7 +3827,7 @@ async function start(): Promise<void> {
       startScreenDecided = true;
       // Empty after the snapshot means the tab really has nothing in it, and the start screen
       // is what belongs there. Anything else keeps its terminal.
-      if (thisTabIsUnused()) launcher?.show();
+      if (thisTabIsUnused()) openStartScreen();
       else launcher?.dismiss();
     }, 900);
   }

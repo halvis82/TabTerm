@@ -266,3 +266,20 @@ render asked again and every answer caused another render: thousands of messages
 Nothing looked broken, because a busy loop is invisible; what showed was every other message
 starved behind it, so typing appeared to do nothing. It also got worse the more the product was
 used, since each new recent folder added another question per render.
+
+## Checking what is on the screen, not what is in the buffer
+
+`inkIn` screenshots the page and counts the pixels in a region that are not its background. It
+exists because of one defect reported three times and called fixed twice: the prompt was missing
+from the box at the bottom of the start screen, and both fixes were checked by reading the
+terminal buffer. The text was in the buffer every time. It was being drawn at the top of a
+terminal that still had the whole window, behind the opaque start screen.
+
+No assertion that reads text could have caught that, and the suite that finally did is
+`start-screen-refresh`. Use pixels whenever the complaint is "I cannot see it", and reserve the
+text-level reads for "it says the wrong thing".
+
+The PNG is decoded in `helpers.mjs` rather than by a dependency: a Chrome screenshot is 8-bit,
+non-interlaced, and RGB or RGBA, which is a short and completely defined problem. The background
+is taken as the most common color in the region rather than named, so it cannot drift from the
+theme.
