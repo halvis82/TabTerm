@@ -29,7 +29,15 @@ await sleep(3000);
 r.ok('nobody is showing an expiry to begin with', !(await recovery(bystander.client)));
 
 const sessionOfA = String(
-  await evaluate(a.client, 'JSON.parse(window.__tabterm.transport()).panes[0].sessionId'),
+  /**
+   * Waited for, and read without assuming.
+   *
+   * A tab that has not finished attaching has no panes. Reading one then throws and takes the
+   * whole suite with it, which under load is a failure that names nothing about what went wrong.
+   */
+  await waitFor(a.client, 'JSON.parse(window.__tabterm.transport()).panes.length > 0', 20000).then(
+    () => evaluate(a.client, `JSON.parse(window.__tabterm.transport()).panes[0]?.sessionId ?? ''`),
+  ),
 );
 await evaluate(
   taker.client,

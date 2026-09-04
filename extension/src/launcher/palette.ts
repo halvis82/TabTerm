@@ -35,6 +35,13 @@ export interface PaletteAction {
    * this tab. It opens a Chrome page, which is a different kind of answer.
    */
   kind?: 'action' | 'link';
+  /**
+   * Present on an action somebody made, which is what may be changed or removed.
+   *
+   * The ones that ship have no id here and get no controls: they are the vocabulary, and a
+   * pencil beside `Split right` would offer to edit something that is not an object.
+   */
+  customId?: string;
   run: () => void;
 }
 
@@ -59,6 +66,9 @@ export interface PaletteOptions {
   /** Promote a history entry to a saved command, scoped or global. */
   onSaveScoped: (text: string, scopeToProject: boolean) => void;
   onMerge: (sessionId: string) => void;
+  /** Only for actions somebody made. The ones that ship have nothing to edit or remove. */
+  onEditAction?: (id: string) => void;
+  onDeleteAction?: (id: string) => void;
   onClose: () => void;
 }
 
@@ -521,6 +531,32 @@ export class Palette {
         el.classList.add('is-action');
         // A link leaves this tab, so it does not look like the things that act inside it.
         if (row.action.kind === 'link') el.classList.add('is-link');
+        const customId = row.action.customId;
+        if (customId !== undefined) {
+          /**
+           * A pencil and a cross, on the ones that are yours.
+           *
+           * Only on hover and only on custom actions, so the list reads as a list of things to
+           * do rather than as a table of things to administer.
+           */
+          const edit = document.createElement('button');
+          edit.className = 'palette-action-edit';
+          edit.title = 'Edit this action';
+          edit.textContent = '\u270e';
+          edit.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.#opts.onEditAction?.(customId);
+          });
+          const remove = document.createElement('button');
+          remove.className = 'palette-action-remove';
+          remove.title = 'Delete this action';
+          remove.textContent = '\u00d7';
+          remove.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.#opts.onDeleteAction?.(customId);
+          });
+          el.append(edit, remove);
+        }
       } else if (row.kind === 'merge') {
         meta.textContent = row.session.title;
         el.classList.add('is-merge');

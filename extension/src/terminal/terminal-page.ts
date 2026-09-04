@@ -32,6 +32,12 @@ import { quotePath } from './quote-path.js';
 import { DEFAULT_THEME, themeNamed } from './themes.js';
 import { DEFAULT_COLOR, loadRecentColors, rememberColor, type ColorUse } from './color-store.js';
 import {
+  describeAction,
+  loadActions,
+  saveActions,
+  type CustomAction,
+} from '../launcher/custom-actions.js';
+import {
   alteredDefaults,
   loadTemplates,
   saveTemplates,
@@ -130,6 +136,199 @@ let startScreenDecided = !reattaching;
 let pendingTemplate: LayoutTemplate | null = null;
 /** Everything running that this tab is not already showing, for the start screen and the panes. */
 let liveElsewhere: readonly LiveSession[] = [];
+/** Actions somebody made, which sit in the command menu beside the ones that ship. */
+let customActions: CustomAction[] = [];
+/** Kept so an action naming a template can say which one, without a lookup per keystroke. */
+let knownTemplates: readonly LayoutTemplate[] = [];
+
+/**
+ * What a custom action does when it is chosen.
+ *
+ * Two kinds, and each is expressed in terms of something the product already does rather than in
+ * a path of its own: a template opens the way the start screen opens it, and a command runs in a
+ * pane the way anything else runs in a pane.
+ */
+/**
+ * The form for an action, for a new one or one being edited.
+ *
+ * Deliberately the same shape as the template form: a name, a description, and the one thing
+ * that differs. Two dialogs for two kinds of saved thing would drift, and somebody who has made
+ * a template already knows how this works.
+ */
+function showActionForm(existing?: CustomAction): void {
+  document.querySelector('.template-backdrop')?.remove();
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'template-backdrop';
+  const form = document.createElement('div');
+  form.className = 'template-dialog';
+  backdrop.append(form);
+
+  const title = document.createElement('div');
+  title.className = 'template-title';
+  title.textContent = existing ? 'Edit action' : 'New action';
+  form.append(title);
+
+  const name = document.createElement('input');
+  name.className = 'launcher-input';
+  name.placeholder = 'Name, such as "agent here" or "run the tests"';
+  name.spellcheck = false;
+  name.value = existing?.name ?? '';
+
+  const description = document.createElement('input');
+  description.className = 'launcher-input';
+  description.placeholder = 'What it is for (optional)';
+  description.spellcheck = false;
+  description.value = existing?.description ?? '';
+
+  const kind = document.createElement('select');
+  for (const [value, label] of [
+    ['command', 'Run a command'],
+    ['template', 'Open a template'],
+  ] as const) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    kind.append(option);
+  }
+  kind.value = existing?.kind ?? 'command';
+
+  const command = document.createElement('input');
+  command.className = 'launcher-input';
+  command.placeholder = 'The command, such as claude';
+  command.spellcheck = false;
+  command.value = existing?.command ?? '';
+
+  const template = document.createElement('select');
+  for (const t of knownTemplates) {
+    const option = document.createElement('option');
+    option.value = t.id;
+    option.textContent = t.name;
+    template.append(option);
+  }
+  if (existing?.templateId) template.value = existing.templateId;
+
+  const where = document.createElement('select');
+  for (const [value, label] of [
+    ['new-tab', 'In a new tab'],
+    ['split', 'Beside this pane'],
+  ] as const) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    where.append(option);
+  }
+  where.value = existing?.where ?? 'new-tab';
+
+  // Only the field that belongs to the chosen kind, so the form never asks for both.
+  const showRelevant = (): void => {
+    const isCommand = kind.value === 'command';
+    command.hidden = !isCommand;
+    where.hidden = !isCommand;
+    template.hidden = isCommand;
+  };
+  kind.addEventListener('change', showRelevant);
+  showRelevant();
+
+  form.append(name, description, kind, command, where, template);
+
+  const row = document.createElement('div');
+  row.className = 'template-actions';
+  const save = document.createElement('button');
+  save.className = 'launcher-chip is-selected';
+  save.textContent = existing ? 'Save changes' : 'Save action';
+  const cancel = document.createElement('button');
+  cancel.className = 'launcher-chip';
+  cancel.textContent = 'Cancel';
+  row.append(save, cancel);
+  form.append(row);
+
+  const close = (): void => backdrop.remove();
+  cancel.addEventListener('click', close);
+  backdrop.addEventListener('mousedown', (e) => {
+    if (e.target === backdrop) close();
+  });
+
+  save.addEventListener('click', () => {
+    const label = name.value.trim();
+    if (label === '') {
+      name.focus();
+      return;
+    }
+    const isCommand = kind.value === 'command';
+    if (isCommand && command.value.trim() === '') {
+      command.focus();
+      return;
+    }
+    if (!isCommand && template.value === '') {
+      template.focus();
+      return;
+    }
+    const next: CustomAction = {
+      // The same id when editing, so it keeps its place in the list.
+      id: existing?.id ?? `a-${String(Date.now())}`,
+      name: label,
+      kind: isCommand ? 'command' : 'template',
+      where: where.value === 'split' ? 'split' : 'new-tab',
+      ...(description.value.trim() === '' ? {} : { description: description.value.trim() }),
+      ...(isCommand ? { command: command.value.trim() } : { templateId: template.value }),
+    };
+    void (async () => {
+      const at = customActions.findIndex((a) => a.id === next.id);
+      customActions =
+        at >= 0
+          ? customActions.map((a) => (a.id === next.id ? next : a))
+          : [...customActions, next];
+      await saveActions(customActions);
+      palette?.setActions(paletteActions());
+      close();
+    })();
+  });
+
+  document.body.append(backdrop);
+  name.focus();
+}
+
+function runCustomAction(action: CustomAction): void {
+  if (action.kind === 'template') {
+    const template = knownTemplates.find((t) => t.id === action.templateId);
+    if (!template) {
+      setStatus('That action names a template that is gone', 'warn');
+      setTimeout(() => setStatus('', 'hidden'), 3000);
+      return;
+    }
+    pendingTemplate = template;
+    layoutRequestedHere = true;
+    const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
+    client?.send({
+      t: 'create-layout',
+      path: currentCwd || template.path,
+      panes: template.panes,
+      direction: 'horizontal',
+      shape: template.shape,
+      ...(template.layout ? { layout: template.layout } : {}),
+      createIfMissing: true,
+      ...size,
+    });
+    return;
+  }
+
+  const command = action.command ?? '';
+  if (command === '') return;
+  if (action.where === 'new-tab') {
+    void chrome.tabs.create({
+      url: `${chrome.runtime.getURL('terminal.html')}?run=${encodeURIComponent(command)}`,
+      active: true,
+    });
+    return;
+  }
+  // Beside this pane: split, then let the new pane's own prompt receive it.
+  splitFocused('horizontal');
+  pendingSplitCommand = command;
+}
+
+/** A command waiting for the pane a split is about to produce. */
+let pendingSplitCommand: string | null = null;
 /** How many shipped templates have been deleted or changed, so settings can offer to restore. */
 let alteredTemplateCount = 0;
 
@@ -1278,6 +1477,17 @@ function buildLauncher(): void {
     onPinSaved: (id, pinned) => client?.send({ t: 'pin-saved', id, pinned }),
     onUseSaved: (id) => client?.send({ t: 'use-saved', id }),
     onDeleteSaved: (id) => client?.send({ t: 'delete-saved', id }),
+    onEditAction: (id) => {
+      const action = customActions.find((a) => a.id === id);
+      if (action) showActionForm(action);
+    },
+    onDeleteAction: (id) => {
+      void (async () => {
+        customActions = customActions.filter((a) => a.id !== id);
+        await saveActions(customActions);
+        palette?.setActions(paletteActions());
+      })();
+    },
     onMerge: (sessionId) => {
       const targetPaneId = splitView?.focused;
       if (!targetPaneId || !workspaceId) return;
@@ -1291,6 +1501,15 @@ function buildLauncher(): void {
     },
     onClose: () => panesHost?.focus(splitView?.focused ?? ''),
   });
+
+  /**
+   * Filled the moment it exists, rather than only when something next asks it to be.
+   *
+   * The list used to be set from a query and from whatever arrived afterwards, so a palette
+   * opened before any of that had happened showed nothing at all. Whether it did depended on
+   * timing, which is the definition of a list that is sometimes empty for no reason.
+   */
+  palette.setActions(paletteActions());
 }
 
 const quote = quotePath;
@@ -1801,6 +2020,32 @@ function paletteActions(): PaletteAction[] {
       title: 'Clear command history',
       run: () => client?.send({ t: 'clear-history' }),
     },
+  );
+
+  /**
+   * Then the ones somebody made.
+   *
+   * After the built-ins rather than mixed among them, so the vocabulary stays in one place and
+   * what you added to it is recognisable as yours. Each carries its own id, which is what the
+   * pencil and the cross act on.
+   */
+  for (const custom of customActions) {
+    actions.push({
+      id: `custom-${custom.id}`,
+      customId: custom.id,
+      title: custom.name,
+      hint: describeAction(custom, knownTemplates),
+      run: () => runCustomAction(custom),
+    });
+  }
+
+  actions.push(
+    {
+      id: 'new-action',
+      title: 'Make an action',
+      hint: 'runs a command or opens a template',
+      run: () => showActionForm(),
+    },
     {
       id: 'shortcuts',
       title: 'Change keyboard shortcuts',
@@ -2212,6 +2457,24 @@ function onControl(msg: ServerMessage): void {
           });
         });
       }
+      /**
+       * A command an action asked for, once the pane it asked for exists.
+       *
+       * The same wait as a template's: a shell that has not drawn a prompt has nowhere to put
+       * what is typed at it, and text that lands above the prompt belongs to nothing.
+       */
+      if (pendingSplitCommand !== null) {
+        const command = pendingSplitCommand;
+        pendingSplitCommand = null;
+        const newest = msg.panes[msg.panes.length - 1];
+        if (newest) {
+          panesHost?.whenSettled(newest.paneId, () => {
+            const target = panesHost?.get(newest.paneId);
+            if (target) client?.write(target.streamId, new TextEncoder().encode(`${command}\r`));
+          });
+        }
+      }
+
       for (const p of msg.panes) {
         paneStatus.set(p.paneId, 'idle');
         const state = timeStateFor(p.paneId);
@@ -2338,7 +2601,13 @@ function onControl(msg: ServerMessage): void {
       // likes to start work, not about anything the daemon owns.
       void loadTemplates().then((saved) => {
         launcher?.setTemplates(saved);
+        knownTemplates = saved;
         alteredTemplateCount = alteredDefaults(saved).length;
+        palette?.setActions(paletteActions());
+      });
+      void loadActions().then((saved) => {
+        customActions = saved;
+        palette?.setActions(paletteActions());
       });
       client?.send({ t: 'list-restorable' });
       return;
@@ -2969,6 +3238,21 @@ async function start(): Promise<void> {
   // anywhere until the user says so.
   const staged = params.get('staged');
   if (staged) showStaged(staged, params.get('stagedFrom') ?? 'a webpage');
+
+  /**
+   * A command this tab was opened to run, by an action that asked for a new tab.
+   *
+   * Run rather than staged, because it is an action somebody made and chose: the staging overlay
+   * is for text that arrived from somewhere else. It waits for a prompt for the same reason a
+   * template's commands do.
+   */
+  const toRun = params.get('run');
+  if (toRun) {
+    const url = new URL(location.href);
+    url.searchParams.delete('run');
+    history.replaceState(null, '', url.toString());
+    pendingSplitCommand = toRun;
+  }
 
   connectedPort = await daemonPort();
   client = new DaemonClient({

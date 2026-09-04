@@ -29,7 +29,15 @@ r.ok(
 );
 const sourceWorkspace = String(await evaluate(a.client, 'window.__tabterm.workspaceId()'));
 const sourceSession = String(
-  await evaluate(a.client, 'JSON.parse(window.__tabterm.transport()).panes[0].sessionId'),
+  /**
+   * Waited for, and read without assuming.
+   *
+   * A tab that has not finished attaching has no panes. Reading one then throws and takes the
+   * whole suite with it, which under load is a failure that names nothing about what went wrong.
+   */
+  await waitFor(a.client, 'JSON.parse(window.__tabterm.transport()).panes.length > 0', 20000).then(
+    () => evaluate(a.client, `JSON.parse(window.__tabterm.transport()).panes[0]?.sessionId ?? ''`),
+  ),
 );
 
 const b = await openTerminal();

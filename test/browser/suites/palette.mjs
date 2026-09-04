@@ -45,6 +45,10 @@ const query = async (text) => {
   );
 };
 
+const pageError = String(
+  await evaluate(client, `window.__tabterm ? 'hook present' : 'no hook: the page failed to start'`),
+);
+r.ok('the page finished starting', pageError === 'hook present', pageError);
 const all = await query('');
 r.ok('actions lead the list', all.length >= 5, `${String(all.length)} actions`);
 /**
@@ -55,11 +59,13 @@ r.ok('actions lead the list', all.length >= 5, `${String(all.length)} actions`);
  * They come from `chrome.commands.getAll` now, and a fresh profile has bound almost nothing, so
  * what is checked is that nothing claims a key it does not have.
  */
-const hinted = all.filter((a) => (a.hint ?? '') !== '');
+// A hint may be a keystroke or a description. What must not happen is a keystroke being claimed
+// for a command Chrome has not bound, so what is checked is that none of these carries one.
+const keystrokes = all.filter((a) => /[⌘⌃⌥⇧]/.test(a.hint ?? ''));
 r.ok(
   'no action claims a keystroke Chrome has not bound',
-  hinted.every((a) => a.title === 'Change keyboard shortcuts' || /[⌘⌃⌥⇧]/.test(a.hint ?? '')),
-  JSON.stringify(hinted.map((a) => `${a.title}=${a.hint ?? ''}`)),
+  keystrokes.length === 0,
+  JSON.stringify(keystrokes.map((a) => `${a.title}=${a.hint ?? ''}`)),
 );
 r.ok(
   'the two that act on a particular pane are not offered from the keyboard',
@@ -98,6 +104,60 @@ r.ok(
   'Enter runs the selected action',
   (await paneCount(client)) === 2,
   `${String(await paneCount(client))} panes`,
+);
+
+/**
+ * Actions somebody made, beside the ones that ship.
+ *
+ * `Launch an agent in a new tab` used to be a built-in that ran whatever was configured, which
+ * made the one thing most people want to change the one thing they could not.
+ */
+await evaluate(
+  client,
+  `chrome.storage.local.set({ 'tabterm.actions': [{ id: 'probe', name: 'say hello', kind: 'command', command: 'echo hello', where: 'new-tab', description: 'prints a greeting' }] })`,
+);
+await evaluate(client, 'location.reload()');
+await sleep(4500);
+await openPalette(client);
+await sleep(900);
+
+const withCustom = await query('');
+const mine = withCustom.find((a) => a.title === 'say hello');
+r.ok(
+  'an action somebody made is offered',
+  Boolean(mine),
+  withCustom.map((a) => a.title).join(', '),
+);
+r.ok(
+  'and says what it does without being opened',
+  (mine?.hint ?? '').includes('greeting'),
+  mine?.hint ?? '',
+);
+r.ok(
+  'there is a way to make one',
+  withCustom.some((a) => a.title === 'Make an action'),
+  withCustom.map((a) => a.title).join(', '),
+);
+
+// The pencil and the cross belong only to the ones that are yours.
+const controls = JSON.parse(
+  await evaluate(
+    client,
+    `(() => {
+       const rows = [...document.querySelectorAll('.palette-row.is-action')];
+       const mine = rows.find((el) => el.textContent.includes('say hello'));
+       const builtin = rows.find((el) => el.textContent.includes('Split right'));
+       return JSON.stringify({
+         mine: Boolean(mine?.querySelector('.palette-action-edit')),
+         builtin: Boolean(builtin?.querySelector('.palette-action-edit')),
+       });
+     })()`,
+  ),
+);
+r.ok(
+  'only a custom action offers editing and deleting',
+  controls.mine && !controls.builtin,
+  JSON.stringify(controls),
 );
 
 await finish();

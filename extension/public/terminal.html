@@ -2486,6 +2486,38 @@
     border-color: #3d6ba8;
   }
 
+  /**
+   * The controls on an action somebody made, shown only under the pointer.
+   *
+   * A pencil beside every row would turn a list of things to do into a table of things to
+   * administer, and most of these rows are not editable at all.
+   */
+  .palette-action-edit,
+  .palette-action-remove {
+    flex: none;
+    margin-left: 6px;
+    padding: 0 5px;
+    border: 0;
+    background: transparent;
+    color: #6f758a;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    opacity: 0;
+  }
+  .palette-row:hover .palette-action-edit,
+  .palette-row:hover .palette-action-remove,
+  .palette-row.selected .palette-action-edit,
+  .palette-row.selected .palette-action-remove {
+    opacity: 1;
+  }
+  .palette-action-edit:hover {
+    color: #9ec5ff;
+  }
+  .palette-action-remove:hover {
+    color: #ff8a7a;
+  }
+
   .palette-row.is-link {
     border-top: 1px solid rgba(90, 100, 130, 0.2);
     margin-top: 4px;
