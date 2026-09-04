@@ -9,6 +9,7 @@ import type {
   ServerMessage,
   TitleFields,
 } from '@tabterm/shared';
+import { linesWithContent } from './screen-content.js';
 import { DaemonClient, type ConnectionStatus } from '../transport/daemon-client.js';
 import { getToken } from '../transport/token.js';
 import { daemonPort } from '../transport/port.js';
@@ -154,6 +155,17 @@ let liveElsewhere: readonly LiveSession[] = [];
 let customActions: CustomAction[] = [];
 /** The keys this page answers to, which are settings rather than facts about the code. */
 let pageShortcuts: PageShortcut[] = [];
+/**
+ * What "launch an agent" runs, as the daemon last said. Null until it has answered.
+ *
+ * Kept here so the settings box can show it, and so a change made in another tab arrives rather
+ * than leaving this one showing what was true when it opened.
+ */
+let agentCommand: string | null = null;
+
+/** This tab was opened by "launch an agent", and is waiting to be told what that means. */
+let launchAgentOnOpen = false;
+
 /** Kept so an action naming a template can say which one, without a lookup per keystroke. */
 let knownTemplates: readonly LayoutTemplate[] = [];
 
@@ -1318,23 +1330,6 @@ function findCommandRow(command: string): number | null {
     if (text.includes(wanted)) return row;
   }
   return null;
-}
-
-function linesWithContent(term: {
-  buffer: {
-    active: {
-      length: number;
-      getLine: (y: number) => { translateToString: (trim: boolean) => string } | undefined;
-    };
-  };
-}): number {
-  const buffer = term.buffer.active;
-  let count = 0;
-  for (let y = 0; y < buffer.length; y++) {
-    if ((buffer.getLine(y)?.translateToString(true) ?? '').trim() !== '') count++;
-    if (count > 1) return count;
-  }
-  return count;
 }
 
 /** Workspaces this tab has just taken a session from, so their tabs know to close. */
@@ -2663,6 +2658,8 @@ function buildCommandPanel(): void {
         onChangeNotify: (policy) => client?.send({ t: 'set-notify-policy', policy }),
         agentHooks: () => agentHooks,
         onChangeAgentHooks: (enabled) => client?.send({ t: 'set-agent-hooks', enabled }),
+        agentCommand: () => agentCommand,
+        onChangeAgentCommand: (command) => client?.send({ t: 'set-agent-command', command }),
         backgroundTimeout: () => backgroundTimeout,
         onChangeBackgroundTimeout: (seconds) =>
           client?.send({ t: 'set-background-timeout', seconds }),
@@ -2792,9 +2789,6 @@ function watchTheme(): void {
 function installForwardedCommands(): void {
   chrome.runtime.onMessage.addListener((msg: { t?: string }) => {
     switch (msg.t ?? '') {
-      case 'tabterm:launch-agent':
-        launchAgent('split');
-        return;
       default:
         return;
     }
@@ -3162,6 +3156,7 @@ function onControl(msg: ServerMessage): void {
       client?.send({ t: 'get-memory-mode' });
       client?.send({ t: 'get-notify-policy' });
       client?.send({ t: 'get-agent-hooks' });
+      client?.send({ t: 'get-agent-command' });
       client?.send({ t: 'get-shell-integration' });
       client?.send({ t: 'get-scrollback-budget' });
       client?.send({ t: 'get-background-timeout' });
@@ -3192,6 +3187,25 @@ function onControl(msg: ServerMessage): void {
     case 'notify-policy': {
       notifyPolicy = msg.policy;
       commandPanel?.refreshSettings();
+      return;
+    }
+
+    case 'agent-command': {
+      agentCommand = msg.command;
+      commandPanel?.refreshSettings();
+      /**
+       * A tab opened by "launch an agent" runs it as soon as it knows what to run.
+       *
+       * Here rather than at startup because which agent is a setting the daemon owns, and this
+       * message is the answer. Run through the same path a template's command uses, which waits
+       * for a prompt: a command typed before the shell has drawn one lands above it and belongs
+       * to nothing.
+       */
+      if (launchAgentOnOpen && agentCommand.trim() !== '') {
+        launchAgentOnOpen = false;
+        expectPane(agentCommand);
+        launcher?.dismiss();
+      }
       return;
     }
 
@@ -3494,6 +3508,8 @@ declare global {
       readScreen: (paneId?: string) => string;
       /** Only what is on screen right now, which the strip makes a different question. */
       readViewport: (paneId?: string) => string;
+      /** Draw text on a pane, for checks about what is shown rather than how it got there. */
+      writeToPane: (paneId: string, text: string) => void;
       /** What the daemon last said about how long a tabless terminal is kept. */
       keepAlive: () => number | null | undefined;
       /**
@@ -3686,6 +3702,19 @@ function installTestHook(): void {
      * meant it was out of view rather than gone. Reading the whole buffer cannot tell those
      * apart, which is why the defect survived being checked twice.
      */
+    /**
+     * Put text on a pane's screen without a shell producing it.
+     *
+     * For checks about what is on screen rather than about how it got there. The lone `%` a
+     * shell prints for a partial line is the case this exists for: reproducing it through a real
+     * command means depending on a particular shell's configuration, which is a test about zsh
+     * rather than about TabTerm.
+     */
+    writeToPane: (paneId, text) => {
+      const target = paneId || splitView?.focused || panesHost?.all[0]?.paneId;
+      const pane = target ? panesHost?.get(target) : undefined;
+      pane?.controller.write(new TextEncoder().encode(text), () => {});
+    },
     readViewport: (paneId) => {
       const target = paneId ?? splitView?.focused ?? panesHost?.all[0]?.paneId;
       const pane = target ? panesHost?.get(target) : undefined;
@@ -3838,6 +3867,20 @@ async function start(): Promise<void> {
   });
   setFavicon('disconnected');
   refreshTitle();
+
+  /**
+   * Opened by "launch an agent", from the toolbar icon or the browser shortcut.
+   *
+   * Only a flag here. What to run is a setting the daemon owns, so this waits for the answer
+   * rather than guessing at `claude`, and a tab that never hears back shows its start screen,
+   * which is the right thing for a tab with nothing in it.
+   */
+  launchAgentOnOpen = params.get('agent') === '1';
+  if (launchAgentOnOpen) {
+    const cleaned = new URL(location.href);
+    cleaned.searchParams.delete('agent');
+    history.replaceState(null, '', cleaned.toString());
+  }
 
   // A command handed over by a context menu. It is only ever displayed here; nothing sends it
   // anywhere until the user says so.

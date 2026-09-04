@@ -55,12 +55,16 @@ export const AGENT_TARGETS: readonly AgentTarget[] = [
     name: 'Claude Code',
     settingsPath: join(homedir(), '.claude', 'settings.json'),
     supported: true,
+    command: 'claude',
+    install: 'npm i -g @anthropic-ai/claude-code',
   },
   {
     id: 'codex',
     name: 'Codex',
     settingsPath: join(homedir(), '.codex', 'config.toml'),
     supported: false,
+    command: 'codex',
+    install: 'npm i -g @openai/codex',
   },
 ];
 
@@ -139,13 +143,54 @@ function writeSettings(path: string, settings: Settings): void {
   writeFileSync(path, JSON.stringify(settings, null, 2) + '\n');
 }
 
+/**
+ * Where a command actually is on this machine, or nothing.
+ *
+ * The command is looked for rather than assumed, because "installed for Claude Code" said to
+ * somebody who does not have Claude Code is worse than saying nothing at all. A leftover
+ * `~/.claude` from a tool used once and removed is not the tool.
+ *
+ * PATH is searched directly rather than by running a shell. Spawning one per settings panel is
+ * slow, and a login shell's PATH is not necessarily the daemon's, so the answer would be about
+ * the wrong environment anyway. The usual install locations are checked as well, because a
+ * daemon started by launchd has a famously short PATH.
+ */
+function findCommand(command: string): string | undefined {
+  const fromPath = (process.env['PATH'] ?? '').split(':').filter(Boolean);
+  const common = [
+    join(homedir(), '.local', 'bin'),
+    join(homedir(), '.npm-global', 'bin'),
+    join(homedir(), '.bun', 'bin'),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    '/usr/bin',
+  ];
+  for (const directory of [...fromPath, ...common]) {
+    const candidate = join(directory, command);
+    try {
+      if (existsSync(candidate)) return candidate;
+    } catch {
+      // A directory that cannot be read is a directory the command is not in.
+    }
+  }
+  return undefined;
+}
+
 /** Targets whose tool is actually present, since installing for an absent one is noise. */
 function detectedTargets(): AgentTargetStatus[] {
   return AGENT_TARGETS.map((target) => {
     const settings = target.supported ? readSettings(target.settingsPath) : null;
+    const commandPath = findCommand(target.command);
     return {
       ...target,
-      detected: existsSync(dirname(target.settingsPath)),
+      /**
+       * The command itself, or its configuration directory.
+       *
+       * Either is evidence the tool is on this machine. The directory alone used to be enough,
+       * which is how a panel came to report hooks installed for a tool nobody had.
+       */
+      detected: commandPath !== undefined || existsSync(dirname(target.settingsPath)),
+      ...(commandPath === undefined ? {} : { commandPath }),
       installed: settings !== null && hooksPresent(settings),
     };
   });

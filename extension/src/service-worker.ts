@@ -579,6 +579,19 @@ function installContextMenus(): void {
       contexts: ['action'],
     });
     /**
+     * Launching an agent, from the icon, because it is a thing you do rather than a thing you
+     * configure.
+     *
+     * The same action as the browser shortcut of that name, running whatever the agent command
+     * in settings says. It opens its own tab, which is why it makes sense from anywhere,
+     * including a window with no terminal in it.
+     */
+    add({
+      id: 'launch-agent-tab',
+      title: 'Launch an agent in a new tab',
+      contexts: ['action'],
+    });
+    /**
      * Settings, from a right click on the toolbar icon.
      *
      * It opens a terminal tab with the panel already on settings rather than a page of its own,
@@ -624,6 +637,11 @@ chrome.contextMenus.onClicked.addListener((info) => {
   }
   if (id === 'new-terminal-tab') {
     void openTerminal();
+    return;
+  }
+  if (id === 'launch-agent-tab') {
+    // The same path as the browser shortcut, so the two can never mean different things.
+    void launchAgentTab();
     return;
   }
   if (id === 'edit-shortcuts') {
@@ -697,47 +715,43 @@ async function openOrFocusLocal(port: number): Promise<void> {
 chrome.runtime.onInstalled.addListener(() => installContextMenus());
 chrome.runtime.onStartup.addListener(() => void ensureOffscreen());
 /**
- * Chrome's shortcuts, forwarded to whichever terminal is in front.
+ * Chrome's shortcuts, which are only the ones that make sense with no terminal in front of you.
  *
- * A command fires here, in the worker, and not in the page, so anything that acts on a terminal
- * has to be relayed.
+ * A command fires here, in the worker, and not in a page, so anything acting on a pane would have
+ * to be relayed to whichever tab happened to be in front. Splitting a pane and opening the
+ * command menu were declared here for that reason, which put them in
+ * `chrome://extensions/shortcuts` as browser-wide keys: rows about panes, offered while reading
+ * mail. They are page shortcuts now, bound in the settings panel.
  *
- * Only what is worth being global. Splitting a pane and opening the command menu were declared
- * here too, which put them in `chrome://extensions/shortcuts` as keys that apply to the whole
- * browser: three rows about panes, offered while reading mail, for a window that may hold no
- * terminal at all. They belong to a terminal, so they are bound inside one, on the settings
- * panel's Keyboard shortcuts, where they can also be changed without leaving the product.
- *
- * Launching an agent stays, because it is the one that makes sense from anywhere: it opens a tab
- * rather than acting on one.
+ * What is left opens a tab, which is why it works from anywhere: a terminal, and an agent.
  */
-const FORWARDED: Record<string, string> = {
-  'launch-agent': 'tabterm:launch-agent',
-};
-
 chrome.commands.onCommand.addListener((command) => {
-  if (command === 'new-terminal') {
-    void openTerminal();
-    return;
-  }
-  const forwarded = FORWARDED[command];
-  if (!forwarded) return;
-  void (async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const base = chrome.runtime.getURL('terminal.html');
-    // Only to a terminal. Sending a split to whatever page happens to be in front would be a
-    // message to somebody else's tab about something it knows nothing about.
-    if (!tab?.id || !tab.url?.startsWith(base)) {
-      if (command === 'launch-agent') void openTerminal();
-      return;
-    }
-    try {
-      await chrome.tabs.sendMessage(tab.id, { t: forwarded });
-    } catch {
-      // A terminal tab that is not listening is one that has been discarded. Nothing to do.
-    }
-  })();
+  if (command === 'new-terminal') void openTerminal();
+  if (command === 'launch-agent') void launchAgentTab();
 });
+
+/**
+ * A new tab with the agent already running in it.
+ *
+ * In a tab of its own, always, because that is what the command is called and what somebody
+ * pressing a browser-wide key means by it. It used to split the focused terminal when there was
+ * one and open an empty terminal when there was not, so the same key did two different things
+ * and neither was the one on the label.
+ *
+ * Which agent is a setting, read by the page from the daemon rather than carried here. The
+ * worker has no opinion about what an agent is.
+ */
+async function launchAgentTab(): Promise<void> {
+  const [current] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const url = new URL(chrome.runtime.getURL('terminal.html'));
+  url.searchParams.set('agent', '1');
+  const created = await chrome.tabs.create({
+    url: url.toString(),
+    ...(current?.index === undefined ? {} : { index: current.index + 1 }),
+    active: true,
+  });
+  if (created.id !== undefined) await placeInGroup(created.id, current?.groupId);
+}
 
 /**
  * Report which shortcut, if any, Chrome actually bound.

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
+import { linesOfContent } from '@tabterm/shared';
 import type { AgentState, SessionState, TitleFields } from '@tabterm/shared';
 import type { Config } from './config.js';
 import { debug, info, warn } from './log.js';
@@ -133,8 +134,16 @@ export interface SessionEvents {
  * line that is only a color change is not a line with something on it.
  */
 export function usedLines(screen: string): number {
-  // `plainText` already drops empty lines, so its length is how much is on the screen.
-  return plainText(screen).length;
+  /**
+   * `plainText` already drops empty lines, so what is left is what is on the screen, minus the
+   * lines a shell prints that are not output.
+   *
+   * zsh marks a partial line with a lone inverse `%`, which is furniture rather than work. It
+   * was counting, so an adopted session that had only ever shown a prompt looked used, which
+   * protects it from the rule that clears untouched panes and puts it in `Running now` as a card
+   * holding nothing. See `shell-noise.ts`.
+   */
+  return linesOfContent(plainText(screen));
 }
 
 /** One hour. Exported so restoring settings uses this number rather than its own copy. */

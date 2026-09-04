@@ -299,6 +299,18 @@ export interface AgentHookTarget {
   /** Its configuration exists, so the tool has been run at least once. */
   detected: boolean;
   installed: boolean;
+  /**
+   * The command, and where it was found on this machine.
+   *
+   * Detection used to be "a directory with that name exists in your home", which is true of a
+   * machine that ran the tool once a year ago and uninstalled it. A panel that says "installed
+   * for Claude Code" to somebody who does not have Claude Code is worse than saying nothing.
+   */
+  command: string;
+  /** The absolute path it resolved to, when it is really on this machine. */
+  commandPath?: string;
+  /** Where to get it, shown to somebody who does not have it. */
+  install?: string;
 }
 
 export interface AgentHooksStatus {

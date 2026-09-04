@@ -17,6 +17,9 @@ export interface SettingsOptions {
   onChangeNotify: (policy: Partial<NotifyPolicy>) => void;
   agentHooks: () => AgentHooksStatus | null;
   onChangeAgentHooks: (enabled: boolean) => void;
+  /** What "launch an agent" runs, as typed. Null until the daemon has answered. */
+  agentCommand: () => string | null;
+  onChangeAgentCommand: (command: string) => void;
   shellIntegration: () => ShellIntegrationStatus | null;
   onChangeShellIntegration: (enabled: boolean) => void;
   /** Bytes of output kept per session, across every copy of it. Null until the daemon answers. */
@@ -552,6 +555,48 @@ function buildNotifications(options: SettingsOptions): HTMLElement {
     );
   }
 
+  /**
+   * What launching an agent runs.
+   *
+   * A box rather than a list of the agents we know about, because the browser-wide shortcut for
+   * this is a key somebody binds once and presses for a year, and until now it ran whatever was
+   * compiled in. The daemon splits it into argv and never hands it to a shell.
+   *
+   * Saved on blur and on Return rather than on every keystroke: half a command is not a command,
+   * and a setting that changes while it is being typed is one that is briefly wrong.
+   */
+  const agentCommand = options.agentCommand();
+  if (agentCommand !== null) {
+    const box = document.createElement('input');
+    box.className = 'launcher-input set-input';
+    box.spellcheck = false;
+    box.value = agentCommand;
+    box.placeholder = 'claude';
+    const commit = (): void => {
+      const typed = box.value.trim();
+      if (typed === agentCommand) return;
+      options.onChangeAgentCommand(typed);
+    };
+    box.addEventListener('blur', commit);
+    box.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commit();
+        box.blur();
+      }
+      // Not the terminal's, while somebody is typing in a box.
+      e.stopPropagation();
+    });
+    wrap.append(
+      field(
+        'What launching an agent runs',
+        'Used by the command menu and by the browser shortcut. Arguments are allowed, and quotes ' +
+          'for a path with a space in it. Leave it empty for claude.',
+        box,
+      ),
+    );
+  }
+
   const hooks = options.agentHooks();
   if (hooks) {
     wrap.append(
@@ -591,18 +636,51 @@ function nested(el: HTMLElement): HTMLElement {
  * "Installed" and "working" are different claims, so both are said. Hooks that are present and
  * have never fired is a real state and the one worth being able to see.
  */
-function describeHooks(hooks: AgentHooksStatus): string {
+export function describeHooks(hooks: AgentHooksStatus): string {
   const supported = hooks.targets.filter((t) => t.supported && t.detected);
   const others = hooks.targets.filter((t) => !t.supported && t.detected);
   const trailing =
     others.length > 0 ? `. ${others.map((t) => t.name).join(', ')} not supported yet` : '';
 
-  if (supported.length === 0) return `No supported agent CLI found${trailing}`;
+  /**
+   * Nothing found says how to get one, rather than only that there is nothing.
+   *
+   * This panel is read by somebody who has just installed TabTerm and has no agent CLI at all.
+   * "No supported agent CLI found" is true and leaves them nowhere, and the previous version was
+   * worse than that: it claimed hooks were installed for Claude Code on the strength of a
+   * directory in the home folder, which survives uninstalling the tool.
+   */
+  if (supported.length === 0) {
+    const how = hooks.targets
+      .filter((t) => t.supported && t.install)
+      .map((t) => `${t.name}: ${String(t.install)}`)
+      .join(', ');
+    return how === ''
+      ? `No supported agent CLI found${trailing}`
+      : `No agent CLI found. Install one and this turns itself on: ${how}${trailing}`;
+  }
   if (!hooks.installed) return `Agent status and agent turn notifications need this${trailing}`;
   const names = supported.map((t) => t.name).join(', ');
-  return hooks.lastEventAt === undefined
-    ? `Installed for ${names}. No events yet${trailing}`
-    : `Installed for ${names}. Last event ${ago(hooks.lastEventAt)}${trailing}`;
+  /**
+   * Named where it is, because "installed" is a claim about two different places.
+   *
+   * The hook script is TabTerm's, in its own directory. The entry that calls it is written into
+   * the agent's own settings file, which is the agent's, and that is the half worth pointing at
+   * when somebody asks where this lives or wants to remove it by hand.
+   */
+  const where = supported
+    .map((t) => shortHome(t.settingsPath))
+    .filter((p) => p !== '')
+    .join(', ');
+  const seen =
+    hooks.lastEventAt === undefined ? 'no events yet' : `last event ${ago(hooks.lastEventAt)}`;
+  return `Installed for ${names} in ${where}, ${seen}${trailing}`;
+}
+
+/** A path written the way a shell writes it, since a settings line is read, not clicked. */
+function shortHome(path: string): string {
+  const match = /^\/Users\/[^/]+\//.exec(path);
+  return match ? `~/${path.slice(match[0].length)}` : path;
 }
 
 function ago(at: number): string {

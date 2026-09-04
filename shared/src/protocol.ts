@@ -249,6 +249,17 @@ export type ClientMessage =
        */
       t: 'reload-extension';
     }
+  | { t: 'get-agent-command' }
+  | {
+      /**
+       * What "launch an agent" runs.
+       *
+       * A string as typed, split into argv by the daemon, because a person thinks in a command
+       * line and the daemon must never hand one to a shell. Empty restores the default.
+       */
+      t: 'set-agent-command';
+      command: string;
+    }
   | {
       /**
        * Put a pane that was closed back into its workspace.
@@ -727,6 +738,11 @@ export type ServerMessage =
        * the shells in them would be ended for having no tab. See `06-chrome-integration.md`.
        */
       t: 'reload-extension';
+    }
+  | {
+      /** What "launch an agent" runs, as typed. Every tab follows a change to it. */
+      t: 'agent-command';
+      command: string;
     }
   | {
       /**

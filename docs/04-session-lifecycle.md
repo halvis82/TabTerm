@@ -262,6 +262,24 @@ one that was closed is worse than an undo that says it cannot.
 
 ---
 
+### A shell's own marks are not output
+
+zsh prints a lone inverse `%` when a command's output did not end in a newline, so the last of it
+is not overwritten by the prompt. It is a normal shell doing a normal thing, and it means an
+untouched terminal can show two lines rather than one.
+
+Two decisions count lines to answer "has this been used at all": whether a tab still shows its
+start screen, and whether a session the daemon adopted has ever run anything. Both ignore that
+marker now. It was counting, so a refresh took the start screen away and left somebody looking at
+a terminal holding a percent sign, and an adopted shell that had only ever drawn a prompt was
+protected from the rule that clears untouched panes.
+
+The rule is deliberately narrow: a line of exactly one character, being `%`, `$` or `#`. Widening
+it to "starts with %" would hide the first line of anything about percentages, which is a far
+worse failure than showing one stray character.
+
+---
+
 ### A tab that was never used
 
 A tab opened and closed without anything being run in it, and which never left the directory it

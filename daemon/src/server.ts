@@ -65,6 +65,7 @@ import { paths } from './config.js';
 import { agentHooksStatus, setAgentHooks } from './agent-hooks.js';
 import { setShellIntegration, shellIntegrationStatus } from './shell-integration.js';
 import { clampPolicy, decide, type Finished, type NotifyPolicy } from './notify-policy.js';
+import { splitCommand } from './split-command.js';
 import { readUserSettings, updateUserSetting, writeUserSettings } from './user-settings.js';
 import { clampBudget, DEFAULT_SCROLLBACK_BYTES, linesForBytes } from './scrollback-budget.js';
 import { completePath } from './complete-path.js';
@@ -276,6 +277,20 @@ export class DaemonServer {
     this.#restore = restore;
     this.#archive = archive;
     this.#plugins = plugins;
+    /**
+     * What somebody chose, or what shipped.
+     *
+     * Read once here rather than on every launch, and validated the same way a change is: a
+     * settings file somebody edited by hand can hold anything, and the answer to anything
+     * unusable is the default rather than a failed launch with no explanation.
+     */
+    const stored = readUserSettings()['agentCommand'];
+    const storedArgv = Array.isArray(stored)
+      ? stored.filter((part): part is string => typeof part === 'string')
+      : typeof stored === 'string'
+        ? splitCommand(stored)
+        : [];
+    this.#agentCommand = storedArgv.length > 0 ? storedArgv : [...config.agentCommand];
     // A workspace is written the moment it is created, not only when it changes or when the
     // daemon stops cleanly.
     this.#workspaces.onCreate((workspace) => this.#persistWorkspace(workspace.id));
@@ -1173,7 +1188,7 @@ export class DaemonServer {
           const session = this.#sessions.create({
             cols: msg.cols,
             rows: msg.rows,
-            command: this.#config.agentCommand,
+            command: this.#agentCommand,
             ...(cwd ? { cwd } : {}),
           });
           if (cwd) this.#launcher.recordDir(cwd);
@@ -1682,6 +1697,26 @@ export class DaemonServer {
           info('scrollback.budget', { bytes: this.#scrollbackBytes });
         }
         this.broadcastAll({ t: 'scrollback-budget', bytes: this.#scrollbackBytes });
+        return;
+      }
+
+      /**
+       * What "launch an agent" runs.
+       *
+       * Configurable because the browser-wide shortcut for it is a key somebody binds once and
+       * presses for a year, and until now it ran whatever was compiled in. Split into argv here
+       * rather than handed to a shell: this is a command line a person typed, and a shell would
+       * make `claude; rm -rf ~` a working instruction.
+       */
+      case 'get-agent-command':
+      case 'set-agent-command': {
+        if (msg.t === 'set-agent-command') {
+          const argv = splitCommand(msg.command);
+          this.#agentCommand = argv.length > 0 ? argv : [...this.#config.agentCommand];
+          updateUserSetting('agentCommand', this.#agentCommand);
+          info('agent-command.changed', { command: this.#agentCommand });
+        }
+        this.broadcastAll({ t: 'agent-command', command: this.#agentCommand.join(' ') });
         return;
       }
 
@@ -2269,6 +2304,14 @@ export class DaemonServer {
    * rule in `cleanup.ts`, which is what holds it for exactly the window and no longer.
    */
   readonly #closedPanes = new Map<string, { workspaceId: string; title: string; at: number }>();
+
+  /**
+   * What "launch an agent" runs, which a person can change.
+   *
+   * Held here rather than read from the config each time, because the config is what shipped and
+   * this is what somebody chose. It is restored from user settings at startup.
+   */
+  #agentCommand: readonly string[] = [];
 
   /** Seconds left on a closed pane, or null when it is not one. Read by the reap policy. */
   undoWindowLeft(sessionId: string): number | null {

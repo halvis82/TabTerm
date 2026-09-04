@@ -281,3 +281,35 @@ but the conversation can be picked back up.
 What we do instead: surface **state** richly (favicon, title, notification, elapsed time) and let the
 terminal remain the place where the interaction happens. The tab tells you agent needs you. the agent
 handles the rest.
+
+## What "launch an agent" runs
+
+A setting, held by the daemon and shown as a text box in the settings panel. It defaults to
+`claude`.
+
+It has to be one, because the browser-wide shortcut of that name is a key somebody binds once and
+presses for a year, and until now it ran whatever was compiled in. Someone whose agent is `codex`,
+or `claude --model opus`, or a binary in `/Applications`, had no way to say so.
+
+The string is split into argv by the daemon and **never handed to a shell**. Quotes are honoured,
+because a path with a space in it is ordinary on a Mac. Nothing else is: no variables, no globs,
+no operators. `claude; rm -rf ~` becomes a program named `claude;` that does not exist, which is a
+harmless error rather than an instruction.
+
+The shortcut and the toolbar menu entry both open **a new tab** with it running, which is what the
+command is called. The shortcut used to split the focused terminal when there was one and open an
+empty terminal when there was not, so the same key did two different things and neither was the
+one on the label.
+
+## Whether an agent is installed at all
+
+Detection looks for the command on `PATH` and in the usual install locations, not merely for a
+configuration directory in the home folder. `~/.claude` survives uninstalling Claude Code, and a
+panel that says hooks are installed for a tool somebody does not have is worse than one that says
+nothing.
+
+When none is found, the panel says how to get one rather than only that there is none. When one
+is found, it names **where the hooks live**, which is the agent's own settings file rather than
+anything of TabTerm's: the hook script is ours, in `~/.local/libexec/tabterm`, and the entry that
+calls it is written into the agent's configuration. That is the half worth pointing at when
+somebody asks where this lives or wants to remove it by hand.

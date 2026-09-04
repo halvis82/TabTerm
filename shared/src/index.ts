@@ -6,3 +6,4 @@ export * from './protocol.js';
 export const VERSION = '0.0.0';
 export * from './placeholders.js';
 export * from './template-syntax.js';
+export * from './shell-noise.js';
