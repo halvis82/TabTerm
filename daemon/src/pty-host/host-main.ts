@@ -56,7 +56,16 @@ async function main(): Promise<void> {
 
   for (const signal of IGNORED) process.on(signal, () => {});
 
-  const host = new PtyHost(HOST_SOCKET, paths.scrollback);
+  /**
+   * The standalone host leaves when it holds nothing and no daemon is talking to it.
+   *
+   * Only here. A host embedded in another process, which is every test and the local backend,
+   * must never end the process it is part of.
+   */
+  const host = new PtyHost(HOST_SOCKET, paths.scrollback, undefined, () => {
+    info('pty-host.idle-exit', {});
+    process.exit(0);
+  });
   await host.listen();
   info('pty-host.listening', { socket: HOST_SOCKET, pid: process.pid });
 

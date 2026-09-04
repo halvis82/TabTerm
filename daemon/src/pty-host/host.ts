@@ -73,6 +73,15 @@ const RING_BYTES = 5 * 1024 * 1024;
  */
 const MAX_SESSIONS = 100;
 
+/**
+ * How long a host with nothing to hold waits before leaving.
+ *
+ * Generous, because the case it must not get wrong is a daemon being replaced: it disconnects
+ * and comes back within seconds, and a host that left in that gap would take every terminal with
+ * it. Two minutes is far longer than any restart and far shorter than a day of leaking.
+ */
+const IDLE_EXIT_MS = 120_000;
+
 export class PtyHost {
   readonly #sessions = new Map<string, Live>();
   /** Per session, set by the daemon from the user's setting. */
@@ -83,8 +92,23 @@ export class PtyHost {
   readonly #store: ScrollbackStore;
   readonly #maxSessions: number;
 
-  constructor(socketPath: string, scrollbackDirectory: string, maxSessions = MAX_SESSIONS) {
+  /**
+   * What to do when this host is holding nothing for nobody, or nothing at all.
+   *
+   * Injected rather than calling `process.exit` directly, because a host embedded in another
+   * process must never end it. The standalone entrypoint is the only caller that passes one, and
+   * every test constructs a host that simply stays.
+   */
+  readonly #onIdle: (() => void) | undefined;
+
+  constructor(
+    socketPath: string,
+    scrollbackDirectory: string,
+    maxSessions = MAX_SESSIONS,
+    onIdle?: () => void,
+  ) {
     this.#maxSessions = maxSessions;
+    this.#onIdle = onIdle;
     this.#socketPath = socketPath;
     this.#server = createServer((socket) => this.#accept(socket));
     // The ring redraws a screen after the daemon restarts. This survives the host restarting
@@ -106,6 +130,9 @@ export class PtyHost {
       this.#server.listen(this.#socketPath, () => {
         // Owner only. Anything that can open this socket can spawn a process as you.
         chmodSync(this.#socketPath, 0o600);
+        // A host nobody ever connects to is the third way one is left behind: a daemon that
+        // spawned it and then died before saying hello.
+        this.#leaveIfNothingLeft();
         resolve();
       });
     });
@@ -115,10 +142,39 @@ export class PtyHost {
     return this.#sessions.size;
   }
 
+  /**
+   * Leave when there is nothing left to hold and nobody left to hold it for.
+   *
+   * This process exists to outlive its daemon, which is exactly why it cannot be ended along
+   * with one. That is right while it holds terminals, and pointless when it holds none: a host
+   * with no sessions and no daemon is protecting nothing, and a test run that was killed leaves
+   * one behind every time. 133 of them were counted on 2026-09-04.
+   *
+   * Both conditions, and a delay, because a daemon being replaced is the ordinary case: it
+   * disconnects and reconnects within seconds, and the host must still be here when it does.
+   */
+  #idleTimer?: ReturnType<typeof setTimeout>;
+
+  #leaveIfNothingLeft(): void {
+    clearTimeout(this.#idleTimer);
+    const leave = this.#onIdle;
+    if (!leave || this.#clients.size > 0 || this.#sessions.size > 0) return;
+    this.#idleTimer = setTimeout(() => {
+      if (this.#clients.size > 0 || this.#sessions.size > 0) return;
+      leave();
+    }, IDLE_EXIT_MS);
+    // Nothing here should keep the process alive on its own account.
+    this.#idleTimer.unref?.();
+  }
+
   #accept(socket: Socket): void {
     this.#clients.add(socket);
+    clearTimeout(this.#idleTimer);
     socket.on('error', () => socket.destroy());
-    socket.on('close', () => this.#clients.delete(socket));
+    socket.on('close', () => {
+      this.#clients.delete(socket);
+      this.#leaveIfNothingLeft();
+    });
 
     let pending = new Uint8Array(0);
     socket.on('data', (chunk: Buffer) => {
@@ -394,6 +450,9 @@ export class PtyHost {
     live.handle.pty.onExit(({ exitCode, signal }) => {
       live.exited = { exitCode, ...(signal !== undefined ? { signal } : {}) };
       this.#sessions.delete(live.id);
+      // The last terminal ending, with no daemon to tell, is the other way this becomes a
+      // process holding nothing for nobody.
+      this.#leaveIfNothingLeft();
       for (const c of this.#clients) {
         this.#send(c, { t: 'exited', sessionId: live.id, exitCode, signal });
       }

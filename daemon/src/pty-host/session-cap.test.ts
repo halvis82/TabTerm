@@ -73,3 +73,40 @@ describe('the number of sessions one host will hold', () => {
     expect(exits).toContain('over-the-cap');
   });
 });
+
+/**
+ * A host that holds nothing for nobody leaves.
+ *
+ * This process exists to outlive its daemon, which is exactly why it cannot be ended along with
+ * one. That is right while it holds terminals and pointless when it holds none: an interrupted
+ * test run left one behind every time, and 133 of them were found on one machine, holding
+ * 797 MB between them.
+ *
+ * Both conditions matter. A daemon being replaced disconnects and reconnects within seconds, and
+ * a host that left in that gap would take every terminal with it.
+ */
+describe('a host with nothing left to hold', () => {
+  it('leaves once its last client has gone, and not before', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'tt-idle-'));
+    let left = false;
+    const idle = new PtyHost(join(home, 'sock'), join(home, 'scrollback'), 3, () => {
+      left = true;
+    });
+    await idle.listen();
+
+    const talker = new PtyHostClient({
+      socketPath: join(home, 'sock'),
+      hostScript: join(home, 'never'),
+    });
+    await talker.connect(4000);
+    expect(left, 'a host somebody is talking to stays').toBe(false);
+
+    talker.close();
+    await new Promise((r) => setTimeout(r, 300));
+    // Scheduled rather than immediate: the delay is what makes a daemon restart survivable.
+    expect(left, 'and it waits rather than going the instant the socket drops').toBe(false);
+
+    await idle.close();
+    await rm(home, { recursive: true, force: true });
+  });
+});
