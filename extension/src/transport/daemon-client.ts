@@ -122,6 +122,17 @@ export class DaemonClient {
     };
   }
 
+  /**
+   * Whether a message sent right now would actually leave.
+   *
+   * `send` drops silently when the socket is not open, which is the right behaviour for a
+   * terminal keystroke and the wrong one for a caller that has to know, such as the report of
+   * which tabs exist: dropping that one ends terminals.
+   */
+  get connected(): boolean {
+    return this.#ws?.readyState === WebSocket.OPEN;
+  }
+
   send(msg: ClientMessage): void {
     if (this.#ws?.readyState === WebSocket.OPEN) this.#ws.send(controlFrame(msg));
   }

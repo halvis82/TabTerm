@@ -232,7 +232,22 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
    */
   const mine = document.createElement('div');
   mine.className = 'set-keys';
+  let saidActions = false;
   for (const shortcut of options.pageShortcuts()) {
+    /**
+     * A line before the ones bound to actions somebody made.
+     *
+     * They are bound the same way and stored in the same list, which is what keeps one key from
+     * being claimed twice. But they answer a different question, so the list says where the
+     * shipped ones end.
+     */
+    if (!saidActions && shortcut.id.startsWith('action:')) {
+      saidActions = true;
+      const heading = document.createElement('p');
+      heading.className = 'set-desc';
+      heading.textContent = 'Actions you made:';
+      mine.append(heading);
+    }
     const row = document.createElement('div');
     row.className = 'set-key-row';
     const label = document.createElement('span');

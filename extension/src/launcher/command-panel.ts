@@ -19,18 +19,34 @@ export interface PanelAction {
   id: string;
   title: string;
   hint?: string;
+  /**
+   * Which group it belongs to. They answer different questions, so they are drawn apart.
+   *
+   * `builtin` is what TabTerm can do, `custom` is what somebody taught it, and `manage` is how
+   * they teach it something. A flat list put `Make an action` between two things that do
+   * something, looking exactly like them, and buried what you had written among what ships.
+   */
+  group?: 'builtin' | 'custom' | 'manage';
+  /** Set when the action is one somebody made, which is what the pencil and cross act on. */
+  customId?: string;
+  /** The keys bound to it, ready to read. Empty when nothing is bound. */
+  keys?: string;
+  /** `link` goes somewhere rather than doing something here, so it is not drawn like an action. */
+  kind?: 'link' | 'action';
   run: () => void;
 }
 
 export type PanelRow =
   | { kind: 'favorite'; item: SavedItem }
   | { kind: 'recent'; entry: CommandEntry }
-  | { kind: 'action'; action: PanelAction };
+  | { kind: 'action'; action: PanelAction }
+  | { kind: 'heading'; text: string };
 
 /** What a row's text is, for pasting, copying and searching. */
 export function rowText(row: PanelRow): string {
   if (row.kind === 'favorite') return row.item.body;
   if (row.kind === 'recent') return row.entry.command;
+  if (row.kind === 'heading') return row.text;
   return row.action.title;
 }
 
@@ -38,7 +54,35 @@ export function rowText(row: PanelRow): string {
 export function rowLabel(row: PanelRow): string {
   if (row.kind === 'favorite') return row.item.title || row.item.body;
   if (row.kind === 'recent') return row.entry.command;
+  if (row.kind === 'heading') return row.text;
   return row.action.title;
+}
+
+/**
+ * The rows an Actions tab shows for a set of actions, headings included.
+ *
+ * Here rather than in the view because it is a decision about what the list means, and because
+ * a decision with three cases is worth being able to check without a browser.
+ */
+export function actionRows(
+  actions: readonly PanelAction[],
+  query: string,
+  matcher: (haystack: string, query: string) => boolean = matches,
+): PanelRow[] {
+  const groups: [group: NonNullable<PanelAction['group']>, heading: string][] = [
+    ['builtin', 'What TabTerm can do'],
+    ['custom', 'Actions you made'],
+    ['manage', 'Make and change them'],
+  ];
+  const hit = actions.filter((a) => matcher(a.title, query));
+  const rows: PanelRow[] = [];
+  for (const [group, heading] of groups) {
+    const inGroup = hit.filter((a) => (a.group ?? 'builtin') === group);
+    if (inGroup.length === 0) continue;
+    rows.push({ kind: 'heading', text: heading });
+    for (const action of inGroup) rows.push({ kind: 'action', action });
+  }
+  return rows;
 }
 
 /** Subsequence match, so `sp` finds `Split right` the way `gco` finds `git checkout`. */

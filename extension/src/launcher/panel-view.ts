@@ -1,6 +1,7 @@
 import type { CommandEntry, SavedItem } from '@tabterm/shared';
 import {
   DEFAULT_PLACEMENT,
+  actionRows,
   clampPlacement,
   matches,
   operationsFor,
@@ -47,6 +48,9 @@ export interface PanelOptions {
   onOpen: () => void;
   onPlacement: (placement: PanelPlacement) => void;
   actions: () => PanelAction[];
+  /** Open the form for an action somebody made, which is also where its shortcut is bound. */
+  onEditAction?: (id: string) => void;
+  onDeleteAction?: (id: string) => void;
   settings: () => HTMLElement;
   stats: () => HTMLElement;
 }
@@ -309,12 +313,7 @@ export class CommandPanel {
 
   #currentRows(): PanelRow[] {
     const query = this.#search.value.trim();
-    if (this.#placement.tab === 'actions') {
-      return this.#opts
-        .actions()
-        .filter((a) => matches(a.title, query))
-        .map((action) => ({ kind: 'action' as const, action }));
-    }
+    if (this.#placement.tab === 'actions') return actionRows(this.#opts.actions(), query);
     if (this.#placement.tab === 'favorites') {
       return this.#favorites
         .filter((item) => matches(`${item.title} ${item.body} ${item.hotstring ?? ''}`, query))
@@ -449,6 +448,19 @@ export class CommandPanel {
     const el = document.createElement('div');
     el.className = `cmd-row${index === this.#selected ? ' selected' : ''} is-${row.kind}`;
 
+    /**
+     * A heading is a label, not a row.
+     *
+     * It carries no behavior at all: it cannot be selected, it cannot be run, and it has none of
+     * the controls the rows under it have. Returning here rather than guarding every branch
+     * below keeps that difference in one place.
+     */
+    if (row.kind === 'heading') {
+      el.className = 'cmd-heading';
+      el.textContent = row.text;
+      return el;
+    }
+
     const label = document.createElement('span');
     label.className = 'cmd-row-label';
     label.textContent = rowLabel(row);
@@ -458,6 +470,41 @@ export class CommandPanel {
     meta.className = 'cmd-row-meta';
     if (row.kind === 'action') {
       meta.textContent = row.action.hint ?? '';
+      if (row.action.kind === 'link') el.classList.add('is-link');
+      if (row.action.keys) {
+        // The key it answers to, read from the same place the settings panel binds it, so the
+        // two can never disagree about what is bound.
+        const keys = document.createElement('span');
+        keys.className = 'cmd-row-keys';
+        keys.textContent = row.action.keys;
+        el.append(keys);
+      }
+      const customId = row.action.customId;
+      if (customId !== undefined) {
+        /**
+         * A pencil and a cross, on the ones that are yours.
+         *
+         * Only on custom actions, so the list reads as things to do rather than as a table of
+         * things to administer. Editing is where a shortcut is bound to one as well.
+         */
+        const edit = document.createElement('button');
+        edit.className = 'cmd-row-edit';
+        edit.title = 'Edit this action, and its shortcut';
+        edit.textContent = '\u270e';
+        edit.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.#opts.onEditAction?.(customId);
+        });
+        const remove = document.createElement('button');
+        remove.className = 'cmd-row-remove';
+        remove.title = 'Delete this action';
+        remove.textContent = '\u00d7';
+        remove.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.#opts.onDeleteAction?.(customId);
+        });
+        el.append(edit, remove);
+      }
     } else if (row.kind === 'favorite') {
       // The command itself is the useful secondary line when the row shows a name instead.
       meta.textContent = row.item.title && row.item.title !== row.item.body ? row.item.body : '';
@@ -480,9 +527,20 @@ export class CommandPanel {
     }
     el.append(meta);
 
-    // Selecting and acting are separate. A single click highlights; a double-click acts.
+    /**
+     * Selecting and acting are separate, except for an action, where they are not.
+     *
+     * A history row is text, and running somebody's old command because the pointer landed
+     * slightly wrong is a real cost. An action is a button with a verb on it, and a button you
+     * must select before pressing Return is a button that does not work.
+     */
     el.addEventListener('click', () => {
       this.#selected = index;
+      if (row.kind === 'action') {
+        this.close();
+        row.action.run();
+        return;
+      }
       this.render();
       this.#search.focus();
     });
@@ -643,6 +701,17 @@ export class CommandPanel {
   #move(delta: number): void {
     if (this.#rows.length === 0) return;
     this.#selected = (this.#selected + delta + this.#rows.length) % this.#rows.length;
+    /**
+     * A heading is stepped over, in whichever direction was being travelled.
+     *
+     * Landing on one gives a highlight that Return does nothing with, which reads as the panel
+     * having stopped responding. Continuing in the same direction is what an arrow key means.
+     */
+    let guard = this.#rows.length;
+    while (this.#rows[this.#selected]?.kind === 'heading' && guard-- > 0) {
+      const step = delta === 0 ? 1 : delta > 0 ? 1 : -1;
+      this.#selected = (this.#selected + step + this.#rows.length) % this.#rows.length;
+    }
     this.render();
     this.#list.children[this.#selected]?.scrollIntoView({ block: 'nearest' });
   }

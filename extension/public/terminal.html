@@ -712,6 +712,63 @@
     font-size: 11px;
     color: #7d8496;
   }
+  /**
+   * A label above a group of actions, which is not a row and does not behave like one.
+   *
+   * The Actions tab was one flat list, so `Make an action` sat between two things that do
+   * something and looked exactly like them, and what somebody had written sat among what ships.
+   */
+  .cmd-heading {
+    padding: 10px 12px 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #6f758a;
+  }
+  .cmd-heading:first-child {
+    padding-top: 4px;
+  }
+  /* The key an action answers to, read from the same store the settings panel binds it in. */
+  .cmd-row-keys {
+    flex: none;
+    margin-left: 8px;
+    font-size: 11px;
+    color: #8a91a3;
+  }
+  .cmd-row-edit,
+  .cmd-row-remove {
+    flex: none;
+    margin-left: 6px;
+    padding: 0 5px;
+    border: 0;
+    background: transparent;
+    color: #6f758a;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    opacity: 0;
+  }
+  .cmd-row:hover .cmd-row-edit,
+  .cmd-row:hover .cmd-row-remove,
+  .cmd-row.selected .cmd-row-edit,
+  .cmd-row.selected .cmd-row-remove {
+    opacity: 1;
+  }
+  .cmd-row-edit:hover {
+    color: #9ec5ff;
+  }
+  .cmd-row-remove:hover {
+    color: #ff8a7a;
+  }
+  /* A link leaves the tab, so it is not drawn like the things that act inside it. */
+  .cmd-row.is-link {
+    border-top: 1px solid rgba(90, 100, 130, 0.2);
+    margin-top: 4px;
+    padding-top: 8px;
+    color: #8a91a3;
+  }
+
   /* Selection carries an accent bar as well as a background: it is a step of its own. */
   .cmd-row.selected {
     background: rgba(70, 100, 155, 0.42);

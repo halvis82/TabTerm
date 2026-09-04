@@ -128,6 +128,27 @@ Chrome restores the URL. The page attaches lazily on `visibilitychange`. See
 handled by the recovery page. Chrome offers no API to remove one entry from the recently-closed
 stack (`10-limitations.md` tier 0.2).
 
+### Reloading the extension does not end anything
+
+Chrome destroys every page an extension owns when it is reloaded, so the terminal tabs vanish.
+The terminals themselves are in the PTY host and are untouched, and the tabs are put back from
+the remembered set.
+
+The half that was missing is that **the workspaces are claimed as open before a single tab is
+created**. In the gap between Chrome destroying the tabs and the worker putting them back, the
+truthful answer to "which workspaces are on screen" is none, and saying so starts the clock on
+every untouched pane in them. That is not hypothetical: it took five terminals on 2026-09-04.
+
+The claim is given up as soon as the tabs it stood in for exist, and after two minutes for any
+that could not be recreated. Holding it indefinitely would keep alive workspaces somebody then
+closed on purpose, which is the same mistake in the other direction.
+
+The report itself is now acknowledged rather than fired into the dark. It travels worker →
+offscreen document → daemon, and the offscreen document exists before it is connected, so a
+report arriving in that window was dropped by a `?.` and looked delivered because nothing threw.
+The next attempt was two minutes later, against a rule that ends a terminal in thirty seconds: a
+retry slower than the thing it protects against is not a retry.
+
 ---
 
 ## 4. Tab groups
@@ -681,6 +702,34 @@ from the layout, and a workspace whose panes had all been closed back to one hom
 looks exactly like a tab that was never used. The flag records what actually happened rather than
 inferring it from a state that stops being distinguishable. `sessionStorage` because it is per
 tab and per browsing session, which is exactly the lifetime of the fact.
+
+### One list of keys, whatever they are bound to
+
+Everything the page can be asked to do is one list: the shipped actions, and each action
+somebody made. One list rather than two, because one list is what makes "is this combination
+already taken" a question with an answer. Two would need a third thing to compare them, and the
+first time that was forgotten the same keys would run two different jobs.
+
+A key is bound in either of the two places somebody is already looking: on the form where an
+action is edited, and in the settings panel's Keyboard shortcuts, which lists the actions after
+the shipped ones. Both write the same store, so neither is a second copy of the truth, and every
+open tab follows a change through `chrome.storage.onChanged` rather than showing what was true
+when it was opened.
+
+Deleting an action deletes its binding. A key bound to something that no longer exists does
+nothing when pressed and goes on blocking that combination for everything else.
+
+### What is a browser shortcut and what is a terminal one
+
+Three commands are declared to Chrome: open a terminal, open one on an alternate key, and launch
+an agent. They are the ones that make sense with no terminal in front of you, because each of
+them makes one.
+
+Splitting a pane and opening the command menu were declared there too, which put them in
+`chrome://extensions/shortcuts` as browser-wide keys: rows about panes, offered in every window,
+including windows with no terminal in them. They act on a terminal, so they are bound in one.
+That also means they can be changed without leaving the product, which the Chrome-declared ones
+cannot be.
 
 ### Selecting and acting are separate
 

@@ -90,7 +90,11 @@ async function requestCredentials(): Promise<void> {
 
 // The worker may also push credentials unprompted, right after creating this document.
 chrome.runtime.onMessage.addListener(
-  (msg: { t?: string; workspaceIds?: readonly string[] } & Credentials) => {
+  (
+    msg: { t?: string; workspaceIds?: readonly string[] } & Credentials,
+    _sender,
+    sendResponse: (reply: { sent: boolean }) => void,
+  ) => {
     if (msg.t === 'tabterm:credentials' && msg.token && msg.clientId && msg.port) {
       start(msg.token, msg.clientId, msg.port);
     }
@@ -103,8 +107,20 @@ chrome.runtime.onMessage.addListener(
      * ended seventeen hours after its last command while its tab was sitting there.
      */
     if (msg.t === 'tabterm:tabs-open' && Array.isArray(msg.workspaceIds)) {
-      client?.send({ t: 'tabs-open', workspaceIds: msg.workspaceIds });
+      /**
+       * Answered with whether it went anywhere, so the worker knows to try again.
+       *
+       * This document exists before it is connected, so a report arriving in that window used to
+       * be dropped by the `?.` and reported as delivered by the absence of an exception. The
+       * worker's next attempt was two minutes away, and a terminal can be ended in thirty
+       * seconds.
+       */
+      const connected = client?.connected === true;
+      if (connected) client?.send({ t: 'tabs-open', workspaceIds: msg.workspaceIds });
+      sendResponse({ sent: connected });
+      return false;
     }
+    return false;
   },
 );
 

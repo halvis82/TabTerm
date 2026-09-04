@@ -157,6 +157,18 @@ The valuable adjacent behavior works fine and is implemented instead: paths **pr
 are clickable and Option-clickable, and `Cmd+Opt+C` in Finder copies a path as text
 for a normal paste.
 
+### 0.6 Making the extension's own name in the toolbar menu do something
+
+Right-clicking the toolbar icon opens a menu whose first row is the extension's name, drawn
+greyed out above a separator. It looks exactly like a disabled menu item, and it is not one: it
+is Chrome's own heading for the menu, the way a title bar is not a button. No API reaches it.
+`chrome.contextMenus.create` with `contexts: ['action']` adds rows **below** the separator, and
+that is the whole of what an extension may put there.
+
+**Disposition: cut, with the useful half kept.** The first row an extension owns does what the
+heading looks like it should: opens a terminal. Clicking the icon itself does the same thing,
+which is the gesture that needs no menu at all.
+
 ---
 
 ## Tier 1 — Possible only in degraded form 

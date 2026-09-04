@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_PLACEMENT,
+  actionRows,
   clampPlacement,
   matches,
   operationsFor,
@@ -148,5 +149,46 @@ describe('remembering where the panel was', () => {
     );
     expect(placed.tab).toBe('recent');
     expect(placed.minimized).toBe(true);
+  });
+});
+
+/**
+ * The Actions tab is three groups, because they answer three different questions.
+ *
+ * It was one flat list: `Make an action` sat between two things that do something and looked
+ * exactly like them, and what somebody had written sat among what ships.
+ */
+describe('the rows an Actions tab shows', () => {
+  const act = (id: string, group?: 'builtin' | 'custom' | 'manage') => ({
+    id,
+    title: id,
+    ...(group ? { group } : {}),
+    run: () => {},
+  });
+
+  it('puts a heading above each group that has anything in it', () => {
+    const rows = actionRows([act('split'), act('mine', 'custom'), act('new', 'manage')], '');
+    expect(rows.map((r) => (r.kind === 'heading' ? r.text : `.${rowLabel(r)}`))).toEqual([
+      'What TabTerm can do',
+      '.split',
+      'Actions you made',
+      '.mine',
+      'Make and change them',
+      '.new',
+    ]);
+  });
+
+  it('leaves out a heading for a group with nothing in it', () => {
+    const rows = actionRows([act('split'), act('new', 'manage')], '');
+    expect(rows.some((r) => r.kind === 'heading' && r.text === 'Actions you made')).toBe(false);
+  });
+
+  it('keeps the groups while filtering, so a search never reads as a flat list', () => {
+    const rows = actionRows([act('split right'), act('split mine', 'custom')], 'split');
+    expect(rows.filter((r) => r.kind === 'heading')).toHaveLength(2);
+  });
+
+  it('has no headings at all when nothing matches', () => {
+    expect(actionRows([act('split')], 'zzz')).toHaveLength(0);
   });
 });

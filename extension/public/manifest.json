@@ -45,15 +45,6 @@
     "new-terminal": {
       "description": "Open a TabTerm terminal (alternate key)"
     },
-    "open-command-menu": {
-      "description": "Open the command menu in the focused terminal"
-    },
-    "split-right": {
-      "description": "Split the focused terminal to the right"
-    },
-    "split-down": {
-      "description": "Split the focused terminal downwards"
-    },
     "launch-agent": {
       "description": "Launch an agent in a new tab"
     }

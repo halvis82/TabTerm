@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_TEMPLATES, alteredDefaults, withDefaultsRestored } from './templates.js';
+import {
+  DEFAULT_TEMPLATES,
+  alteredDefaults,
+  defaultsOutOfOrder,
+  withDefaultsRestored,
+} from './templates.js';
 
 /**
  * A default added after somebody has already used the product still has to reach them.
@@ -45,6 +50,46 @@ describe('restoring them', () => {
 
   it('changes nothing when none is missing', () => {
     expect(withDefaultsRestored(DEFAULT_TEMPLATES)).toHaveLength(DEFAULT_TEMPLATES.length);
+  });
+
+  /**
+   * Order is part of what is restored, because the first four carry Control and a number.
+   *
+   * Putting only the missing ones at the front gave `1 + 2` back ahead of `Split in 2`, so the
+   * arrangement that had been on Control 1 was now on Control 2. That is the templates back and
+   * the keys not, which is the confusing half of a restore.
+   */
+  /** The first shipped template, which every fixture below is a variation of. */
+  const one = DEFAULT_TEMPLATES[0] as (typeof DEFAULT_TEMPLATES)[number];
+
+  it('puts the shipped ones back in the order they ship in', () => {
+    const shuffled = [...DEFAULT_TEMPLATES].reverse();
+    const restored = withDefaultsRestored(shuffled);
+    expect(restored.map((t) => t.id)).toEqual(DEFAULT_TEMPLATES.map((t) => t.id));
+  });
+
+  it('and keeps what you made after them, in your order', () => {
+    const first = { ...one, id: 'a', name: 'a' };
+    const second = { ...one, id: 'b', name: 'b' };
+    const restored = withDefaultsRestored([first, DEFAULT_TEMPLATES[2] ?? one, second]);
+    expect(restored.map((t) => t.id).slice(0, DEFAULT_TEMPLATES.length)).toEqual(
+      DEFAULT_TEMPLATES.map((t) => t.id),
+    );
+    expect(restored.map((t) => t.id).slice(DEFAULT_TEMPLATES.length)).toEqual(['a', 'b']);
+  });
+
+  it('keeps a default you edited rather than reverting it', () => {
+    const renamed = { ...one, name: 'my own name' };
+    const restored = withDefaultsRestored([renamed]);
+    expect(restored[0]?.name).toBe('my own name');
+  });
+
+  it('notices when the shipped ones have been shuffled, so restoring is offered', () => {
+    expect(defaultsOutOfOrder(DEFAULT_TEMPLATES)).toBe(false);
+    expect(defaultsOutOfOrder([...DEFAULT_TEMPLATES].reverse())).toBe(true);
+    const mine = { ...one, id: 'mine', name: 'mine' };
+    expect(defaultsOutOfOrder([...DEFAULT_TEMPLATES, mine])).toBe(false);
+    expect(defaultsOutOfOrder([mine, ...DEFAULT_TEMPLATES])).toBe(true);
   });
 
   it('counts what has been deleted or edited, so restoring is offered only then', () => {

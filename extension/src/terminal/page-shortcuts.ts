@@ -126,7 +126,36 @@ export function whyNot(keys: string): string | null {
   return null;
 }
 
-export function parseShortcuts(raw: unknown): PageShortcut[] {
+/**
+ * The id under which a key bound to an action somebody made is stored.
+ *
+ * Prefixed rather than kept in a second list, so that everything bindable is one list with one
+ * clash check. Two lists would need a third thing to compare them, and the first time it was
+ * forgotten the same keys would be bound to two different jobs.
+ */
+export const ACTION_PREFIX = 'action:';
+
+export function actionShortcutId(actionId: string): string {
+  return `${ACTION_PREFIX}${actionId}`;
+}
+
+/** The action an id names, or null when the id is one of the built-in page shortcuts. */
+export function actionIdFrom(shortcutId: string): string | null {
+  return shortcutId.startsWith(ACTION_PREFIX) ? shortcutId.slice(ACTION_PREFIX.length) : null;
+}
+
+/**
+ * The shipped list with stored keys applied, plus a row for each action somebody made.
+ *
+ * The actions are passed in rather than read here, because this module knows about keys and
+ * nothing about what an action is. An action that has been deleted takes its binding with it:
+ * a key bound to something that no longer exists is a key that does nothing, and it would go on
+ * blocking that combination for everything else.
+ */
+export function parseShortcuts(
+  raw: unknown,
+  actions: readonly { id: string; name: string }[] = [],
+): PageShortcut[] {
   const stored = new Map<string, string>();
   if (Array.isArray(raw)) {
     for (const item of raw) {
@@ -137,15 +166,23 @@ export function parseShortcuts(raw: unknown): PageShortcut[] {
   }
   // Always the shipped list, with stored keys applied. A stored entry for something that no
   // longer exists disappears, and something new appears with its default rather than unbound.
-  return DEFAULT_PAGE_SHORTCUTS.map((d) => ({ ...d, keys: stored.get(d.id) ?? d.keys }));
+  const shipped = DEFAULT_PAGE_SHORTCUTS.map((d) => ({ ...d, keys: stored.get(d.id) ?? d.keys }));
+  const mine = actions.map((action) => ({
+    id: actionShortcutId(action.id),
+    title: action.name,
+    keys: stored.get(actionShortcutId(action.id)) ?? '',
+  }));
+  return [...shipped, ...mine];
 }
 
-export async function loadShortcuts(): Promise<PageShortcut[]> {
+export async function loadShortcuts(
+  actions: readonly { id: string; name: string }[] = [],
+): Promise<PageShortcut[]> {
   try {
     const stored = await chrome.storage.local.get(KEY);
-    return parseShortcuts(stored[KEY]);
+    return parseShortcuts(stored[KEY], actions);
   } catch {
-    return [...DEFAULT_PAGE_SHORTCUTS];
+    return parseShortcuts(undefined, actions);
   }
 }
 

@@ -21,8 +21,21 @@ Opened from a button in the top right of a terminal tab, or with `Command+K`.
 |---|---|
 | **Favorites** | Commands you kept, with a display name and an optional hotstring |
 | **Recent** | Command history, newest first, searchable |
-| **Actions** | Split, close, detach, maximize, launch an agent, and the rest |
+| **Actions** | Three groups: what TabTerm can do, what you made, and how to make one |
 | **Stats** | What this session has run, how long each took, and when |
+
+The Actions tab is grouped rather than flat. A flat list put `Make an action` between two things
+that do something, looking exactly like them, and buried what somebody had written among what
+ships. The three headings answer three questions: what can this do, what have I taught it, and
+how do I teach it something. A heading is a label, not a row: it cannot be selected, and arrow
+keys step over it in whichever direction they were going.
+
+Each row carries the key it answers to, and the ones you made carry a pencil and a cross. The
+pencil opens the same form as making one, which is also where its key is bound. Clicking an
+action runs it, which is the one place in this panel where selecting and acting are the same
+gesture: a history row is text and running it by a misplaced click is a real cost, while an
+action is a button with a verb on it, and a button you must select before pressing Return is a
+button that does not work.
 
 Settings are a gear in the footer rather than a sixth tab. They are not a list of commands, and
 putting them in the row of things you select from would mean one tab that does not answer the

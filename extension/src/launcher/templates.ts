@@ -133,6 +133,22 @@ export function alteredDefaults(current: readonly LayoutTemplate[]): LayoutTempl
 }
 
 /**
+ * Whether the defaults have been shuffled out of the order they ship in.
+ *
+ * Order is part of what a default is here, because the first four carry Control and a number:
+ * restoring them into a different order gives back the templates and not the keys, which is
+ * half a restore and the confusing half.
+ */
+export function defaultsOutOfOrder(current: readonly LayoutTemplate[]): boolean {
+  const shipped = DEFAULT_TEMPLATES.map((t) => t.id);
+  const present = current.filter((t) => shipped.includes(t.id)).map((t) => t.id);
+  // Among themselves, and ahead of anything you made: both are part of the shipped order.
+  const inShippedOrder = shipped.filter((id) => present.includes(id)).join();
+  const allAtTheFront = current.slice(0, present.length).every((t) => shipped.includes(t.id));
+  return present.join() !== inShippedOrder || !allAtTheFront;
+}
+
+/**
  * Put back what is missing, in the order it originally had, and touch nothing else.
  *
  * A default you edited is left alone unless it is gone: restoring is for getting back what you
@@ -140,16 +156,22 @@ export function alteredDefaults(current: readonly LayoutTemplate[]): LayoutTempl
  * doing two different jobs.
  */
 export function withDefaultsRestored(current: readonly LayoutTemplate[]): LayoutTemplate[] {
-  const have = new Set(current.map((t) => t.id));
-  const missing = DEFAULT_TEMPLATES.filter((t) => !have.has(t.id));
-  if (missing.length === 0) return [...current];
-  // The originals lead, in their own order, then everything else keeps the order it had.
-  const restoredIds = new Set(missing.map((t) => t.id));
-  const rest = current.filter((t) => !restoredIds.has(t.id));
-  const front = DEFAULT_TEMPLATES.filter((t) => restoredIds.has(t.id) || have.has(t.id)).flatMap(
-    (t) => (restoredIds.has(t.id) ? [t] : []),
-  );
-  return [...front, ...rest];
+  const byId = new Map(current.map((t) => [t.id, t]));
+  /**
+   * The shipped five lead, in the order they ship in, and yours follow in yours.
+   *
+   * Putting only the missing ones at the front was half the job: restoring after deleting
+   * `1 + 2` gave it back in front of `Split in 2`, so the arrangement that had been on Control 1
+   * was now on Control 2 and the list read in an order nobody chose. The order is part of what
+   * is being restored.
+   *
+   * A default you edited keeps your version. Restoring is for getting back what you removed,
+   * and reverting something you deliberately changed would be the same button doing two jobs.
+   */
+  const defaults = DEFAULT_TEMPLATES.map((original) => byId.get(original.id) ?? original);
+  const defaultIds = new Set(DEFAULT_TEMPLATES.map((t) => t.id));
+  const mine = current.filter((t) => !defaultIds.has(t.id));
+  return [...defaults, ...mine];
 }
 /** How many panes each shape produces, so a template knows how many commands it needs. */
 export function panesFor(shape: LayoutShape): number {

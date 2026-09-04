@@ -202,6 +202,15 @@ const OPEN_TABS_KEY = 'tabterm.openWorkspaces';
  */
 let startupSettled: Promise<void> = Promise.resolve();
 
+/**
+ * Workspaces to keep claiming as open even though no tab shows them yet.
+ *
+ * Held only between the extension starting and its tabs being put back. In that gap the truthful
+ * answer and the useful one differ: the tabs are genuinely gone, and saying so ends the shells in
+ * them thirty seconds later, for a reload nobody asked to be destructive.
+ */
+let claimedWhileStarting: string[] = [];
+
 async function reportOpenTabs(): Promise<void> {
   try {
     await startupSettled;
@@ -212,7 +221,7 @@ async function reportOpenTabs(): Promise<void> {
       .filter((id): id is string => id !== null && id !== '');
     // Kept as well as sent, so the tabs can be put back after a reload. See `reopenAfterReload`.
     await chrome.storage.local.set({ [OPEN_TABS_KEY]: workspaceIds });
-    await chrome.runtime.sendMessage({ t: 'tabterm:tabs-open', workspaceIds });
+    await sendTabsOpen([...new Set([...workspaceIds, ...claimedWhileStarting])]);
   } catch {
     /**
      * Silent, and safe when it fails.
@@ -221,6 +230,33 @@ async function reportOpenTabs(): Promise<void> {
      * told me", and both of those keep the terminal. The failure direction is never towards
      * ending one.
      */
+  }
+}
+
+/**
+ * Sent until it is actually taken, rather than once into whatever is listening.
+ *
+ * The offscreen document is what holds the connection to the daemon, and right after the
+ * extension starts it may not exist yet or may not have connected. `sendMessage` then throws, or
+ * lands somewhere with no connection to forward it, and the report is simply lost. The next one
+ * was two minutes later, which is four times longer than the fastest rule that ends a terminal:
+ * a report system whose retry is slower than the thing it protects against.
+ */
+async function sendTabsOpen(workspaceIds: readonly string[]): Promise<void> {
+  // The document that forwards it may not exist yet, and asking for it is what creates it.
+  await ensureOffscreen().catch(() => undefined);
+  for (const wait of [0, 250, 750, 2000, 5000]) {
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    try {
+      const reply: unknown = await chrome.runtime.sendMessage({
+        t: 'tabterm:tabs-open',
+        workspaceIds,
+      });
+      // The offscreen document answers only once it has a connection to send it on.
+      if (typeof reply === 'object' && reply !== null && (reply as { sent?: boolean }).sent) return;
+    } catch {
+      /* No receiver yet. That is what the next attempt is for. */
+    }
   }
 }
 
@@ -255,6 +291,18 @@ async function reopenAfterReload(): Promise<void> {
     const wanted: unknown = stored[OPEN_TABS_KEY];
     if (!Array.isArray(wanted) || wanted.length === 0) return;
 
+    /**
+     * Claimed before a single tab is created, which is the half that keeps the terminals.
+     *
+     * Putting the tabs back was written as the whole answer to a reload, and it is not: between
+     * Chrome destroying them and this function finishing, the daemon is told the truth, that no
+     * tab shows these workspaces, and an untouched pane is ended thirty seconds later. Five of
+     * them went that way in one second on 2026-09-04. Saying so first costs nothing if the
+     * reopen works, and saves the shells if it does not.
+     */
+    claimedWhileStarting = wanted.filter((id): id is string => typeof id === 'string');
+    void sendTabsOpen(claimedWhileStarting);
+
     const base = chrome.runtime.getURL('terminal.html');
     const open = await chrome.tabs.query({ url: `${base}*` });
     const already = new Set(
@@ -266,10 +314,34 @@ async function reopenAfterReload(): Promise<void> {
       // a reload is not a request to be taken somewhere.
       await chrome.tabs.create({ url: `${base}?workspace=${id}`, active: false });
     }
+
+    /**
+     * The claim is given up once the tabs it stood in for exist, and never held indefinitely.
+     *
+     * A claim that outlived its purpose would keep every workspace it named alive forever,
+     * including ones somebody then closed on purpose, which is the opposite failure and just as
+     * wrong. The grace exists for the case where a tab could not be recreated at all: the
+     * session is then listed on the start screen, and a couple of minutes is enough to notice.
+     */
+    const back = await chrome.tabs.query({ url: `${base}*` });
+    const shown = new Set(
+      back.map((t) => new URL(t.url ?? '').searchParams.get('workspace')).filter(Boolean),
+    );
+    const stillMissing = claimedWhileStarting.filter((id) => !shown.has(id));
+    claimedWhileStarting = stillMissing;
+    if (stillMissing.length > 0) {
+      setTimeout(() => {
+        claimedWhileStarting = [];
+        void reportOpenTabs();
+      }, CLAIM_GRACE_MS);
+    }
   } catch {
     /* A tab that could not be reopened is still reachable from the start screen. */
   }
 }
+
+/** How long a workspace nobody could put a tab back for is still claimed as open. */
+const CLAIM_GRACE_MS = 120_000;
 
 chrome.tabs.onRemoved.addListener(() => void reportOpenTabs());
 chrome.tabs.onCreated.addListener(() => void reportOpenTabs());
@@ -619,17 +691,18 @@ chrome.runtime.onStartup.addListener(() => void ensureOffscreen());
  * Chrome's shortcuts, forwarded to whichever terminal is in front.
  *
  * A command fires here, in the worker, and not in the page, so anything that acts on a terminal
- * has to be relayed. That is worth doing because it is the only way an in-page action can have a
- * shortcut somebody can **change**: `chrome://extensions/shortcuts` is the one place Chrome lets
- * a person rebind anything, and a key the page listens for itself can never appear there.
+ * has to be relayed.
  *
- * Three of these used to be the same command with three bindings, which spent the whole budget
- * of rebindable shortcuts on one action.
+ * Only what is worth being global. Splitting a pane and opening the command menu were declared
+ * here too, which put them in `chrome://extensions/shortcuts` as keys that apply to the whole
+ * browser: three rows about panes, offered while reading mail, for a window that may hold no
+ * terminal at all. They belong to a terminal, so they are bound inside one, on the settings
+ * panel's Keyboard shortcuts, where they can also be changed without leaving the product.
+ *
+ * Launching an agent stays, because it is the one that makes sense from anywhere: it opens a tab
+ * rather than acting on one.
  */
 const FORWARDED: Record<string, string> = {
-  'open-command-menu': 'tabterm:open-command-menu',
-  'split-right': 'tabterm:split-right',
-  'split-down': 'tabterm:split-down',
   'launch-agent': 'tabterm:launch-agent',
 };
 

@@ -1,3 +1,4 @@
+import type { Terminal } from '@xterm/xterm';
 import type {
   LayoutNode,
   MergeableSession,
@@ -40,13 +41,17 @@ import {
 import {
   DEFAULT_PAGE_SHORTCUTS,
   describeKeys,
+  actionIdFrom,
+  actionShortcutId,
   loadShortcuts,
+  prettyKeys,
   saveShortcuts,
   whyNot,
   type PageShortcut,
 } from './page-shortcuts.js';
 import {
   alteredDefaults,
+  defaultsOutOfOrder,
   loadTemplates,
   saveTemplates,
   withDefaultsRestored,
@@ -152,6 +157,48 @@ let pageShortcuts: PageShortcut[] = [];
 let knownTemplates: readonly LayoutTemplate[] = [];
 
 /**
+ * Read the bindings again, now that what can be bound may have changed.
+ *
+ * The list is the shipped shortcuts plus one row per action somebody made, so it has to be
+ * rebuilt whenever the actions change as well as whenever the keys do.
+ */
+async function refreshShortcuts(): Promise<void> {
+  pageShortcuts = await loadShortcuts(customActions.map((a) => ({ id: a.id, name: a.name })));
+  commandPanel?.refreshSettings();
+  palette?.setActions(paletteActions());
+}
+
+/**
+ * Actions, shortcuts and templates are one setting shared by every tab, so every tab follows.
+ *
+ * Making an action in one tab and finding it missing in the one beside it is the kind of thing
+ * that reads as the product having lost it. Storage tells us what changed, which is cheaper than
+ * re-reading everything and is also the only way to know that another tab is what changed it.
+ */
+function watchSharedSettings(): void {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if ('tabterm.actions' in changes) {
+      void loadActions().then(async (actions) => {
+        customActions = actions;
+        await refreshShortcuts();
+        commandPanel?.render();
+      });
+      return;
+    }
+    if ('tabterm.pageShortcuts' in changes) void refreshShortcuts();
+    if ('tabterm.templates' in changes) {
+      void loadTemplates().then((templates) => {
+        knownTemplates = templates;
+        launcher?.setTemplates(templates);
+        alteredTemplateCount = countToRestore(templates);
+        commandPanel?.refreshSettings();
+      });
+    }
+  });
+}
+
+/**
  * What a custom action does when it is chosen.
  *
  * Two kinds, and each is expressed in terms of something the product already does rather than in
@@ -165,6 +212,29 @@ let knownTemplates: readonly LayoutTemplate[] = [];
  * that differs. Two dialogs for two kinds of saved thing would drift, and somebody who has made
  * a template already knows how this works.
  */
+/** Open the form for one somebody made. Both the palette and the command panel call this. */
+function editAction(id: string): void {
+  const action = customActions.find((a) => a.id === id);
+  if (action) showActionForm(action);
+}
+
+/**
+ * Delete one, and the key bound to it with it.
+ *
+ * Leaving the binding behind would leave a combination claimed by something that no longer
+ * exists, which blocks it for everything else and does nothing when pressed.
+ */
+function deleteAction(id: string): void {
+  void (async () => {
+    customActions = customActions.filter((a) => a.id !== id);
+    await saveActions(customActions);
+    pageShortcuts = pageShortcuts.filter((k) => k.id !== actionShortcutId(id));
+    await saveShortcuts(pageShortcuts);
+    await refreshShortcuts();
+    commandPanel?.render();
+  })();
+}
+
 function showActionForm(existing?: CustomAction): void {
   document.querySelector('.template-backdrop')?.remove();
 
@@ -240,7 +310,72 @@ function showActionForm(existing?: CustomAction): void {
   kind.addEventListener('change', showRelevant);
   showRelevant();
 
-  form.append(name, description, kind, command, where, template);
+  /**
+   * The key this action answers to, bound here as well as in the settings panel.
+   *
+   * Here because this is where somebody is already thinking about the action, and there because
+   * that is where every other key lives and where you look when you have forgotten one. Both
+   * write to the same store, so neither is a second copy of the truth.
+   */
+  const shortcutRow = document.createElement('div');
+  shortcutRow.className = 'template-shortcut';
+  const shortcutLabel = document.createElement('span');
+  shortcutLabel.className = 'set-label';
+  shortcutLabel.textContent = 'Shortcut';
+  const shortcutButton = document.createElement('button');
+  shortcutButton.className = 'launcher-chip';
+  const idForKeys = actionShortcutId(existing?.id ?? '');
+  let chosenKeys = existing ? (pageShortcuts.find((k) => k.id === idForKeys)?.keys ?? '') : '';
+  const problem = document.createElement('span');
+  problem.className = 'set-desc set-key-problem';
+  const drawKeys = (): void => {
+    shortcutButton.textContent = prettyKeys(chosenKeys);
+  };
+  drawKeys();
+  shortcutButton.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (shortcutButton.dataset['recording'] === 'yes') return;
+    shortcutButton.dataset['recording'] = 'yes';
+    shortcutButton.textContent = 'Press the keys, or Escape to leave it';
+    problem.textContent = '';
+    const onKey = (event: KeyboardEvent): void => {
+      event.preventDefault();
+      event.stopPropagation();
+      // A modifier on its own is somebody still reaching for the rest of the combination.
+      if (['Shift', 'Meta', 'Control', 'Alt'].includes(event.key)) return;
+      document.removeEventListener('keydown', onKey, true);
+      delete shortcutButton.dataset['recording'];
+      if (event.key === 'Escape') {
+        drawKeys();
+        return;
+      }
+      if (event.key === 'Backspace' || event.key === 'Delete') {
+        chosenKeys = '';
+        drawKeys();
+        return;
+      }
+      const pressed = describeKeys(event);
+      const refused = whyNot(pressed);
+      if (refused !== null) {
+        problem.textContent = refused;
+        drawKeys();
+        return;
+      }
+      const clash = pageShortcuts.find((k) => k.id !== idForKeys && k.keys === pressed);
+      if (clash) {
+        problem.textContent = `Already used by "${clash.title}".`;
+        drawKeys();
+        return;
+      }
+      chosenKeys = pressed;
+      problem.textContent = '';
+      drawKeys();
+    };
+    document.addEventListener('keydown', onKey, true);
+  });
+  shortcutRow.append(shortcutLabel, shortcutButton, problem);
+
+  form.append(name, description, kind, command, where, template, shortcutRow);
 
   const row = document.createElement('div');
   row.className = 'template-actions';
@@ -290,7 +425,17 @@ function showActionForm(existing?: CustomAction): void {
           ? customActions.map((a) => (a.id === next.id ? next : a))
           : [...customActions, next];
       await saveActions(customActions);
-      palette?.setActions(paletteActions());
+      // The binding, under this action's id. A new action has none until it has an id, which is
+      // why this is written after the action itself rather than while the form is open.
+      const bindingId = actionShortcutId(next.id);
+      const withoutOld = pageShortcuts.filter((k) => k.id !== bindingId);
+      pageShortcuts =
+        chosenKeys === ''
+          ? withoutOld
+          : [...withoutOld, { id: bindingId, title: next.name, keys: chosenKeys }];
+      await saveShortcuts(pageShortcuts);
+      await refreshShortcuts();
+      commandPanel?.render();
       close();
     })();
   });
@@ -383,6 +528,18 @@ function takePendingCommand(): string | null {
 }
 /** How many shipped templates have been deleted or changed, so settings can offer to restore. */
 let alteredTemplateCount = 0;
+
+/**
+ * How many shipped templates are not as they shipped, order included.
+ *
+ * Order counts because the first four carry Control and a number, so a list in a different order
+ * is a different set of keys. Dragging them around is a deliberate act and this only offers to
+ * put them back; it never does it on its own.
+ */
+function countToRestore(current: readonly LayoutTemplate[]): number {
+  const altered = alteredDefaults(current).length;
+  return altered > 0 ? altered : defaultsOutOfOrder(current) ? 1 : 0;
+}
 
 /**
  * Per-pane timing, driven entirely by discrete events from the daemon.
@@ -1607,17 +1764,8 @@ function buildLauncher(): void {
     onPinSaved: (id, pinned) => client?.send({ t: 'pin-saved', id, pinned }),
     onUseSaved: (id) => client?.send({ t: 'use-saved', id }),
     onDeleteSaved: (id) => client?.send({ t: 'delete-saved', id }),
-    onEditAction: (id) => {
-      const action = customActions.find((a) => a.id === id);
-      if (action) showActionForm(action);
-    },
-    onDeleteAction: (id) => {
-      void (async () => {
-        customActions = customActions.filter((a) => a.id !== id);
-        await saveActions(customActions);
-        palette?.setActions(paletteActions());
-      })();
-    },
+    onEditAction: editAction,
+    onDeleteAction: deleteAction,
     onMerge: (sessionId) => {
       const targetPaneId = splitView?.focused;
       if (!targetPaneId || !workspaceId) return;
@@ -1850,14 +1998,34 @@ function growStripToFit(): void {
   }
 
   /**
-   * And the prompt is at the bottom, once the writing has finished.
+   * And the line being typed is in view once the writing has finished.
    *
-   * Scrolling immediately was not enough: xterm parses what it is given on its own schedule, so
-   * a scroll issued in the same turn as the write happens before the content has landed. After a
-   * reload, when the whole screen arrives at once, that left the box looking empty.
+   * **The cursor, not the bottom of the buffer.** Those are the same place while somebody is
+   * typing and are not after a reload: the screen that comes back is the session's whole 24 row
+   * screen, with the prompt on the first line and blank lines under it, so scrolling to the
+   * bottom of it showed two of those blank lines. That is the box that looked empty and was
+   * reported three times as "the prompt is gone": it was there, two rows above the window.
+   *
+   * Deferred, because xterm parses what it is given on its own schedule, so a scroll issued in
+   * the same turn as the write happens before the content has landed. Coalesced, because this
+   * runs on every chunk and a scroll per chunk is a scroll per keystroke.
    */
   clearTimeout(stripScrollTimer);
-  stripScrollTimer = setTimeout(() => term.scrollToBottom(), 40);
+  stripScrollTimer = setTimeout(() => showCursorRow(term), 40);
+}
+
+/**
+ * Scroll so the row the cursor is on is the last one in view.
+ *
+ * `scrollToBottom` is the bottom of the buffer, which is only the same thing when nothing is
+ * below the cursor. A restored screen has blank rows below it, and a two row viewport onto the
+ * bottom of that shows nothing at all.
+ */
+function showCursorRow(term: Terminal): void {
+  const buffer = term.buffer.active;
+  const cursorLine = buffer.baseY + buffer.cursorY;
+  const top = Math.max(0, cursorLine - (term.rows - 1));
+  term.scrollToLine(top);
 }
 
 /**
@@ -2154,18 +2322,29 @@ function paletteActions(): PaletteAction[] {
     const shortcut = boundShortcuts[command];
     return shortcut ? { hint: shortcut } : {};
   };
+  /**
+   * The key this page answers to for an action, which is a different thing from Chrome's.
+   *
+   * Chrome's are browser-wide and live in its own settings screen. These are the page's own and
+   * live in the settings panel. Reading both onto the row means one place to look for "what
+   * runs this", whichever half it came from.
+   */
+  const pageKey = (id: string): { keys: string } | Record<string, never> => {
+    const bound = pageShortcuts.find((k) => k.id === id)?.keys ?? '';
+    return bound === '' ? {} : { keys: prettyKeys(bound) };
+  };
 
   const actions: PaletteAction[] = [
     {
       id: 'split-right',
       title: 'Split right',
-      ...key('split-right'),
+      ...pageKey('split-right'),
       run: () => splitFocused('horizontal'),
     },
     {
       id: 'split-down',
       title: 'Split down',
-      ...key('split-down'),
+      ...pageKey('split-down'),
       run: () => splitFocused('vertical'),
     },
     {
@@ -2198,7 +2377,12 @@ function paletteActions(): PaletteAction[] {
    * hint on the first of them, `Esc restores`, was describing a mode you had not entered yet.
    */
   if (paneCount > 1) {
-    actions.push({ id: 'close-pane', title: 'Close this pane', run: () => closeFocused() });
+    actions.push({
+      id: 'close-pane',
+      title: 'Close this pane',
+      ...pageKey('close-pane'),
+      run: () => closeFocused(),
+    });
   }
   actions.push({
     id: 'merge',
@@ -2239,6 +2423,7 @@ function paletteActions(): PaletteAction[] {
       group: 'custom',
       title: custom.name,
       hint: describeAction(custom, knownTemplates),
+      ...pageKey(actionShortcutId(custom.id)),
       run: () => runCustomAction(custom),
     });
   }
@@ -2248,14 +2433,16 @@ function paletteActions(): PaletteAction[] {
       id: 'new-action',
       group: 'manage',
       title: 'Make an action',
-      hint: 'a command to run, or a template to open',
+      // Says what one is for, because "make an action" describes the button and not the point
+      // of it. An action is a command or a template with a name and, if you want, a key.
+      hint: 'name a command or a template, then give it a key',
       run: () => showActionForm(),
     },
     {
       id: 'shortcuts',
       group: 'manage',
       title: 'Change keyboard shortcuts',
-      hint: 'chrome://extensions/shortcuts',
+      hint: "Chrome's own, for opening a terminal from anywhere",
       // Not one of the actions: it goes somewhere rather than doing something here.
       kind: 'link',
       run: () => {
@@ -2348,6 +2535,8 @@ function buildCommandPanel(): void {
       void chrome.storage.local.set({ 'tabterm.panel': placement });
     },
     actions: () => paletteActions(),
+    onEditAction: editAction,
+    onDeleteAction: deleteAction,
     settings: () =>
       buildSettings({
         onChangeTheme: applyTheme,
@@ -2381,7 +2570,7 @@ function buildCommandPanel(): void {
             const next = withDefaultsRestored(existing);
             await saveTemplates(next);
             launcher?.setTemplates(next);
-            alteredTemplateCount = alteredDefaults(next).length;
+            alteredTemplateCount = countToRestore(next);
             commandPanel?.refreshSettings();
             setStatus('Default templates restored', 'ok');
             setTimeout(() => setStatus('', 'hidden'), 2500);
@@ -2475,23 +2664,15 @@ function watchTheme(): void {
 /**
  * Shortcuts Chrome owns, relayed here by the worker.
  *
- * The only shortcuts a person can rebind are the ones declared in the manifest, and those fire
- * in the worker rather than in a page. So an in-page action that wants a changeable key has to
- * be reachable this way. Everything here is also reachable from the command menu, which is what
- * it falls back to when no key is bound.
+ * One, now. Splitting a pane and opening the command menu were declared to Chrome as well, which
+ * made them browser-wide keys listed in `chrome://extensions/shortcuts` alongside "open a
+ * terminal": rows about panes, offered in every window, including windows with no terminal in
+ * them. They are page shortcuts now, bound in the settings panel, which is also the only place
+ * they can be changed without leaving the product. See `page-shortcuts.ts`.
  */
 function installForwardedCommands(): void {
   chrome.runtime.onMessage.addListener((msg: { t?: string }) => {
     switch (msg.t ?? '') {
-      case 'tabterm:open-command-menu':
-        commandPanel?.open();
-        return;
-      case 'tabterm:split-right':
-        splitFocused('horizontal');
-        return;
-      case 'tabterm:split-down':
-        splitFocused('vertical');
-        return;
       case 'tabterm:launch-agent':
         launchAgent('split');
         return;
@@ -2538,8 +2719,13 @@ function runPageShortcut(id: string, e: KeyboardEvent): void {
     case 'palette':
       palette?.open();
       return;
-    default:
+    default: {
+      // A key bound to an action somebody made. The id carries which one. See `page-shortcuts`.
+      const actionId = actionIdFrom(id);
+      const action = actionId ? customActions.find((a) => a.id === actionId) : undefined;
+      if (action) runCustomAction(action);
       return;
+    }
   }
 }
 
@@ -2834,7 +3020,7 @@ function onControl(msg: ServerMessage): void {
       void loadTemplates().then((saved) => {
         launcher?.setTemplates(saved);
         knownTemplates = saved;
-        alteredTemplateCount = alteredDefaults(saved).length;
+        alteredTemplateCount = countToRestore(saved);
         palette?.setActions(paletteActions());
       });
       void loadActions().then((saved) => {
@@ -3155,6 +3341,8 @@ declare global {
   interface Window {
     __tabterm?: {
       readScreen: (paneId?: string) => string;
+      /** Only what is on screen right now, which the strip makes a different question. */
+      readViewport: (paneId?: string) => string;
       /** What the daemon last said about how long a tabless terminal is kept. */
       keepAlive: () => number | null | undefined;
       /**
@@ -3340,6 +3528,25 @@ function installTestHook(): void {
       }
       return runs;
     },
+    /**
+     * Only the rows actually on screen, which is a different question from what is in the buffer.
+     *
+     * The start screen leaves the terminal two rows tall, and "the prompt is missing" has always
+     * meant it was out of view rather than gone. Reading the whole buffer cannot tell those
+     * apart, which is why the defect survived being checked twice.
+     */
+    readViewport: (paneId) => {
+      const target = paneId ?? splitView?.focused ?? panesHost?.all[0]?.paneId;
+      const pane = target ? panesHost?.get(target) : undefined;
+      if (!pane) return '';
+      const term = pane.controller.term;
+      const buf = term.buffer.active;
+      const lines: string[] = [];
+      for (let y = buf.viewportY; y < buf.viewportY + term.rows; y++) {
+        lines.push(buf.getLine(y)?.translateToString(true) ?? '');
+      }
+      return lines.join('\n');
+    },
     readScreen: (paneId) => {
       const target = paneId ?? splitView?.focused ?? panesHost?.all[0]?.paneId;
       const pane = target ? panesHost?.get(target) : undefined;
@@ -3443,9 +3650,8 @@ async function start(): Promise<void> {
    * pressed anything.
    */
   pageShortcuts = [...DEFAULT_PAGE_SHORTCUTS];
-  void loadShortcuts().then((stored) => {
-    pageShortcuts = stored;
-  });
+  void refreshShortcuts();
+  watchSharedSettings();
   installShortcuts();
   installForwardedCommands();
   // Asked once at startup, so the palette's hints describe the keys Chrome really has.
