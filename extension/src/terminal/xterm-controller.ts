@@ -121,6 +121,22 @@ export class XtermController {
     this.#tryWebgl();
 
     this.term.onData(opts.onData);
+    /**
+     * The other half of what the terminal has to say back.
+     *
+     * xterm answers some queries through `onBinary` rather than `onData`: a reply that must go
+     * as raw bytes rather than as text. Only `onData` was wired, so those answers were dropped,
+     * and a program that asks the terminal something and waits for the answer waits forever.
+     * From the outside that is a shell that has stopped responding for no visible reason.
+     *
+     * The bytes are already one per character here, which is what `binary` means in this one
+     * direction: xterm has produced a string whose code units are the bytes it wants sent.
+     */
+    this.term.onBinary((data) => {
+      let out = '';
+      for (let i = 0; i < data.length; i++) out += String.fromCharCode(data.charCodeAt(i) & 0xff);
+      opts.onData(out);
+    });
     this.term.onResize(({ cols, rows }) => opts.onResize(cols, rows));
     this.#installKeyboard();
     this.#installContextMenu();

@@ -376,7 +376,20 @@ export class PtyHost {
   }
 
   #wire(live: Live): void {
-    live.handle.pty.onData((chunk) => this.#emit(live, Buffer.from(chunk, 'binary')));
+    /**
+     * UTF-8, because that is what node-pty decoded it from.
+     *
+     * This was `'binary'`, which is Latin-1: it keeps the low byte of every code unit and throws
+     * the rest away. Every character above U+00FF came out as rubbish, and the rubbish was
+     * specific enough to identify on sight. A box drawn with `╭─╮ │ ╰╯` arrived as `m`, nothing,
+     * `n`, nothing, `p`, `o`, because those are the low bytes of U+256D, U+2500, U+256E, U+2502,
+     * U+2570 and U+256F. Claude Code's `✻` became `;` for the same reason, U+273B.
+     *
+     * So no terminal user interface has ever drawn correctly through the PTY host, and no accent
+     * or emoji has ever survived it. It went unseen because the local backend, which the browser
+     * suites used until the host's socket path was fixed, has always encoded this correctly.
+     */
+    live.handle.pty.onData((chunk) => this.#emit(live, Buffer.from(chunk, 'utf8')));
 
     live.handle.pty.onExit(({ exitCode, signal }) => {
       live.exited = { exitCode, ...(signal !== undefined ? { signal } : {}) };

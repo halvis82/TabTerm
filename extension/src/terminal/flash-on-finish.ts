@@ -70,9 +70,15 @@ export class TabFlasher {
     this.#timer = window.setInterval(() => {
       this.#phase++;
       this.#paint(this.#phase % 2 === 0);
-      // Brisk. At 650ms it read as a slow pulse rather than as something wanting attention, and
-      // a hidden tab's throttling stretches whatever is chosen here anyway.
-    }, 420);
+      /**
+       * Brisk, and then brisker.
+       *
+       * 650ms read as a slow pulse rather than as something wanting attention. 420 was still
+       * too slow to catch out of the corner of an eye, so this is 40 per cent faster again. A
+       * hidden tab's throttling stretches whatever is chosen here, which is a reason to ask for
+       * a shorter interval rather than a longer one.
+       */
+    }, 250);
 
     const seen = (): void => this.stop();
     const events: [target: EventTarget, name: string][] = [
