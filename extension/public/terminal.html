@@ -1042,6 +1042,31 @@
     align-self: flex-start;
   }
   /* The two that cannot be taken back say so before they are pressed. */
+  /* One row per shortcut: what it does, the keys, and why a choice was refused. */
+  .set-keys {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .set-key-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 8px 10px;
+  }
+  .cmd-button.set-key {
+    min-width: 96px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .cmd-button.set-key[data-recording='yes'] {
+    border-color: #7aa2f7;
+    color: #9ec5ff;
+  }
+  .set-key-problem {
+    grid-column: 1 / -1;
+    color: #e8c26a;
+  }
   .set-danger-row {
     display: flex;
     flex-wrap: wrap;

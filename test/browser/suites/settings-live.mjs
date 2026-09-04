@@ -167,6 +167,30 @@ r.ok(
 await setNotify(wasOn);
 
 /**
+ * The shortcuts this page handles, which Chrome's own settings screen can never show.
+ *
+ * They were a switch on particular keys, so the only way to change one was to edit the product,
+ * and the command menu described them from a second hand-written list that had already drifted.
+ */
+const shortcutRows = JSON.parse(
+  await evaluate(
+    a.client,
+    `JSON.stringify([...document.querySelectorAll('.set-key-row')].map((r) => r.textContent))`,
+  ),
+);
+r.ok(
+  'the page offers its own shortcuts for rebinding',
+  shortcutRows.some((t) => t.includes('Split down')) &&
+    shortcutRows.some((t) => t.includes('Open the command menu')),
+  JSON.stringify(shortcutRows.slice(0, 3)),
+);
+r.ok(
+  'and shows the keys as keys',
+  shortcutRows.some((t) => /[⌘⌥⇧⌃]/.test(t)),
+  JSON.stringify(shortcutRows.slice(0, 2)),
+);
+
+/**
  * Starting over, which asks before it acts.
  *
  * A button that does something irreversible on its first press is the wrong shape for an answer

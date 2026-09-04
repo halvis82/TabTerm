@@ -1,4 +1,5 @@
 import { THEME_CHOICES } from '../terminal/themes.js';
+import { describeKeys, prettyKeys } from '../terminal/page-shortcuts.js';
 import type { AgentHooksStatus, NotifyPolicy, ShellIntegrationStatus } from '@tabterm/shared';
 /**
  * Settings, reached from the gear in the panel's footer.
@@ -25,6 +26,9 @@ export interface SettingsOptions {
   backgroundTimeout: () => number | null | undefined;
   onChangeBackgroundTimeout: (seconds: number | null) => void;
   /** Templates that have been deleted or changed since they shipped, if any. */
+  /** The keys this page answers to, and a way to change one. */
+  pageShortcuts: () => readonly { id: string; title: string; keys: string }[];
+  onRebind: (id: string, keys: string) => string | null;
   alteredTemplates: () => number;
   onRestoreTemplates: () => void;
   onRestoreSettings: () => void;
@@ -214,6 +218,65 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
 
   // --- Shortcuts ----------------------------------------------------------
   const keys = section('Keyboard shortcuts');
+
+  /**
+   * The ones this page handles, which Chrome's settings screen can never show.
+   *
+   * Chrome only lets a person rebind what an extension declares as a command, and a command
+   * fires in the worker rather than in a page, so anything acting on a pane has to be handled
+   * here and therefore chosen here.
+   */
+  const mine = document.createElement('div');
+  mine.className = 'set-keys';
+  for (const shortcut of options.pageShortcuts()) {
+    const row = document.createElement('div');
+    row.className = 'set-key-row';
+    const label = document.createElement('span');
+    label.className = 'set-label';
+    label.textContent = shortcut.title;
+
+    const button = document.createElement('button');
+    button.className = 'cmd-button set-key';
+    button.textContent = prettyKeys(shortcut.keys);
+
+    const problem = document.createElement('span');
+    problem.className = 'set-desc set-key-problem';
+
+    button.addEventListener('click', () => {
+      if (button.dataset['recording'] === 'yes') return;
+      button.dataset['recording'] = 'yes';
+      button.textContent = 'Press the keys, or Escape to leave it';
+      problem.textContent = '';
+
+      const onKey = (e: KeyboardEvent): void => {
+        e.preventDefault();
+        e.stopPropagation();
+        // A modifier on its own is somebody still reaching for the rest of the combination.
+        if (['Shift', 'Meta', 'Control', 'Alt'].includes(e.key)) return;
+        document.removeEventListener('keydown', onKey, true);
+        delete button.dataset['recording'];
+
+        if (e.key === 'Escape') {
+          button.textContent = prettyKeys(shortcut.keys);
+          return;
+        }
+        const keys = describeKeys(e);
+        const refused = options.onRebind(shortcut.id, keys);
+        if (refused === null) {
+          button.textContent = prettyKeys(keys);
+          problem.textContent = '';
+          return;
+        }
+        button.textContent = prettyKeys(shortcut.keys);
+        problem.textContent = refused;
+      };
+      document.addEventListener('keydown', onKey, true);
+    });
+
+    row.append(label, button, problem);
+    mine.append(row);
+  }
+  keys.append(mine);
   const list = document.createElement('div');
   list.className = 'cmd-keys';
   for (const [combo, does] of PAGE_KEYS) {

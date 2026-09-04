@@ -38,6 +38,13 @@ import {
   type CustomAction,
 } from '../launcher/custom-actions.js';
 import {
+  describeKeys,
+  loadShortcuts,
+  saveShortcuts,
+  whyNot,
+  type PageShortcut,
+} from './page-shortcuts.js';
+import {
   alteredDefaults,
   loadTemplates,
   saveTemplates,
@@ -138,6 +145,8 @@ let pendingTemplate: LayoutTemplate | null = null;
 let liveElsewhere: readonly LiveSession[] = [];
 /** Actions somebody made, which sit in the command menu beside the ones that ship. */
 let customActions: CustomAction[] = [];
+/** The keys this page answers to, which are settings rather than facts about the code. */
+let pageShortcuts: PageShortcut[] = [];
 /** Kept so an action naming a template can say which one, without a lookup per keystroke. */
 let knownTemplates: readonly LayoutTemplate[] = [];
 
@@ -2152,6 +2161,23 @@ function buildCommandPanel(): void {
         backgroundTimeout: () => backgroundTimeout,
         onChangeBackgroundTimeout: (seconds) =>
           client?.send({ t: 'set-background-timeout', seconds }),
+        pageShortcuts: () => pageShortcuts,
+        onRebind: (id, keys) => {
+          /**
+           * Refused before it is stored, with the reason.
+           *
+           * A key Chrome has claimed never arrives here: the page is not asked and nothing
+           * fires. Somebody who bound Command W to closing a pane would watch their tab close
+           * and reasonably conclude the product was broken.
+           */
+          const refused = whyNot(keys);
+          if (refused !== null) return refused;
+          const clash = pageShortcuts.find((s) => s.id !== id && s.keys === keys);
+          if (clash) return `Already used by "${clash.title}".`;
+          pageShortcuts = pageShortcuts.map((s) => (s.id === id ? { ...s, keys } : s));
+          void saveShortcuts(pageShortcuts);
+          return null;
+        },
         alteredTemplates: () => alteredTemplateCount,
         onRestoreTemplates: () => {
           void loadTemplates().then(async (existing) => {
@@ -2278,6 +2304,48 @@ function installForwardedCommands(): void {
   });
 }
 
+/**
+ * What each in-page shortcut does, by id.
+ *
+ * Separated from the keys so that rebinding one is a change to a table of strings rather than a
+ * change to the code that acts. Escape and Command Z are not in it: neither is rebindable, one
+ * because leaving a mode has to be the key everything else uses for leaving a mode, and the
+ * other because it is only claimed while an undo is being offered.
+ */
+function runPageShortcut(id: string, e: KeyboardEvent): void {
+  switch (id) {
+    case 'command-menu':
+      commandPanel?.toggle();
+      return;
+    case 'split-right':
+      splitFocused('horizontal');
+      return;
+    case 'split-down':
+      splitFocused('vertical');
+      return;
+    case 'close-pane':
+      closeFocused();
+      return;
+    case 'detach-pane':
+      detachFocused();
+      return;
+    case 'launch-agent':
+      // Option as well puts it beside this pane rather than in a tab of its own.
+      launchAgent(e.altKey ? 'split' : 'new-tab');
+      return;
+    case 'clear-screen': {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
+      pane?.controller.clear();
+      return;
+    }
+    case 'palette':
+      palette?.open();
+      return;
+    default:
+      return;
+  }
+}
+
 function installShortcuts(): void {
   window.addEventListener(
     'keydown',
@@ -2295,63 +2363,20 @@ function installShortcuts(): void {
         e.preventDefault();
         return;
       }
-      // Command+K toggles the command panel. Chrome does not reserve it and no shell needs it.
-      if (e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
-        commandPanel?.toggle();
-        e.preventDefault();
-        return;
-      }
-      // Command+Shift only, so nothing here shadows a key the shell needs.
-      if (!e.metaKey || !e.shiftKey) return;
-      switch (e.key.toLowerCase()) {
-        case 'd':
-          splitFocused('horizontal');
-          e.preventDefault();
-          break;
-        case 'e':
-          splitFocused('vertical');
-          e.preventDefault();
-          break;
-        case 'w':
-          closeFocused();
-          e.preventDefault();
-          break;
-        case 'x':
-          detachFocused();
-          e.preventDefault();
-          break;
-        case 'p':
-          // The palette. It had Command+K until the command panel took that key, and a surface
-          // reachable only by mouse is not a command palette, so it moved here rather than
-          // sharing. Shift+Command+P is what every other editor uses for the same thing.
-          palette?.toggle();
-          e.preventDefault();
-          break;
-        case 'm':
-          client?.send({ t: 'list-mergeable', workspaceId });
-          palette?.openMerge();
-          e.preventDefault();
-          break;
-        case 'enter':
-          if (splitView?.focused) splitView.toggleMaximize(splitView.focused);
-          e.preventDefault();
-          break;
-        case 'a':
-          // Command+Shift+A opens an agent in a new tab, Option as well puts it in a split.
-          launchAgent(e.altKey ? 'split' : 'new-tab');
-          e.preventDefault();
-          break;
-        case 'f':
-          // Fullscreen focus mode, the only context where a page can receive Command+W.
-          if (splitView?.focused) {
-            if (splitView.inFocusMode) void splitView.exitFocusMode();
-            else void splitView.enterFocusMode(splitView.focused);
-          }
-          e.preventDefault();
-          break;
-        default:
-          break;
-      }
+
+      /**
+       * Everything else comes from the table, which is what makes it rebindable.
+       *
+       * These used to be a switch on particular keys, so the only way to change one was to edit
+       * the product, and the command menu described them from a second hand-written list that
+       * had already drifted: it said Command Shift D was split down while the key was bound to
+       * split right.
+       */
+      const pressed = describeKeys(e);
+      const match = pageShortcuts.find((s) => s.keys !== '' && s.keys === pressed);
+      if (!match) return;
+      runPageShortcut(match.id, e);
+      e.preventDefault();
     },
     { capture: true },
   );
@@ -3198,6 +3223,8 @@ async function start(): Promise<void> {
   buildCommandPanel();
   installTestHook();
   installModifierTracking();
+  // Read before the listener is installed, so the very first keystroke uses what is stored.
+  pageShortcuts = await loadShortcuts();
   installShortcuts();
   installForwardedCommands();
   // Asked once at startup, so the palette's hints describe the keys Chrome really has.
