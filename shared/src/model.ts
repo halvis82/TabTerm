@@ -39,6 +39,19 @@ export interface TitleFields {
   sshHost?: string;
   custom?: string;
   status?: string;
+  /**
+   * The four things a tab title is composed from, beyond where it is.
+   *
+   * Held as separate facts rather than as a finished string for the same reason as the rest of
+   * this type: the daemon never produces a display string, so a shell emitting a hostile title
+   * cannot put markup in a tab. See `docs/05-security.md`.
+   */
+  startScreen?: boolean;
+  paneCount?: number;
+  /** The template this layout came from, while it still matches it. */
+  template?: string;
+  /** The last command run here, whose first words are what a tab strip can show. */
+  lastCommand?: string;
 }
 
 export interface TerminalSession {

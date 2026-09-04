@@ -463,9 +463,34 @@ function setStatus(text: string, tone: 'ok' | 'warn' | 'error' | 'hidden'): void
 
 function refreshTitle(status?: string): void {
   const count = layout ? collectPanes(layout).length : 1;
+  /**
+   * The facts a title is made from, gathered here because this is where they are known.
+   *
+   * The composer is given what the tab holds rather than a string, so there is one rule for what
+   * a tab is called and it lives in one file.
+   */
+  const fields = {
+    ...titleFields,
+    paneCount: count,
+    ...(launcher && !launcher.dismissed ? { startScreen: true } : {}),
+    ...(openedTemplate && openedTemplatePanes === count ? { template: openedTemplate } : {}),
+    ...(lastCommandHere ? { lastCommand: lastCommandHere } : {}),
+  };
   // With several panes the interesting thing is what needs attention, not the pane count.
-  document.title = composeTitle(titleFields, status ?? titleStatus(paneStatus, count));
+  document.title = composeTitle(fields, status ?? titleStatus(paneStatus, count));
 }
+
+/**
+ * The template this tab was opened from, and how many panes it had.
+ *
+ * Both, because a layout stops being that template the moment a pane is closed: an arrangement
+ * of two is not the four-pane thing somebody opened, and calling it by that name would be a
+ * title that has quietly stopped being true.
+ */
+let openedTemplate: string | null = null;
+let openedTemplatePanes = 0;
+/** The last command run in this tab, whose first words are what a tab strip can show. */
+let lastCommandHere = '';
 
 /**
  * A way back from a clear, for a few seconds.
@@ -1302,6 +1327,10 @@ function buildLauncher(): void {
        * executed on click is how somebody deploys by mis-clicking a menu.
        */
       pendingTemplate = template;
+      // Remembered for the title, with the shape it had: an arrangement that has lost a pane is
+      // no longer this template, and should stop being called by its name.
+      openedTemplate = template.name;
+      openedTemplatePanes = template.panes;
       layoutRequestedHere = true;
       const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
       client?.send({
@@ -2112,6 +2141,7 @@ function paletteActions(): PaletteAction[] {
     actions.push({
       id: `custom-${custom.id}`,
       customId: custom.id,
+      group: 'custom',
       title: custom.name,
       hint: describeAction(custom, knownTemplates),
       run: () => runCustomAction(custom),
@@ -2121,12 +2151,14 @@ function paletteActions(): PaletteAction[] {
   actions.push(
     {
       id: 'new-action',
+      group: 'manage',
       title: 'Make an action',
-      hint: 'runs a command or opens a template',
+      hint: 'a command to run, or a template to open',
       run: () => showActionForm(),
     },
     {
       id: 'shortcuts',
+      group: 'manage',
       title: 'Change keyboard shortcuts',
       hint: 'chrome://extensions/shortcuts',
       // Not one of the actions: it goes somewhere rather than doing something here.
@@ -2584,6 +2616,9 @@ function onControl(msg: ServerMessage): void {
 
     case 'workspace-updated': {
       applyLayout(msg.layout);
+      // A pane opened or closed is exactly when a layout may stop being the template it came
+      // from, which is the one moment the title has to be worked out again.
+      refreshTitle();
       return;
     }
 
@@ -2859,6 +2894,9 @@ function onControl(msg: ServerMessage): void {
         const state = timeStateFor(pane.paneId);
         state.commandStartedAt = msg.startedAt;
         state.lastCommand = msg.command;
+        // The title says what is running here, so it changes when that does.
+        lastCommandHere = msg.command;
+        refreshTitle();
         paneStatus.set(pane.paneId, 'running');
         setFavicon(paneStatus.effective());
         startTimeTicking();

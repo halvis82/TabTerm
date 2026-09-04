@@ -35,6 +35,8 @@ export interface PaletteAction {
    * this tab. It opens a Chrome page, which is a different kind of answer.
    */
   kind?: 'action' | 'link';
+  /** Which group this belongs to. They answer different questions, so they are separated. */
+  group?: 'builtin' | 'custom' | 'manage';
   /**
    * Present on an action somebody made, which is what may be changed or removed.
    *
@@ -49,7 +51,9 @@ export type PaletteRow =
   | { kind: 'history'; entry: CommandEntry }
   | { kind: 'saved'; item: SavedItem }
   | { kind: 'merge'; session: MergeableSession }
-  | { kind: 'action'; action: PaletteAction };
+  | { kind: 'action'; action: PaletteAction }
+  /** A label, not a row: never selected, never run, never counted. */
+  | { kind: 'heading'; text: string };
 
 export interface PaletteOptions {
   root: HTMLElement;
@@ -76,6 +80,7 @@ export function rowText(row: PaletteRow): string {
   if (row.kind === 'history') return row.entry.command;
   if (row.kind === 'saved') return row.item.body;
   if (row.kind === 'action') return row.action.title;
+  if (row.kind === 'heading') return row.text;
   return row.session.cwd;
 }
 
@@ -240,12 +245,30 @@ export class Palette {
     this.#actions = actions;
   }
 
-  /** Actions matching the current query, which is what heads the list. */
+  /**
+   * Actions matching the current query, in their groups.
+   *
+   * A flat list put `Make an action` between two things that do something, looking exactly like
+   * them, and put the actions somebody had written among the ones that ship. Three groups, each
+   * with a heading, because they answer different questions: what can this do, what have I
+   * taught it, and how do I teach it something.
+   */
   #matchingActions(): PaletteRow[] {
     const query = this.#input.value.trim();
-    return this.#actions
-      .filter((action) => matchesAction(action.title, query))
-      .map((action) => ({ kind: 'action' as const, action }));
+    const matching = this.#actions.filter((action) => matchesAction(action.title, query));
+    const rows: PaletteRow[] = [];
+    const groups: [group: PaletteAction['group'], heading: string][] = [
+      ['builtin', 'What TabTerm can do'],
+      ['custom', 'Actions you made'],
+      ['manage', 'Make and change them'],
+    ];
+    for (const [group, heading] of groups) {
+      const inGroup = matching.filter((a) => (a.group ?? 'builtin') === group);
+      if (inGroup.length === 0) continue;
+      rows.push({ kind: 'heading', text: heading });
+      for (const action of inGroup) rows.push({ kind: 'action', action });
+    }
+    return rows;
   }
 
   setHistoryPage(page: {
@@ -293,6 +316,17 @@ export class Palette {
   setRows(rows: PaletteRow[]): void {
     this.#rows = rows;
     this.#selected = Math.min(this.#selected, Math.max(0, rows.length - 1));
+    /**
+     * Never resting on a heading.
+     *
+     * The first row is a heading whenever the list is grouped, and the selection resets to the
+     * first row whenever the rows change, so Enter would have activated a label and done
+     * nothing at all. A heading is not a thing that can be selected, in any direction.
+     */
+    while (this.#rows[this.#selected]?.kind === 'heading') {
+      if (this.#selected >= this.#rows.length - 1) break;
+      this.#selected++;
+    }
     this.#renderList();
   }
 
@@ -482,7 +516,25 @@ export class Palette {
 
   #moveTo(index: number): void {
     if (this.#rows.length === 0) return;
-    this.#selected = Math.min(this.#rows.length - 1, Math.max(0, index));
+    const wanted = Math.min(this.#rows.length - 1, Math.max(0, index));
+    /**
+     * A heading is stepped over, in whichever direction was being travelled.
+     *
+     * Arrow keys move between things you can do. Landing on a label and having to press again
+     * is the list making you deal with its own structure.
+     */
+    const forwards = wanted >= this.#selected;
+    let at = wanted;
+    while (this.#rows[at]?.kind === 'heading') {
+      at += forwards ? 1 : -1;
+      if (at < 0 || at >= this.#rows.length) {
+        // Off the end past a heading: turn round rather than sit on it.
+        at = forwards ? this.#rows.length - 1 : 0;
+        while (this.#rows[at]?.kind === 'heading') at += forwards ? -1 : 1;
+        break;
+      }
+    }
+    this.#selected = Math.min(this.#rows.length - 1, Math.max(0, at));
     this.#renderList();
     this.#list.children[this.#selected]?.scrollIntoView({ block: 'nearest' });
   }
@@ -518,6 +570,19 @@ export class Palette {
     const elements = this.#rows.map((row, i) => {
       const el = document.createElement('div');
       el.className = `palette-row${i === this.#selected ? ' selected' : ''}`;
+
+      /**
+       * A heading is a label, not a row.
+       *
+       * It carries no behavior at all: it is not selected, it is not run, and it has none of the
+       * controls the rows below it have. Returning here rather than guarding every branch keeps
+       * the difference in one place.
+       */
+      if (row.kind === 'heading') {
+        el.className = 'palette-heading';
+        el.textContent = row.text;
+        return el;
+      }
 
       const text = document.createElement('span');
       text.className = 'palette-command';
@@ -581,9 +646,24 @@ export class Palette {
       }
       el.append(meta);
 
-      // Clicking selects. It does not paste, run, or copy: that is what Enter is for. The
-      // buttons below are the exception, because each one names exactly what it does.
-      el.addEventListener('click', () => this.#select(i));
+      /**
+       * Clicking a command selects it; clicking an action does it.
+       *
+       * The reason for not running on a click is that a history row is text, and pasting or
+       * running somebody's old command because the pointer landed slightly wrong is a real cost.
+       * An action is not text: it is a button with a verb on it, and a button you have to select
+       * and then press Enter is a button that does not work. They are different things and they
+       * behave differently.
+       *
+       * Arrows still move through both, and Enter still runs the selected one, so the keyboard
+       * path is unchanged.
+       */
+      el.addEventListener('click', () => {
+        this.#select(i);
+        if (row.kind !== 'action') return;
+        this.close();
+        row.action.run();
+      });
 
       if (row.kind === 'history') {
         const run = document.createElement('button');

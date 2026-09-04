@@ -15,12 +15,59 @@ export function shortenPath(path: string): string {
   return path.replace(HOME, '~');
 }
 
+/**
+ * What a tab is called, in one place, from what the tab actually holds.
+ *
+ * A tab strip is read sideways at a glance, so the useful half of a title is the front of it.
+ * The rule is the same shape in every case: **what this is, then where it is**, and where is the
+ * folder's own name rather than a path, because a path puts the answer at the end of a string
+ * that has already been cut off.
+ *
+ *   the start screen          TabTerm
+ *   one terminal              npm test — eeg-analysis
+ *   an agent                  claude — eeg-analysis
+ *   a template                review — eeg-analysis
+ *   panes that match nothing  3 panes — eeg-analysis
+ */
 export function composeTitle(fields: TitleFields, status?: string): string {
-  const where = fields.repo ?? (fields.cwd ? basename(shortenPath(fields.cwd)) : '');
-  const what = fields.process ?? fields.custom ?? 'zsh';
+  const where = fields.cwd ? basename(shortenPath(fields.cwd)) : (fields.repo ?? '');
+  const what = describeWhat(fields);
   const parts = [what, where].filter(Boolean);
   const base = parts.join(' — ');
-  return status ? `${base} · ${status}` : base || 'Terminal';
+  return status ? `${base} · ${status}` : base || 'TabTerm';
+}
+
+/** Names of agent CLIs, which are worth saying instead of the command that started them. */
+const AGENTS = new Set(['claude', 'codex']);
+
+function describeWhat(fields: TitleFields): string {
+  // Nothing open yet: this is the page you land on, and it has one name.
+  if (fields.startScreen === true) return 'TabTerm';
+
+  /**
+   * A layout, named after the template it came from until it stops matching one.
+   *
+   * Closing a pane makes an arrangement that is no longer the template somebody opened, so
+   * calling it by that name would be a title that has stopped being true. It falls back to the
+   * count, which is what it now is.
+   */
+  const panes = fields.paneCount ?? 1;
+  if (panes > 1) {
+    return fields.template ?? `${String(panes)} panes`;
+  }
+
+  const running = fields.process ?? '';
+  if (AGENTS.has(running)) return running;
+
+  /**
+   * The start of the last command, because the front of it is the part that is read.
+   *
+   * `npm run build --workspace daemon` says everything useful in its first two words, and a tab
+   * strip will not show more than that anyway.
+   */
+  const last = fields.lastCommand?.trim();
+  if (last) return last.length > 24 ? `${last.slice(0, 24)}…` : last;
+  return running || fields.custom || 'zsh';
 }
 
 function basename(path: string): string {

@@ -43,7 +43,7 @@
       "description": "Open a TabTerm terminal"
     },
     "new-terminal": {
-      "description": "Open a new terminal tab"
+      "description": "Open a TabTerm terminal (alternate key)"
     },
     "open-command-menu": {
       "description": "Open the command menu in the focused terminal"

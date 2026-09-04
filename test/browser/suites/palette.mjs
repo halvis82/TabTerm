@@ -87,22 +87,31 @@ r.ok(
   single.map((a) => a.title).join(', '),
 );
 
-// Running one takes two steps now: select, then Enter. Clicking alone must not run it, which
-// matters more for an action than for text, because an action is not undone by ignoring it.
+/**
+ * Clicking an action does it. Clicking a command does not.
+ *
+ * They are different things and they behave differently on purpose. A history row is text, and
+ * pasting or running somebody's old command because the pointer landed slightly wrong is a real
+ * cost. An action is a button with a verb on it, and a button you have to select and then press
+ * Enter is a button that does not work.
+ */
 await query('Split right');
 await evaluate(client, `document.querySelector('.palette-row.is-action')?.click()`);
-await sleep(1200);
+await sleep(3000);
 r.ok(
-  'clicking an action only selects it',
-  (await paneCount(client)) === 1,
+  'clicking an action runs it',
+  (await paneCount(client)) === 2,
   `${String(await paneCount(client))} panes`,
 );
 
+await openPalette(client);
+await sleep(600);
+await query('Split down');
 await pressInPalette(client, 'Enter', 'Enter', 0, 13);
 await sleep(3000);
 r.ok(
-  'Enter runs the selected action',
-  (await paneCount(client)) === 2,
+  'and Enter still runs the selected one, so the keyboard path is unchanged',
+  (await paneCount(client)) === 3,
   `${String(await paneCount(client))} panes`,
 );
 
@@ -133,6 +142,30 @@ r.ok(
   (mine?.hint ?? '').includes('greeting'),
   mine?.hint ?? '',
 );
+/**
+ * The groups, because they answer different questions.
+ *
+ * A flat list put `Make an action` between two things that do something, looking exactly like
+ * them, and put what somebody had written among what ships.
+ */
+const headings = JSON.parse(
+  await evaluate(
+    client,
+    `JSON.stringify([...document.querySelectorAll('.palette-heading')].map((h) => h.textContent))`,
+  ),
+);
+r.ok(
+  'the actions are grouped, and the groups are labelled',
+  headings.length >= 2 && headings.some((h) => /made/i.test(h)),
+  JSON.stringify(headings),
+);
+r.ok(
+  'a heading is never what Enter would run',
+  !String(
+    await evaluate(client, `document.querySelector('.palette-row.selected')?.className ?? ''`),
+  ).includes('heading'),
+);
+
 r.ok(
   'there is a way to make one',
   withCustom.some((a) => a.title === 'Make an action'),
