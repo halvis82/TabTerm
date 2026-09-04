@@ -5,6 +5,7 @@ import { isAbsolute, resolve as resolvePath } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
   AUTH_TIMEOUT_MS,
+  paneCount,
   panes,
   CLOSE_POLICY_VIOLATION,
   PROTOCOL_VERSION,
@@ -101,6 +102,15 @@ const PREVIEW_LINES = 10;
 
 /** How long a restored tab may still be handed its merged-away session back. */
 const MERGED_AWAY_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How long a closed pane can be brought back.
+ *
+ * Five minutes, which is what was asked for and is also the right shape: long enough that
+ * noticing the mistake, finishing a thought and coming back still works, short enough that a
+ * shell nobody wanted is not sitting there at the end of the day.
+ */
+const UNDO_WINDOW_MS = 5 * 60 * 1000;
 
 /** How long a peer gets to complete a close handshake before its socket is destroyed. */
 const GRACEFUL_CLOSE_MS = 2000;
@@ -707,11 +717,83 @@ export class DaemonServer {
         const sessionId = this.#workspaces
           .sessionIds(workspace)
           .find((id) => this.#workspaces.paneFor(workspace, id) === msg.paneId);
+        const wasOnlyPane = paneCount(workspace.layout) <= 1;
         this.#workspaces.closePane(msg.workspaceId, msg.paneId);
         if (sessionId) {
           const session = this.#sessions.get(sessionId);
-          if (session) void this.#sessions.kill(session);
+          /**
+           * Held for a few minutes rather than ended, so closing a pane can be undone.
+           *
+           * Not for the last pane in a workspace: that is closing the tab, the workspace goes
+           * with it, and there is nothing left to put the pane back into. Nor for a shell that
+           * has already exited, which holds nothing to bring back.
+           */
+          if (session && !wasOnlyPane && session.state !== 'exited') {
+            /**
+             * Released from this client, or it comes back blank.
+             *
+             * A session this client is still bound to is skipped by a later attach as already
+             * bound, so no snapshot is sent and the reopened pane draws nothing. The same trap
+             * the detach path documents, reached from the other direction.
+             */
+            this.#sessions.detach(session, client.id);
+            this.#unbind(client, sessionId);
+            this.#closedPanes.set(sessionId, {
+              workspaceId: msg.workspaceId,
+              // What the pane was showing, so the offer can name it rather than say "a pane".
+              title: session.titleFields.cwd ?? '',
+              at: Date.now(),
+            });
+            this.#pruneClosedPanes();
+            // The policy decides what happens to it now, which is the undo window and then an end.
+            this.#sessions.rescheduleReaps();
+            this.#tellEveryone({
+              t: 'pane-closed',
+              workspaceId: msg.workspaceId,
+              sessionId,
+              title: session.titleFields.cwd ?? '',
+              undoSeconds: Math.round(UNDO_WINDOW_MS / 1000),
+            });
+          } else if (session) void this.#sessions.kill(session);
         }
+        this.#broadcastLayout(msg.workspaceId);
+        return;
+      }
+
+      /**
+       * Put a pane somebody closed back where it was.
+       *
+       * Refused rather than half done when the session has gone or has been taken somewhere
+       * else: an undo that produces a different terminal from the one that was closed is worse
+       * than an undo that says it cannot.
+       */
+      case 'reopen-pane': {
+        const record = this.#closedPanes.get(msg.sessionId);
+        const session = this.#sessions.get(msg.sessionId);
+        const workspace = this.#workspaces.get(msg.workspaceId);
+        const elsewhere = this.#workspaces.findBySession(msg.sessionId);
+        if (!record || !session || !workspace || session.state === 'exited' || elsewhere) {
+          /**
+           * A refusal, not an expiry.
+           *
+           * `session-expired` puts a recovery page over the whole tab, and this tab is fine: an
+           * offer in its corner turned out to be stale, which is worth a line of status text and
+           * nothing more.
+           */
+          sendError(
+            client.socket,
+            'undo-too-late',
+            elsewhere ? 'that terminal is open in another tab now' : 'that terminal has ended',
+          );
+          this.#closedPanes.delete(msg.sessionId);
+          return;
+        }
+        const target = msg.targetPaneId ?? panes(workspace.layout)[0]?.paneId;
+        if (!target) return;
+        this.#workspaces.mergeInto(msg.workspaceId, target, msg.sessionId, 'horizontal');
+        this.#closedPanes.delete(msg.sessionId);
+        this.#sessions.rescheduleReaps();
+        this.#attachWorkspace(client, msg.workspaceId, 80, 24);
         this.#broadcastLayout(msg.workspaceId);
         return;
       }
@@ -901,8 +983,11 @@ export class DaemonServer {
         // Release this client's hold on the departing session. Without this the client still
         // looks attached, so a later attach skips it as already-bound and never sends the
         // snapshot, leaving a blank pane.
+        // Read before the detach releases it, so the offer to move it back can name where it is.
+        let leftCwd = '';
         if (leavingSession) {
           const session = this.#sessions.get(leavingSession);
+          leftCwd = session?.titleFields.cwd ?? '';
           if (session) this.#sessions.detach(session, client.id);
           this.#unbind(client, leavingSession);
         }
@@ -913,6 +998,9 @@ export class DaemonServer {
             t: 'pane-detached',
             workspaceId: msg.workspaceId,
             newWorkspaceId: result.newWorkspace.id,
+            // Named, so the tab it left can offer to bring exactly this one back.
+            ...(leavingSession ? { sessionId: leavingSession } : {}),
+            ...(leftCwd ? { cwd: leftCwd } : {}),
           }),
         );
         if (result.source) this.#broadcastLayout(result.source.id);
@@ -2158,6 +2246,32 @@ export class DaemonServer {
    * back rather than to claim it expired. See docs/04-session-lifecycle.md §7.
    */
   readonly #mergedAway = new Map<string, { sessionId: string; at: number }>();
+
+  /**
+   * Panes somebody closed, and how long they may still be brought back.
+   *
+   * Closing a pane used to end its shell on the spot. That makes the gesture unrecoverable, so
+   * it becomes something to be careful with, which is the wrong feeling for a button in the
+   * corner of a pane. The shell is kept for a few minutes instead, in no workspace and attached
+   * to nothing, which is a state every other rule reads as "end this": see the `closed-pane`
+   * rule in `cleanup.ts`, which is what holds it for exactly the window and no longer.
+   */
+  readonly #closedPanes = new Map<string, { workspaceId: string; title: string; at: number }>();
+
+  /** Seconds left on a closed pane, or null when it is not one. Read by the reap policy. */
+  undoWindowLeft(sessionId: string): number | null {
+    const record = this.#closedPanes.get(sessionId);
+    if (!record) return null;
+    return Math.max(0, (record.at + UNDO_WINDOW_MS - Date.now()) / 1000);
+  }
+
+  /** Drop records whose window has passed, so the map cannot only grow. */
+  #pruneClosedPanes(): void {
+    const cutoff = Date.now() - UNDO_WINDOW_MS;
+    for (const [sessionId, record] of this.#closedPanes) {
+      if (record.at < cutoff) this.#closedPanes.delete(sessionId);
+    }
+  }
 
   /**
    * Forget merge records nobody came back for.

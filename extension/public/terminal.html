@@ -591,6 +591,63 @@
     color: var(--text);
     border-color: #3d6ba8;
   }
+  /* Under the menu icon, next to where the undo for a clear appears, and the same shape. */
+  /*
+   * `display: flex` beats the browser's own rule for the hidden attribute, so this has to say
+   * so itself. Without it the element is an invisible empty box at the top right, over the
+   * marker rail, swallowing the clicks meant for it.
+   */
+  #undo-offer[hidden] {
+    display: none;
+  }
+  /*
+   * The same trap, guarded for everything: an element given a display of its own stops obeying
+   * the hidden attribute, and an invisible box that still takes clicks is a defect nobody can
+   * see. This one cost the marker rail its clicks and was found by a suite that had nothing to
+   * do with either feature.
+   */
+  [hidden] {
+    display: none !important;
+  }
+  #undo-offer {
+    position: absolute;
+    top: 40px;
+    right: 10px;
+    z-index: 30;
+    display: flex;
+    align-items: stretch;
+    border-radius: 7px;
+    border: 1px solid #2f3346;
+    background: rgba(26, 28, 38, 0.85);
+    backdrop-filter: blur(6px);
+    overflow: hidden;
+  }
+  /* Both at once would sit on top of each other, and a clear is the more urgent of the two. */
+  #clear-undo:not([hidden]) ~ #undo-offer {
+    top: 72px;
+  }
+  #undo-offer-do,
+  #undo-offer-hide {
+    padding: 4px 9px;
+    border: 0;
+    background: transparent;
+    color: #9ec5ff;
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  #undo-offer-hide {
+    padding-left: 6px;
+    padding-right: 8px;
+    border-left: 1px solid #2f3346;
+    color: #6f758a;
+  }
+  #undo-offer-do:hover {
+    color: var(--text);
+  }
+  #undo-offer-hide:hover {
+    color: #ff8a7a;
+  }
 
   /*
    * Translucent, because there is terminal output behind it and hiding that is the one thing a
@@ -2786,6 +2843,17 @@
   </div>
   <button id="cmd-button" title="Commands (Command+K)">⌘</button>
   <button id="clear-undo" hidden title="Bring back what was just cleared">Undo clear</button>
+  <!--
+    A way back from closing a pane or moving one to its own tab. Under the menu button, in the
+    same place and the same shape as the undo for a clear, because it is the same promise.
+    The cross dismisses the button without giving up the way back: Command+Z still works for
+    the rest of the five minutes, which is what was asked for and is also right, since hiding a
+    reminder is not the same as saying no.
+  -->
+  <div id="undo-offer" hidden>
+    <button id="undo-offer-do" type="button"></button>
+    <button id="undo-offer-hide" type="button" title="Hide this. Command+Z still works.">×</button>
+  </div>
 
   <div id="server-offer" hidden>
     <span id="server-text"></span>

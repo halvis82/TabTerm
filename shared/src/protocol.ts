@@ -239,6 +239,21 @@ export type ClientMessage =
     }
   | { t: 'close-pane'; workspaceId: string; paneId: string }
   | {
+      /**
+       * Put a pane that was closed back into its workspace.
+       *
+       * Named by session rather than by pane: the pane is gone, and the session is the thing
+       * somebody wants back. Refused when the session has ended or has since been opened
+       * somewhere else, because an undo that lands a different terminal is worse than one that
+       * says it cannot.
+       */
+      t: 'reopen-pane';
+      workspaceId: string;
+      sessionId: string;
+      /** Which pane to put it beside. The first one when this is not given. */
+      targetPaneId?: string;
+    }
+  | {
       /** Move an existing session into this workspace, beside a target pane or into it. */
       t: 'merge-into';
       workspaceId: string;
@@ -556,6 +571,14 @@ export type ServerErrorCode =
   | 'session-not-found'
   | 'session-expired'
   | 'session-attached-elsewhere'
+  /**
+   * An undo that can no longer be done, which is not the same as a session ending.
+   *
+   * Its own code because the two nearest ones, `session-expired` and `session-not-found`, put a
+   * recovery page over the whole tab. That tab is fine: one offer in the corner turned out to be
+   * stale, and the right response is a line of status text.
+   */
+  | 'undo-too-late'
   | 'workspace-invalid-layout'
   | 'path-not-found'
   | 'not-trusted'
@@ -686,6 +709,22 @@ export type ServerMessage =
   | { t: 'mergeable-sessions'; sessions: readonly MergeableSession[] }
   | {
       /**
+       * A pane was closed, and its terminal is being held in case that was a mistake.
+       *
+       * Sent to everyone rather than only to the tab that closed it, because whether an undo is
+       * still possible is a fact about the session and another tab may be showing an offer to
+       * bring the same one back.
+       */
+      t: 'pane-closed';
+      workspaceId: string;
+      sessionId: string;
+      /** Where the pane was, so the offer to bring it back can name it. */
+      title: string;
+      /** How long the terminal will be held, so a page need not know the daemon's constant. */
+      undoSeconds: number;
+    }
+  | {
+      /**
        * A workspace's last session was taken into another one.
        *
        * Distinct from expiry, which is what this used to be reported as. Nothing ended: the
@@ -701,6 +740,10 @@ export type ServerMessage =
       t: 'pane-detached';
       workspaceId: string;
       newWorkspaceId: string;
+      /** Which session moved, so the tab it left can offer to take it back. */
+      sessionId?: string;
+      /** Where it is, so that offer can name it. */
+      cwd?: string;
     }
   | {
       t: 'project-config';

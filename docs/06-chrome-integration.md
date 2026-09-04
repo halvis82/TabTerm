@@ -339,6 +339,29 @@ Closing it answers that better than leaving it: there is no tab left to be confu
 empty tab beside the one you asked for is waste. Only ever a tab with one pane and nothing on
 it, because closing a tab somebody has worked in is far worse than leaving an empty one.
 
+### A way back from both ways of losing a pane
+
+Closing a pane and moving one to its own tab are both easy to do by accident and were both final.
+Each now leaves an offer under the menu button, in the same place and the same shape as the undo
+for a clear, because it is the same promise: for the next five minutes that terminal is still
+there and one gesture brings it back.
+
+`Command+Z` takes the most recent one. A clear wins when both are on offer, because its window is
+ten seconds against five minutes and it happened in the pane being looked at. Outside both windows
+the key is not ours and goes to the shell, where it means nothing.
+
+The cross **hides the button without giving up the way back**: the key keeps working for the rest
+of the five minutes. Hiding a reminder is not the same as saying no.
+
+The stack is as deep as the tab is wide, so closing every pane in a four pane tab can be undone
+four times and no further, since there is nothing beyond the panes that existed. The same terminal
+offered twice replaces its earlier entry rather than appearing twice.
+
+A closed pane comes back through `reopen-pane`, which the daemon refuses if the session has ended
+or has since been opened in another tab. A detached one comes back as an ordinary merge, which
+also closes the tab it had moved to. Both are checked at the moment they are taken rather than
+when they are offered, because five minutes is long enough for the answer to change.
+
 ### A detached pane opens next to the tab it left
 
 At the end of the strip it reads as an unrelated tab that happened to appear. Beside its source

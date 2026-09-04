@@ -151,6 +151,13 @@ async function main(): Promise<void> {
     archive,
     plugins,
   );
+  /**
+   * How long a closed pane may still be brought back, which only the server knows.
+   *
+   * Wired after construction because the two point at each other: the policy asks the server,
+   * and the server holds the sessions the policy is about.
+   */
+  sessions.undoWindowLeft = (sessionId) => server.undoWindowLeft(sessionId);
 
   events.onExit = (s) => {
     // A pane whose process failed is worth surfacing: the tab may be hidden, and a silent

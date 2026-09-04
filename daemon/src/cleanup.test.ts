@@ -205,6 +205,35 @@ describe('a tab opened and closed without being used', () => {
     expect(decideReap({ ...unused, sharesWorkspace: false }, config).reason).toBe('never-used');
   });
 
+  /**
+   * A pane somebody closed waits out its undo window and then goes.
+   *
+   * It is in no workspace and no tab shows it, which every other rule reads as "end this",
+   * correctly and far too soon: the whole point is that it survives long enough to be brought
+   * back. So the wait outranks them, and when it runs out nothing protects it any more.
+   */
+  it('holds a closed pane for its undo window rather than ending it', () => {
+    const decision = decideReap(
+      { ...unused, inWorkspace: false, closedPaneSecondsLeft: 300 },
+      config,
+    );
+    expect(decision.reason).toBe('closed-pane');
+    expect(decision.afterSeconds).toBe(300);
+  });
+
+  it('and ends it once the window has run out', () => {
+    const decision = decideReap(
+      { ...unused, inWorkspace: false, closedPaneSecondsLeft: 0 },
+      config,
+    );
+    expect(decision.afterSeconds).toBe(0);
+  });
+
+  it('but never over a session somebody pinned', () => {
+    const decision = decideReap({ ...unused, pinned: true, closedPaneSecondsLeft: 300 }, config);
+    expect(decision.reason).toBe('pinned');
+  });
+
   it('never applies to a session holding a listening socket', () => {
     // A dev server started from a pane means the pane was used, whatever the flags say.
     expect(decideReap({ ...unused, listeningPort: 3000 }, config).reason).not.toBe('never-used');

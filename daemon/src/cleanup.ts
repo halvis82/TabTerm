@@ -19,6 +19,7 @@ export type ReapReason =
   | 'no-report'
   | 'abandoned'
   | 'in-a-workspace'
+  | 'closed-pane'
   | 'server-listening'
   | 'process-exited'
   | 'long-lived-program'
@@ -67,6 +68,16 @@ export interface ReapInput {
    */
   neverUsed: boolean;
   /**
+   * Seconds left in which a pane somebody closed can still be brought back, or null.
+   *
+   * Closing a pane used to end its shell on the spot, which made the gesture unrecoverable and
+   * therefore something to be careful with. It is held for a few minutes instead, which is what
+   * makes an undo possible, and this is the rule that keeps it alive for exactly that long: it
+   * belongs to no workspace during the wait, so without it the rules for a homeless shell would
+   * end it in seconds.
+   */
+  closedPaneSecondsLeft?: number | null;
+  /**
    * How long since anything was attached to this session.
    *
    * Only consulted when nobody can speak for it at all. A tab that is open but disconnected is
@@ -84,6 +95,18 @@ export function decideReap(input: ReapInput, config: Config): ReapDecision {
   if (input.pinned) return { afterSeconds: null, reason: 'pinned' };
   if (input.persistent) return { afterSeconds: null, reason: 'persistent' };
   if (input.attachedClients > 0) return { afterSeconds: null, reason: 'still-attached' };
+
+  /**
+   * A pane somebody closed, waiting to see whether they meant it.
+   *
+   * Ahead of everything below because it is a decision that has already been made explicitly and
+   * has a deadline of its own: it is in no workspace and no tab shows it, which every rule below
+   * reads as "end this", correctly and far too soon.
+   */
+  const closing = input.closedPaneSecondsLeft;
+  if (closing !== undefined && closing !== null) {
+    return { afterSeconds: Math.max(0, closing), reason: 'closed-pane' };
+  }
 
   /**
    * A tab exists for it, so it stays. No timer, no exceptions.
@@ -203,6 +226,7 @@ export function reapInputFor(
   opts: {
     inWorkspace: boolean;
     sharesWorkspace?: boolean;
+    closedPaneSecondsLeft?: number | null;
     listeningPort?: number | undefined;
     keepBackgroundSeconds?: number | null;
     hasOpenTab?: boolean | null;
@@ -215,6 +239,7 @@ export function reapInputFor(
     hasOpenTab: opts.hasOpenTab ?? null,
     inWorkspace: opts.inWorkspace,
     sharesWorkspace: opts.sharesWorkspace ?? false,
+    closedPaneSecondsLeft: opts.closedPaneSecondsLeft ?? null,
     // Never used means never a command, and never anywhere but where it opened. A `cd` on its
     // own is a shell builtin that spawns nothing, so the directory is checked as well rather
     // than trusting the command flag alone.

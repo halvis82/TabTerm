@@ -722,6 +722,7 @@ export class SessionManager {
       reapInputFor(session, {
         inWorkspace: this.#inWorkspace(session.id),
         sharesWorkspace: this.#sharesWorkspace(session.id),
+        closedPaneSecondsLeft: this.undoWindowLeft?.(session.id) ?? null,
         listeningPort: session.listeningPort,
         keepBackgroundSeconds: this.keepBackgroundSeconds,
         hasOpenTab: this.#hasOpenTab(session.id),
@@ -752,6 +753,7 @@ export class SessionManager {
         reapInputFor(session, {
           inWorkspace: this.#inWorkspace(session.id),
           sharesWorkspace: this.#sharesWorkspace(session.id),
+          closedPaneSecondsLeft: this.undoWindowLeft?.(session.id) ?? null,
           listeningPort: session.listeningPort,
           keepBackgroundSeconds: this.keepBackgroundSeconds,
           hasOpenTab: this.#hasOpenTab(session.id),
@@ -808,6 +810,14 @@ export class SessionManager {
 
   /** Set by the daemon once the workspace store exists. 0 when the session is in no workspace. */
   panesInItsWorkspace?: (sessionId: string) => number;
+
+  /**
+   * Seconds left in which a closed pane can still be brought back, or null when it is not one.
+   *
+   * Injected for the same reason as the two above: the manager owns sessions, and which pane was
+   * closed a moment ago is something the server knows.
+   */
+  undoWindowLeft?: (sessionId: string) => number | null;
 
   #transition(session: Session, to: SessionState): void {
     if (session.state === to) return;

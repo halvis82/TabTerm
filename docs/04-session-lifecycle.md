@@ -222,6 +222,46 @@ back, which sets the clock forward honestly.
 
 ---
 
+### A host with nothing left to hold leaves
+
+The PTY host exists to outlive its daemon, which is why it cannot be ended along with one. That
+is right while it holds terminals and pointless when it holds none: a host with no sessions and
+no daemon connected is protecting nothing.
+
+So it leaves, two minutes after both become true. The delay is the point: a daemon being replaced
+disconnects and reconnects within seconds, and a host that left in that gap would take every
+terminal on the machine with it.
+
+Only the standalone host does this. One embedded in another process, which is every test and the
+local backend, must never end the process it is part of, so the behavior is passed in rather than
+assumed.
+
+This was found from the other end. An interrupted test run left a host behind every time, because
+the runner finds what it is responsible for by looking under its own temporary home and the
+host's socket had moved out of it. 133 of them were counted on one machine, holding 797 MB. The
+runner kills its own host by pid now, and this is the guard for every other way one is orphaned.
+
+---
+
+### A pane somebody closed is held for five minutes
+
+Closing a pane used to end its shell on the spot. That makes the gesture unrecoverable, which
+makes it something to be careful with, which is the wrong feeling for a button in the corner of a
+pane. The shell is kept for five minutes instead, in no workspace and attached to nothing, and
+`reopen-pane` puts it back where it was.
+
+That state is one every other rule reads as "end this", correctly, which is why the wait is a rule
+of its own and sits above them all. It is the only rule with a deadline that was set deliberately
+by a person rather than inferred from what a session looks like.
+
+Not for the last pane in a workspace: closing that is closing the tab, the workspace goes with it,
+and there is nothing left to put a pane back into. Not for a shell that has already exited, which
+holds nothing to bring back. The reopen is refused, rather than half done, when the session has
+ended or has since been opened somewhere else: an undo that produces a different terminal from the
+one that was closed is worse than an undo that says it cannot.
+
+---
+
 ### A tab that was never used
 
 A tab opened and closed without anything being run in it, and which never left the directory it

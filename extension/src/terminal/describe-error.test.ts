@@ -27,3 +27,16 @@ describe('what a failure says', () => {
     expect(describeError('version-unsupported', '')).toMatch(/Reload/);
   });
 });
+
+/**
+ * A stale undo is not an expiry, and the difference is the whole tab.
+ *
+ * `session-expired` replaces the page with a recovery notice. An offer in the corner that turned
+ * out to be too late must not do that: the terminal in front of you is fine.
+ */
+it('describes an undo that came too late as a small thing', () => {
+  const sentence = describeError('undo-too-late', 'that terminal is open in another tab now');
+  expect(sentence).toContain('cannot be brought back');
+  expect(sentence).toContain('another tab');
+  expect(sentence.toLowerCase()).not.toContain('expired');
+});
