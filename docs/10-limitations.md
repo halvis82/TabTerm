@@ -232,17 +232,22 @@ Accepted patterns: `Command+Shift+<key>`, `Alt+Shift+<key>`, `MacCtrl+Shift+<key
 Manifest acceptance is not runtime binding: Chrome silently declines keys it reserves for itself,
 and there is no error when it does.
 
-**Measured, Chrome 150.** All three shipped commands are bound at runtime:
+**Measured, Chrome 150.** One command carries a suggested key and Chrome binds it:
 
 | Command | Offered | Bound |
 |---|---|---|
-| `new-terminal` | `Alt+Shift+T` | ⌥⇧T |
-| `new-terminal-alt` | `Command+Shift+Period` | ⇧⌘. |
-| `_execute_action` | `MacCtrl+Shift+T` | ⌃⇧T |
+| `_execute_action` | `Command+Shift+Period` | ⇧⌘. |
+| `new-terminal`, `open-command-menu`, `split-right`, `split-down`, `launch-agent` | nothing | unbound until chosen |
+
+There were three commands and all three opened a terminal, which spent the entire budget of
+rebindable keys on one action. The rest are declared without a suggested key: they appear in
+`chrome://extensions/shortcuts` waiting for one, which is the point.
 
 Read back with `chrome.commands.getAll()` from an extension page, not from the service worker,
-which is usually asleep and not listed as a debuggable target. Anyone can rebind these at
-`chrome://extensions/shortcuts`.
+which is usually asleep and not listed as a debuggable target. **What is read back is what the
+interface shows**, because manifest acceptance is not assignment and a person can rebind
+anything: a hand-written table once claimed `Option Shift T` for a command that had been rebound
+to `Shift Command O`, which is worse than showing nothing.
 
 Note what this measurement also caught: the docs and the installer told people to press
 `Command+Shift+E`, which the manifest never offered. Reading the binding back is the only way to

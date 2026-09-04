@@ -38,6 +38,7 @@ import {
   type CustomAction,
 } from '../launcher/custom-actions.js';
 import {
+  DEFAULT_PAGE_SHORTCUTS,
   describeKeys,
   loadShortcuts,
   saveShortcuts,
@@ -325,10 +326,30 @@ function runCustomAction(action: CustomAction): void {
   const command = action.command ?? '';
   if (command === '') return;
   if (action.where === 'new-tab') {
-    void chrome.tabs.create({
-      url: `${chrome.runtime.getURL('terminal.html')}?run=${encodeURIComponent(command)}`,
-      active: true,
-    });
+    /**
+     * The command travels in session storage, not in the URL.
+     *
+     * A URL that runs a command is a URL that runs a command whoever opens it. Nothing on the
+     * web can reach an extension page today, because none of these are web accessible, but that
+     * is a manifest line away from being untrue and this file would not be the one anybody
+     * changed. The `staged` parameter next to this one deliberately asks before running, and
+     * two ways of arriving with a command should not disagree about that.
+     *
+     * A one-shot key instead: written here, read once by the tab that was opened for it, and
+     * removed. It cannot be guessed, it cannot be reused, and it does not survive the browser.
+     */
+    const ticket = `run-${String(Date.now())}-${Math.random().toString(36).slice(2, 10)}`;
+    void chrome.storage.session
+      .set({ [ticket]: command })
+      .then(() =>
+        chrome.tabs.create({
+          url: `${chrome.runtime.getURL('terminal.html')}?ticket=${encodeURIComponent(ticket)}`,
+          active: true,
+        }),
+      )
+      .catch(() => {
+        /* Session storage is unavailable in some contexts. Then no tab, rather than a bad one. */
+      });
     return;
   }
   // Beside this pane: split, then let the new pane's own prompt receive it.
@@ -1291,11 +1312,6 @@ function buildLauncher(): void {
         createIfMissing: true,
         ...size,
       });
-      launcher?.dismiss();
-    },
-    onLaunchAgent: (path) => {
-      const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
-      client?.send({ t: 'launch-agent', where: 'new-tab', cwd: path, ...size });
       launcher?.dismiss();
     },
     onPinDir: (path, pinned) => {
@@ -3223,8 +3239,19 @@ async function start(): Promise<void> {
   buildCommandPanel();
   installTestHook();
   installModifierTracking();
-  // Read before the listener is installed, so the very first keystroke uses what is stored.
-  pageShortcuts = await loadShortcuts();
+  /**
+   * Not awaited, because everything after it in this function is the terminal appearing.
+   *
+   * Awaiting a storage read here delayed the panel, the palette and the panes behind it, which
+   * showed up as a command menu that was sometimes empty depending on how busy the machine was.
+   * The listener reads this table at the moment a key is pressed, so it starts with the shipped
+   * bindings and picks up stored ones as soon as they arrive, which is well before anybody has
+   * pressed anything.
+   */
+  pageShortcuts = [...DEFAULT_PAGE_SHORTCUTS];
+  void loadShortcuts().then((stored) => {
+    pageShortcuts = stored;
+  });
   installShortcuts();
   installForwardedCommands();
   // Asked once at startup, so the palette's hints describe the keys Chrome really has.
@@ -3270,15 +3297,23 @@ async function start(): Promise<void> {
    * A command this tab was opened to run, by an action that asked for a new tab.
    *
    * Run rather than staged, because it is an action somebody made and chose: the staging overlay
-   * is for text that arrived from somewhere else. It waits for a prompt for the same reason a
-   * template's commands do.
+   * is for text that arrived from somewhere else. The command is not in the URL, it is behind a
+   * one-shot key in session storage, so a link cannot carry one. Read once and removed, and it
+   * waits for a prompt for the same reason a template's commands do.
    */
-  const toRun = params.get('run');
-  if (toRun) {
+  const ticket = params.get('ticket');
+  if (ticket) {
     const url = new URL(location.href);
-    url.searchParams.delete('run');
+    url.searchParams.delete('ticket');
     history.replaceState(null, '', url.toString());
-    pendingSplitCommand = toRun;
+    try {
+      const held = (await chrome.storage.session.get(ticket)) as Record<string, unknown>;
+      const command: unknown = held[ticket];
+      await chrome.storage.session.remove(ticket);
+      if (typeof command === 'string' && command !== '') pendingSplitCommand = command;
+    } catch {
+      // No session storage is no command, which is the safe direction.
+    }
   }
 
   connectedPort = await daemonPort();

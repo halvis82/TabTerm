@@ -76,16 +76,20 @@ const THRESHOLDS: [ms: number, label: string][] = [
 const THEMES = THEME_CHOICES;
 
 /** Shortcuts the page handles itself, as opposed to the ones Chrome owns. */
-const PAGE_KEYS: [keys: string, does: string][] = [
-  ['⌘K', 'Open this panel'],
-  ['⇧⌘P', 'Open the command palette'],
-  ['⌘D', 'Split right'],
-  ['⇧⌘D', 'Split down'],
-  ['⌘W', 'Close pane (in focus mode)'],
-  ['⇧⌘A', 'Launch an agent'],
-  ['⇧⌘K', 'Clear the screen'],
+/**
+ * The handful that are fixed, and therefore not in the list above.
+ *
+ * Everything rebindable comes from the live table, so this holds only what cannot be changed:
+ * keys the page must answer to whatever anybody prefers. It used to list the rebindable ones
+ * too, from a copy that had already drifted, claiming Command D for split right when the key
+ * bound to it was Command Shift D. Three hand-written copies of one fact is three chances to be
+ * wrong about it.
+ */
+const FIXED_KEYS: [keys: string, does: string][] = [
   ['⌘C / ⌘V', 'Copy and paste'],
-  ['Esc', 'Restore a maximized pane'],
+  ['⌘Z', 'Take back a clear, while it is offered'],
+  ['Esc', 'Leave a maximized pane or focus mode'],
+  ['⌘W', 'Close the pane, in focus mode only'],
 ];
 
 /**
@@ -277,9 +281,14 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
     mine.append(row);
   }
   keys.append(mine);
+  const fixedHeading = document.createElement('p');
+  fixedHeading.className = 'set-desc';
+  fixedHeading.textContent = 'These are fixed:';
+  keys.append(fixedHeading);
+
   const list = document.createElement('div');
   list.className = 'cmd-keys';
-  for (const [combo, does] of PAGE_KEYS) {
+  for (const [combo, does] of FIXED_KEYS) {
     const row = document.createElement('div');
     row.className = 'cmd-key-row';
     const kbd = document.createElement('kbd');

@@ -559,9 +559,12 @@ canvas, it never breaks the pane.
     "clipboardRead", "commands"
   ],
   "commands": {
-    "new-terminal":     { "suggested_key": { "mac": "Alt+Shift+T" } },
-    "new-terminal-alt": { "suggested_key": { "mac": "Command+Shift+Period" } },
-    "_execute_action":  { "suggested_key": { "mac": "MacCtrl+Shift+T" } }
+    "_execute_action":   { "suggested_key": { "mac": "Command+Shift+Period" } },
+    "new-terminal":      {},
+    "open-command-menu": {},
+    "split-right":       {},
+    "split-down":        {},
+    "launch-agent":      {}
   }
 }
 ```
@@ -570,26 +573,43 @@ Every permission is justified line by line in `05-security.md` §8. No `<all_url
 scripts.
 
 `Command+Alt` combinations are rejected by Chrome on macOS, and only **four** commands may carry a
-suggested key, so these are the entire budget. Everything else reaches the command palette.
+suggested key. One is used, and the rest are declared without one so that they are there to bind.
 
-**Verified bound at runtime**, Chrome 150: `Alt+Shift+T`, `Command+Shift+Period`, and
-`MacCtrl+Shift+T`. Manifest acceptance is not binding, so this was read back with
-`chrome.commands.getAll()` rather than assumed. See `10-limitations.md` tier 1.8. All are
-rebindable at `chrome://extensions/shortcuts`.
+There used to be three commands and all three opened a terminal, which spent the whole budget of
+rebindable keys on a single action. The others are things somebody might genuinely want a key
+for, and a command declared with no suggested key still appears in
+`chrome://extensions/shortcuts` waiting for one.
 
-### Why the default is an Option combination
+### Why a command rather than a key the page listens for
+
+Everything except `new-terminal` acts on a terminal, and a command fires in the **service worker**
+rather than in a page, so the worker forwards it to the terminal in front and only to a terminal.
+Sending a split to whatever page happens to be in front would be a message to somebody else's tab
+about something it knows nothing about.
+
+It is worth the relay because it is the only way an in-page action can have a key a person is
+allowed to **change**: `chrome://extensions/shortcuts` is the one place Chrome permits rebinding,
+and a key the page listens for itself can never appear there.
+
+Everything else the page handles is rebindable inside TabTerm instead, in the settings panel, and
+a combination Chrome keeps is refused there with the reason. See `08-shell-integration.md` and
+`extension/src/terminal/page-shortcuts.ts`.
+
+### Why the default is punctuation
 
 A command here is handled by the browser before the page, so binding one **takes that keystroke
 away from every site**. The choice is therefore not only about what Chrome permits.
 
-`Command+Shift+O` was the original default and is a poor one for exactly this reason: sites use
-it, and a terminal shortcut that quietly disables a shortcut somewhere else is a bad trade for
-something opened a few times a day. Web applications bind `Command`, so the `Option` space is
-close to empty, and `Alt+Shift+T` keeps a mnemonic.
+`Command+Shift+O` was an early default and is a poor one for exactly this reason: sites use it,
+and a terminal shortcut that quietly disables a shortcut somewhere else is a bad trade for
+something opened a few times a day. Letters are the contested space, so the default uses
+punctuation. `Command+Shift+Y`, `+U`, `+Period` and `+Comma` were all confirmed bindable, so this
+was a choice between working options rather than the only one Chrome would take.
 
-The `Command` alternate uses punctuation rather than a letter for the same reason: letters are
-the contested space. `Command+Shift+Y`, `+U`, `+Period` and `+Comma` were all confirmed bindable,
-so this was a choice between working options rather than the only one Chrome would take.
+**Manifest acceptance is not binding**, so what Chrome really assigned is read back with
+`chrome.commands.getAll()` rather than assumed, and the command menu shows those answers rather
+than a table written by hand. One such table said `Option Shift T` for a command that had been
+rebound to something else, which is worse than saying nothing. See `10-limitations.md` tier 1.8.
 
 ### You never focus the terminal
 

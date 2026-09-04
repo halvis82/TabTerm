@@ -35,7 +35,6 @@ import type {
 
 export interface LauncherOptions {
   root: HTMLElement;
-  onLaunchAgent: (path: string) => void;
   onChooseDir: (path: string) => void;
   onCreateLayout: (
     path: string,
@@ -1175,15 +1174,6 @@ export class Launcher {
     const buttons = document.createElement('div');
     buttons.className = 'launcher-buttons';
 
-    /**
-     * The layouts, with one selected.
-     *
-     * Choosing a folder no longer starts anything: it sets the path, and a layout button starts
-     * it. `Open` is selected from the outset because it is what almost everybody wants, and the
-     * selection moves with Tab so the whole box can be driven from the keyboard. The selected
-     * one carries the outline, which is why `Open agent here` no longer looks like a default it
-     * never was.
-     */
     /**
      * One entry that is not a template, then every template.
      *
