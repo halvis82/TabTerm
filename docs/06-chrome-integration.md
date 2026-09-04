@@ -128,6 +128,21 @@ Chrome restores the URL. The page attaches lazily on `visibilitychange`. See
 handled by the recovery page. Chrome offers no API to remove one entry from the recently-closed
 stack (`10-limitations.md` tier 0.2).
 
+### Reloading the extension does not end anything, and does not duplicate anything
+
+Three separate events can mean "the extension has just started": `onStartup`, `onInstalled`, and
+the marker in `chrome.storage.session` that survives the worker dying but not the extension being
+reloaded. Which of them fires, and how many, is Chrome's decision.
+
+Two of them arriving put back **two of every tab**. Each read the same empty list of open tabs,
+and each created one per remembered workspace, so a session ended up showing in a pair of tabs,
+which is the one thing this product promises never to do.
+
+The reopen happens once, whoever asks. A shared promise rather than a flag, so a second caller
+waits for the first instead of returning early into a world where the tabs do not exist yet and
+then reporting that no tabs are open. And each tab is looked for again immediately before it is
+created, because the list was read before any of them existed.
+
 ### Reloading the extension does not end anything
 
 Chrome destroys every page an extension owns when it is reloaded, so the terminal tabs vanish.

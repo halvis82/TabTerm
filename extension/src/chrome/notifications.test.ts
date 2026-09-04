@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { shouldNotify, type NotifyRequest } from './notifications.js';
+import { describe, expect, it, vi } from 'vitest';
+import { notify, shouldNotify, type NotifyRequest } from './notifications.js';
 
 const req = (over: Partial<NotifyRequest> = {}): NotifyRequest => ({
   priority: 'important',
@@ -33,5 +33,56 @@ describe('notification policy', () => {
   it('does not let visibility silence a critical event unless explicitly asked', () => {
     // Something needing permission is worth interrupting for, even on screen.
     expect(shouldNotify(req({ priority: 'critical' }), true)).toBe(true);
+  });
+});
+
+/**
+ * A notification interrupts once, and is then taken back.
+ *
+ * Every one of them used to stay until it was clicked, so a day of finished commands became a
+ * list somebody had to clear. Chrome has no "show it but do not keep it", so the nearest thing
+ * is to withdraw it, which is what clicking would have done.
+ */
+describe('taking a notification back', () => {
+  const withFakeChrome = async (
+    priority: NotifyRequest['priority'],
+    run: (cleared: string[]) => Promise<void>,
+  ) => {
+    const cleared: string[] = [];
+    const created: string[] = [];
+    (globalThis as unknown as { chrome: unknown }).chrome = {
+      runtime: { getURL: (p: string) => p, lastError: undefined },
+      notifications: {
+        create: (id: string, _options: unknown, done: () => void) => {
+          created.push(id);
+          done();
+        },
+        clear: (id: string) => cleared.push(id),
+      },
+    };
+    vi.useFakeTimers();
+    try {
+      await notify({ priority, title: 'Terminal', body: 'done' });
+      vi.advanceTimersByTime(30_000);
+      await run(cleared);
+    } finally {
+      vi.useRealTimers();
+    }
+  };
+
+  it('withdraws an ordinary one once it has been seen', async () => {
+    await withFakeChrome('important', async (cleared) => {
+      expect(cleared).toHaveLength(1);
+      return Promise.resolve();
+    });
+  });
+
+  it('leaves a critical one alone, because that is what critical means', async () => {
+    // It is raised with requireInteraction, so it stays until somebody deals with it. Taking it
+    // away on a timer would remove the only thing that distinguishes it.
+    await withFakeChrome('critical', async (cleared) => {
+      expect(cleared).toHaveLength(0);
+      return Promise.resolve();
+    });
   });
 });

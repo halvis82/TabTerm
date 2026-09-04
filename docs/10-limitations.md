@@ -169,6 +169,21 @@ that is the whole of what an extension may put there.
 heading looks like it should: opens a terminal. Clicking the icon itself does the same thing,
 which is the gesture that needs no menu at all.
 
+### 0.7 Showing a notification without it being kept by the operating system
+
+`chrome.notifications` has no option for "interrupt once and keep no record". On macOS the
+notification is handed to the system, and whether it stays in Notification Centre afterwards is a
+setting on Google Chrome in System Settings, not anything an extension can reach.
+
+**Disposition: partly cut.** What is possible is done: an ordinary notification is withdrawn eight
+seconds after it appears, which is what clicking it would have done, so nothing accumulates on
+TabTerm's account. A critical one is left alone, because it is raised with `requireInteraction`
+and taking it away on a timer would remove the only thing that makes it different.
+
+If the operating system still keeps a copy, the switch that stops it is
+**System Settings, Notifications, Google Chrome, Show in Notification Centre**. That is a decision
+about Chrome as a whole and belongs to the person using it.
+
 ---
 
 ## Tier 1 — Possible only in degraded form 

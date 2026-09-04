@@ -135,6 +135,59 @@ const reopened = await waitUntil(async () => {
 r.ok('a tab for the remembered workspace comes back', reopened, `was ${String(originalId)}`);
 
 /**
+ * Exactly one of it, however many things asked for the reopen.
+ *
+ * Three separate events can mean "the extension has just started" and Chrome fires whichever it
+ * likes. Two of them arriving put back two of every tab: each read the same empty list of open
+ * tabs and each created one. A person came back to a session showing in a pair of tabs, which is
+ * the one thing this product promises never to do.
+ *
+ * Asked for twice on purpose here, at once, which is the shape of that failure.
+ */
+const tabsFor = async () =>
+  (await listTargets()).filter((t) => t.url.includes(`workspace=${workspace}`)).length;
+
+// The tab that came back is closed first, so this is the same starting point the reload leaves:
+// a remembered workspace with no tab showing it.
+const back = (await listTargets()).find((t) => t.url.includes(`workspace=${workspace}`));
+if (back) {
+  await fetch(`http://127.0.0.1:${process.env.TT_CDP_PORT ?? '9223'}/json/close/${back.id}`).catch(
+    () => null,
+  );
+}
+await sleep(700);
+await inWorker(
+  `chrome.storage.local.set({ 'tabterm.openWorkspaces': [${JSON.stringify(workspace)}] })`,
+);
+/**
+ * Two start events at once, in both the shapes that actually happen.
+ *
+ * A fresh call beside an ordinary one is two triggers where the second joins the first: the
+ * shared promise is what makes that one tab. Two fresh calls are two independent runs, which is
+ * what happened on the machine: each read the same empty list of tabs and each created one. The
+ * look-again immediately before each create is what makes that one tab.
+ */
+await inWorker(
+  `Promise.all([globalThis.__tabtermReopen(true), globalThis.__tabtermReopen()]).then(() => 'done')`,
+);
+await sleep(2000);
+r.ok(
+  'a second trigger joins the first rather than reopening everything again',
+  (await tabsFor()) === 1,
+  `${String(await tabsFor())} tabs showing that workspace`,
+);
+
+await inWorker(
+  `Promise.all([globalThis.__tabtermReopen(true), globalThis.__tabtermReopen(true)]).then(() => 'done')`,
+);
+await sleep(2000);
+r.ok(
+  'and two independent reopens still leave exactly one tab',
+  (await tabsFor()) === 1,
+  `${String(await tabsFor())} tabs showing that workspace`,
+);
+
+/**
  * And it is attached to the same terminal, which is the entire point.
  *
  * A tab that came back showing a fresh shell would be worse than no tab at all: it would look

@@ -67,8 +67,35 @@ export async function notify(req: NotifyRequest, paneIsVisible = false): Promise
     targets.delete(id);
     return null;
   }
+
+  /**
+   * Taken back after it has been seen, so a day of finished commands is not a list to clear.
+   *
+   * A notification exists to interrupt once. Chrome has no option for "show it but do not keep
+   * it", so the nearest thing is to withdraw it, which is what somebody clicking it would do.
+   * Whether the operating system keeps its own record after that is the operating system's
+   * business, and on macOS it is a per-application setting rather than anything an extension can
+   * reach. See `docs/10-limitations.md`.
+   *
+   * Never for a critical one: those are already marked as needing interaction, which means they
+   * stay until somebody deals with them, and taking one away on a timer would defeat the only
+   * thing that distinguishes them.
+   *
+   * A timer rather than an alarm, because the shortest alarm Chrome allows is thirty seconds and
+   * this is about eight. The worker can die first, and then the notification simply stays, which
+   * is exactly what happened to every one of them before this existed.
+   */
+  if (req.priority !== 'critical') {
+    setTimeout(() => {
+      targets.delete(id);
+      void chrome.notifications.clear(id);
+    }, AUTO_CLEAR_MS);
+  }
   return id;
 }
+
+/** Long enough to read a line of text and glance at it, short enough not to be a list. */
+const AUTO_CLEAR_MS = 8000;
 
 /**
  * Is the pane this is about already on screen?

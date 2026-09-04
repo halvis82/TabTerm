@@ -310,6 +310,15 @@ async function reopenAfterReload(): Promise<void> {
     );
     for (const id of wanted) {
       if (typeof id !== 'string' || already.has(id)) continue;
+      /**
+       * Looked for again, immediately before creating it.
+       *
+       * The set above was read once, before any of these existed. Anything that opened a tab for
+       * one of these workspaces in the meantime, including another copy of this function, means
+       * the tab is already there and a second would be a duplicate of somebody's session.
+       */
+      const showing = await chrome.tabs.query({ url: `${base}?workspace=${id}` });
+      if (showing.length > 0) continue;
       // Not focused: several coming back at once should not fight over which is in front, and
       // a reload is not a request to be taken somewhere.
       await chrome.tabs.create({ url: `${base}?workspace=${id}`, active: false });
@@ -350,17 +359,21 @@ chrome.tabs.onUpdated.addListener((_id, changed) => {
   if (changed.url !== undefined) void reportOpenTabs();
 });
 chrome.tabs.onReplaced.addListener(() => void reportOpenTabs());
-chrome.runtime.onStartup.addListener(() => void reopenAfterReload().then(() => reportOpenTabs()));
+chrome.runtime.onStartup.addListener(() => void reopenOnce().then(() => reportOpenTabs()));
 /**
- * An update and a fresh install land here. A reload does not, which is the whole defect.
+ * An update and a fresh install land here. A reload may or may not, which is why there are three.
  *
- * `onInstalled` and `onStartup` were the only two triggers, and neither fires when the extension
- * is reloaded rather than updated or installed. So the tabs were destroyed and nothing put them
- * back, and it looked handled because the code for putting them back was plainly there and had
- * never been watched doing it.
+ * `onInstalled` and `onStartup` were the only two triggers, and neither is documented to fire
+ * when an unpacked extension is reloaded rather than updated. So the tabs were destroyed and
+ * nothing put them back, and it looked handled because the code was plainly there and had never
+ * been watched doing it. The third trigger, below, covers the reload.
+ *
+ * Which of the three fires, and how many, is Chrome's business. That is what `reopenOnce` is
+ * for: two of them firing put back **two of every tab**, and a person came back to a session
+ * open in a pair of tabs that they had not asked for.
  */
 chrome.runtime.onInstalled.addListener(() => {
-  void reopenAfterReload().then(() => reportOpenTabs());
+  void reopenOnce().then(() => reportOpenTabs());
 });
 
 /**
@@ -382,11 +395,50 @@ async function reopenIfTheExtensionJustStarted(): Promise<void> {
     const seen = await chrome.storage.session.get(AWAKE_KEY);
     if (seen[AWAKE_KEY] === true) return;
     await chrome.storage.session.set({ [AWAKE_KEY]: true });
-    await reopenAfterReload();
+    await reopenOnce();
   } catch {
     /* Session storage is unavailable in some contexts. Reopening is a convenience. */
   }
 }
+
+/**
+ * The reopen happens once, however many things ask for it.
+ *
+ * Three separate events can mean "the extension has just started", and Chrome fires whichever it
+ * likes: on one reload two of them arrived, each read the same empty list of open tabs, and each
+ * created a tab per workspace. The result was two of every tab, with one session showing in a
+ * pair of them, which is the one thing this product promises never to do.
+ *
+ * A shared promise rather than a boolean, so a second caller **waits for the first** instead of
+ * returning early into a world where the tabs do not exist yet. A caller that then reports which
+ * tabs are open would otherwise report none.
+ */
+let reopening: Promise<void> | null = null;
+
+function reopenOnce(): Promise<void> {
+  reopening ??= reopenAfterReload();
+  return reopening;
+}
+
+/**
+ * Reachable from outside, so the failure this guards against can be produced on purpose.
+ *
+ * Two of Chrome's start events arriving at once is Chrome's decision and cannot be arranged from
+ * a test: the events cannot be dispatched. Without this the only checkable thing is "one tab came
+ * back", which passes whether or not the guard exists, and a check that passes with the defect
+ * present is worse than no check.
+ *
+ * `fresh` forgets that a reopen has already happened, which is what makes each shape of the
+ * failure reachable: one fresh call beside an ordinary one exercises the shared promise, and two
+ * fresh calls exercise the look-again that happens immediately before each tab is created. The
+ * only thing it can open is this extension's own pages.
+ */
+(
+  globalThis as unknown as { __tabtermReopen?: (fresh?: boolean) => Promise<void> }
+).__tabtermReopen = (fresh = false) => {
+  if (fresh) reopening = null;
+  return reopenOnce();
+};
 
 /**
  * Assigned before anything can report, so the first report waits for this rather than racing it.
