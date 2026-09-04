@@ -399,6 +399,11 @@ with one is go somewhere. So a pane with nothing in it draws a chooser over itse
 two things worth doing: open a folder, with the same Tab completion the start screen has, or bring
 a session that already exists here.
 
+Bringing a session here **takes the pane over**. It used to split the pane, which left the
+untouched shell sitting beside the session that was asked for and took the chooser away with it,
+so the arrangement gained a pane nobody wanted and the way to fix it was gone. The pane keeps its
+id, so the split ratios around it are untouched, and the shell it displaced is ended.
+
 It sits at the **bottom** of the pane. A terminal fills from the top, so a panel anchored there
 would cover the line being typed, which is the one place it must never be. It is over the pane
 rather than replacing it, on the same principle as the start screen: the shell underneath is
@@ -647,6 +652,35 @@ So it **survives typing and goes when a command is sent**. Dismissing on the fir
 made a half-typed command the moment everything vanished, which is both startling and exactly
 when the list might still be wanted. A carriage return is what a shell treats as "run it", and
 that is the moment someone has stopped choosing and started working.
+
+### The command line grows, and then the launcher gets out of the way
+
+The box at the bottom is a view onto the shell's own line, so a command longer than one row has
+to be shown somewhere. The panel above it gives up height, one row at a time, and the terminal
+underneath is resized to match.
+
+It only ever **grows** while the command does. Shrinking on the way back looked like the obvious
+symmetric thing and was the cause of the box shaking: the strip's height sets how many rows the
+terminal has, which sets whether it needs a scrollbar, which sets how many columns it has, which
+sets where the line wraps, which sets how many rows the command needs. Feed that back into the
+height and it oscillates several times a second. The height resets in one step when the command
+is back to a single row, which is a state that cannot re-trigger the loop.
+
+Past **ten rows** the launcher dismisses itself and the tab becomes an ordinary terminal in the
+home directory. Somebody writing something that long has stopped choosing what to open, and the
+alternative is a panel squeezed into nothing with an ellipsis in the middle of what is being
+typed. Truncating the line somebody is writing is never the right answer.
+
+### A tab that has started something never goes back to the start screen
+
+Dismissing the launcher writes a flag in `sessionStorage`, and a tab holding that flag never
+draws the start screen again, whatever its panes contain.
+
+Reloading was showing it for a moment, and sometimes not only for a moment: the decision was made
+from the layout, and a workspace whose panes had all been closed back to one home-directory shell
+looks exactly like a tab that was never used. The flag records what actually happened rather than
+inferring it from a state that stops being distinguishable. `sessionStorage` because it is per
+tab and per browsing session, which is exactly the lifetime of the fact.
 
 ### Selecting and acting are separate
 

@@ -179,5 +179,41 @@ r.ok(
   screens.some((s) => s.includes('TAKEN-OVER-MARKER')),
 );
 
+/**
+ * In the pane that offered, not beside it.
+ *
+ * Bringing a session used to split the empty pane, so the untouched shell stayed on screen next
+ * to the session that was asked for, and the chooser that would have fixed it was gone with the
+ * pane no longer being empty. Two panes here: the one this tab was used in, and the one taken
+ * over. Three means it split.
+ */
+const paneCount = JSON.parse(
+  await evaluate(b.client, 'JSON.stringify(window.__tabterm.paneIds())'),
+).length;
+r.ok(
+  'it took the empty pane over rather than splitting it',
+  paneCount === 2,
+  `${String(paneCount)} panes`,
+);
+
+/**
+ * A reload does not put the start screen back over a tab that has started something.
+ *
+ * The decision used to be made from the layout, and panes closed back to a single home-directory
+ * shell are indistinguishable from a tab nobody used. This tab has two panes and a session that
+ * was brought into it, and it must come back as a terminal.
+ */
+await evaluate(b.client, 'location.reload()');
+await sleep(5000);
+const cameBack = await waitFor(b.client, 'window.__tabterm?.paneIds().length > 0', 20000);
+const launcherBack = Number(
+  await evaluate(b.client, "document.querySelectorAll('.launcher-input').length"),
+);
+r.ok(
+  'reloading a tab that has been used does not bring the start screen back',
+  cameBack && launcherBack === 0,
+  `${String(launcherBack)} start screens after reload`,
+);
+
 await finish();
 r.done();

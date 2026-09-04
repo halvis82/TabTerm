@@ -271,7 +271,7 @@ race; this is the normal path, not an error path.
 
 ### Merge
 
-`merge-session { sessionId, workspaceId, targetPaneId, direction }`
+`merge-session { sessionId, workspaceId, targetPaneId, direction, replace? }`
 
 1. Daemon validates the session is not already in another workspace
 2. Layout tree is updated transactionally: the target pane becomes a split containing itself and
@@ -281,6 +281,19 @@ race; this is the normal path, not an error path.
 5. **The PTY is untouched at every step.** Verified in tests by a running counter that must not skip
 
 The receiving tab's Chrome group is preserved. A merge never moves the receiving tab.
+
+### Merge into a pane rather than beside it
+
+`replace` takes the target pane over: it keeps the pane and its id, puts the arriving session in
+it, and ends the session that was there. `direction` does not apply.
+
+This is what "bring a session here" means. A pane only offers that choice while nothing has been
+typed into it, so the session being displaced is an untouched shell, and splitting the pane left
+that shell beside the session somebody asked for, with the offer gone. The displaced session is
+ended rather than left running, because it is in no layout and nothing can reach it.
+
+Keeping the pane id matters beyond tidiness: the split ratios around a pane are recorded against
+it, so a replacement leaves the rest of the arrangement exactly as it was.
 
 ### Detach
 

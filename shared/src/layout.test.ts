@@ -10,6 +10,7 @@ import {
   isValidLayout,
   paneCount,
   panes,
+  setPaneSession,
   setRatio,
   splitPane,
   swapPanes,
@@ -258,5 +259,36 @@ describe('pane labels', () => {
         labelColor: '#7aa2f7',
       }),
     ).toBe(true);
+  });
+});
+
+/**
+ * Bringing a session into a pane, which is a replacement rather than a split.
+ *
+ * The pane offering to take a session is one nobody has typed into, so splitting it left an
+ * empty shell beside the session that was asked for, and the choice to bring another one in
+ * disappeared with it.
+ */
+describe('setPaneSession', () => {
+  it('puts a different session in a pane without changing the shape', () => {
+    const one = splitPane(terminalNode('a', 's1'), 'a', 'horizontal', 'b', 's2');
+    const after = setPaneSession(one, 'b', 's3');
+    expect(paneCount(after)).toBe(2);
+    expect(panes(after)).toEqual([
+      { paneId: 'a', sessionId: 's1' },
+      { paneId: 'b', sessionId: 's3' },
+    ]);
+  });
+
+  it('keeps the pane id, so the splits around it are untouched', () => {
+    const one = splitPane(terminalNode('a', 's1'), 'a', 'vertical', 'b', 's2');
+    const ratioed = setRatio(one, 'b', 0.7);
+    const after = setPaneSession(ratioed, 'b', 's3');
+    expect(after.type === 'split' && after.ratio).toBe(0.7);
+    expect(findPane(after, 'b')).not.toBeNull();
+  });
+
+  it('refuses a pane that is not there rather than doing nothing quietly', () => {
+    expect(() => setPaneSession(terminalNode('a', 's1'), 'nope', 's2')).toThrow(LayoutError);
   });
 });

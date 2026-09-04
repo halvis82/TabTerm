@@ -4,8 +4,10 @@ import {
   cleanLabelColor,
   cleanPaneLabel,
   closePane,
+  findPane,
   insertPane,
   panes,
+  setPaneSession,
   setRatio,
   splitPane,
   swapPanes,
@@ -181,7 +183,8 @@ export class WorkspaceStore {
     targetPaneId: string,
     sessionId: string,
     direction: SplitDirection,
-  ): { target: Workspace; source: Workspace | null } {
+    replace = false,
+  ): { target: Workspace; source: Workspace | null; displaced: string | null } {
     const target = this.#require(targetWorkspaceId);
     const sourceWorkspace = this.findBySession(sessionId);
     if (sourceWorkspace?.id === targetWorkspaceId) {
@@ -194,11 +197,25 @@ export class WorkspaceStore {
       if (sourcePane) source = this.closePane(sourceWorkspace.id, sourcePane);
     }
 
-    const newPaneId = randomUUID();
-    target.layout = insertPane(target.layout, targetPaneId, direction, newPaneId, sessionId);
+    /**
+     * Taking the pane over, which is what bringing a session into an empty pane means.
+     *
+     * The session that was in it is handed back rather than closed here: this class owns the
+     * shape of a workspace and knows nothing about processes. Whoever asked for the merge ends
+     * it, because it is now in no layout and would otherwise run until the idle sweep found it.
+     */
+    let displaced: string | null = null;
+    if (replace) {
+      const targetPane = findPane(target.layout, targetPaneId);
+      displaced = targetPane?.type === 'terminal' ? targetPane.sessionId : null;
+      target.layout = setPaneSession(target.layout, targetPaneId, sessionId);
+    } else {
+      const newPaneId = randomUUID();
+      target.layout = insertPane(target.layout, targetPaneId, direction, newPaneId, sessionId);
+    }
     target.updatedAt = Date.now();
-    info('workspace.merged', { from: sourceWorkspace?.id, into: targetWorkspaceId });
-    return { target, source };
+    info('workspace.merged', { from: sourceWorkspace?.id, into: targetWorkspaceId, replace });
+    return { target, source, displaced };
   }
 
   /**

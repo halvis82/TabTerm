@@ -62,7 +62,7 @@ Rules, all enforced:
 | `set-persistence` | `sessionId`, `policyId` | |
 | `create-workspace` | `layout`, `chromeTabId?`, `chromeGroupId?` | |
 | `update-layout` | `workspaceId`, `layout` | Transactional, validated |
-| `merge-session` | `sessionId`, `workspaceId`, `targetPaneId`, `direction` | |
+| `merge-session` | `sessionId`, `workspaceId`, `targetPaneId`, `direction`, `replace?` | `replace` takes the pane over instead of splitting it |
 | `detach-pane` | `workspaceId`, `paneId` | Returns a URL for the new tab |
 | `list-sessions` / `list-workspaces` / `list-projects` | filters | |
 | `search-history` | `query`, `scope`, `page`, `pageSize` | Paged, always |

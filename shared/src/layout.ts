@@ -86,6 +86,22 @@ export function closePane(root: LayoutNode, paneId: string): LayoutNode | null {
   return prune(root);
 }
 
+/**
+ * Put a different session into a pane that already exists, keeping the pane and the shape.
+ *
+ * This is what "bring a session here" means. The pane offering that choice is an empty one, so
+ * splitting it left the empty shell sitting beside the session somebody asked for, which is not
+ * what they asked for. The pane id is kept so the split ratios around it survive.
+ */
+export function setPaneSession(root: LayoutNode, paneId: string, sessionId: string): LayoutNode {
+  if (findPane(root, paneId) === null) throw new LayoutError(`no such pane: ${paneId}`);
+  const walk = (node: LayoutNode): LayoutNode => {
+    if (node.type === 'terminal') return node.paneId === paneId ? { ...node, sessionId } : node;
+    return { ...node, children: [walk(node.children[0]), walk(node.children[1])] };
+  };
+  return walk(root);
+}
+
 /** Insert an existing session as a new pane beside a target. This is what merge does. */
 export function insertPane(
   root: LayoutNode,

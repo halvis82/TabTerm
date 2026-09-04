@@ -239,12 +239,19 @@ export type ClientMessage =
     }
   | { t: 'close-pane'; workspaceId: string; paneId: string }
   | {
-      /** Move an existing session into this workspace as a new pane beside a target. */
+      /** Move an existing session into this workspace, beside a target pane or into it. */
       t: 'merge-into';
       workspaceId: string;
       targetPaneId: string;
       sessionId: string;
       direction: 'horizontal' | 'vertical';
+      /**
+       * Take the target pane over rather than splitting it, ending whatever it was running.
+       *
+       * Only ever sent for a pane that has not been used yet, which is the only pane that offers
+       * to bring a session in. `direction` is ignored when this is set.
+       */
+      replace?: boolean;
     }
   | { t: 'detach-pane-to-tab'; workspaceId: string; paneId: string }
   | {

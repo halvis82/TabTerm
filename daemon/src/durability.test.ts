@@ -6,6 +6,7 @@ import {
   controlFrame,
   decodeFrame,
   inputFrame,
+  paneCount,
   type ControlMessage,
 } from '@tabterm/shared';
 import { initAuth } from './auth.js';
@@ -339,6 +340,50 @@ describe('a merged-away tab, restored', () => {
     const err = (await c.wait('error')) as unknown as { code: string };
     expect(err.code).toBe('session-expired');
     c.close();
+  });
+});
+
+/**
+ * Bringing a session into a pane, which takes the pane over rather than splitting it.
+ *
+ * The offer to bring a session in only ever appears on a pane nobody has typed into, so a split
+ * left an untouched shell sitting beside the session that was asked for, and the offer vanished
+ * with it. The shell being replaced has done nothing, and is ended rather than left running
+ * where no layout can reach it.
+ */
+describe('a session brought into an empty pane', () => {
+  it('takes the pane over and ends the shell that was in it', async () => {
+    const host = await makeSession('replace-host', false);
+    const guest = await makeSession('replace-guest');
+    guest.c.type('echo BROUGHT-HERE-MARKER\r');
+    await sleep(900);
+
+    const hostWorkspace = workspaces.findBySession(host.sessionId);
+    const targetPane = hostWorkspace
+      ? workspaces.paneFor(hostWorkspace, host.sessionId)
+      : undefined;
+    expect(targetPane).toBeTruthy();
+
+    host.c.send({
+      t: 'merge-into',
+      workspaceId: hostWorkspace?.id ?? '',
+      targetPaneId: targetPane ?? '',
+      sessionId: guest.sessionId,
+      direction: 'horizontal',
+      replace: true,
+    });
+    await sleep(1200);
+
+    const after = workspaces.get(hostWorkspace?.id ?? '');
+    expect(after && paneCount(after.layout), 'one pane, not two').toBe(1);
+    expect(after && workspaces.sessionIds(after)).toEqual([guest.sessionId]);
+    // The same pane, so whatever surrounded it is untouched.
+    expect(after && workspaces.paneFor(after, guest.sessionId)).toBe(targetPane);
+    // And the shell it displaced is not left running somewhere nothing can reach.
+    expect(sessions.get(host.sessionId), 'the empty shell is ended').toBeFalsy();
+
+    guest.c.close();
+    host.c.close();
   });
 });
 

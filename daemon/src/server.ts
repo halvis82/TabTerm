@@ -845,12 +845,20 @@ export class DaemonServer {
           const sourceBefore = this.#workspaces.findBySession(msg.sessionId);
           const sourceId = sourceBefore?.id;
 
-          const { source } = this.#workspaces.mergeInto(
+          const { source, displaced } = this.#workspaces.mergeInto(
             msg.workspaceId,
             msg.targetPaneId,
             msg.sessionId,
             msg.direction,
+            msg.replace ?? false,
           );
+
+          // The shell that was in the pane is in no layout now, so it is ended rather than left
+          // running where nothing can reach it.
+          if (displaced) {
+            const old = this.#sessions.get(displaced);
+            if (old) void this.#sessions.kill(old);
+          }
 
           // Whoever was rendering the source workspace needs to hear about it. If the merge
           // took its last pane, the workspace is gone and that tab has nothing left to show.

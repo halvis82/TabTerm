@@ -949,7 +949,11 @@ function syncPaneChoosers(): void {
             workspaceId,
             targetPaneId: id,
             sessionId: session.sessionId,
+            // Into this pane, not beside it. Only a pane nobody has typed into offers this, so
+            // the shell being replaced has done nothing, and splitting it left that empty shell
+            // sitting next to the session that was asked for.
             direction: 'horizontal',
+            replace: true,
           });
           paneChoosers.get(id)?.dismiss();
         },
@@ -977,11 +981,47 @@ function syncPaneChoosers(): void {
  * tab somebody was working in is far worse than leaving an empty one.
  */
 function thisTabIsUnused(): boolean {
+  /**
+   * A tab that has already started something never goes back to the start screen.
+   *
+   * The screen was the only evidence, which is a guess and gets it wrong in a case that is not
+   * rare at all: a template opened in the home directory, with panes that have printed only a
+   * prompt, looks exactly like a tab that has never begun. Refreshing it flashed the start
+   * screen over work that was already there, and closing panes back down to one made it worse
+   * rather than better.
+   *
+   * `sessionStorage` is the right place for the answer. It belongs to this tab and to no other,
+   * it survives a reload, which is the whole point, and it is gone when the tab is, which is
+   * also right: a new tab has not started anything.
+   */
+  if (hasLaunched()) return false;
+
   const panes = panesHost?.all ?? [];
   if (panes.length !== 1) return false;
   const only = panes[0];
   if (!only) return false;
   return linesWithContent(only.controller.term) <= 1;
+}
+
+const LAUNCHED = 'tabterm.launched';
+
+/** Has this tab ever left the start screen? */
+function hasLaunched(): boolean {
+  try {
+    return sessionStorage.getItem(LAUNCHED) === '1';
+  } catch {
+    // Storage a browser refuses is no memory, and no memory is the old behaviour rather than a
+    // failure: the screen is guessed from the panes, which is right more often than not.
+    return false;
+  }
+}
+
+function rememberLaunched(): void {
+  try {
+    sessionStorage.setItem(LAUNCHED, '1');
+  } catch {
+    /* See above. */
+  }
 }
 
 /**
@@ -1515,6 +1555,14 @@ function buildLauncher(): void {
       launcher?.dismiss();
     },
     onDismiss: () => {
+      /**
+       * Written down here, because this is the one place every dismissal passes through.
+       *
+       * Whatever the reason, leaving the start screen means this tab has started something, and
+       * a refresh must not put it back. Marking it at each of the dozen places that dismiss it
+       * would be a dozen chances to forget.
+       */
+      rememberLaunched();
       // The terminal takes the whole window back. Its size genuinely changes, so the shell is
       // told, and it redraws into the space it now has.
       root.classList.remove('panel-open');
@@ -1592,6 +1640,16 @@ function buildLauncher(): void {
    * timing, which is the definition of a list that is sometimes empty for no reason.
    */
   palette.setActions(paletteActions());
+
+  /**
+   * A tab that has already started something has no start screen, from the first frame.
+   *
+   * Not merely left undrawn: rendering unhides the element, and the start screen renders
+   * whenever the daemon sends it something to list, so a tab reloading into work would have it
+   * appear a second later regardless of what anything decided at startup. Dismissed here, once,
+   * which is also what takes down the keys it binds.
+   */
+  if (hasLaunched()) launcher.dismiss();
 }
 
 const quote = quotePath;
@@ -1712,52 +1770,76 @@ function growStripToFit(): void {
    *
    * Counting non-blank rows in the viewport was the first attempt and it was wrong in both
    * directions: after a reload the viewport is full of a restored screen, so it asked for the
-   * maximum and the prompt ended up scrolled off the top of a very tall box, and while typing
-   * the count changed under a refit that changed the count again.
+   * maximum and the prompt ended up scrolled off the top of a very tall box.
    *
-   * A wrapped line is marked as such by xterm, so the current logical line is exactly the run
-   * of wrapped rows ending at the cursor. That number does not depend on what is above it and
-   * does not move when the box is refit.
+   * A wrapped line is marked as such by xterm, so the current logical line is exactly the run of
+   * wrapped rows ending at the cursor.
    */
   const cursorRow = buffer.baseY + buffer.cursorY;
   let inputRows = 1;
-  for (let y = cursorRow; y > 0 && inputRows < 40; y--) {
+  for (let y = cursorRow; y > 0 && inputRows < 60; y--) {
     if (buffer.getLine(y)?.isWrapped === true) inputRows++;
     else break;
+  }
+
+  /**
+   * Past this it stops being a strip and becomes the terminal.
+   *
+   * A box that keeps growing eventually runs out of window and starts truncating what is being
+   * typed, which is the one thing it exists to show. At that point the start screen is in the
+   * way: what somebody is doing is using the terminal, so they get the terminal, in the folder
+   * it was already in.
+   */
+  if (inputRows > MAX_STRIP_ROWS) {
+    launcher?.dismiss();
+    return;
   }
 
   const lineHeight = pane.element.clientHeight / Math.max(1, term.rows);
   if (!Number.isFinite(lineHeight) || lineHeight <= 0) return;
 
-  // One row of headroom above the prompt, so the line before it stays in view.
   const rows = Math.max(MIN_STRIP_ROWS, inputRows + 1);
   const wanted = Math.round(rows * lineHeight) + STRIP_PADDING;
   const max = Math.round(window.innerHeight * 0.4);
   const height = Math.max(MIN_STRIP_PX, Math.min(max, wanted));
 
-  const current = Number(
-    document.documentElement.style.getPropertyValue('--strip-height').replace('px', ''),
-  );
-  if (Math.abs(current - height) >= 1) {
-    /**
-     * On the root, not on `#terminal`.
-     *
-     * The start screen is a sibling of the terminal, so a variable set on the terminal was
-     * invisible to it: it kept subtracting the default height and drew its opaque edge over the
-     * strip's top border, which is exactly the border that was reported as missing twice.
-     */
+  const current =
+    Number(document.documentElement.style.getPropertyValue('--strip-height').replace('px', '')) ||
+    MIN_STRIP_PX;
+
+  /**
+   * It only ever grows, until the line being typed is gone.
+   *
+   * This is the fix for a box that shook. Changing the height changes how many rows the terminal
+   * has, which can add or remove xterm's scrollbar, which changes how many **columns** there
+   * are, which changes where the line wraps, which changes the number of rows it needs, which
+   * changes the height. A measurement that feeds its own input oscillates, and damping it only
+   * makes the oscillation slower.
+   *
+   * Growing in one direction cannot loop. It goes back to one line when the line being typed is
+   * gone, which is the branch below.
+   */
+  if (height > current) {
     document.documentElement.style.setProperty('--strip-height', `${String(height)}px`);
     refitAllPanes();
+  } else if (inputRows === 1 && current > MIN_STRIP_PX) {
+    /**
+     * And back to one line when the line is gone, which is not the same as shrinking.
+     *
+     * The condition is "the input occupies exactly one row", not "fewer rows than before". That
+     * is far from the boundary where the oscillation lives: a line that fits in one row at this
+     * height still fits in one row at the smallest one, so there is nothing to bounce between.
+     * Backspacing through a long command puts the box back rather than leaving a gap.
+     */
+    resetStrip();
   }
 
   /**
    * Where the start screen must stop, measured from the pane rather than computed.
    *
    * It was `strip height plus a few pixels`, which assumes the strip begins exactly that far
-   * from the bottom of the window. It does not: the terminal has padding of its own below it.
-   * Measured, the start screen's opaque edge sat two pixels **over** the pane's top border,
-   * which is the border reported missing three times. Two pixels is not a thing anybody can
-   * argue with, and it is not a thing arithmetic was ever going to get right.
+   * from the bottom of the window. It does not: the terminal has padding of its own below it,
+   * so the start screen's opaque edge sat two pixels over the pane's top border.
    */
   const top = pane.element.getBoundingClientRect().top;
   if (top > 0) {
@@ -1768,26 +1850,39 @@ function growStripToFit(): void {
   }
 
   /**
-   * And the prompt is at the bottom, always, once the writing has finished.
+   * And the prompt is at the bottom, once the writing has finished.
    *
-   * Resizing a terminal moves what is where, and the one thing this strip exists to show is the
-   * line being typed. Scrolling immediately was not enough: xterm parses what it is given on its
-   * own schedule, so a scroll issued in the same turn as the write happens before the content
-   * has landed and scrolls to the bottom of what was there a moment ago. After a reload, when
-   * the whole screen arrives at once, that left the box looking empty with the prompt above the
-   * viewport.
-   *
-   * Coalesced, because this runs on every chunk of output and a scroll per chunk is a scroll per
-   * keystroke.
+   * Scrolling immediately was not enough: xterm parses what it is given on its own schedule, so
+   * a scroll issued in the same turn as the write happens before the content has landed. After a
+   * reload, when the whole screen arrives at once, that left the box looking empty.
    */
   clearTimeout(stripScrollTimer);
   stripScrollTimer = setTimeout(() => term.scrollToBottom(), 40);
+}
+
+/**
+ * Back to one line, now that whatever was being typed is gone.
+ *
+ * Only ever called for an input of exactly one row, which is far from the boundary the
+ * oscillation lives at: a line that fits in one row of a tall box still fits in one row of the
+ * shortest one, so this cannot be the start of a bounce.
+ */
+function resetStrip(): void {
+  if (!root.classList.contains('panel-open')) return;
+  const current = Number(
+    document.documentElement.style.getPropertyValue('--strip-height').replace('px', ''),
+  );
+  if (!current || current <= MIN_STRIP_PX) return;
+  document.documentElement.style.setProperty('--strip-height', `${String(MIN_STRIP_PX)}px`);
+  refitAllPanes();
 }
 
 let stripScrollTimer: ReturnType<typeof setTimeout> | undefined;
 
 /** Two rows and a little padding: a prompt and the line under it. */
 const MIN_STRIP_ROWS = 2;
+/** Past this the strip stops being one, and the terminal takes the window. */
+const MAX_STRIP_ROWS = 10;
 const MIN_STRIP_PX = 72;
 const STRIP_PADDING = 14;
 
@@ -2708,7 +2803,14 @@ function onControl(msg: ServerMessage): void {
        * landed, and it was taken away again half a second later. That flash is the bug. The
        * answer is not to decide faster but to not decide until there is something to decide on.
        */
-      if ((!reattaching || startScreenDecided) && launcher && !launcher.dismissed) {
+      // A tab that has already started something never draws the start screen over it, whatever
+      // its panes happen to contain right now.
+      if (
+        (!reattaching || startScreenDecided) &&
+        launcher &&
+        !launcher.dismissed &&
+        !hasLaunched()
+      ) {
         root.classList.add('panel-open');
         refitAllPanes();
       }
