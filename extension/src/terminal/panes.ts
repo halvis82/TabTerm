@@ -49,6 +49,11 @@ export class PaneHost {
     return this.#panes.get(paneId);
   }
 
+  /** The pane showing a session, which is how a message about a session finds its terminal. */
+  forSession(sessionId: string): Pane | undefined {
+    return [...this.#panes.values()].find((p) => p.sessionId === sessionId);
+  }
+
   paneForStream(streamId: number): Pane | undefined {
     const paneId = this.#byStream.get(streamId);
     return paneId ? this.#panes.get(paneId) : undefined;
@@ -188,10 +193,29 @@ export class PaneHost {
   }
 
   /** Replace a pane's contents with a snapshot from the daemon. */
-  restore(paneId: string, screen: string): void {
+  /**
+   * Put a saved screen back, **at the width it was saved at**.
+   *
+   * A serialized screen is a picture with a width. Written into a terminal of a different width
+   * it does not merely look shifted: every line wraps somewhere else and every absolute cursor
+   * move lands in the wrong column, so a full-screen application comes back as fragments of
+   * several different moments overlapping. That is what an agent looked like after a refresh.
+   *
+   * The pane is then measured and reflowed to its real size by the caller, which is the same
+   * thing that happens when a window is dragged, and which the application is told about so it
+   * can repaint.
+   */
+  restore(paneId: string, screen: string, cols?: number, rows?: number): void {
     const pane = this.#panes.get(paneId);
     if (!pane) return;
     pane.controller.reset();
+    if (
+      cols &&
+      rows &&
+      (cols !== pane.controller.term.cols || rows !== pane.controller.term.rows)
+    ) {
+      pane.controller.term.resize(cols, rows);
+    }
     pane.controller.write(new TextEncoder().encode(screen), () => {
       /* a snapshot is not acked: it never came off the credit window */
     });

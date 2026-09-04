@@ -221,6 +221,17 @@ async function main(): Promise<void> {
       `${s.titleFields.process ?? 'A process'} is listening on ${String(port)}.`,
     );
   };
+  /**
+   * Everybody attached is told what size the terminal is really running at.
+   *
+   * One PTY has one size, and with several views attached it is the smallest of them. A view
+   * that goes on rendering at its own size is drawing into columns the shell does not know
+   * exist. It was never told, so it could not do anything else.
+   */
+  events.onResized = (s, cols, rows) => {
+    server.notifySession(s, { t: 'session-size', sessionId: s.id, cols, rows });
+  };
+
   events.onCwd = (s) => {
     launcher.recordDir(s.cwd);
     const ws = workspaces.findBySession(s.id);

@@ -100,6 +100,15 @@ export interface Session {
 export interface SessionEvents {
   onExit: (session: Session) => void;
   onStateChange: (session: Session) => void;
+  /**
+   * Fired when the size the PTY is actually running at changes.
+   *
+   * The size is the minimum across attached clients, so it is not necessarily the size any one
+   * of them asked for. A client that renders at its own size instead is drawing into columns the
+   * shell does not know exist, which for a full-screen application is not a cosmetic difference:
+   * every wrapped line and every absolute cursor move lands somewhere else.
+   */
+  onResized?: (session: Session, cols: number, rows: number) => void;
   /** Fired when the shell reports a new directory via OSC 7. */
   onCwd?: (session: Session) => void;
   /** Fired when the composed title fields change. */
@@ -593,6 +602,9 @@ export class SessionManager {
     } catch (e) {
       warn('session.resize.failed', { sessionId: session.id, error: String(e) });
     }
+    // Everybody attached is told, because this is the size their grid has to be, not the size
+    // they asked for.
+    this.#events.onResized?.(session, cols, rows);
   }
 
   /**

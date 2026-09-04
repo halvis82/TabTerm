@@ -492,3 +492,47 @@ lines of it instead of only saying where the session was. That is what the histo
 
 This is the most revealing thing the product stores, since it is literally everything a terminal
 printed. That is why it is owner-only, bounded, pruned, and gone the moment you clear.
+
+## One terminal has one size, and every view is told what it is
+
+The PTY has a single size. With more than one view attached, the applied size is the smallest
+across them, per dimension, because a larger view would be drawing into columns the shell does not
+know exist.
+
+That was computed and **told to nobody**. A view went on rendering at its own size, so every
+wrapped line and every absolute cursor move landed somewhere else. For a shell that is nearly
+invisible. For a full-screen application it is fatal, and it is fatal permanently: an agent draws
+differentially, writing only the cells it believes changed, so once its idea of the screen and the
+view's have diverged, nothing brings them back. The parts that are wrong are parts it has no
+reason to touch again.
+
+That is what "the agent looks all messed up, and refreshing makes it worse" was. It was reached
+without anybody asking for a mirror, because a reload had put the same session in two tabs.
+
+So `session-size` is sent to every view attached to a session whenever the applied size changes,
+and a view sets its grid to it. The pane can then be larger than the terminal inside it, which is
+correct and is what every terminal multiplexer does.
+
+A view follows that message **only when it is not the size it asked for**. A size matching its own
+request is the daemon agreeing and needs no action. The distinction is load-bearing: attaching
+announces one size for a whole workspace, before any pane has been measured, and following that
+back resized every pane twice, which was enough to lose a template's command as it was being
+typed.
+
+### A saved screen is replayed at the width it was saved at
+
+A serialized screen is a picture with a width. Written into a terminal of a different width, every
+line wraps somewhere else. The snapshot carries its dimensions and they were ignored; the pane is
+now set to them before the screen is written, and measured back afterwards, which is the same
+thing that happens when a window is dragged.
+
+### And the application is asked to draw itself again
+
+After a screen that had something on it is restored, the size is nudged by a row and put back. A
+size change is the one thing every terminal application treats as "you know nothing, draw it all
+again", which is the only way to clear a divergence that has already happened. It is what tmux
+does on reattach, for the same reason.
+
+Never for a screen that came back empty. A session created a moment ago gets a snapshot too, and
+nudging there is two size changes arriving exactly while a template is waiting for a prompt to
+type its command into.

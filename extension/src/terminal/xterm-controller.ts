@@ -520,6 +520,21 @@ export class XtermController {
     this.term.refresh(0, this.term.rows - 1);
   }
 
+  /**
+   * The size of one character cell, as this terminal has measured it.
+   *
+   * Read from the rendered screen rather than from the font settings, because what matters is
+   * what the browser actually drew. Used to estimate a size before any pane has been laid out,
+   * where the alternative is a number chosen in 1978.
+   */
+  cellSize(): { width: number; height: number } | null {
+    const screen = this.term.element?.querySelector('.xterm-screen');
+    if (!screen) return null;
+    const box = screen.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) return null;
+    return { width: box.width / this.term.cols, height: box.height / this.term.rows };
+  }
+
   fit(): { cols: number; rows: number } {
     try {
       this.#fit.fit();

@@ -1908,6 +1908,17 @@
     outline: none;
     border-color: #4a5573;
   }
+  /**
+   * A line about the folder in the box, which is usually saying nothing.
+   *
+   * `min-height` held eighteen pixels open for a sentence that is only there while a path is
+   * being typed, and the parent's gap sat on both sides of it. That is the band of empty space
+   * between the folder list and the row of things to open, reported several times: measured, the
+   * folders ended at 141 and the buttons began at 175, of which 26 pixels were this.
+   *
+   * It takes no room when it has nothing to say. `:empty` is exact here because the element is
+   * emptied rather than hidden whenever there is no state to report.
+   */
   .launcher-folder-state {
     display: flex;
     align-items: center;
@@ -1915,6 +1926,9 @@
     min-height: 18px;
     font-size: 11px;
     color: #7d8398;
+  }
+  .launcher-folder-state:empty {
+    display: none;
   }
   .launcher-folder-state.is-good {
     color: #8ae2a0;

@@ -467,7 +467,7 @@ function runCustomAction(action: CustomAction): void {
     }
     pendingTemplate = template;
     layoutRequestedHere = true;
-    const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
+    const size = panesHost?.fit(splitView?.focused ?? '') ?? attachSize();
     client?.send({
       t: 'create-layout',
       path: currentCwd || template.path,
@@ -1026,7 +1026,7 @@ function startFresh(cwd: string | undefined): void {
   history.replaceState(null, '', url.toString());
   recoveryEl.hidden = true;
   root.style.display = '';
-  client?.send({ t: 'create-session', cols: 80, rows: 24, ...(cwd ? { cwd } : {}) });
+  client?.send({ t: 'create-session', ...attachSize(), ...(cwd ? { cwd } : {}) });
 }
 
 function relativeTime(at: number): string {
@@ -1643,7 +1643,7 @@ function buildLauncher(): void {
       openedTemplate = template.name;
       openedTemplatePanes = template.panes;
       layoutRequestedHere = true;
-      const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
+      const size = panesHost?.fit(splitView?.focused ?? '') ?? attachSize();
       client?.send({
         t: 'create-layout',
         /**
@@ -1670,7 +1670,7 @@ function buildLauncher(): void {
     },
     onCreateLayout: (path, panesWanted, direction, shape) => {
       layoutRequestedHere = true;
-      const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
+      const size = panesHost?.fit(splitView?.focused ?? '') ?? attachSize();
       client?.send({
         t: 'create-layout',
         path,
@@ -1768,7 +1768,7 @@ function buildLauncher(): void {
       setTimeout(() => client?.send({ t: 'list-live-sessions' }), 400);
     },
     onRestore: (workspaceId, replayCommands) => {
-      const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
+      const size = panesHost?.fit(splitView?.focused ?? '') ?? attachSize();
       client?.send({ t: 'restore-workspace', workspaceId, replayCommands, ...size });
       launcher?.dismiss();
     },
@@ -1808,7 +1808,7 @@ function buildLauncher(): void {
       void chrome.storage.local.set({ 'tabterm.hiddenResumes': [...hiddenResumes] });
     },
     onResumeAgent: (session) => {
-      const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
+      const size = panesHost?.fit(splitView?.focused ?? '') ?? attachSize();
       // Resumed into this tab, not beside it. Asked for here, so it belongs here.
       if (thisTabIsUnused()) layoutRequestedHere = true;
       client?.send({
@@ -1821,7 +1821,7 @@ function buildLauncher(): void {
       launcher?.dismiss();
     },
     onOpenProject: (path) => {
-      const size = panesHost?.fit(splitView?.focused ?? '') ?? { cols: 80, rows: 24 };
+      const size = panesHost?.fit(splitView?.focused ?? '') ?? attachSize();
       client?.send({ t: 'launch-project-template', cwd: path, ...size });
       launcher?.dismiss();
     },
@@ -1970,12 +1970,84 @@ function sendToFocusedPane(text: string): void {
  * A terminal that is not told it grew keeps wrapping to its old width, which looks like a
  * rendering bug and is really a stale size.
  */
+/**
+ * Measure the pane, tell the daemon, and make a full-screen application draw itself again.
+ *
+ * The measure is the important half: the snapshot was written at the daemon's width and this
+ * pane is whatever size the window makes it, so the two have to be reconciled before anything
+ * else happens.
+ *
+ * The repaint is the half that makes it stay right. An application like an agent draws
+ * differentially: it writes only the cells it believes changed. Once its idea of the screen and
+ * ours have diverged, nothing brings them back together, because the parts that are wrong are
+ * parts it has no reason to touch. A size change is the one thing every terminal application
+ * treats as "you know nothing, draw it all again", so the size is nudged by a row and put back.
+ * It is what tmux does when you reattach, and for the same reason.
+ */
+function repaintAfterRestore(paneId: string, screen: string): void {
+  const size = panesHost?.fit(paneId);
+  if (!size || !workspaceId) return;
+  /**
+   * Only for a screen that had something on it.
+   *
+   * A session created a moment ago gets a snapshot too, and it is empty: there is nothing to
+   * repaint and the nudge is two size changes arriving exactly while a template is waiting for a
+   * prompt to type its command into. That broke a template's command outright, which is a good
+   * deal worse than the thing this exists to fix.
+   */
+  if (screen.trim() === '') return;
+  askForSize(paneId, { cols: size.cols, rows: Math.max(1, size.rows - 1) });
+  setTimeout(() => {
+    const now = panesHost?.fit(paneId) ?? size;
+    askForSize(paneId, now);
+  }, 60);
+}
+
+/**
+ * The size to attach with, before any pane exists to measure.
+ *
+ * Attaching announced 80 by 24 and the daemon believed it: sessions were resized to that, their
+ * screens were serialized at that width, and the result was written into a pane four times
+ * wider. A full-screen application came back as fragments of several moments overlapping.
+ *
+ * Estimated from the window and a character cell, which is exact for the common case of one
+ * pane and close enough for a split that the pane's own measurement, arriving a moment later,
+ * is a small correction rather than a different screen. A wrong guess is only ever wrong for
+ * that moment; 80 by 24 was wrong for the whole reattach.
+ */
+function attachSize(): { cols: number; rows: number } {
+  const measured = panesHost?.all[0]?.controller.fit();
+  if (measured && measured.cols > 1 && measured.rows > 1) return measured;
+  // A cell from the terminal's own font metrics when there is one, and a sane default when not.
+  const cell = panesHost?.all[0]?.controller.cellSize();
+  const width = cell?.width ?? 7;
+  const height = cell?.height ?? 17;
+  const usableWidth = Math.max(200, window.innerWidth - 24);
+  const usableHeight = Math.max(120, window.innerHeight - 24);
+  return {
+    cols: Math.max(20, Math.min(500, Math.floor(usableWidth / Math.max(1, width)))),
+    rows: Math.max(5, Math.min(300, Math.floor(usableHeight / Math.max(1, height)))),
+  };
+}
+
+/**
+ * The size each pane last asked for, which is how "we were overruled" is told from "we agreed".
+ *
+ * One PTY has one size and the daemon picks the smallest across the views attached to it. A view
+ * only needs to change its grid when the answer is not what it asked for.
+ */
+const requestedSizes = new Map<string, { cols: number; rows: number }>();
+
+function askForSize(paneId: string, size: { cols: number; rows: number }): void {
+  if (!workspaceId) return;
+  requestedSizes.set(paneId, size);
+  client?.send({ t: 'resize-pane', workspaceId, paneId, ...size });
+}
+
 function refitAllPanes(): void {
   for (const pane of panesHost?.all ?? []) {
     const size = panesHost?.fit(pane.paneId);
-    if (size && workspaceId) {
-      client?.send({ t: 'resize-pane', workspaceId, paneId: pane.paneId, ...size });
-    }
+    if (size) askForSize(pane.paneId, size);
   }
 }
 
@@ -2188,7 +2260,7 @@ function applyLayout(next: LayoutNode): void {
 function splitFocused(direction: 'horizontal' | 'vertical'): void {
   const paneId = splitView?.focused;
   if (!paneId || !workspaceId) return;
-  const size = panesHost?.fit(paneId) ?? { cols: 80, rows: 24 };
+  const size = panesHost?.fit(paneId) ?? attachSize();
   client?.send({ t: 'split-pane', workspaceId, paneId, direction, ...size });
 }
 
@@ -2215,7 +2287,7 @@ function detachFocused(): void {
 function launchAgent(where: 'new-tab' | 'split'): void {
   const paneId = splitView?.focused;
   if (!paneId || !workspaceId) return;
-  const size = panesHost?.fit(paneId) ?? { cols: 80, rows: 24 };
+  const size = panesHost?.fit(paneId) ?? attachSize();
   client?.send({ t: 'launch-agent', where, workspaceId, paneId, ...size });
 }
 
@@ -2917,8 +2989,8 @@ function onControl(msg: ServerMessage): void {
      older page. */
   switch (msg.t) {
     case 'auth-ok': {
-      if (workspaceId) client?.send({ t: 'attach-workspace', workspaceId, cols: 80, rows: 24 });
-      else client?.send({ t: 'create-session', cols: 80, rows: 24 });
+      if (workspaceId) client?.send({ t: 'attach-workspace', workspaceId, ...attachSize() });
+      else client?.send({ t: 'create-session', ...attachSize() });
       return;
     }
 
@@ -2949,7 +3021,7 @@ function onControl(msg: ServerMessage): void {
       const url = new URL(location.href);
       url.searchParams.set('workspace', workspaceId);
       history.replaceState(null, '', url.toString());
-      client?.send({ t: 'attach-workspace', workspaceId, cols: 80, rows: 24 });
+      client?.send({ t: 'attach-workspace', workspaceId, ...attachSize() });
       return;
     }
 
@@ -3034,7 +3106,7 @@ function onControl(msg: ServerMessage): void {
         const url = new URL(location.href);
         url.searchParams.set('workspace', workspaceId);
         history.replaceState(null, '', url.toString());
-        client?.send({ t: 'attach-workspace', workspaceId, cols: 80, rows: 24 });
+        client?.send({ t: 'attach-workspace', workspaceId, ...attachSize() });
         return;
       }
       /**
@@ -3069,7 +3141,7 @@ function onControl(msg: ServerMessage): void {
           at: Date.now(),
         });
       }
-      client?.send({ t: 'attach-workspace', workspaceId, cols: 80, rows: 24 });
+      client?.send({ t: 'attach-workspace', workspaceId, ...attachSize() });
       return;
     }
 
@@ -3107,9 +3179,14 @@ function onControl(msg: ServerMessage): void {
 
     case 'snapshot': {
       const pane = panesHost?.paneForStream(msg.snapshot.streamId);
-      if (pane) panesHost?.restore(pane.paneId, msg.snapshot.screen);
-      // A leftover partial-line marker above the first prompt. See `tidyPartialLine`.
-      if (pane) tidyPartialLine(pane.paneId);
+      if (pane) {
+        // At the size it was serialized at, then measured back to this pane's real size.
+        panesHost?.restore(pane.paneId, msg.snapshot.screen, msg.snapshot.cols, msg.snapshot.rows);
+        // A leftover partial-line marker above the first prompt. See `tidyPartialLine`.
+        tidyPartialLine(pane.paneId);
+        // Only when something came back. See `repaintAfterRestore`.
+        repaintAfterRestore(pane.paneId, msg.snapshot.screen);
+      }
       return;
     }
 
@@ -3187,6 +3264,43 @@ function onControl(msg: ServerMessage): void {
     case 'notify-policy': {
       notifyPolicy = msg.policy;
       commandPanel?.refreshSettings();
+      return;
+    }
+
+    case 'session-size': {
+      /**
+       * The grid is set to what the daemon says, not to what this pane measured.
+       *
+       * One PTY has one size. With two views attached it is the smaller of them, and a view that
+       * keeps its own larger grid is drawing into columns the shell does not know exist: lines
+       * wrap somewhere else and absolute cursor moves land in the wrong column, which is a
+       * full-screen application coming back as fragments of several moments overlapping.
+       *
+       * The pane can then be bigger than the terminal in it, which is right and is what every
+       * terminal multiplexer does. Being told is the whole point: this was computed by the
+       * daemon and never sent, so a view had no way to know it had been overruled.
+       */
+      const pane = panesHost?.forSession(msg.sessionId);
+      if (!pane) return;
+      /**
+       * Followed only when it is not the size this pane asked for.
+       *
+       * A size arriving that matches our own request is the daemon agreeing, and there is
+       * nothing to do. A size we have not asked for means we have been overruled, which happens
+       * when another view of this session is smaller, and then this grid has to change or it is
+       * drawing into columns the shell does not know exist.
+       *
+       * The distinction matters because attaching announces one size for a whole workspace,
+       * before any pane has been measured. Following that back would resize every pane to the
+       * window's size and then to its own, twice, while a template was typing its command into
+       * one of them. It did exactly that, and the template's command was lost.
+       */
+      const asked = requestedSizes.get(pane.paneId);
+      if (!asked) return;
+      if (asked.cols === msg.cols && asked.rows === msg.rows) return;
+      if (pane.controller.term.cols !== msg.cols || pane.controller.term.rows !== msg.rows) {
+        pane.controller.term.resize(msg.cols, msg.rows);
+      }
       return;
     }
 
@@ -3530,6 +3644,8 @@ declare global {
       setTheme: (name: string) => void;
       terminalTheme: () => { background?: string } | undefined;
       dropConnection: () => void;
+      /** Open a second, differently sized view of a pane's session, which is what a mirror is. */
+      attachSecondView: (paneId: string, cols: number, rows: number) => void;
       reconnect: () => void;
       setBackgroundTimeout: (seconds: number | null) => void;
       /** Highlights on the focused pane. A decoration is painted, so the DOM cannot be asked. */
@@ -3616,6 +3732,32 @@ function installTestHook(): void {
       return pane?.controller.term.options.theme;
     },
     dropConnection: () => client?.close(),
+    /**
+     * A second view of one session, at a size of its choosing.
+     *
+     * Two views is a supported thing to have, and it is where the size the terminal runs at
+     * stops being the size any one view asked for. Reproducing that needs a second connection
+     * rather than a second tab, because the point is what this page does when it is overruled.
+     */
+    attachSecondView: (paneId, cols, rows) => {
+      // By pane, because the ids this hook reports elsewhere are shortened for reading and a
+      // shortened session id attaches to nothing at all.
+      const sessionId = panesHost?.get(paneId)?.sessionId;
+      if (!sessionId) return;
+      void (async () => {
+        const mirror = new DaemonClient({
+          port: connectedPort,
+          token: (await getToken()) ?? '',
+          clientId: `${await connectionId()}:mirror`,
+          role: 'data',
+          onControl: () => {},
+          onOutput: () => {},
+          onStatus: () => {},
+        });
+        mirror.connect();
+        setTimeout(() => mirror.send({ t: 'attach', sessionId, cols, rows }), 400);
+      })();
+    },
     reconnect: () => client?.connect(),
     setBackgroundTimeout: (seconds) => client?.send({ t: 'set-background-timeout', seconds }),
     resumable: () =>

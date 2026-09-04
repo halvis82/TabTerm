@@ -6,6 +6,54 @@ const r = reporter();
 const { client } = await openTerminal();
 await waitFor(client, "document.querySelector('.launcher-input')");
 
+/**
+ * The folder list sits as close to the row of things to open as every other pair on this screen.
+ *
+ * Reported several times as a band of empty space. Measured, the folders ended at 141 and the
+ * buttons began at 175: a line about the folder in the box was holding eighteen pixels open for
+ * a sentence it only shows while a path is being typed, with the parent's gap on both sides.
+ *
+ * Compared against the gap below the buttons rather than to a number, because what was asked for
+ * was "like the space between the templates and Running now", and a number would be a second
+ * copy of a spacing rule that lives in the stylesheet.
+ *
+ * Before anything is typed, deliberately. That line is meant to take room while somebody is
+ * typing a path, because then it has something to say.
+ */
+const spacing = JSON.parse(
+  await evaluate(
+    client,
+    `(() => {
+       const folders = document.querySelector('.launcher-completions');
+       const buttons = document.querySelector('.launcher-buttons');
+       const state = document.querySelector('.launcher-folder-state');
+       if (!folders || !buttons) return 'null';
+       return JSON.stringify({
+         gap: Math.round(buttons.getBoundingClientRect().top - folders.getBoundingClientRect().bottom),
+         stateText: (state?.textContent ?? '').trim(),
+         stateHeight: state ? Math.round(state.getBoundingClientRect().height) : -1,
+       });
+     })()`,
+  ),
+);
+/**
+ * The line about the folder takes no room when it has nothing to say.
+ *
+ * That is the whole of the fix and it is always there to look at, unlike the sections below,
+ * which a machine with no running sessions does not draw at all: comparing against those made
+ * this check pass or fail depending on what else was on the screen.
+ */
+r.ok(
+  'the line about the folder takes no room while it has nothing to say',
+  spacing !== null && spacing.stateText === '' && spacing.stateHeight === 0,
+  JSON.stringify(spacing),
+);
+r.ok(
+  'so the folders sit close to the row of things to open',
+  spacing !== null && spacing.gap <= 14,
+  JSON.stringify(spacing),
+);
+
 const names = () =>
   evaluate(
     client,

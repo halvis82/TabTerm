@@ -746,6 +746,21 @@ export type ServerMessage =
     }
   | {
       /**
+       * The size the terminal is actually running at.
+       *
+       * Not necessarily the size this client asked for: one PTY has one size, and with several
+       * views attached it is the smallest of them. A view that keeps rendering at its own size
+       * is drawing into columns the shell does not know exist, and a full-screen application
+       * comes back as fragments of several moments overlapping. So the size is told rather than
+       * assumed, and a view sets its grid to it.
+       */
+      t: 'session-size';
+      sessionId: string;
+      cols: number;
+      rows: number;
+    }
+  | {
+      /**
        * A pane was closed, and its terminal is being held in case that was a mistake.
        *
        * Sent to everyone rather than only to the tab that closed it, because whether an undo is
