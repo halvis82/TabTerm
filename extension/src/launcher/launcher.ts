@@ -166,6 +166,7 @@ export class Launcher {
     this.#dismissed = true;
     // The template card lives on the page rather than in this element, so it has to be told.
     clearTimeout(this.#cardHideTimer);
+    this.#cardPinned = false;
     this.#templateCard?.remove();
     this.#templateCard = null;
     this.#el.hidden = true;
@@ -179,7 +180,6 @@ export class Launcher {
   #liveSessions: LiveSession[] = [];
   #dirInput: HTMLInputElement | null = null;
   /** Which layout Return will run. Open, because that is what almost everybody wants. */
-  #selectedAction = 0;
   #completionList: HTMLElement | null = null;
   /** What the daemon last said about the folder in the box. */
   #folderState: { path: string; exists: boolean; isFile?: boolean; error?: string } | null = null;
@@ -344,17 +344,19 @@ export class Launcher {
     input: HTMLInputElement,
   ): boolean {
     if (!e.ctrlKey || e.metaKey || e.altKey || !/^[1-9]$/.test(e.key)) return false;
-    const index = Number(e.key) - 1;
+    /**
+     * Control 1 is the first template, which is the second entry in the row.
+     *
+     * `Open` is entry zero and has no number: Return in the path box already does it, and a
+     * second way to do the same thing is a number that teaches you nothing.
+     */
+    const index = Number(e.key);
     const action = actions[index];
     if (!action) return false;
     e.preventDefault();
-    this.#selectChip?.(index);
     action.run(this.#resolved(input.value));
     return true;
   }
-
-  /** Set while the layout row exists, so the shortcut can move the outline with it. */
-  #selectChip: ((index: number) => void) | undefined;
 
   /** Listeners on things this class does not own, removed when the start screen goes. */
   readonly #teardown: (() => void)[] = [];
@@ -603,6 +605,14 @@ export class Launcher {
     info.title = 'What this template does';
     info.addEventListener('click', (e) => {
       e.stopPropagation();
+      /**
+       * Clicking again does not redraw it.
+       *
+       * The card was rebuilt on every click, so pressing the dot twice made it disappear and
+       * animate back in, which reads as a glitch rather than as nothing happening. Already
+       * showing this template, pinned, is a no-op.
+       */
+      if (this.#templateCard?.dataset['template'] === template.id && this.#cardPinned) return;
       this.#showTemplateCard(chip, template, input, true);
     });
     chip.append(info);
@@ -656,10 +666,14 @@ export class Launcher {
     input: HTMLInputElement,
     pinned = false,
   ): void {
+    // A pinned card stays until it is dismissed: hovering another chip does not replace it.
+    if (this.#cardPinned && !pinned) return;
     this.#templateCard?.remove();
     clearTimeout(this.#cardHideTimer);
     const card = document.createElement('div');
     card.className = pinned ? 'template-card is-pinned' : 'template-card';
+    card.dataset['template'] = template.id;
+    this.#cardPinned = pinned;
 
     const title = document.createElement('div');
     title.className = 'template-card-name';
@@ -728,14 +742,38 @@ export class Launcher {
     this.#templateCard = card;
     // The pointer can travel from the chip onto the card without it going.
     card.addEventListener('mouseenter', () => clearTimeout(this.#cardHideTimer));
-    card.addEventListener('mouseleave', () => this.#hideTemplateCard());
+    card.addEventListener('mouseleave', () => {
+      // A pinned card is not dismissed by the pointer leaving. That is the whole difference
+      // between pressing the dot and hovering: one is a question, the other is a decision.
+      if (!this.#cardPinned) this.#hideTemplateCard();
+    });
+
+    if (pinned) {
+      /**
+       * Dismissed by clicking anywhere else, which is what a pinned thing means.
+       *
+       * Registered on the next turn so the click that opened it does not immediately close it.
+       */
+      const away = (e: MouseEvent): void => {
+        if (card.contains(e.target as Node)) return;
+        document.removeEventListener('mousedown', away, true);
+        this.#cardPinned = false;
+        this.#templateCard?.remove();
+        this.#templateCard = null;
+      };
+      setTimeout(() => document.addEventListener('mousedown', away, true), 0);
+      this.#teardown.push(() => document.removeEventListener('mousedown', away, true));
+    }
   }
 
   #templateCard: HTMLElement | null = null;
+  /** A card opened by the dot stays until something else is clicked; a hovered one does not. */
+  #cardPinned = false;
   #cardHideTimer = 0;
 
   /** Also on dismiss, so a card never outlives the start screen it belongs to. */
   #hideTemplateCard(): void {
+    if (this.#cardPinned) return;
     clearTimeout(this.#cardHideTimer);
     this.#cardHideTimer = window.setTimeout(() => {
       this.#templateCard?.remove();
@@ -1146,51 +1184,31 @@ export class Launcher {
      * one carries the outline, which is why `Open agent here` no longer looks like a default it
      * never was.
      */
+    /**
+     * One entry that is not a template, then every template.
+     *
+     * `Open` stays a built-in: it is the plainest possible thing this screen does, it is what
+     * Return in the path box means, and there is nothing about it to edit. Everything else that
+     * used to sit beside it, the three arrangements and the two agents, is now an ordinary
+     * template that ships as a default. They can be renamed, edited, reordered and deleted, and
+     * put back from settings if they are.
+     */
     const actions: {
       label: string;
       run: (path: string) => void;
       title: string;
       shape?: LayoutShape;
-      /** Present when this entry is a saved template rather than a built-in layout. */
+      /** Present when this entry is a saved template rather than the built-in Open. */
       template?: LayoutTemplate;
     }[] = [
       {
         label: 'Open',
-        title: 'One terminal in this folder',
+        title: 'One terminal in this folder. Return, from the box above',
         shape: 'single',
         run: (path) => this.#opts.onChooseDir(path),
       },
-      {
-        label: 'Split in 2',
-        title: 'Two side by side',
-        shape: 'columns',
-        run: (path) => this.#opts.onCreateLayout(path, 2, 'horizontal', 'columns'),
-      },
-      {
-        label: '1 + 2',
-        title: 'One on the left, two stacked on the right',
-        shape: 'one-plus-two',
-        run: (path) => this.#opts.onCreateLayout(path, 3, 'horizontal', 'one-plus-two'),
-      },
-      {
-        label: '4 panes',
-        title: 'One in each corner',
-        shape: 'quad',
-        run: (path) => this.#opts.onCreateLayout(path, 4, 'horizontal', 'quad'),
-      },
     ];
 
-    /**
-     * Templates are entries in this same list, not a second row underneath it.
-     *
-     * They were a separate strip with different styling, no keyboard shortcut and no way to see
-     * what one contained. Putting them here means they get the numbering, the selection, Return,
-     * and the folder in the box, for free and by construction rather than by being kept in step.
-     *
-     * `Open agent here` used to sit at the end doing something no template could express. It is
-     * gone, and `claude` and `codex` are ordinary templates that can be renamed, edited,
-     * reordered or deleted.
-     */
     for (const template of this.#templates) {
       actions.push({
         label: template.name,
@@ -1200,12 +1218,15 @@ export class Launcher {
       });
     }
 
+    /**
+     * No selection, and no outline that moves.
+     *
+     * These used to be cycled with Tab and run with Return, so one of them was always outlined
+     * as "the one Return will take". Nothing cycles them now: they are clicked, or reached by
+     * Control and a number, and Return in the box means `Open`. An outline that follows a
+     * selection nobody can move is an outline that says something untrue.
+     */
     const chips: HTMLButtonElement[] = [];
-    const select = (index: number): void => {
-      this.#selectedAction = (index + actions.length) % actions.length;
-      chips.forEach((chip, i) => chip.classList.toggle('is-selected', i === this.#selectedAction));
-    };
-    this.#selectChip = select;
 
     /**
      * The same shortcut, from anywhere on the start screen.
@@ -1224,36 +1245,29 @@ export class Launcher {
 
     for (const [index, action] of actions.entries()) {
       const chip = document.createElement('button');
-      chip.className = 'launcher-chip';
+      chip.className = action.template ? 'launcher-chip launcher-template' : 'launcher-chip';
       chip.textContent = action.label;
-      /**
-       * The number is shown, not just bound.
-       *
-       * A shortcut nobody can see is a shortcut nobody uses, and this is the one place where
-       * the whole set is visible at once.
-       */
-      const key = document.createElement('kbd');
-      /**
-       * The modifier as well as the number.
-       *
-       * A bare `1` reads as a label or a count. The shortcut is Control and a number, so the
-       * badge says that, using the same glyph the key has on the keyboard.
-       */
-      key.textContent = `\u2303${String(index + 1)}`;
-      chip.append(key);
-      chip.title = `${action.title}  (Control ${String(index + 1)})`;
-      chip.addEventListener('click', () => {
-        select(index);
-        action.run(this.#resolved(input.value));
-      });
-      // Clicking or tabbing to a chip selects it, so what Return will do is always visible.
-      chip.addEventListener('focus', () => select(index));
 
+      /**
+       * `Open` has no number; the templates are numbered from one.
+       *
+       * Return in the path box is what opens a folder, so a shortcut for it would be a second
+       * way to do the thing the box already does. Control and a number then belongs entirely to
+       * the templates, and Control 1 is the first of them rather than the second entry in a row.
+       */
       if (action.template) {
-        chip.classList.add('launcher-template');
+        const key = document.createElement('kbd');
+        // The modifier as well as the number: a bare `1` reads as a label or a count.
+        key.textContent = `\u2303${String(index)}`;
+        chip.append(key);
+        chip.title = `${action.title}  (Control ${String(index)})`;
         this.#wireTemplateChip(chip, action.template, input);
+      } else {
+        chip.classList.add('is-open-action');
+        chip.title = action.title;
       }
 
+      chip.addEventListener('click', () => action.run(this.#resolved(input.value)));
       chips.push(chip);
       buttons.append(chip);
     }
@@ -1263,11 +1277,9 @@ export class Launcher {
     addTemplate.textContent = '+';
     addTemplate.title = 'Save this layout as a template that runs a command in each pane';
     addTemplate.addEventListener('click', () => {
-      this.#showTemplateForm(this.#resolved(input.value), actions[this.#selectedAction]?.shape);
+      this.#showTemplateForm(this.#resolved(input.value));
     });
     buttons.append(addTemplate);
-
-    select(this.#selectedAction);
 
     /**
      * Tab moves between the layouts, Return runs the selected one.
@@ -1286,23 +1298,26 @@ export class Launcher {
        * handler remembers to suppress it. Control is claimed by nothing here and produces
        * nothing on its own, which makes it the one that stays correct by default.
        */
+      // Control and a number runs a template. One is the first template, which is the entry
+      // after `Open`, because `Open` is what Return already does.
       if (e.ctrlKey && !e.metaKey && !e.altKey && /^[1-9]$/.test(e.key)) {
-        const index = Number(e.key) - 1;
+        const index = Number(e.key);
         if (index < actions.length) {
           e.preventDefault();
-          select(index);
           actions[index]?.run(input.value.trim() || state.home);
         }
         return;
       }
-      if (e.key === 'ArrowRight' || (e.key === 'Tab' && e.shiftKey)) {
-        e.preventDefault();
-        select(this.#selectedAction + (e.shiftKey ? -1 : 1));
-        return;
-      }
+      /**
+       * Return opens the folder, and only that.
+       *
+       * It used to run whichever chip was outlined, which meant Return did different things
+       * depending on a selection you could move with Tab and could not see if you had scrolled.
+       * Opening a folder is what somebody typing a path into a path box means.
+       */
       if (e.key === 'Enter') {
         e.preventDefault();
-        actions[this.#selectedAction]?.run(input.value.trim() || state.home);
+        actions[0]?.run(input.value.trim() || state.home);
       }
     });
 

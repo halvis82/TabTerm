@@ -1222,7 +1222,7 @@ function buildLauncher(): void {
       // told, and it redraws into the space it now has.
       root.classList.remove('panel-open');
       // The strip is gone, so the height it had grown to must not survive it.
-      root.style.removeProperty('--strip-height');
+      document.documentElement.style.removeProperty('--strip-height');
       refitAllPanes();
       panesHost?.focus(splitView?.focused ?? '');
     },
@@ -1390,26 +1390,63 @@ function growStripToFit(): void {
   const term = pane.controller.term;
   const buffer = term.buffer.active;
 
-  // The rows actually carrying something, from the top of the viewport down.
-  let used = 0;
-  for (let y = 0; y < term.rows; y++) {
-    const line = buffer.getLine(buffer.viewportY + y);
-    if (line && line.translateToString(true).trim() !== '') used = y + 1;
+  /**
+   * How many screen rows the line being typed occupies, by walking its wraps.
+   *
+   * Counting non-blank rows in the viewport was the first attempt and it was wrong in both
+   * directions: after a reload the viewport is full of a restored screen, so it asked for the
+   * maximum and the prompt ended up scrolled off the top of a very tall box, and while typing
+   * the count changed under a refit that changed the count again.
+   *
+   * A wrapped line is marked as such by xterm, so the current logical line is exactly the run
+   * of wrapped rows ending at the cursor. That number does not depend on what is above it and
+   * does not move when the box is refit.
+   */
+  const cursorRow = buffer.baseY + buffer.cursorY;
+  let inputRows = 1;
+  for (let y = cursorRow; y > 0 && inputRows < 40; y--) {
+    if (buffer.getLine(y)?.isWrapped === true) inputRows++;
+    else break;
   }
 
   const lineHeight = pane.element.clientHeight / Math.max(1, term.rows);
   if (!Number.isFinite(lineHeight) || lineHeight <= 0) return;
-  // Two lines of slack, so the next thing typed has somewhere to go before this moves again.
-  const wanted = Math.round((used + 2) * lineHeight) + 12;
-  const min = 72;
+
+  // One row of headroom above the prompt, so the line before it stays in view.
+  const rows = Math.max(MIN_STRIP_ROWS, inputRows + 1);
+  const wanted = Math.round(rows * lineHeight) + STRIP_PADDING;
   const max = Math.round(window.innerHeight * 0.4);
-  const height = Math.max(min, Math.min(max, wanted));
-  const current = Number(root.style.getPropertyValue('--strip-height').replace('px', ''));
-  // Only when it actually changed, or every keystroke costs a layout and a refit.
-  if (Math.abs(current - height) < lineHeight / 2) return;
-  root.style.setProperty('--strip-height', `${String(height)}px`);
-  refitAllPanes();
+  const height = Math.max(MIN_STRIP_PX, Math.min(max, wanted));
+
+  const current = Number(
+    document.documentElement.style.getPropertyValue('--strip-height').replace('px', ''),
+  );
+  if (Math.abs(current - height) >= 1) {
+    /**
+     * On the root, not on `#terminal`.
+     *
+     * The start screen is a sibling of the terminal, so a variable set on the terminal was
+     * invisible to it: it kept subtracting the default height and drew its opaque edge over the
+     * strip's top border, which is exactly the border that was reported as missing twice.
+     */
+    document.documentElement.style.setProperty('--strip-height', `${String(height)}px`);
+    refitAllPanes();
+  }
+
+  /**
+   * And the prompt is at the bottom, always.
+   *
+   * Resizing a terminal moves what is where, and the one thing this strip exists to show is the
+   * line being typed. Without this a reload left the box apparently empty, with the prompt
+   * sitting above the viewport.
+   */
+  term.scrollToBottom();
 }
+
+/** Two rows and a little padding: a prompt and the line under it. */
+const MIN_STRIP_ROWS = 2;
+const MIN_STRIP_PX = 72;
+const STRIP_PADDING = 14;
 
 function submitsCommand(data: string): boolean {
   return data.includes('\r') || data.includes('\n');

@@ -26,16 +26,53 @@ const labels = async () =>
  * meant the one thing most people wanted was the one thing they could not edit or reorder.
  */
 const shown = await labels();
+// Checked first, because every assertion below reads this row and an empty one makes them all
+// fail for the same uninformative reason.
+r.ok('the start screen drew its row of things to open', shown.length > 0, JSON.stringify(shown));
 r.ok(
   'claude and codex are offered',
   shown.includes('claude') && shown.includes('codex'),
   JSON.stringify(shown),
 );
 r.ok('and the agent button that could not be edited is gone', !shown.includes('Open agent here'));
+/**
+ * Everything except `Open` is a template now.
+ *
+ * The arrangements used to be built in beside it, which made the one thing most people want the
+ * one thing they could not edit. `Open` stays: it is what Return in the path box means and there
+ * is nothing about it to change.
+ */
 r.ok(
-  'they are in the same row as the layouts, so they get the numbering',
-  shown.indexOf('Open') === 0 && shown.indexOf('claude') > shown.indexOf('4 panes'),
+  'Open leads, and is the only thing that is not a template',
+  shown[0] === 'Open' &&
+    Number(
+      await evaluate(
+        client,
+        `document.querySelectorAll('.launcher-buttons .launcher-chip.is-open-action').length`,
+      ),
+    ) === 1,
   JSON.stringify(shown),
+);
+r.ok(
+  'the arrangements ship as templates, so they can be edited like any other',
+  ['Split in 2', '1 + 2', '4 panes'].every((n) => shown.includes(n)),
+  JSON.stringify(shown),
+);
+// Counted against the chips that are templates, rather than against the row, which also holds
+// `Open` at the front and the `+` at the end.
+const templateCount = Number(
+  await evaluate(
+    client,
+    `document.querySelectorAll('.launcher-buttons .launcher-template').length`,
+  ),
+);
+r.ok(
+  'every template has an i, and Open has none',
+  templateCount > 0 &&
+    Number(
+      await evaluate(client, `document.querySelectorAll('.launcher-template-info').length`),
+    ) === templateCount,
+  `${String(templateCount)} templates`,
 );
 
 /** The row grows sideways rather than wrapping, so adding one never moves the page around. */

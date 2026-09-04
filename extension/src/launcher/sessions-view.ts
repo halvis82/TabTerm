@@ -65,7 +65,9 @@ export function buildSessions(options: SessionsOptions): HTMLElement {
   grid.className = 'session-grid';
   // Scrolls past a few rows rather than pushing everything else off the page. Sessions now
   // genuinely persist, so this list can be long on a machine that has been up for a while.
-  if (sessions.length > 6) grid.classList.add('is-scrolling');
+  // The grid always caps itself at two rows and scrolls past that, so there is nothing to
+  // switch on: a class that only appeared past six meant the cap depended on how many there
+  // were rather than on how much room there is.
 
   for (const session of sessions) {
     grid.append(buildCard(session, options));

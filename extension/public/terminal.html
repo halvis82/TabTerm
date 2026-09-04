@@ -347,12 +347,16 @@
   .session-card {
     display: flex;
     flex-direction: column;
+    /* The row is a fixed height and this fills it, rather than the other way round. */
+    height: 100%;
     overflow: hidden;
     border-radius: 10px;
     border: 1px solid rgba(90, 100, 130, 0.28);
     background: rgba(24, 26, 35, 0.66);
     cursor: pointer;
-    /* Only the cheap properties, so a grid of these never costs a frame. */
+    /* Only the cheap properties, so a grid of these never costs a frame. Height is not among
+       them on purpose: a card that animates its own size makes the whole list move when the
+       pointer crosses it. */
     transition:
       border-color 140ms ease,
       transform 140ms ease,
@@ -450,6 +454,9 @@
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
+    /* Fixed, and the card's height is built from it. Not `flex: 1`, which would make the card
+       size the preview instead of the preview sizing the card. */
+    flex: none;
     height: 101px;
     padding: 6px 10px;
     overflow: hidden;
@@ -1614,7 +1621,7 @@
      * the box around the input had no visible top. The three pixels are that border and a
      * little air.
      */
-    bottom: calc(var(--strip-height, 4.5rem) + 3px);
+    bottom: calc(var(--strip-height, 4.5rem) + 6px);
     padding: 14px 18px 0;
     display: flex;
     flex-direction: column;
@@ -1881,6 +1888,17 @@
     border-style: solid;
     border-color: rgba(122, 162, 247, 0.35);
   }
+  /**
+   * `Open` is outlined because it is not one of the others.
+   *
+   * Everything else in this row is a template: editable, movable, removable. This one is the
+   * plainest thing the screen does and is what Return means, so it says so by looking different
+   * rather than by being labelled.
+   */
+  .launcher-chip.is-open-action {
+    border-color: #4d7bc4;
+    color: var(--text);
+  }
   .launcher-template.is-dragging {
     opacity: 0.4;
   }
@@ -1944,10 +1962,16 @@
     height: 74px;
     border-radius: 6px;
     background: rgba(10, 11, 15, 0.7);
+    /* One pixel of inset, so the rounded corner does not clip the outermost pane's border.
+       `overflow: hidden` is what rounds it, and the panes are positioned to its very edge. */
+    padding: 1px;
+    box-sizing: border-box;
     overflow: hidden;
   }
   .template-card-pane {
     position: absolute;
+    /* Inside the padding, so the corners round around the panes rather than through them. */
+    margin: 1px;
     border: 1px solid rgba(122, 162, 247, 0.4);
     background: rgba(61, 107, 168, 0.14);
     font-size: 9.5px;
@@ -2255,7 +2279,10 @@
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
-    margin-top: 6px;
+    /* The same rhythm as everything else on this screen. It had a margin of its own on top of
+       the form's gap, which read as a band of nothing between the folders and the buttons. */
+    margin-top: 2px;
+    margin-bottom: 2px;
     overflow: hidden;
     align-content: flex-start;
   }

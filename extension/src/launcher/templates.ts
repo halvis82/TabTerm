@@ -52,6 +52,39 @@ const SEEDED = 'tabterm.templatesSeeded';
  */
 export const DEFAULT_TEMPLATES: LayoutTemplate[] = [
   {
+    id: 'default-split-2',
+    name: 'Split in 2',
+    path: '~',
+    shape: 'columns',
+    panes: 2,
+    layout: '1+2',
+    commands: ['', ''],
+    sessionCommands: { '1': '', '2': '' },
+    description: 'Two terminals side by side.',
+  },
+  {
+    id: 'default-one-plus-two',
+    name: '1 + 2',
+    path: '~',
+    shape: 'one-plus-two',
+    panes: 3,
+    layout: '1+(2/3)',
+    commands: ['', '', ''],
+    sessionCommands: { '1': '', '2': '', '3': '' },
+    description: 'One on the left, two stacked on the right.',
+  },
+  {
+    id: 'default-quad',
+    name: '4 panes',
+    path: '~',
+    shape: 'quad',
+    panes: 4,
+    layout: '(1+2)/(3+4)',
+    commands: ['', '', '', ''],
+    sessionCommands: { '1': '', '2': '', '3': '', '4': '' },
+    description: 'One in each corner.',
+  },
+  {
     id: 'default-claude',
     name: 'claude',
     path: '~',
@@ -75,6 +108,39 @@ export const DEFAULT_TEMPLATES: LayoutTemplate[] = [
   },
 ];
 
+/**
+ * Which defaults are missing or have been changed.
+ *
+ * Used to decide whether to offer restoring them at all: an option that is always there for
+ * something you have not done is one more thing to read past every time you open settings.
+ */
+export function alteredDefaults(current: readonly LayoutTemplate[]): LayoutTemplate[] {
+  const byId = new Map(current.map((t) => [t.id, t]));
+  return DEFAULT_TEMPLATES.filter((original) => {
+    const mine = byId.get(original.id);
+    return mine === undefined || JSON.stringify(mine) !== JSON.stringify(original);
+  });
+}
+
+/**
+ * Put back what is missing, in the order it originally had, and touch nothing else.
+ *
+ * A default you edited is left alone unless it is gone: restoring is for getting back what you
+ * removed, and silently reverting something you deliberately changed would be the same button
+ * doing two different jobs.
+ */
+export function withDefaultsRestored(current: readonly LayoutTemplate[]): LayoutTemplate[] {
+  const have = new Set(current.map((t) => t.id));
+  const missing = DEFAULT_TEMPLATES.filter((t) => !have.has(t.id));
+  if (missing.length === 0) return [...current];
+  // The originals lead, in their own order, then everything else keeps the order it had.
+  const restoredIds = new Set(missing.map((t) => t.id));
+  const rest = current.filter((t) => !restoredIds.has(t.id));
+  const front = DEFAULT_TEMPLATES.filter((t) => restoredIds.has(t.id) || have.has(t.id)).flatMap(
+    (t) => (restoredIds.has(t.id) ? [t] : []),
+  );
+  return [...front, ...rest];
+}
 /** How many panes each shape produces, so a template knows how many commands it needs. */
 export function panesFor(shape: LayoutShape): number {
   switch (shape) {
