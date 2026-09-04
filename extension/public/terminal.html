@@ -2422,6 +2422,21 @@
   .palette-row.is-saved .palette-command {
     color: #8ae2a0;
   }
+  /**
+   * A row that goes somewhere, rather than one that does something here.
+   *
+   * `Change keyboard shortcuts` opens a Chrome page. Sitting among the actions in the same
+   * weight it read as one more thing this tab would do.
+   */
+  .palette-row.is-link {
+    border-top: 1px solid rgba(90, 100, 130, 0.2);
+    margin-top: 4px;
+    padding-top: 8px;
+    color: #8a91a3;
+  }
+  .palette-row.is-link .palette-command {
+    font-size: 12px;
+  }
   .palette-meta {
     color: #6f758a;
     font-size: 11px;

@@ -47,9 +47,24 @@ const query = async (text) => {
 
 const all = await query('');
 r.ok('actions lead the list', all.length >= 5, `${String(all.length)} actions`);
+/**
+ * A hint only where Chrome says a key is really bound.
+ *
+ * These used to be written into the table by hand, so one advertised Option Shift T for a
+ * command that had since been rebound to something else, which is worse than saying nothing.
+ * They come from `chrome.commands.getAll` now, and a fresh profile has bound almost nothing, so
+ * what is checked is that nothing claims a key it does not have.
+ */
+const hinted = all.filter((a) => (a.hint ?? '') !== '');
 r.ok(
-  'each shows its keystroke where one exists',
-  all.some((a) => a.hint?.includes('⌘')),
+  'no action claims a keystroke Chrome has not bound',
+  hinted.every((a) => a.title === 'Change keyboard shortcuts' || /[⌘⌃⌥⇧]/.test(a.hint ?? '')),
+  JSON.stringify(hinted.map((a) => `${a.title}=${a.hint ?? ''}`)),
+);
+r.ok(
+  'the two that act on a particular pane are not offered from the keyboard',
+  !all.some((a) => a.title === 'Maximize this pane' || a.title === 'Move this pane to its own tab'),
+  all.map((a) => a.title).join(', '),
 );
 
 const fuzzy = await query('sp');

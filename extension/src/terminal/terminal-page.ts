@@ -1691,15 +1691,57 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
  * The hints are the keystroke where one exists, so the palette teaches the shortcut rather than
  * replacing it. See docs/06-chrome-integration.md.
  */
+/**
+ * What Chrome has actually bound, rather than what the manifest suggested.
+ *
+ * Manifest acceptance is not assignment, and a person can rebind anything, so a hardcoded hint
+ * is a claim about a key that may belong to something else entirely. One said Option Shift T for
+ * a command that had been rebound to Shift Command O, which is worse than saying nothing.
+ *
+ * Read once and kept, because `chrome.commands.getAll` is a promise and a palette is built while
+ * somebody is looking at it. An empty answer means no hint, which is the honest fallback.
+ */
+let boundShortcuts: Record<string, string> = {};
+
+function refreshBoundShortcuts(): void {
+  void chrome.commands
+    .getAll()
+    .then((commands) => {
+      boundShortcuts = Object.fromEntries(
+        commands.flatMap((c) => (c.name && c.shortcut ? [[c.name, c.shortcut]] : [])),
+      );
+      palette?.setActions(paletteActions());
+    })
+    .catch(() => {
+      /* No shortcut API is no hints, which is what an empty table already produces. */
+    });
+}
+
 function paletteActions(): PaletteAction[] {
   const paneCount = layout ? collectPanes(layout).length : 1;
+  /** A hint only when Chrome says the key is really bound to that command. */
+  const key = (command: string): { hint: string } | Record<string, never> => {
+    const shortcut = boundShortcuts[command];
+    return shortcut ? { hint: shortcut } : {};
+  };
+
   const actions: PaletteAction[] = [
-    { id: 'split-right', title: 'Split right', hint: '⌘D', run: () => splitFocused('horizontal') },
-    { id: 'split-down', title: 'Split down', hint: '⇧⌘D', run: () => splitFocused('vertical') },
+    {
+      id: 'split-right',
+      title: 'Split right',
+      ...key('split-right'),
+      run: () => splitFocused('horizontal'),
+    },
+    {
+      id: 'split-down',
+      title: 'Split down',
+      ...key('split-down'),
+      run: () => splitFocused('vertical'),
+    },
     {
       id: 'agent-tab',
       title: 'Launch an agent in a new tab',
-      hint: '⇧⌘A',
+      ...key('launch-agent'),
       run: () => launchAgent('new-tab'),
     },
     {
@@ -1710,50 +1752,37 @@ function paletteActions(): PaletteAction[] {
     {
       id: 'new-terminal',
       title: 'New terminal tab',
-      hint: '⌥⇧T',
+      ...key('new-terminal'),
       run: () => {
         void chrome.tabs.create({ url: chrome.runtime.getURL('terminal.html'), active: true });
       },
     },
   ];
 
-  // Actions that need more than one pane are omitted rather than shown disabled. A palette
-  // offering something that does nothing is worse than a shorter palette.
+  /**
+   * Actions that need more than one pane are omitted rather than shown disabled.
+   *
+   * Two that used to be here are gone entirely. `Maximize this pane` and `Move this pane to its
+   * own tab` both act on **a** pane, and a menu opened from the keyboard cannot say which: they
+   * belong in the pane's own right-click menu, where the pane is the thing you clicked. The
+   * hint on the first of them, `Esc restores`, was describing a mode you had not entered yet.
+   */
   if (paneCount > 1) {
-    actions.push(
-      { id: 'close-pane', title: 'Close this pane', hint: '⌘W', run: () => closeFocused() },
-      { id: 'detach-pane', title: 'Move this pane to its own tab', run: () => detachFocused() },
-      {
-        id: 'maximize',
-        title: 'Maximize this pane',
-        hint: 'Esc restores',
-        run: () => splitView?.toggleMaximize(splitView.focused),
-      },
-      {
-        id: 'merge',
-        title: 'Pull a terminal in from another tab',
-        run: () => {
-          client?.send({ t: 'list-mergeable', workspaceId });
-          palette?.openMerge();
-        },
-      },
-    );
-  } else {
-    actions.push({
-      id: 'merge',
-      title: 'Pull a terminal in from another tab',
-      run: () => {
-        client?.send({ t: 'list-mergeable', workspaceId });
-        palette?.openMerge();
-      },
-    });
+    actions.push({ id: 'close-pane', title: 'Close this pane', run: () => closeFocused() });
   }
+  actions.push({
+    id: 'merge',
+    title: 'Pull a terminal in from another tab',
+    run: () => {
+      client?.send({ t: 'list-mergeable', workspaceId });
+      palette?.openMerge();
+    },
+  });
 
   actions.push(
     {
       id: 'focus-mode',
       title: 'Fullscreen focus mode',
-      hint: 'gives this pane ⌘W',
       run: () => {
         const paneId = splitView?.focused;
         if (paneId) void splitView?.enterFocusMode(paneId);
@@ -1768,6 +1797,8 @@ function paletteActions(): PaletteAction[] {
       id: 'shortcuts',
       title: 'Change keyboard shortcuts',
       hint: 'chrome://extensions/shortcuts',
+      // Not one of the actions: it goes somewhere rather than doing something here.
+      kind: 'link',
       run: () => {
         void chrome.tabs.create({ url: 'chrome://extensions/shortcuts', active: true });
       },
@@ -1962,6 +1993,35 @@ function watchTheme(): void {
   });
   void chrome.storage.local.get('tabterm.theme').then((stored) => {
     applyTheme((stored['tabterm.theme'] as string | undefined) ?? DEFAULT_THEME);
+  });
+}
+
+/**
+ * Shortcuts Chrome owns, relayed here by the worker.
+ *
+ * The only shortcuts a person can rebind are the ones declared in the manifest, and those fire
+ * in the worker rather than in a page. So an in-page action that wants a changeable key has to
+ * be reachable this way. Everything here is also reachable from the command menu, which is what
+ * it falls back to when no key is bound.
+ */
+function installForwardedCommands(): void {
+  chrome.runtime.onMessage.addListener((msg: { t?: string }) => {
+    switch (msg.t ?? '') {
+      case 'tabterm:open-command-menu':
+        commandPanel?.open();
+        return;
+      case 'tabterm:split-right':
+        splitFocused('horizontal');
+        return;
+      case 'tabterm:split-down':
+        splitFocused('vertical');
+        return;
+      case 'tabterm:launch-agent':
+        launchAgent('split');
+        return;
+      default:
+        return;
+    }
   });
 }
 
@@ -2859,6 +2919,9 @@ async function start(): Promise<void> {
   installTestHook();
   installModifierTracking();
   installShortcuts();
+  installForwardedCommands();
+  // Asked once at startup, so the palette's hints describe the keys Chrome really has.
+  refreshBoundShortcuts();
   installAmbientFocus();
   installRefitOnWake();
   // A reattached session gets the whole window from the start. Nothing about it is new, so

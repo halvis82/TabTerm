@@ -35,22 +35,27 @@
     }
   },
   "commands": {
-    "new-terminal": {
-      "suggested_key": {
-        "mac": "Alt+Shift+T"
-      },
-      "description": "Open a new terminal tab"
-    },
-    "new-terminal-alt": {
-      "suggested_key": {
-        "mac": "Command+Shift+Period"
-      },
-      "description": "Open a new terminal tab (alternate binding)"
-    },
     "_execute_action": {
       "suggested_key": {
-        "mac": "MacCtrl+Shift+T"
-      }
+        "mac": "Command+Shift+Period",
+        "default": "Ctrl+Shift+Period"
+      },
+      "description": "Open a TabTerm terminal"
+    },
+    "new-terminal": {
+      "description": "Open a new terminal tab"
+    },
+    "open-command-menu": {
+      "description": "Open the command menu in the focused terminal"
+    },
+    "split-right": {
+      "description": "Split the focused terminal to the right"
+    },
+    "split-down": {
+      "description": "Split the focused terminal downwards"
+    },
+    "launch-agent": {
+      "description": "Launch an agent in a new tab"
     }
   }
 }

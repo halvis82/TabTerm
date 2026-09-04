@@ -351,7 +351,16 @@ export class CommandPanel {
   }
 
   refreshSettings(): void {
-    if (this.#showingSettings && this.isOpen) this.render();
+    if (!this.#showingSettings || !this.isOpen) return;
+    /**
+     * Not while something is asking a question.
+     *
+     * The daemon reports things on its own schedule, and settings redraw when it does. A
+     * redraw under an open "are you sure" throws the question away and puts the plain button
+     * back, so the second press lands on a button that has forgotten it was asked.
+     */
+    if (this.#body.querySelector('[data-asking="yes"]')) return;
+    this.render();
   }
 
   render(): void {

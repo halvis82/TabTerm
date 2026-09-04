@@ -28,6 +28,13 @@ export interface PaletteAction {
   title: string;
   /** Shown on the right. The keystroke, when there is one. */
   hint?: string;
+  /**
+   * A link goes somewhere rather than doing something here, and is drawn as one.
+   *
+   * `Change keyboard shortcuts` sat among the actions looking like a thing that would happen in
+   * this tab. It opens a Chrome page, which is a different kind of answer.
+   */
+  kind?: 'action' | 'link';
   run: () => void;
 }
 
@@ -512,6 +519,8 @@ export class Palette {
       if (row.kind === 'action') {
         meta.textContent = row.action.hint ?? '';
         el.classList.add('is-action');
+        // A link leaves this tab, so it does not look like the things that act inside it.
+        if (row.action.kind === 'link') el.classList.add('is-link');
       } else if (row.kind === 'merge') {
         meta.textContent = row.session.title;
         el.classList.add('is-merge');

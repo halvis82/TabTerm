@@ -468,6 +468,19 @@ function installContextMenus(): void {
       contexts: ['link'],
     });
     /**
+     * Opening a terminal, first, because it is what somebody reaching for this icon wants.
+     *
+     * The icon's own click already does it. Having it in the menu too costs a line and means the
+     * menu is never a dead end: everything else here is about configuring or ending things.
+     */
+    chrome.contextMenus.create({
+      id: 'new-terminal-tab',
+      title: 'New TabTerm terminal',
+      contexts: ['action'],
+    });
+    chrome.contextMenus.create({ id: 'sep-1', type: 'separator', contexts: ['action'] });
+
+    /**
      * Settings, from a right click on the toolbar icon.
      *
      * It opens a terminal tab with the panel already on settings rather than a page of its own,
@@ -487,6 +500,18 @@ function installContextMenus(): void {
      * sits next to Settings on the same icon and the cost of a misclick is somebody's running
      * work.
      */
+    /**
+     * Where shortcuts are changed, which is a Chrome page and cannot be anywhere else.
+     *
+     * Under Settings rather than beside it: it is a setting, it is just one Chrome owns.
+     */
+    chrome.contextMenus.create({
+      id: 'edit-shortcuts',
+      title: 'Edit keyboard shortcuts',
+      contexts: ['action'],
+    });
+    chrome.contextMenus.create({ id: 'sep-2', type: 'separator', contexts: ['action'] });
+
     chrome.contextMenus.create({
       id: 'reset-tabterm',
       title: 'End all sessions and close tabs...',
@@ -503,6 +528,14 @@ chrome.contextMenus.onClicked.addListener((info) => {
   const id = String(info.menuItemId);
   if (id === 'reset-tabterm') {
     void chrome.tabs.create({ url: `${chrome.runtime.getURL('terminal.html')}?panel=reset` });
+    return;
+  }
+  if (id === 'new-terminal-tab') {
+    void openTerminal();
+    return;
+  }
+  if (id === 'edit-shortcuts') {
+    void chrome.tabs.create({ url: 'chrome://extensions/shortcuts', active: true });
     return;
   }
   if (id === 'open-settings') {
@@ -571,8 +604,46 @@ async function openOrFocusLocal(port: number): Promise<void> {
 
 chrome.runtime.onInstalled.addListener(() => installContextMenus());
 chrome.runtime.onStartup.addListener(() => void ensureOffscreen());
+/**
+ * Chrome's shortcuts, forwarded to whichever terminal is in front.
+ *
+ * A command fires here, in the worker, and not in the page, so anything that acts on a terminal
+ * has to be relayed. That is worth doing because it is the only way an in-page action can have a
+ * shortcut somebody can **change**: `chrome://extensions/shortcuts` is the one place Chrome lets
+ * a person rebind anything, and a key the page listens for itself can never appear there.
+ *
+ * Three of these used to be the same command with three bindings, which spent the whole budget
+ * of rebindable shortcuts on one action.
+ */
+const FORWARDED: Record<string, string> = {
+  'open-command-menu': 'tabterm:open-command-menu',
+  'split-right': 'tabterm:split-right',
+  'split-down': 'tabterm:split-down',
+  'launch-agent': 'tabterm:launch-agent',
+};
+
 chrome.commands.onCommand.addListener((command) => {
-  if (command === 'new-terminal' || command === 'new-terminal-alt') void openTerminal();
+  if (command === 'new-terminal') {
+    void openTerminal();
+    return;
+  }
+  const forwarded = FORWARDED[command];
+  if (!forwarded) return;
+  void (async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const base = chrome.runtime.getURL('terminal.html');
+    // Only to a terminal. Sending a split to whatever page happens to be in front would be a
+    // message to somebody else's tab about something it knows nothing about.
+    if (!tab?.id || !tab.url?.startsWith(base)) {
+      if (command === 'launch-agent') void openTerminal();
+      return;
+    }
+    try {
+      await chrome.tabs.sendMessage(tab.id, { t: forwarded });
+    } catch {
+      // A terminal tab that is not listening is one that has been discarded. Nothing to do.
+    }
+  })();
 });
 
 /**
