@@ -10,6 +10,7 @@ import type {
   TitleFields,
 } from '@tabterm/shared';
 import { linesWithContent } from './screen-content.js';
+import { InputLine, rowsNeeded } from './input-line.js';
 import { DaemonClient, type ConnectionStatus } from '../transport/daemon-client.js';
 import { getToken } from '../transport/token.js';
 import { daemonPort } from '../transport/port.js';
@@ -1466,6 +1467,10 @@ function buildHosts(): void {
       inputBytesSeen += data.length;
       const pane = panesHost?.get(paneId);
       if (!pane) return;
+      // Counted before the shell sees it, because in a short terminal the shell does not put it
+      // on the screen in any form this could count. See `input-line.ts`.
+      inputLine.consume(data);
+      growStripToFit();
 
       // Hotstrings act on the keystroke before it reaches the shell. Suspended while a
       // full-screen program owns the terminal, because the deletions this sends would be edits
@@ -1771,6 +1776,9 @@ function buildLauncher(): void {
       const size = panesHost?.fit(splitView?.focused ?? '') ?? attachSize();
       client?.send({ t: 'restore-workspace', workspaceId, replayCommands, ...size });
       launcher?.dismiss();
+    },
+    onReadAgentSession: (sessionId) => {
+      client?.send({ t: 'read-agent-session', sessionId, limit: 14 });
     },
     onForgetRestorable: (workspaceId) => {
       client?.send({ t: 'forget-restorable', workspaceId });
@@ -2100,21 +2108,29 @@ function growStripToFit(): void {
   const buffer = term.buffer.active;
 
   /**
-   * How many screen rows the line being typed occupies, by walking its wraps.
+   * How many rows the line being typed needs, counted from **what was typed**.
    *
-   * Counting non-blank rows in the viewport was the first attempt and it was wrong in both
-   * directions: after a reload the viewport is full of a restored screen, so it asked for the
-   * maximum and the prompt ended up scrolled off the top of a very tall box.
+   * Two earlier attempts read the screen, and the screen is the one thing that cannot answer
+   * this. Counting non-blank rows was wrong after a reload, when the viewport is full of a
+   * restored screen. Walking xterm's wrap flags was wrong for the case this exists for: in a
+   * three row terminal zsh does not wrap a long line at all, it **truncates the display** and
+   * draws `>....` to say so, so there are no wrapped rows to find and the box never grew. That
+   * is the `> ....` in the report, and the repeated prompt lines are the same shell redrawing.
    *
-   * A wrapped line is marked as such by xterm, so the current logical line is exactly the run of
-   * wrapped rows ending at the cursor.
+   * The characters are already counted, by the buffer that watches for abbreviations, and they
+   * are counted before the shell sees them. It resets on Return, which is exactly when this
+   * should reset too.
    */
-  const cursorRow = buffer.baseY + buffer.cursorY;
-  let inputRows = 1;
-  for (let y = cursorRow; y > 0 && inputRows < 60; y--) {
-    if (buffer.getLine(y)?.isWrapped === true) inputRows++;
-    else break;
-  }
+  const typed = inputLine.length;
+  /**
+   * Where the prompt ends, learned while the line is empty.
+   *
+   * The cursor sits immediately after the prompt when nothing has been typed, so this is exact
+   * and costs nothing. Without it a long prompt like `(base) halvis82@Halvor-Mac ~ %` is nearly
+   * a third of a row that the arithmetic does not know about.
+   */
+  if (typed === 0) promptColumns = buffer.cursorX;
+  const inputRows = rowsNeeded(promptColumns, typed, term.cols);
 
   /**
    * Past this it stops being a strip and becomes the terminal.
@@ -2124,17 +2140,37 @@ function growStripToFit(): void {
    * way: what somebody is doing is using the terminal, so they get the terminal, in the folder
    * it was already in.
    */
-  if (inputRows > MAX_STRIP_ROWS) {
+  const lineHeight = pane.element.clientHeight / Math.max(1, term.rows);
+  if (!Number.isFinite(lineHeight) || lineHeight <= 0) return;
+
+  const max = Math.round(window.innerHeight * 0.4);
+  /**
+   * The most rows this box may ever show, which is the smaller of two limits.
+   *
+   * Ten, because past that it has stopped being a hint under a menu. And whatever fits in the
+   * share of the window a strip is allowed, because on a short window ten rows is most of the
+   * screen. The height cap was applied on its own, so on a small window the box stopped growing
+   * at eight rows and the line went on getting longer behind a shell that had started truncating
+   * it. Growing to a limit and then quietly showing less than was typed is the failure this is
+   * supposed to prevent.
+   */
+  const roomForRows = Math.floor((max - STRIP_PADDING) / lineHeight);
+  const maxRows = Math.max(MIN_STRIP_ROWS, Math.min(MAX_STRIP_ROWS, roomForRows));
+
+  /**
+   * Past that it stops being a strip and becomes the terminal.
+   *
+   * What somebody is doing at that point is using the terminal, so they get the terminal, in the
+   * folder it was already in, with what they have typed still on the line. The alternative is a
+   * box that cannot show the line it exists to show.
+   */
+  if (inputRows + 1 > maxRows) {
     launcher?.dismiss();
     return;
   }
 
-  const lineHeight = pane.element.clientHeight / Math.max(1, term.rows);
-  if (!Number.isFinite(lineHeight) || lineHeight <= 0) return;
-
   const rows = Math.max(MIN_STRIP_ROWS, inputRows + 1);
   const wanted = Math.round(rows * lineHeight) + STRIP_PADDING;
-  const max = Math.round(window.innerHeight * 0.4);
   const height = Math.max(MIN_STRIP_PX, Math.min(max, wanted));
 
   const current =
@@ -2232,6 +2268,15 @@ function resetStrip(): void {
 }
 
 let stripScrollTimer: ReturnType<typeof setTimeout> | undefined;
+/** Where the prompt ends, measured while the line is empty. See `growStripToFit`. */
+let promptColumns = 0;
+/**
+ * The line being typed into the start screen's terminal, as long as it is one.
+ *
+ * One of these rather than one per pane: the start screen only ever has a single pane under it,
+ * and this is only consulted while it is showing.
+ */
+const inputLine = new InputLine();
 
 /** Two rows and a little padding: a prompt and the line under it. */
 const MIN_STRIP_ROWS = 2;
@@ -3301,6 +3346,11 @@ function onControl(msg: ServerMessage): void {
       if (pane.controller.term.cols !== msg.cols || pane.controller.term.rows !== msg.rows) {
         pane.controller.term.resize(msg.cols, msg.rows);
       }
+      return;
+    }
+
+    case 'agent-transcript': {
+      launcher?.setTranscript(msg.sessionId, msg.turns);
       return;
     }
 

@@ -249,6 +249,19 @@ export type ClientMessage =
        */
       t: 'reload-extension';
     }
+  | {
+      /**
+       * Read the stored conversation for a session that could be resumed.
+       *
+       * For telling one from another. The agent's own file is read and no process is started:
+       * resuming a session to find out whether you want to resume it changes the thing being
+       * inspected, costs money, and takes seconds.
+       */
+      t: 'read-agent-session';
+      sessionId: string;
+      /** How many turns from the end. The end is what says what a session was about. */
+      limit?: number;
+    }
   | { t: 'get-agent-command' }
   | {
       /**
@@ -738,6 +751,12 @@ export type ServerMessage =
        * the shells in them would be ended for having no tab. See `06-chrome-integration.md`.
        */
       t: 'reload-extension';
+    }
+  | {
+      /** The last turns of a stored conversation, oldest first. Empty when it cannot be read. */
+      t: 'agent-transcript';
+      sessionId: string;
+      turns: readonly { role: 'you' | 'agent'; text: string; at?: number }[];
     }
   | {
       /** What "launch an agent" runs, as typed. Every tab follows a change to it. */

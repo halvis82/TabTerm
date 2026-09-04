@@ -58,6 +58,8 @@ export interface LauncherOptions {
   onResumeAgent: (session: ResumableAgentSession) => void;
   /** Remembered, so a conversation dismissed once does not come back next time. */
   onHideResume: (sessionId: string) => void;
+  /** Read a stored conversation, so a row can be told from the two beside it. */
+  onReadAgentSession?: (sessionId: string) => void;
   onRestore: (workspaceId: string, replayCommands: boolean) => void;
   /** Open a session that already exists, wherever it currently is. */
   onOpenSession: (session: LiveSession) => void;
@@ -108,6 +110,10 @@ export class Launcher {
   readonly #asked = new Set<string>();
   #expanded: string | null = null;
   #resumable: readonly ResumableAgentSession[] = [];
+  /** Which conversation is open, if any. One at a time, so the list stays a list. */
+  #expandedResume: string | null = null;
+  /** Conversations that have been read, by session. Absent means "asked, not back yet". */
+  readonly #transcripts = new Map<string, readonly { role: 'you' | 'agent'; text: string }[]>();
   #servers: readonly LocalServer[] = [];
   #restorable: readonly RestorableSummary[] = [];
   #expandedRestore: string | null = null;
@@ -1573,6 +1579,30 @@ export class Launcher {
       row.title = session.sessionId;
       row.addEventListener('click', () => this.#opts.onResumeAgent(session));
 
+      /**
+       * A way to read the conversation before deciding to resume it.
+       *
+       * One line of the first prompt does not tell three sessions apart when all three begin
+       * "help me with". The alternative that suggests itself, starting the agent to look, is not
+       * one: it changes the thing being inspected.
+       *
+       * Expanding rather than opening something. What is below is pushed down, which is what a
+       * list does when one of its rows has more to say, and nothing is covered up.
+       */
+      const expand = document.createElement('button');
+      expand.className = 'launcher-row-action is-expand';
+      const open = this.#expandedResume === session.sessionId;
+      expand.title = open ? 'Hide the conversation' : 'Read the conversation';
+      expand.textContent = open ? '\u2304' : '\u203a';
+      expand.setAttribute('aria-expanded', open ? 'true' : 'false');
+      expand.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // A second click on the open one closes it: one open at a time, so the list stays a list.
+        this.#expandedResume = open ? null : session.sessionId;
+        if (!open) this.#opts.onReadAgentSession?.(session.sessionId);
+        this.render();
+      });
+
       // A cross, not a star: a conversation is either worth offering back or it is not, and
       // there is nothing to keep.
       const hide = document.createElement('button');
@@ -1586,10 +1616,66 @@ export class Launcher {
         this.render();
       });
 
-      wrap.append(row, hide);
-      return wrap;
+      wrap.append(row, expand, hide);
+      if (!open) return wrap;
+
+      const holder = document.createElement('div');
+      holder.className = 'launcher-row-holder';
+      holder.append(wrap, this.#transcriptPanel(session.sessionId));
+      return holder;
     });
     return section('Resume an agent session', rows);
+  }
+
+  /**
+   * The conversation under an expanded row.
+   *
+   * Scrolled to the bottom, because the end of a conversation is what says what it was about by
+   * the time it stopped. Bounded in height so that expanding one pushes the rest down by a
+   * predictable amount rather than by however long somebody's last message was.
+   */
+  #transcriptPanel(sessionId: string): HTMLElement {
+    const box = document.createElement('div');
+    box.className = 'launcher-transcript';
+
+    const turns = this.#transcripts.get(sessionId);
+    if (!turns) {
+      box.textContent = 'Reading...';
+      box.classList.add('is-waiting');
+      return box;
+    }
+    if (turns.length === 0) {
+      box.textContent = 'Nothing readable in this one.';
+      box.classList.add('is-waiting');
+      return box;
+    }
+
+    for (const turn of turns) {
+      const line = document.createElement('div');
+      line.className = `launcher-turn is-${turn.role}`;
+      const who = document.createElement('span');
+      who.className = 'launcher-turn-who';
+      who.textContent = turn.role === 'you' ? 'you' : 'agent';
+      const text = document.createElement('span');
+      text.className = 'launcher-turn-text';
+      text.textContent = turn.text;
+      line.append(who, text);
+      box.append(line);
+    }
+    // Drawn already scrolled to the end, which is where the useful part is.
+    queueMicrotask(() => {
+      box.scrollTop = box.scrollHeight;
+    });
+    return box;
+  }
+
+  /** A conversation that was asked for has arrived. */
+  setTranscript(
+    sessionId: string,
+    turns: readonly { role: 'you' | 'agent'; text: string }[],
+  ): void {
+    this.#transcripts.set(sessionId, turns);
+    if (!this.#dismissed && this.#expandedResume === sessionId) this.render();
   }
 
   /** Record what a directory declares, and show it. */

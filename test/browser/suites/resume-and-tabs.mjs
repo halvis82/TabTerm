@@ -41,6 +41,75 @@ r.ok(
   JSON.stringify([...new Set(resumable.map((s) => s.agent))]),
 );
 
+/**
+ * Reading a conversation before deciding to resume it.
+ *
+ * One line of the first prompt does not tell three sessions apart when all three begin "help me
+ * with". The agent's own file is read for this; nothing is started, because resuming a session to
+ * find out whether you want it changes the thing being inspected.
+ */
+{
+  const below = async () =>
+    Number(
+      await evaluate(
+        a.client,
+        `(() => { const rows = document.querySelectorAll('.launcher-row.is-resume');
+           const last = rows[rows.length - 1];
+           return last ? Math.round(last.getBoundingClientRect().top) : -1; })()`,
+      ),
+    );
+  const beforeTop = await below();
+  const opened = await realClick(a.client, '.launcher-row-action.is-expand');
+  r.ok('a conversation can be opened from its row', opened !== false);
+
+  const shown = await waitFor(
+    a.client,
+    `document.querySelectorAll('.launcher-transcript').length === 1`,
+    10000,
+  );
+  r.ok('exactly one conversation is open at a time', shown);
+
+  // What was in the file, or an honest sentence saying there was nothing readable in it.
+  const settled = await waitFor(
+    a.client,
+    `!document.querySelector('.launcher-transcript')?.classList.contains('is-waiting') ||
+     (document.querySelector('.launcher-transcript')?.textContent ?? '').includes('Nothing readable')`,
+    15000,
+  );
+  const turns = Number(
+    await evaluate(a.client, `document.querySelectorAll('.launcher-turn').length`),
+  );
+  const text = String(
+    await evaluate(a.client, `document.querySelector('.launcher-transcript')?.textContent ?? ''`),
+  );
+  r.ok(
+    'and it shows the conversation, or says plainly that it could not be read',
+    settled && (turns > 0 || text.includes('Nothing readable')),
+    `${String(turns)} turns: ${text.slice(0, 70).replace(/\s+/g, ' ')}`,
+  );
+
+  /**
+   * It pushes what is below it down rather than covering anything.
+   *
+   * Asked for that way, and it is what a list should do: deciding between three of these means
+   * reading them where they are.
+   */
+  const afterTop = await below();
+  r.ok(
+    'the rows below are pushed down rather than covered',
+    beforeTop === -1 || afterTop > beforeTop,
+    `${String(beforeTop)} -> ${String(afterTop)}`,
+  );
+
+  await realClick(a.client, '.launcher-row-action.is-expand');
+  await sleep(400);
+  r.ok(
+    'and it collapses again, putting the list back',
+    Number(await evaluate(a.client, `document.querySelectorAll('.launcher-transcript').length`)) ===
+      0,
+  );
+}
+
 // Resuming from a tab that is still showing its start screen happens **in** that tab.
 {
   const fresh = await openTerminal();

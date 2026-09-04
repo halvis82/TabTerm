@@ -65,6 +65,7 @@ import { paths } from './config.js';
 import { agentHooksStatus, setAgentHooks } from './agent-hooks.js';
 import { setShellIntegration, shellIntegrationStatus } from './shell-integration.js';
 import { clampPolicy, decide, type Finished, type NotifyPolicy } from './notify-policy.js';
+import { readTranscript, type TranscriptTurn } from './agent-transcript.js';
 import { splitCommand } from './split-command.js';
 import { readUserSettings, updateUserSetting, writeUserSettings } from './user-settings.js';
 import { clampBudget, DEFAULT_SCROLLBACK_BYTES, linesForBytes } from './scrollback-budget.js';
@@ -1426,6 +1427,39 @@ export class DaemonServer {
         return;
       }
 
+      /**
+       * The stored conversation for a session somebody is deciding whether to resume.
+       *
+       * Read from the agent's own file. Nothing is started: resuming a session to find out
+       * whether you want it changes the thing being inspected, and one line of the first prompt
+       * is not enough to tell three of them apart.
+       *
+       * The path comes from the listing rather than from the id, because neither store's naming
+       * survives the round trip: Claude's directory encoding is lossy and a Codex rollout is
+       * named after a timestamp. A row that has not been listed has nothing to read, which is
+       * answered with an empty transcript rather than an error.
+       */
+      case 'read-agent-session': {
+        const path = this.#transcriptPaths.get(msg.sessionId);
+        const answer = (turns: readonly TranscriptTurn[]): void => {
+          send(
+            client.socket,
+            controlFrame({ t: 'agent-transcript', sessionId: msg.sessionId, turns }),
+          );
+        };
+        if (!path) {
+          answer([]);
+          return;
+        }
+        void readTranscript(path, msg.limit ?? 12)
+          .then(answer)
+          .catch(() => {
+            // Somebody else's file format. Failing to read one means nothing to show.
+            answer([]);
+          });
+        return;
+      }
+
       case 'resume-agent': {
         /**
          * Resuming is a spawn like any other. The id came from the store, but it is passed as
@@ -2313,6 +2347,15 @@ export class DaemonServer {
    */
   #agentCommand: readonly string[] = [];
 
+  /**
+   * Where each offered session's conversation is stored, by session id.
+   *
+   * Filled while listing, because that is the only moment the path is known: Claude's directory
+   * encoding is lossy and a Codex rollout is named after a timestamp, so neither can be worked
+   * out again from a session id. Bounded by how many are ever offered at once.
+   */
+  readonly #transcriptPaths = new Map<string, string>();
+
   /** Seconds left on a closed pane, or null when it is not one. Read by the reap policy. */
   undoWindowLeft(sessionId: string): number | null {
     const record = this.#closedPanes.get(sessionId);
@@ -2415,7 +2458,16 @@ export class DaemonServer {
       // Checked here rather than at the reader, so both stores get the same guarantee.
       if (!(await directoryExists(session.cwd))) continue;
       if (running.has(session.sessionId)) continue;
-      offerable.push(session);
+      /**
+       * Where its conversation is, remembered for as long as it is on offer.
+       *
+       * Neither store's naming survives a round trip, so this cannot be worked out later from
+       * what a row shows. Kept out of the message itself: a page has no use for a file path, and
+       * sending one is a detail of somebody else's software leaking into a protocol.
+       */
+      const { path, ...row } = session as ResumableAgentSession & { path?: string };
+      if (path) this.#transcriptPaths.set(session.sessionId, path);
+      offerable.push(row);
     }
     return offerable;
   }

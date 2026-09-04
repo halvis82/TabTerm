@@ -22,6 +22,14 @@ export interface ResumableSession {
   modifiedAt: number;
   /** First words of the last prompt, when they can be read. Purely a label. */
   summary?: string;
+  /**
+   * The file this was read from.
+   *
+   * Carried rather than reconstructed. The store's directory naming is lossy, so encoding a path
+   * again can name a directory that belongs to a different project, and a transcript shown
+   * against the wrong session is worse than none.
+   */
+  path?: string;
 }
 
 const DEFAULT_STORE = join(homedir(), '.claude', 'projects');
@@ -114,7 +122,12 @@ export async function listResumable(options?: {
         const info = await stat(full);
         if (!info.isFile() || info.size === 0) continue;
         found.push({
-          session: { sessionId: basename(file, '.jsonl'), cwd, modifiedAt: info.mtimeMs },
+          session: {
+            sessionId: basename(file, '.jsonl'),
+            cwd,
+            modifiedAt: info.mtimeMs,
+            path: full,
+          },
           storeDir: dir,
         });
       } catch {

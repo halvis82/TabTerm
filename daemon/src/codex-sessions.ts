@@ -25,6 +25,8 @@ export interface CodexSession {
   cwd: string;
   modifiedAt: number;
   summary?: string;
+  /** The rollout file this was read from, whose name holds a timestamp rather than the id. */
+  path?: string;
 }
 
 const DEFAULT_STORE = join(homedir(), '.codex', 'sessions');
@@ -166,6 +168,9 @@ export async function listCodexResumable(options?: {
       sessionId: meta.sessionId,
       cwd: meta.cwd,
       modifiedAt: file.at,
+      // Carried, because a rollout's name holds a timestamp rather than the session id: this
+      // path cannot be worked out again from what a row shows.
+      path: file.path,
     };
     const summary = summaryFrom(head);
     if (summary) session.summary = summary;

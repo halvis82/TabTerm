@@ -714,6 +714,29 @@ that is the moment someone has stopped choosing and started working.
 
 ### The command line grows, and then the launcher gets out of the way
 
+**The line is counted from the keystrokes, not read off the screen.** In a terminal three rows
+tall zsh does not wrap a long line: it truncates the display and draws `>....` to say so. There
+are no wrapped rows to count and the line is genuinely not on the screen, so the two earlier
+attempts to measure this from the screen could not have worked, and the box stayed small while the
+shell quietly showed less than had been typed. The repeated prompt lines in the same report are
+the same shell redrawing a line it could not fit.
+
+The counting is deliberately not the buffer that watches for abbreviations, which looks like the
+same thing and answers a different question: it forgets the line on every space, because a space
+ends a trigger, and keeps only the last 512 characters, because nothing longer can match. Using it
+made the box stop growing at about six rows and reset every time somebody typed a word.
+
+It is an estimate and behaves like one. Anything it cannot model, an arrow key, a completion, an
+interrupt, sets the count back to nothing, which keeps the box small: being wrong small is the
+harmless direction.
+
+The limit is the smaller of ten rows and what fits in the share of the window a strip may have.
+Only the height was capped before, so on a short window the box stopped at eight rows and the line
+went on growing behind a shell that had started truncating it. Growing to a limit and then
+quietly showing less than was typed is the failure this exists to prevent.
+
+
+
 The box at the bottom is a view onto the shell's own line, so a command longer than one row has
 to be shown somewhere. The panel above it gives up height, one row at a time, and the terminal
 underneath is resized to match.

@@ -313,3 +313,28 @@ is found, it names **where the hooks live**, which is the agent's own settings f
 anything of TabTerm's: the hook script is ours, in `~/.local/libexec/tabterm`, and the entry that
 calls it is written into the agent's configuration. That is the half worth pointing at when
 somebody asks where this lives or wants to remove it by hand.
+
+## Reading a session before resuming it
+
+A resumable session shows one line: which agent, when, the first words of a prompt, and where.
+That is not enough to tell three of them apart when all three begin "help me with".
+
+So a row expands, in place, into the last turns of its conversation. What is below is pushed down
+and nothing is covered, because deciding between three of these means reading them where they are.
+One is open at a time, the panel is bounded in height, and it is drawn already scrolled to the
+end, which is the part that says what a session was about by the time it stopped.
+
+**Nothing is started to do this.** Resuming a session to find out whether you want to resume it
+changes the thing being inspected, costs money and takes seconds. The agent's own store is read:
+`~/.claude/projects/<encoded path>/<id>.jsonl` for Claude Code, and the newest rollout under
+`~/.codex/sessions/` for Codex. The last 256 KB, so a session that has been running all day opens
+instantly.
+
+Tool calls, tool results, hook output and session metadata share those files and none of them is
+conversation, so they are left out: a panel full of them says less than an empty one. The formats
+are nobody's promise, so every record that is not recognised costs a turn and nothing more, and a
+file that cannot be read at all says so in a sentence rather than failing.
+
+The path is carried from the listing rather than worked out from the id. Claude's directory naming
+is lossy, and a Codex rollout is named after a timestamp: neither survives the round trip, and a
+transcript shown against the wrong session would be worse than none.
