@@ -657,6 +657,23 @@ function endEverythingThisRunMade() {
     }
   }
   /**
+   * The PTY host, by the pid it wrote down, because nothing else here reaches it.
+   *
+   * It detaches on purpose and its socket and lock are not under this run's home: the home a
+   * temporary directory produces is long enough to push a unix socket path over the hundred
+   * byte cap, so the host moves both to the temporary directory and the daemon writes down
+   * where they went. Every mechanism below looks under the home, so for weeks each run left a
+   * host behind: 133 of them were counted on 2026-09-04, holding 800 MB between them.
+   */
+  const host = hostPidUnder(daemon.home);
+  if (host) {
+    try {
+      process.kill(host, 'SIGKILL');
+    } catch {
+      /* already gone */
+    }
+  }
+  /**
    * Anything still holding a file under this run's home.
    *
    * The PTY host **detaches itself on purpose**, which is the entire point of it: it has to
@@ -683,6 +700,26 @@ function endEverythingThisRunMade() {
     }
   } catch {
     /* nothing had it open */
+  }
+}
+
+/**
+ * This run's PTY host, from the pointer its daemon wrote.
+ *
+ * Read rather than assembled, and read from the pointer rather than from a fixed path, because
+ * the host moves its socket and its lock to the temporary directory when the home makes the
+ * natural path too long for a unix socket. Matching on the process name instead was the single
+ * most destructive line this harness ever had: it matched every host on the machine, which is
+ * every terminal a person has open.
+ */
+function hostPidUnder(home) {
+  try {
+    const pointer = join(home, '.local/state/tabterm/ptyhost.where');
+    const lockPath = readFileSync(pointer, 'utf8').trim().split('\n')[1];
+    const pid = Number(readFileSync(lockPath, 'utf8').trim());
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
   }
 }
 
