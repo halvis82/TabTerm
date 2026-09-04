@@ -67,7 +67,28 @@ const home = JSON.parse(
   ),
 );
 r.ok('every folder in it, not the first handful', home.rows > 9, JSON.stringify(home));
-r.ok('and the list scrolls rather than growing past the pane', home.scrolls, JSON.stringify(home));
+/**
+ * The thing that matters is that `Open here` stays reachable, not that the list scrolls.
+ *
+ * The folders are chips that wrap now, the way the start screen lists them, so twenty-four of
+ * them take three lines rather than twenty-four. The list still scrolls when there are enough,
+ * and asserting that it always does would be asserting that it is always cramped.
+ */
+const reachable = JSON.parse(
+  await evaluate(
+    b.client,
+    `(() => {
+       const box = document.querySelector('.pane-chooser-box').getBoundingClientRect();
+       const open = document.querySelector('.pane-chooser-accept').getBoundingClientRect();
+       return JSON.stringify({ inside: open.bottom <= box.bottom + 1, height: Math.round(open.height) });
+     })()`,
+  ),
+);
+r.ok(
+  'and Open here stays inside the pane however many folders there are',
+  reachable.inside && reachable.height > 0,
+  JSON.stringify({ ...home, ...reachable }),
+);
 // Anchored to the bottom of the pane, not merely low in it: a terminal fills from the top, so
 // what matters is that the panel never reaches the line being typed.
 const anchored = JSON.parse(

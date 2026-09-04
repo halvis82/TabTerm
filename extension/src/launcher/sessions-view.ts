@@ -15,7 +15,8 @@ export interface SessionsOptions {
   sessions: () => readonly LiveSession[];
   /** Open a session, either by focusing the tab that has it or by attaching here. */
   onOpen: (session: LiveSession) => void;
-  onClose: (session: LiveSession) => void;
+  /** Absent where ending a session is not one of the things on offer, as in a pane chooser. */
+  onClose?: (session: LiveSession) => void;
   home: string;
 }
 
@@ -70,13 +71,20 @@ export function buildSessions(options: SessionsOptions): HTMLElement {
   // were rather than on how much room there is.
 
   for (const session of sessions) {
-    grid.append(buildCard(session, options));
+    grid.append(buildSessionCard(session, options));
   }
   wrap.append(grid);
   return wrap;
 }
 
-function buildCard(session: LiveSession, options: SessionsOptions): HTMLElement {
+/**
+ * One card, exported so a pane offering to take a session shows the same thing.
+ *
+ * A path is not enough to tell four shells in the same repository apart, and the one you want is
+ * the one that printed the thing you remember. That is as true when choosing what to put in a
+ * new pane as it is on the start screen, and two renderings of the same idea would drift.
+ */
+export function buildSessionCard(session: LiveSession, options: SessionsOptions): HTMLElement {
   const card = document.createElement('article');
   card.className = 'session-card';
   card.dataset['sessionId'] = session.sessionId;
@@ -154,16 +162,21 @@ function buildCard(session: LiveSession, options: SessionsOptions): HTMLElement 
   when.textContent = since(session.startedAt);
   foot.append(when);
 
-  const close = document.createElement('button');
-  close.className = 'session-close';
-  close.title = 'End this session';
-  close.textContent = '×';
-  close.addEventListener('click', (e) => {
-    // Without this the click also opens the session it just ended.
-    e.stopPropagation();
-    options.onClose(session);
-  });
-  foot.append(close);
+  // Only where ending one is on offer. A pane asking which session to take here should not
+  // also be a place to destroy one by clicking slightly wrong.
+  const onClose = options.onClose;
+  if (onClose) {
+    const close = document.createElement('button');
+    close.className = 'session-close';
+    close.title = 'End this session';
+    close.textContent = '×';
+    close.addEventListener('click', (e) => {
+      // Without this the click also opens the session it just ended.
+      e.stopPropagation();
+      onClose(session);
+    });
+    foot.append(close);
+  }
 
   card.append(foot);
 

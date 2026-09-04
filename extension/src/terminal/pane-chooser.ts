@@ -1,4 +1,5 @@
-import type { MergeableSession } from '@tabterm/shared';
+import type { LiveSession, MergeableSession } from '@tabterm/shared';
+import { buildSessionCard } from '../launcher/sessions-view.js';
 
 /**
  * What an empty pane offers instead of a bare prompt.
@@ -30,6 +31,16 @@ export interface PaneChooserOptions {
   onListFolder: (path: string) => void;
   onTakeSession: (paneId: string, session: MergeableSession) => void;
   onRefreshSessions: () => void;
+  /**
+   * Everything running, so a session can be offered as the card it has on the start screen.
+   *
+   * A row of text cannot tell four shells in the same repository apart. The card carries the
+   * last lines of the actual screen, which is the thing somebody recognises, and it is the same
+   * component so the two cannot drift.
+   */
+  liveSessions: () => readonly LiveSession[];
+  /** Put away, without choosing anything. */
+  onDismiss?: (paneId: string) => void;
 }
 
 /** A shortlist, not an inventory. A pane is a small place to read one. */
@@ -96,10 +107,29 @@ export class PaneChooser {
     box.className = 'pane-chooser-box';
     box.append(this.#browsing === null ? this.#chooserBody() : this.#browserBody());
 
-    const hint = document.createElement('div');
+    const foot = document.createElement('div');
+    foot.className = 'pane-chooser-foot';
+    const hint = document.createElement('span');
     hint.className = 'pane-chooser-hint';
     hint.textContent = 'or just start typing';
-    box.append(hint);
+    foot.append(hint);
+
+    /**
+     * A way to put it away without choosing anything.
+     *
+     * It is a large thing to appear over a pane that already works: the prompt is right there
+     * and typing dismisses it, but that is only obvious once you know. A button says so.
+     */
+    const dismiss = document.createElement('button');
+    dismiss.className = 'pane-chooser-dismiss';
+    dismiss.textContent = 'Dismiss';
+    dismiss.title = 'Hide this and use the prompt';
+    dismiss.addEventListener('click', () => {
+      this.dismiss();
+      this.#opts.onDismiss?.(this.#opts.paneId);
+    });
+    foot.append(dismiss);
+    box.append(foot);
 
     this.#el.append(box);
   }
@@ -114,14 +144,61 @@ export class PaneChooser {
     browse.addEventListener('click', () => this.#browse(`${this.#opts.home}/`));
     body.append(browse);
 
-    if (this.#sessions.length > 0) {
+    /**
+     * The sessions this pane could take, as the cards they have on the start screen.
+     *
+     * Matched by id against what the daemon says is mergeable, so the list is still the daemon's
+     * answer about what may be moved; only the drawing comes from the other place.
+     */
+    const mergeable = new Map(this.#sessions.map((m) => [m.sessionId, m]));
+    const cards = this.#opts
+      .liveSessions()
+      .filter((live) => mergeable.has(live.sessionId))
+      .slice(0, MAX_SESSIONS);
+
+    if (cards.length > 0) {
       const heading = document.createElement('div');
       heading.className = 'pane-chooser-heading';
       heading.textContent = 'Or bring a session here';
       body.append(heading);
-      for (const session of this.#sessions.slice(0, MAX_SESSIONS)) {
-        body.append(this.#sessionRow(session));
+
+      const grid = document.createElement('div');
+      grid.className = 'session-grid pane-chooser-grid';
+      for (const live of cards) {
+        const target = mergeable.get(live.sessionId);
+        if (!target) continue;
+        const card = buildSessionCard(live, {
+          sessions: () => [],
+          home: this.#opts.home,
+          onOpen: () => {
+            /**
+             * Taking a session that a tab is showing moves it, so it asks first.
+             *
+             * The tab it came from is left with nothing, which is somebody else's window
+             * changing because of a click in this one.
+             */
+            if (live.attached && this.#confirming !== live.sessionId) {
+              this.#confirming = live.sessionId;
+              this.render();
+              return;
+            }
+            this.#opts.onTakeSession(this.#opts.paneId, target);
+          },
+        });
+        // Also carries the name the chooser's own checks and styles use: it is a session row
+        // here, drawn as a card, rather than a card that happens to be in a chooser.
+        card.classList.add('pane-chooser-session');
+        card.dataset['session'] = live.sessionId;
+        if (this.#confirming === live.sessionId) {
+          card.classList.add('is-confirming');
+          const warn = document.createElement('div');
+          warn.className = 'pane-chooser-warn';
+          warn.textContent = 'Already open in another tab. Move it here and close that tab?';
+          card.append(warn);
+        }
+        grid.append(card);
       }
+      body.append(grid);
     }
     return body;
   }
@@ -193,50 +270,6 @@ export class PaneChooser {
     this.#folders = [];
     this.render();
     this.#opts.onListFolder(path);
-  }
-
-  #sessionRow(session: MergeableSession): HTMLElement {
-    const row = document.createElement('button');
-    row.className = 'pane-chooser-session';
-    row.dataset['session'] = session.sessionId;
-
-    const name = document.createElement('span');
-    name.className = 'pane-chooser-session-name';
-    name.textContent = session.title;
-
-    const where = document.createElement('span');
-    where.className = 'pane-chooser-session-cwd';
-    where.textContent = shorten(session.cwd, this.#opts.home);
-
-    row.append(name, where);
-
-    if (session.attached) {
-      const badge = document.createElement('span');
-      badge.className = 'pane-chooser-badge';
-      badge.textContent = 'open in a tab';
-      row.append(badge);
-    }
-
-    if (this.#confirming === session.sessionId) {
-      // Said in full, because the cost is somebody else's tab going away.
-      row.classList.add('is-confirming');
-      const warn = document.createElement('span');
-      warn.className = 'pane-chooser-warn';
-      warn.textContent = 'Already open in another tab. Move it here and close that tab?';
-      row.append(warn);
-      row.addEventListener('click', () => this.#opts.onTakeSession(this.#opts.paneId, session));
-      return row;
-    }
-
-    row.addEventListener('click', () => {
-      if (session.attached) {
-        this.#confirming = session.sessionId;
-        this.render();
-        return;
-      }
-      this.#opts.onTakeSession(this.#opts.paneId, session);
-    });
-    return row;
   }
 }
 

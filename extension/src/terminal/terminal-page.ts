@@ -128,6 +128,8 @@ let layoutRequestedHere = false;
 let startScreenDecided = !reattaching;
 /** A template whose commands are waiting for its panes to exist. */
 let pendingTemplate: LayoutTemplate | null = null;
+/** Everything running that this tab is not already showing, for the start screen and the panes. */
+let liveElsewhere: readonly LiveSession[] = [];
 /** How many shipped templates have been deleted or changed, so settings can offer to restore. */
 let alteredTemplateCount = 0;
 
@@ -640,6 +642,8 @@ function syncPaneChoosers(): void {
         container: pane.element,
         paneId,
         home: launcherHome,
+        liveSessions: () => liveElsewhere,
+        onDismiss: (id) => panesHost?.focus(id),
         onChooseDir: (id, path) => {
           const target = panesHost?.get(id);
           if (!target) return;
@@ -668,6 +672,10 @@ function syncPaneChoosers(): void {
           paneChoosers.get(id)?.dismiss();
         },
         onRefreshSessions: () => {
+          // Both lists: what may be moved comes from the daemon's mergeable answer, and what it
+          // looks like comes from the live one. A chooser opened before either has arrived would
+          // otherwise offer nothing at all.
+          client?.send({ t: 'list-live-sessions' });
           if (workspaceId) client?.send({ t: 'list-mergeable', workspaceId });
         },
       }),
@@ -2378,7 +2386,10 @@ function onControl(msg: ServerMessage): void {
        * the same list for every tab, so the tab that knows its own panes makes it.
        */
       const mine = new Set((panesHost?.all ?? []).map((p) => p.sessionId));
-      launcher?.setLiveSessions(msg.sessions.filter((s) => !mine.has(s.sessionId)));
+      liveElsewhere = msg.sessions.filter((s) => !mine.has(s.sessionId));
+      launcher?.setLiveSessions(liveElsewhere);
+      // A pane offering to take one draws the same cards, so it redraws when they change.
+      for (const chooser of paneChoosers.values()) chooser.render();
       // The counts, once they are known. The confirmation is already on screen by now.
       if (openPanelAt === 'reset') showResetConfirmation(msg.sessions);
       return;

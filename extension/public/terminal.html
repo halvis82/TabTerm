@@ -1337,14 +1337,38 @@
     padding: 10px;
     pointer-events: none;
   }
+  /**
+   * Folders as chips that wrap, which is how the start screen lists them.
+   *
+   * They were a vertical list here and a row of chips there, for the same job. Four folders took
+   * four lines of a pane that has very few, and the two screens taught different habits for the
+   * same thing.
+   */
   .pane-chooser-folders {
     display: flex;
-    flex-direction: column;
+    flex-wrap: wrap;
     gap: 4px;
+    align-content: flex-start;
     /* Every folder is listed, so this is what keeps a directory of forty from pushing
        `Open here` off the bottom of the pane. */
     overflow-y: auto;
     min-height: 0;
+  }
+  .pane-chooser-folder {
+    flex: none;
+    padding: 3px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(90, 100, 130, 0.32);
+    background: rgba(26, 28, 38, 0.55);
+    color: #9ec5ff;
+    font: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .pane-chooser-folder:hover {
+    border-color: #3d6ba8;
+    color: var(--text);
   }
 
   .pane-chooser-box {
@@ -1379,11 +1403,10 @@
     gap: 6px;
     margin-top: 2px;
   }
+  /* The folder chips are styled above, with the wrapping row they sit in. */
   .pane-chooser-browse,
-  .pane-chooser-folder,
   .pane-chooser-accept,
-  .pane-chooser-cancel,
-  .pane-chooser-session {
+  .pane-chooser-cancel {
     display: flex;
     align-items: baseline;
     gap: 8px;
@@ -1397,14 +1420,9 @@
     text-align: left;
     cursor: pointer;
   }
-  .pane-chooser-session {
-    width: 100%;
-  }
   .pane-chooser-browse:hover,
-  .pane-chooser-folder:hover,
   .pane-chooser-accept:hover,
-  .pane-chooser-cancel:hover,
-  .pane-chooser-session:hover {
+  .pane-chooser-cancel:hover {
     background: rgba(122, 162, 247, 0.16);
     border-color: rgba(122, 162, 247, 0.4);
   }
@@ -2428,6 +2446,46 @@
    * `Change keyboard shortcuts` opens a Chrome page. Sitting among the actions in the same
    * weight it read as one more thing this tab would do.
    */
+  /**
+   * The cards inside a pane chooser, which are the start screen's own.
+   *
+   * Narrower and capped at one row: a pane is a small place to read a list, and the point here
+   * is recognising one session rather than surveying all of them.
+   */
+  .pane-chooser-grid {
+    --card-height: 132px;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    max-height: calc(var(--card-height) + 6px);
+    margin-top: 4px;
+  }
+  .pane-chooser-grid .session-screen {
+    height: 84px;
+  }
+  .pane-chooser-grid .session-card.is-confirming {
+    border-color: #e8c26a;
+  }
+  .pane-chooser-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 8px;
+  }
+  .pane-chooser-dismiss {
+    padding: 3px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(90, 100, 130, 0.38);
+    background: transparent;
+    color: #9aa0a6;
+    font: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+  .pane-chooser-dismiss:hover {
+    color: var(--text);
+    border-color: #3d6ba8;
+  }
+
   .palette-row.is-link {
     border-top: 1px solid rgba(90, 100, 130, 0.2);
     margin-top: 4px;
