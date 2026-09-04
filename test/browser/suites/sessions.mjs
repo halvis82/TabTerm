@@ -46,6 +46,61 @@ r.ok(
   badges.slice(0, 3).join(', '),
 );
 
+/**
+ * Every card the same height, and the same height after the pointer has been over one.
+ *
+ * The height used to come from the grid row, which is as tall as the tallest card in it, so
+ * adding a session changed the ones beside it and moving the pointer across the list re-laid it
+ * out. It was reported twice, which is twice more than a list of boxes should need.
+ */
+const heights = JSON.parse(
+  await evaluate(
+    viewer.client,
+    `JSON.stringify([...document.querySelectorAll('.session-card')].map((c) => Math.round(c.getBoundingClientRect().height)))`,
+  ),
+);
+r.ok(
+  'every running-now card is the same height',
+  heights.length > 0 && new Set(heights).size === 1,
+  JSON.stringify(heights),
+);
+
+// Hovered, then measured again. Nothing about a pointer should change how tall a box is.
+await evaluate(
+  viewer.client,
+  `document.querySelector('.session-card')?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))`,
+);
+await sleep(500);
+const afterHover = JSON.parse(
+  await evaluate(
+    viewer.client,
+    `JSON.stringify([...document.querySelectorAll('.session-card')].map((c) => Math.round(c.getBoundingClientRect().height)))`,
+  ),
+);
+r.ok(
+  'and stays that height when the pointer crosses it',
+  JSON.stringify(afterHover) === JSON.stringify(heights),
+  `${JSON.stringify(heights)} then ${JSON.stringify(afterHover)}`,
+);
+
+/**
+ * Two rows, then the list scrolls rather than pushing the rest of the page down forever.
+ *
+ * Measured against a card rather than against the variable that sizes one: what matters is that
+ * the box on screen is no taller than two of the things in it.
+ */
+const gridHeight = Number(
+  await evaluate(
+    viewer.client,
+    `Math.round(document.querySelector('.session-grid')?.getBoundingClientRect().height ?? 0)`,
+  ),
+);
+r.ok(
+  'and the list is at most two rows tall',
+  heights[0] === undefined || gridHeight <= heights[0] * 2 + 24,
+  `grid ${String(gridHeight)}, card ${String(heights[0])}`,
+);
+
 r.ok(
   'every card can be reached by keyboard',
   (await evaluate(viewer.client, `document.querySelector('.session-card')?.tabIndex`)) === 0,
