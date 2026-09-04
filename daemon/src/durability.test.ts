@@ -47,6 +47,10 @@ beforeAll(async () => {
   );
   workspaces = new WorkspaceStore();
   sessions.isInWorkspace = (id) => workspaces.findBySession(id) !== undefined;
+  sessions.panesInItsWorkspace = (id) => {
+    const workspace = workspaces.findBySession(id);
+    return workspace ? paneCount(workspace.layout) : 0;
+  };
   // Wired the same way `main.ts` wires it, so a report about tabs can be matched to
   // sessions. Without it nothing can be mapped and the policy keeps everything, correctly.
   sessions.setWorkspaceLookup((id) => workspaces.findBySession(id)?.id);
@@ -501,6 +505,51 @@ describe('startup herd', () => {
     console.warn(`      ${String(COUNT)} simultaneous restores completed in ${String(elapsed)}ms`);
 
     for (const c of clients) c.close();
+  });
+});
+
+/**
+ * An arrangement is work, even when a pane in it has printed nothing but a prompt.
+ *
+ * This is the shape of what happened on 2026-09-04: an extension reload closed every tab, and
+ * thirty seconds later five untouched panes were gone, taking the layout with them.
+ */
+describe('a pane in an arrangement somebody built', () => {
+  it('is not thrown away as unused when its tab closes', async () => {
+    sessions.keepBackgroundSeconds = null;
+    const first = await makeSession('arrangement-1', false);
+    const second = await makeSession('arrangement-2', false);
+
+    const workspace = workspaces.findBySession(first.sessionId);
+    const pane = workspace ? workspaces.paneFor(workspace, first.sessionId) : undefined;
+    expect(pane).toBeTruthy();
+    first.c.send({
+      t: 'merge-into',
+      workspaceId: workspace?.id ?? '',
+      targetPaneId: pane ?? '',
+      sessionId: second.sessionId,
+      direction: 'horizontal',
+    });
+    await sleep(1200);
+    expect(
+      paneCount(
+        workspaces.get(workspace?.id ?? '')?.layout ?? {
+          type: 'terminal',
+          paneId: 'x',
+          sessionId: 'y',
+        },
+      ),
+    ).toBe(2);
+
+    // Every tab gone, which is exactly what a reload leaves behind.
+    first.c.close();
+    second.c.close();
+    sessions.reportOpenWorkspaces('a-browser', []);
+    await sleep(1500);
+
+    expect(sessions.get(first.sessionId), 'the arrangement is kept').toBeTruthy();
+    expect(sessions.get(first.sessionId)?.state).not.toBe('expiring');
+    expect(sessions.get(second.sessionId), 'both of its panes').toBeTruthy();
   });
 });
 

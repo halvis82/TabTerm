@@ -721,6 +721,7 @@ export class SessionManager {
     const decision = decideReap(
       reapInputFor(session, {
         inWorkspace: this.#inWorkspace(session.id),
+        sharesWorkspace: this.#sharesWorkspace(session.id),
         listeningPort: session.listeningPort,
         keepBackgroundSeconds: this.keepBackgroundSeconds,
         hasOpenTab: this.#hasOpenTab(session.id),
@@ -750,6 +751,7 @@ export class SessionManager {
       const now = decideReap(
         reapInputFor(session, {
           inWorkspace: this.#inWorkspace(session.id),
+          sharesWorkspace: this.#sharesWorkspace(session.id),
           listeningPort: session.listeningPort,
           keepBackgroundSeconds: this.keepBackgroundSeconds,
           hasOpenTab: this.#hasOpenTab(session.id),
@@ -791,8 +793,21 @@ export class SessionManager {
     return this.isInWorkspace?.(sessionId) ?? false;
   }
 
+  /**
+   * Whether the session shares its workspace with other panes.
+   *
+   * An arrangement somebody built is work even when a given pane in it has not been typed into,
+   * which is what the never-used rule would otherwise decide for it. See `cleanup.ts`.
+   */
+  #sharesWorkspace(sessionId: string): boolean {
+    return (this.panesInItsWorkspace?.(sessionId) ?? 0) > 1;
+  }
+
   /** Set by the daemon once the workspace store exists. */
   isInWorkspace?: (sessionId: string) => boolean;
+
+  /** Set by the daemon once the workspace store exists. 0 when the session is in no workspace. */
+  panesInItsWorkspace?: (sessionId: string) => number;
 
   #transition(session: Session, to: SessionState): void {
     if (session.state === to) return;

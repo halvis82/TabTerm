@@ -49,6 +49,8 @@ export interface ReapInput {
   hasOpenTab: boolean | null;
   /** Workspaces are pinned by default, so a pane in one is never reaped. See ADR-0012. */
   inWorkspace: boolean;
+  /** Whether other panes share its workspace, which makes it part of an arrangement. */
+  sharesWorkspace: boolean;
   exited: boolean;
   /** A session holding a listening socket is almost certainly a dev server someone wants. */
   listeningPort?: number | undefined;
@@ -142,7 +144,21 @@ export function decideReap(input: ReapInput, config: Config): ReapDecision {
      * ended faster. Not immediate: a few seconds means closing a tab by accident is still
      * recoverable by reopening it, and nothing accumulates.
      */
-    if (input.neverUsed && input.listeningPort === undefined && !input.hasExplicitCommand) {
+    /**
+     * Never for a pane that shares its workspace, because then it is part of an arrangement.
+     *
+     * An extension reload closes every tab, and a pane in a template that has printed nothing
+     * but a prompt is untouched by this rule's definition while being exactly the thing somebody
+     * spent the morning arranging. Five of them went that way in one second, correctly by the
+     * letter of the rule and wrongly by any other measure. A single pane opened and closed still
+     * holds nothing, which is the case the rule was written for and the case it keeps.
+     */
+    if (
+      input.neverUsed &&
+      !input.sharesWorkspace &&
+      input.listeningPort === undefined &&
+      !input.hasExplicitCommand
+    ) {
       return { afterSeconds: NEVER_USED_SECONDS, reason: 'never-used' };
     }
     /**
@@ -186,6 +202,7 @@ export function reapInputFor(
   session: Session,
   opts: {
     inWorkspace: boolean;
+    sharesWorkspace?: boolean;
     listeningPort?: number | undefined;
     keepBackgroundSeconds?: number | null;
     hasOpenTab?: boolean | null;
@@ -197,6 +214,7 @@ export function reapInputFor(
     attachedClients: session.clients.size,
     hasOpenTab: opts.hasOpenTab ?? null,
     inWorkspace: opts.inWorkspace,
+    sharesWorkspace: opts.sharesWorkspace ?? false,
     // Never used means never a command, and never anywhere but where it opened. A `cd` on its
     // own is a shell builtin that spawns nothing, so the directory is checked as well rather
     // than trusting the command flag alone.

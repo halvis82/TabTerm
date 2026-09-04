@@ -236,6 +236,13 @@ holding a listening socket, or one opened to run a specific command, and pinning
 it. The delay is short rather than zero, so closing a tab by accident is still recoverable by
 reopening it.
 
+**Nor does it apply to a pane that shares its workspace with others.** An arrangement somebody
+built is work, whether or not a given pane in it has been typed into. On 2026-09-04 an extension
+reload closed every TabTerm tab, and thirty seconds later five panes of a template were gone,
+correctly by the letter of the rule and wrongly by every other measure. A workspace of one is
+the case the rule was written for, and the case it keeps: opening a tab, looking at it, and
+closing it leaves nothing behind.
+
 ---
 
 ## 5. Reattach and restore

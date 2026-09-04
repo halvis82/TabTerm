@@ -9,7 +9,7 @@ import {
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PROTOCOL_VERSION, VERSION } from '@tabterm/shared';
+import { PROTOCOL_VERSION, VERSION, paneCount } from '@tabterm/shared';
 import { initAuth, verifyToken } from './auth.js';
 import { AgentBridge } from './agent-bridge.js';
 import { loadConfig, paths } from './config.js';
@@ -133,6 +133,10 @@ async function main(): Promise<void> {
   // Reap policy must know whether a session is a pane in a workspace, since workspaces are
   // pinned by default and their panes are never reaped on a timer. See ADR-0012.
   sessions.isInWorkspace = (sessionId) => workspaces.findBySession(sessionId) !== undefined;
+  sessions.panesInItsWorkspace = (sessionId) => {
+    const workspace = workspaces.findBySession(sessionId);
+    return workspace ? paneCount(workspace.layout) : 0;
+  };
   // And which workspace, so a report of the tabs Chrome has open can be matched to sessions.
   sessions.setWorkspaceLookup((sessionId) => workspaces.findBySession(sessionId)?.id);
 

@@ -16,6 +16,7 @@ const base: ReapInput = {
   attachedClients: 0,
   hasOpenTab: false,
   inWorkspace: false,
+  sharesWorkspace: false,
   exited: false,
   hasExplicitCommand: false,
   neverUsed: false,
@@ -185,6 +186,23 @@ describe('a tab opened and closed without being used', () => {
 
   it('does not apply once something has been run', () => {
     expect(decideReap({ ...unused, neverUsed: false }, config).reason).toBe('tab-closed');
+  });
+
+  /**
+   * The rule that ended five terminals on 2026-09-04, for a gesture nobody meant as destructive.
+   *
+   * Reloading the extension closes every TabTerm tab. Panes that had printed nothing but a
+   * prompt then matched "an untouched shell is not work" exactly, and an arrangement somebody
+   * had spent the morning building went in one second. A pane on its own still holds nothing,
+   * which is the case the rule was written for.
+   */
+  it('never applies to a pane that shares its workspace with others', () => {
+    expect(decideReap({ ...unused, sharesWorkspace: true }, config).reason).not.toBe('never-used');
+    expect(decideReap({ ...unused, sharesWorkspace: true }, config).reason).toBe('tab-closed');
+  });
+
+  it('still applies to a workspace of one, which is what the rule was written for', () => {
+    expect(decideReap({ ...unused, sharesWorkspace: false }, config).reason).toBe('never-used');
   });
 
   it('never applies to a session holding a listening socket', () => {
