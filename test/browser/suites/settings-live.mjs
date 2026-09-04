@@ -166,5 +166,55 @@ r.ok(
 // Put it back the way it was found.
 await setNotify(wasOn);
 
+/**
+ * Starting over, which asks before it acts.
+ *
+ * A button that does something irreversible on its first press is the wrong shape for an answer
+ * you cannot take back, so the first press turns it into the question.
+ */
+const dangerLabels = String(
+  await evaluate(
+    a.client,
+    `JSON.stringify([...document.querySelectorAll('.set-danger-row .cmd-button')].map((b) => b.textContent))`,
+  ),
+);
+r.ok(
+  'settings offer restoring everything and erasing everything',
+  dangerLabels.includes('Restore all settings') &&
+    dangerLabels.includes('Erase everything TabTerm has stored'),
+  dangerLabels,
+);
+
+await evaluate(
+  a.client,
+  `[...document.querySelectorAll('.set-danger-row .cmd-button')].find((b) => b.textContent === 'Erase everything TabTerm has stored')?.click()`,
+);
+await sleep(400);
+const asking = String(
+  await evaluate(
+    a.client,
+    `JSON.stringify([...document.querySelectorAll('.set-danger-row .cmd-button')].map((b) => b.textContent))`,
+  ),
+);
+r.ok(
+  'the first press asks rather than acting',
+  asking.includes('Yes, erase everything') && asking.includes('Cancel'),
+  asking,
+);
+await evaluate(
+  a.client,
+  `[...document.querySelectorAll('.set-danger-row .cmd-button')].find((b) => b.textContent === 'Cancel')?.click()`,
+);
+await sleep(300);
+r.ok(
+  'and cancelling puts it back',
+  !String(
+    await evaluate(
+      a.client,
+      `JSON.stringify([...document.querySelectorAll('.set-danger-row .cmd-button')].map((b) => b.textContent))`,
+    ),
+  ).includes('Yes, erase everything'),
+);
+
 await finish();
 r.done();

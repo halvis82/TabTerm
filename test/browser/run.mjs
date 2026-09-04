@@ -194,14 +194,30 @@ function runSuite(name, port) {
     let out = '';
     child.stdout.on('data', (d) => (out += d));
     child.stderr.on('data', (d) => (out += d));
-    child.on('close', () => {
+    child.on('close', (code) => {
       const lines = out.split('\n');
+      const failures = lines.filter((l) => l.startsWith('  FAIL'));
+      /**
+       * A suite that threw is a failed suite, whatever it managed to check first.
+       *
+       * The tally counted PASS and FAIL lines only, so a suite that crashed halfway reported
+       * everything it had got through and nothing about the half it never reached. One did
+       * exactly that and the run said zero failed.
+       */
+      if (code !== 0) {
+        const why = lines
+          .filter((l) => /Error|error:/.test(l))
+          .slice(0, 2)
+          .join(' ')
+          .trim();
+        failures.push(`  FAIL  ${name} exited ${String(code)}${why ? `: ${why}` : ''}`);
+      }
       resolve({
         name,
         seconds: (Date.now() - started) / 1000,
         pass: lines.filter((l) => l.startsWith('  PASS')).length,
-        fail: lines.filter((l) => l.startsWith('  FAIL')).length,
-        failures: lines.filter((l) => l.startsWith('  FAIL')),
+        fail: failures.length,
+        failures,
         last: (lines.filter((l) => l.trim() !== '').pop() ?? '').trim(),
       });
     });

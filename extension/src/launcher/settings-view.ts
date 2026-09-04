@@ -24,6 +24,11 @@ export interface SettingsOptions {
   /** Seconds a session with no tab is kept, null for forever, undefined until the daemon says. */
   backgroundTimeout: () => number | null | undefined;
   onChangeBackgroundTimeout: (seconds: number | null) => void;
+  /** Templates that have been deleted or changed since they shipped, if any. */
+  alteredTemplates: () => number;
+  onRestoreTemplates: () => void;
+  onRestoreSettings: () => void;
+  onEraseEverything: () => void;
 }
 
 /**
@@ -205,6 +210,8 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
 
   wrap.append(buildNotifications(options));
 
+  wrap.append(buildDangerZone(options));
+
   // --- Shortcuts ----------------------------------------------------------
   const keys = section('Keyboard shortcuts');
   const list = document.createElement('div');
@@ -235,6 +242,128 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
   wrap.append(keys);
 
   return wrap;
+}
+
+/**
+ * The things that put something back, and the one that takes everything away.
+ *
+ * Last, because nothing here is part of using the product, and each destructive one asks first.
+ * A button that acts on its first press is the wrong shape for an answer you cannot take back.
+ */
+function buildDangerZone(options: SettingsOptions): HTMLElement {
+  const wrap = section('Starting over');
+
+  const altered = options.alteredTemplates();
+  if (altered > 0) {
+    /**
+     * Offered only when there is something to put back.
+     *
+     * A permanent button for something you have not done is one more line to read past every
+     * time this page is opened, and it would say the same thing whether it applied or not.
+     */
+    const row = document.createElement('div');
+    row.className = 'set-field';
+    const label = document.createElement('span');
+    label.className = 'set-label';
+    label.textContent = 'Restore the templates that ship with TabTerm';
+    const note = document.createElement('span');
+    note.className = 'set-desc';
+    note.textContent =
+      altered === 1
+        ? 'One of them has been deleted or changed. Restoring adds back only what is missing, ' +
+          'in its original place, and leaves everything else alone.'
+        : `${String(altered)} of them have been deleted or changed. Restoring adds back only ` +
+          'what is missing, in its original place, and leaves everything else alone.';
+    const button = document.createElement('button');
+    button.className = 'cmd-button';
+    button.textContent = 'Restore default templates';
+    button.addEventListener('click', () => options.onRestoreTemplates());
+    row.append(label, note, button);
+    wrap.append(row);
+  }
+
+  wrap.append(
+    confirming({
+      label: 'Restore all settings',
+      description:
+        'Every switch and every choice on this page goes back to how it shipped. Your ' +
+        'terminals, history and templates are not touched.',
+      confirm: 'Yes, restore all settings',
+      onConfirm: options.onRestoreSettings,
+    }),
+    confirming({
+      label: 'Erase everything TabTerm has stored',
+      description:
+        'Ends every terminal, and deletes history, saved commands, templates, highlights and ' +
+        'every preference. TabTerm itself stays installed and starts as if it were new. There ' +
+        'is no undo.',
+      confirm: 'Yes, erase everything',
+      onConfirm: options.onEraseEverything,
+      grave: true,
+    }),
+  );
+
+  return wrap;
+}
+
+/**
+ * A button that asks before it acts, in place, without a dialog.
+ *
+ * The first press turns it into the question and a second button; anything else puts it back.
+ * A modal over a page of switches would be a second thing to read before answering a question
+ * the row already asked.
+ */
+function confirming(opts: {
+  label: string;
+  description: string;
+  confirm: string;
+  onConfirm: () => void;
+  grave?: boolean;
+}): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'set-field';
+  const label = document.createElement('span');
+  label.className = 'set-label';
+  label.textContent = opts.label;
+  const note = document.createElement('span');
+  note.className = 'set-desc';
+  note.textContent = opts.description;
+
+  const buttons = document.createElement('div');
+  buttons.className = 'set-danger-row';
+  const ask = document.createElement('button');
+  ask.className = opts.grave ? 'cmd-button is-grave' : 'cmd-button is-warning';
+  ask.textContent = opts.label;
+  buttons.append(ask);
+
+  ask.addEventListener('click', () => {
+    if (buttons.dataset['asking'] === 'yes') return;
+    buttons.dataset['asking'] = 'yes';
+    ask.hidden = true;
+
+    const yes = document.createElement('button');
+    yes.className = opts.grave ? 'cmd-button is-grave' : 'cmd-button is-warning';
+    yes.textContent = opts.confirm;
+    const no = document.createElement('button');
+    no.className = 'cmd-button';
+    no.textContent = 'Cancel';
+
+    const done = (): void => {
+      yes.remove();
+      no.remove();
+      ask.hidden = false;
+      delete buttons.dataset['asking'];
+    };
+    yes.addEventListener('click', () => {
+      done();
+      opts.onConfirm();
+    });
+    no.addEventListener('click', done);
+    buttons.append(yes, no);
+  });
+
+  row.append(label, note, buttons);
+  return row;
 }
 
 function toggle(

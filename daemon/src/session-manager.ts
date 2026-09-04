@@ -137,6 +137,9 @@ export function usedLines(screen: string): number {
   return plainText(screen).length;
 }
 
+/** One hour. Exported so restoring settings uses this number rather than its own copy. */
+export const DEFAULT_KEEP_BACKGROUND_SECONDS = 60 * 60;
+
 export class SessionManager {
   readonly #sessions = new Map<string, Session>();
   readonly #config: Config;
@@ -157,7 +160,7 @@ export class SessionManager {
    *
    * `null` keeps them until something else ends them.
    */
-  keepBackgroundSeconds: number | null = 60 * 60;
+  keepBackgroundSeconds: number | null = DEFAULT_KEEP_BACKGROUND_SECONDS;
 
   /**
    * Re-apply the reap policy to every detached session.

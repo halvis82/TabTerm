@@ -1041,6 +1041,27 @@
   .set-section .cmd-button {
     align-self: flex-start;
   }
+  /* The two that cannot be taken back say so before they are pressed. */
+  .set-danger-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin-top: 3px;
+  }
+  .cmd-button.is-warning {
+    border-color: rgba(232, 194, 106, 0.5);
+    color: #e8c26a;
+  }
+  .cmd-button.is-warning:hover {
+    background: rgba(232, 194, 106, 0.14);
+  }
+  .cmd-button.is-grave {
+    border-color: rgba(255, 138, 122, 0.55);
+    color: #ff8a7a;
+  }
+  .cmd-button.is-grave:hover {
+    background: rgba(255, 138, 122, 0.16);
+  }
 
   .cmd-dim {
     color: #6b7286;

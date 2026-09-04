@@ -53,6 +53,7 @@ import type { OutputArchive } from './output-archive.js';
 import type { PluginHost } from './plugin-api.js';
 import type { ProjectIndex } from './project-index.js';
 import type { WorkspaceStore } from './workspace-store.js';
+import { DEFAULT_KEEP_BACKGROUND_SECONDS } from './session-manager.js';
 import type { Session, SessionManager } from './session-manager.js';
 import type { LayoutShape, LiveSession, ResumableAgentSession, ShapeNode } from '@tabterm/shared';
 import { checkShape } from '@tabterm/shared';
@@ -63,7 +64,7 @@ import { paths } from './config.js';
 import { agentHooksStatus, setAgentHooks } from './agent-hooks.js';
 import { setShellIntegration, shellIntegrationStatus } from './shell-integration.js';
 import { clampPolicy, decide, type Finished, type NotifyPolicy } from './notify-policy.js';
-import { readUserSettings, updateUserSetting } from './user-settings.js';
+import { readUserSettings, updateUserSetting, writeUserSettings } from './user-settings.js';
 import { clampBudget, DEFAULT_SCROLLBACK_BYTES, linesForBytes } from './scrollback-budget.js';
 import { completePath } from './complete-path.js';
 
@@ -1467,6 +1468,26 @@ export class DaemonServer {
 
       case 'list-live-sessions': {
         send(client.socket, controlFrame({ t: 'live-sessions', sessions: this.#liveSessions() }));
+        return;
+      }
+
+      case 'reset-settings': {
+        /**
+         * Every preference back to its default, and nothing else touched.
+         *
+         * The stored file is removed rather than rewritten with the defaults in it, so what is
+         * on disk goes back to saying nothing and the defaults keep coming from one place.
+         */
+        writeUserSettings({});
+        this.#notifyPolicy = clampPolicy(undefined);
+        this.#sessions.keepBackgroundSeconds = DEFAULT_KEEP_BACKGROUND_SECONDS;
+        this.#sessions.rescheduleReaps();
+        info('settings.reset', {});
+        this.broadcastAll({ t: 'notify-policy', policy: this.#notifyPolicy });
+        this.broadcastAll({
+          t: 'background-timeout',
+          seconds: this.#sessions.keepBackgroundSeconds,
+        });
         return;
       }
 

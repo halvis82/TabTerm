@@ -31,7 +31,13 @@ import { buildReset, buildResetDone } from '../launcher/reset-view.js';
 import { quotePath } from './quote-path.js';
 import { DEFAULT_THEME, themeNamed } from './themes.js';
 import { DEFAULT_COLOR, loadRecentColors, rememberColor, type ColorUse } from './color-store.js';
-import { loadTemplates, saveTemplates, type LayoutTemplate } from '../launcher/templates.js';
+import {
+  alteredDefaults,
+  loadTemplates,
+  saveTemplates,
+  withDefaultsRestored,
+  type LayoutTemplate,
+} from '../launcher/templates.js';
 import type {
   AgentHooksStatus,
   LiveSession,
@@ -122,6 +128,8 @@ let layoutRequestedHere = false;
 let startScreenDecided = !reattaching;
 /** A template whose commands are waiting for its panes to exist. */
 let pendingTemplate: LayoutTemplate | null = null;
+/** How many shipped templates have been deleted or changed, so settings can offer to restore. */
+let alteredTemplateCount = 0;
 
 /**
  * Per-pane timing, driven entirely by discrete events from the daemon.
@@ -1860,6 +1868,41 @@ function buildCommandPanel(): void {
         backgroundTimeout: () => backgroundTimeout,
         onChangeBackgroundTimeout: (seconds) =>
           client?.send({ t: 'set-background-timeout', seconds }),
+        alteredTemplates: () => alteredTemplateCount,
+        onRestoreTemplates: () => {
+          void loadTemplates().then(async (existing) => {
+            const next = withDefaultsRestored(existing);
+            await saveTemplates(next);
+            launcher?.setTemplates(next);
+            alteredTemplateCount = alteredDefaults(next).length;
+            commandPanel?.refreshSettings();
+            setStatus('Default templates restored', 'ok');
+            setTimeout(() => setStatus('', 'hidden'), 2500);
+          });
+        },
+        onRestoreSettings: () => {
+          client?.send({ t: 'reset-settings' });
+          void applyTheme('dark');
+          setStatus('Settings restored to their defaults', 'ok');
+          setTimeout(() => setStatus('', 'hidden'), 2500);
+        },
+        onEraseEverything: () => {
+          /**
+           * Everything Chrome holds for us, then everything the daemon holds.
+           *
+           * In that order, so a daemon that restarts mid-erase does not come back to a browser
+           * still carrying the templates and preferences it was told to forget.
+           */
+          void (async () => {
+            try {
+              await chrome.storage.local.clear();
+              await chrome.storage.session.clear();
+            } catch {
+              // Storage that will not clear is not a reason to leave the sessions running.
+            }
+            client?.send({ t: 'reset-everything', restartDaemon: false });
+          })();
+        },
         scrollbackBytes: () => scrollbackBytes,
         onChangeScrollback: (bytes) => client?.send({ t: 'set-scrollback-budget', bytes }),
         shellIntegration: () => shellIntegration,
@@ -2225,7 +2268,10 @@ function onControl(msg: ServerMessage): void {
       client?.send({ t: 'list-live-sessions' });
       // Templates live in extension storage rather than the daemon: they are about how somebody
       // likes to start work, not about anything the daemon owns.
-      void loadTemplates().then((saved) => launcher?.setTemplates(saved));
+      void loadTemplates().then((saved) => {
+        launcher?.setTemplates(saved);
+        alteredTemplateCount = alteredDefaults(saved).length;
+      });
       client?.send({ t: 'list-restorable' });
       return;
     }

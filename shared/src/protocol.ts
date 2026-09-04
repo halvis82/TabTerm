@@ -254,6 +254,17 @@ export type ClientMessage =
        * Output, never input: it reaches the screen and the scrollback and never the shell, so it
        * cannot run in whatever program happens to be in the foreground.
        */
+      /**
+       * Put every daemon-side preference back to its default.
+       *
+       * Separate from `reset-everything`, which ends sessions and drops history. This touches
+       * only settings, because "I have made a mess of the switches" and "I want a fresh
+       * install" are different requests and answering both with the destructive one is how
+       * somebody loses their terminals looking for a tidier settings page.
+       */
+      t: 'reset-settings';
+    }
+  | {
       t: 'insert-marker';
       sessionId: string;
       label: string;
