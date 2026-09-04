@@ -55,9 +55,18 @@ export class TabFlasher {
   #phase = 0;
   #stopListening: (() => void) | null = null;
   readonly #paint: (on: boolean) => void;
+  readonly #restore: () => void;
 
-  constructor(paint: (on: boolean) => void) {
+  /**
+   * Two callbacks, because stopping is not a third frame of the flash.
+   *
+   * It used to stop by painting its own off frame, which is one of the two attention icons, so
+   * a tab that had been noticed sat on a green tick forever: the ordinary painter declines to
+   * draw while a flash is running, and nothing told it the flash had ended.
+   */
+  constructor(paint: (on: boolean) => void, restore: () => void) {
     this.#paint = paint;
+    this.#restore = restore;
   }
 
   get flashing(): boolean {
@@ -104,7 +113,8 @@ export class TabFlasher {
     if (this.#timer !== 0) {
       clearInterval(this.#timer);
       this.#timer = 0;
-      this.#paint(false);
+      // Cleared before restoring, so whatever repaints sees a flash that is no longer running.
+      this.#restore();
     }
     this.#stopListening?.();
     this.#stopListening = null;

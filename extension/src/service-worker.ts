@@ -445,13 +445,32 @@ chrome.runtime.onMessage.addListener((msg: NotifyMessage, _sender, sendResponse)
  * Every action opens a terminal with the command **staged, not run**. See docs/05-security.md §4.
  */
 function installContextMenus(): void {
+  /**
+   * One entry, with its own error check.
+   *
+   * `chrome.runtime.lastError` is cleared by the next call that succeeds, so a single check
+   * after five creates reports whether the last one failed and nothing about the others. Two
+   * entries went missing while that check said nothing, which is worse than no check at all
+   * because it looked like proof they were fine.
+   */
+  const add = (properties: chrome.contextMenus.CreateProperties): void => {
+    chrome.contextMenus.create(properties, () => {
+      if (chrome.runtime.lastError) {
+        console.warn(
+          `TabTerm: context menu "${String(properties.id)}"`,
+          chrome.runtime.lastError.message,
+        );
+      }
+    });
+  };
+
   chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({
+    add({
       id: 'send-selection',
       title: 'Send selection to a terminal',
       contexts: ['selection'],
     });
-    chrome.contextMenus.create({
+    add({
       id: 'clone-repo',
       title: 'Clone this repository in a terminal',
       contexts: ['page', 'link'],
@@ -462,7 +481,7 @@ function installContextMenus(): void {
         'https://codeberg.org/*',
       ],
     });
-    chrome.contextMenus.create({
+    add({
       id: 'open-url',
       title: 'Fetch this link in a terminal',
       contexts: ['link'],
@@ -473,13 +492,11 @@ function installContextMenus(): void {
      * The icon's own click already does it. Having it in the menu too costs a line and means the
      * menu is never a dead end: everything else here is about configuring or ending things.
      */
-    chrome.contextMenus.create({
+    add({
       id: 'new-terminal-tab',
       title: 'New TabTerm terminal',
       contexts: ['action'],
     });
-    chrome.contextMenus.create({ id: 'sep-1', type: 'separator', contexts: ['action'] });
-
     /**
      * Settings, from a right click on the toolbar icon.
      *
@@ -487,7 +504,7 @@ function installContextMenus(): void {
      * because every setting here is about how a terminal behaves and is worth changing while
      * looking at one.
      */
-    chrome.contextMenus.create({
+    add({
       id: 'open-settings',
       title: 'TabTerm settings',
       contexts: ['action'],
@@ -505,22 +522,16 @@ function installContextMenus(): void {
      *
      * Under Settings rather than beside it: it is a setting, it is just one Chrome owns.
      */
-    chrome.contextMenus.create({
+    add({
       id: 'edit-shortcuts',
       title: 'Edit keyboard shortcuts',
       contexts: ['action'],
     });
-    chrome.contextMenus.create({ id: 'sep-2', type: 'separator', contexts: ['action'] });
-
-    chrome.contextMenus.create({
+    add({
       id: 'reset-tabterm',
       title: 'End all sessions and close tabs...',
       contexts: ['action'],
     });
-    // A menu id that failed to register is worth knowing about, and is otherwise invisible.
-    if (chrome.runtime.lastError) {
-      console.warn('TabTerm: context menus', chrome.runtime.lastError.message);
-    }
   });
 }
 

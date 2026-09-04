@@ -1685,7 +1685,15 @@
      * the box around the input had no visible top. The three pixels are that border and a
      * little air.
      */
-    bottom: calc(var(--strip-height, 4.5rem) + 6px);
+    /**
+     * Set from the pane's measured top, not from the strip's height.
+     *
+     * The fallback is only for the moment before the first measurement: the terminal has padding
+     * below it, so the strip does not begin exactly its own height from the bottom of the
+     * window, and computing it that way put this element's opaque edge over the pane's top
+     * border by two pixels.
+     */
+    bottom: var(--launcher-bottom, calc(var(--strip-height, 4.5rem) + 8px));
     padding: 14px 18px 0;
     display: flex;
     flex-direction: column;
@@ -1723,10 +1731,26 @@
     margin: 0 0 4px;
     font-weight: 600;
   }
+  /**
+   * The rows of the start screen, evenly spaced.
+   *
+   * The folder list is inserted between the box and the buttons rather than being one of these
+   * children in the markup, so it collected the form's gap above and below **plus** margins of
+   * its own. That read as a band of empty space between the folders and the templates while
+   * everything else on the screen sat close together.
+   */
   .launcher-form {
     display: flex;
     flex-direction: column;
     gap: 8px;
+  }
+  .launcher-form > .launcher-completions {
+    margin-top: -2px;
+    margin-bottom: -2px;
+  }
+  /* The row of things to open sits directly under the folders it will open. */
+  .launcher-form > .launcher-buttons {
+    margin-top: 2px;
   }
   /* A drop that carries a path, and one that does not. */
   .launcher-input.is-drop-target {
@@ -2343,10 +2367,6 @@
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
-    /* The same rhythm as everything else on this screen. It had a margin of its own on top of
-       the form's gap, which read as a band of nothing between the folders and the buttons. */
-    margin-top: 2px;
-    margin-bottom: 2px;
     overflow: hidden;
     align-content: flex-start;
   }

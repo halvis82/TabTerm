@@ -36,8 +36,18 @@ export interface LayoutTemplate {
 }
 
 const KEY = 'tabterm.templates';
-/** Set once the defaults have been offered, so deleting one does not bring it back. */
-const SEEDED = 'tabterm.templatesSeeded';
+/**
+ * Which shipped templates have been offered, by id.
+ *
+ * A single "yes, seeded" flag was the first attempt and it was wrong in a way that only shows up
+ * later: it recorded that seeding had happened rather than what had been seeded, so a template
+ * added to the shipped list afterwards was never offered to anybody who had already used the
+ * product. Three arrangements were added and nobody saw them, which is exactly the report.
+ *
+ * A list of ids answers both questions at once. A default not in it has never been offered and
+ * is added. A default in it has been, so deleting it keeps it deleted.
+ */
+const OFFERED = 'tabterm.templatesOffered';
 
 /**
  * The templates everybody starts with.
@@ -196,19 +206,39 @@ export function parseTemplates(raw: unknown): LayoutTemplate[] {
 
 export async function loadTemplates(): Promise<LayoutTemplate[]> {
   try {
-    const stored = await chrome.storage.local.get([KEY, SEEDED]);
+    const stored = await chrome.storage.local.get([KEY, OFFERED, 'tabterm.templatesSeeded']);
     const saved = parseTemplates(stored[KEY]);
+
     /**
-     * The defaults are offered once, not merged in forever.
+     * Every default is offered exactly once, and offering is remembered per template.
      *
      * Merging on every load would mean a default you deleted came back the next time the start
-     * screen drew, which is the behavior of a thing that will not listen. A flag records that
-     * they have been offered, so after that the list is entirely yours.
+     * screen drew, which is the behavior of a thing that will not listen.
      */
-    if (stored[SEEDED] === true) return saved;
-    const seeded = [...DEFAULT_TEMPLATES, ...saved];
-    await chrome.storage.local.set({ [KEY]: seeded, [SEEDED]: true });
-    return seeded;
+    const offered = new Set(
+      Array.isArray(stored[OFFERED])
+        ? (stored[OFFERED] as unknown[]).filter((v): v is string => typeof v === 'string')
+        : [],
+    );
+    /**
+     * Anybody carrying the old boolean has been offered whatever shipped when it was set.
+     *
+     * Which is claude and codex, the only two there were. Their ids go into the list so they are
+     * not offered again, and everything added since is offered for the first time.
+     */
+    if (stored['tabterm.templatesSeeded'] === true && offered.size === 0) {
+      offered.add('default-claude');
+      offered.add('default-codex');
+    }
+
+    const missing = DEFAULT_TEMPLATES.filter((t) => !offered.has(t.id));
+    if (missing.length === 0) return saved;
+
+    // In their shipped order, ahead of whatever is already there, which is where they belong.
+    const next = [...missing, ...saved];
+    for (const t of DEFAULT_TEMPLATES) offered.add(t.id);
+    await chrome.storage.local.set({ [KEY]: next, [OFFERED]: [...offered] });
+    return next;
   } catch {
     return [];
   }

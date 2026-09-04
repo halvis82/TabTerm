@@ -573,9 +573,15 @@ function refreshFlashing(): void {
  * A tick on green alternating with a tick on amber. The shape stays put so it reads as one tab
  * asking for something, and only the ground changes.
  */
-const tabFlasher = new TabFlasher((on) => {
-  applyFavicon(drawFavicon(on ? 'attention' : 'attention-alt', animPhase));
-});
+const tabFlasher = new TabFlasher(
+  (on) => {
+    applyFavicon(drawFavicon(on ? 'attention' : 'attention-alt', animPhase));
+  },
+  () => {
+    // Back to whatever the panes actually say, which is what the icon meant before the flash.
+    setFavicon(paneStatus.effective());
+  },
+);
 
 /**
  * Remove the lone `%` zsh sometimes leaves above the first prompt.
@@ -1716,14 +1722,40 @@ function growStripToFit(): void {
   }
 
   /**
-   * And the prompt is at the bottom, always.
+   * Where the start screen must stop, measured from the pane rather than computed.
+   *
+   * It was `strip height plus a few pixels`, which assumes the strip begins exactly that far
+   * from the bottom of the window. It does not: the terminal has padding of its own below it.
+   * Measured, the start screen's opaque edge sat two pixels **over** the pane's top border,
+   * which is the border reported missing three times. Two pixels is not a thing anybody can
+   * argue with, and it is not a thing arithmetic was ever going to get right.
+   */
+  const top = pane.element.getBoundingClientRect().top;
+  if (top > 0) {
+    document.documentElement.style.setProperty(
+      '--launcher-bottom',
+      `${String(Math.round(window.innerHeight - top + 4))}px`,
+    );
+  }
+
+  /**
+   * And the prompt is at the bottom, always, once the writing has finished.
    *
    * Resizing a terminal moves what is where, and the one thing this strip exists to show is the
-   * line being typed. Without this a reload left the box apparently empty, with the prompt
-   * sitting above the viewport.
+   * line being typed. Scrolling immediately was not enough: xterm parses what it is given on its
+   * own schedule, so a scroll issued in the same turn as the write happens before the content
+   * has landed and scrolls to the bottom of what was there a moment ago. After a reload, when
+   * the whole screen arrives at once, that left the box looking empty with the prompt above the
+   * viewport.
+   *
+   * Coalesced, because this runs on every chunk of output and a scroll per chunk is a scroll per
+   * keystroke.
    */
-  term.scrollToBottom();
+  clearTimeout(stripScrollTimer);
+  stripScrollTimer = setTimeout(() => term.scrollToBottom(), 40);
 }
+
+let stripScrollTimer: ReturnType<typeof setTimeout> | undefined;
 
 /** Two rows and a little padding: a prompt and the line under it. */
 const MIN_STRIP_ROWS = 2;

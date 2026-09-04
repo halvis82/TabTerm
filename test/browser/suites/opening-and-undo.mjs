@@ -119,5 +119,31 @@ r.ok(
 const doubled = restored.filter((l) => l.split('%').length > 2 && l.includes('@'));
 r.ok('with no line carrying two prompts', doubled.length === 0, JSON.stringify(doubled));
 
+/**
+ * A refresh leaves the strip looking the way it did.
+ *
+ * It did not: the whole screen arrives at once after a reload, and the scroll that keeps the
+ * prompt at the bottom was issued in the same turn as the write, so it scrolled to the bottom of
+ * what was there a moment earlier and left the box apparently empty.
+ */
+const promptLine = `(() => {
+  const s = window.__tabterm.readScreen() ?? '';
+  const lines = s.split(String.fromCharCode(10)).filter((l) => l.trim() !== '');
+  return lines[lines.length - 1] ?? '';
+})()`;
+const beforeRefresh = String(await evaluate(client, promptLine));
+r.ok('there is a prompt to lose', beforeRefresh.trim() !== '', beforeRefresh);
+
+await evaluate(client, 'location.reload()');
+await sleep(6000);
+await waitFor(client, 'Boolean(window.__tabterm)', 20000);
+await sleep(2500);
+const afterRefresh = String(await evaluate(client, promptLine));
+r.ok(
+  'and it is still there after a refresh',
+  afterRefresh.trim() !== '',
+  `before ${JSON.stringify(beforeRefresh.slice(-30))}, after ${JSON.stringify(afterRefresh.slice(-30))}`,
+);
+
 await finish();
 r.done();
