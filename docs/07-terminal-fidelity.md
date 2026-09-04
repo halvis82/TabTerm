@@ -18,6 +18,34 @@ This preserves ANSI colors, 256-color, truecolor, bold, dim, italic, underline, 
 movement, alternate screen, box drawing, progress indicators, menus, mouse events, terminal titles,
 OSC 8 hyperlinks, and the full Vim and agent CLI interfaces.
 
+### The one place it was re-encoded, and what that cost
+
+"Essentially unchanged" was not true for two years. The PTY host converted node-pty's output with
+`Buffer.from(chunk, 'binary')`, and `binary` is Latin-1: it keeps the low byte of every code unit
+and discards the rest.
+
+So every character above U+00FF arrived as the wrong one, and the wrongness was specific enough to
+recognise on sight:
+
+| Written | Arrived | Because |
+|---|---|---|
+| `╭` U+256**D** | `m` | low byte 0x6D |
+| `╮` U+256**E** | `n` | low byte 0x6E |
+| `╯` U+256**F** | `o` | low byte 0x6F |
+| `╰` U+257**0** | `p` | low byte 0x70 |
+| `─` U+250**0** | nothing | low byte 0x00 |
+| `✻` U+273**B** | `;` | low byte 0x3B |
+
+No terminal user interface has ever drawn correctly through the host, and no accent or emoji has
+ever survived it. It reads as "the renderer is broken", and it was not the renderer: xterm.js
+never saw the right bytes.
+
+**Why it went unseen is the part worth keeping.** The local backend has always encoded this
+correctly, and the browser suites were using the local backend, because the host's socket path was
+over the limit a unix socket has and it silently never started. One bug hid the other. The
+regression test names the exact corruption so that a repeat is recognised rather than puzzled
+over: `daemon/src/pty-host/unicode.test.ts`.
+
 Environment:
 
 ```

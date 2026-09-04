@@ -354,11 +354,33 @@ function runCustomAction(action: CustomAction): void {
   }
   // Beside this pane: split, then let the new pane's own prompt receive it.
   splitFocused('horizontal');
-  pendingSplitCommand = command;
+  expectPane(command);
 }
 
-/** A command waiting for the pane a split is about to produce. */
+/**
+ * A command waiting for the pane a split is about to produce.
+ *
+ * Bounded in time, because a split that never arrives would otherwise leave this set and the
+ * command would run in whatever pane appeared next, minutes later and for no visible reason. A
+ * command that missed its pane is better dropped than delivered somewhere else.
+ */
 let pendingSplitCommand: string | null = null;
+let pendingSplitTimer: ReturnType<typeof setTimeout> | undefined;
+
+function expectPane(command: string): void {
+  pendingSplitCommand = command;
+  clearTimeout(pendingSplitTimer);
+  pendingSplitTimer = setTimeout(() => {
+    pendingSplitCommand = null;
+  }, 15_000);
+}
+
+function takePendingCommand(): string | null {
+  const command = pendingSplitCommand;
+  pendingSplitCommand = null;
+  clearTimeout(pendingSplitTimer);
+  return command;
+}
 /** How many shipped templates have been deleted or changed, so settings can offer to restore. */
 let alteredTemplateCount = 0;
 
@@ -2504,9 +2526,9 @@ function onControl(msg: ServerMessage): void {
        * The same wait as a template's: a shell that has not drawn a prompt has nowhere to put
        * what is typed at it, and text that lands above the prompt belongs to nothing.
        */
-      if (pendingSplitCommand !== null) {
-        const command = pendingSplitCommand;
-        pendingSplitCommand = null;
+      const waiting = takePendingCommand();
+      if (waiting !== null) {
+        const command = waiting;
         const newest = msg.panes[msg.panes.length - 1];
         if (newest) {
           panesHost?.whenSettled(newest.paneId, () => {
@@ -3310,7 +3332,7 @@ async function start(): Promise<void> {
       const held = (await chrome.storage.session.get(ticket)) as Record<string, unknown>;
       const command: unknown = held[ticket];
       await chrome.storage.session.remove(ticket);
-      if (typeof command === 'string' && command !== '') pendingSplitCommand = command;
+      if (typeof command === 'string' && command !== '') expectPane(command);
     } catch {
       // No session storage is no command, which is the safe direction.
     }
