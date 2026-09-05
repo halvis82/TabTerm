@@ -560,6 +560,11 @@ A minute is what keeps this from being its own defect. Flicking between two tabs
 repainting an agent every time would be worse than the fault; a tab nobody has looked at since
 before the window was last resized is where a stale picture actually comes from.
 
+This is checked against **what the daemon applied**, not against the grid on screen. A page follows
+a size only when it is overruled, and a nudge is that page's own request, so the daemon agrees and
+the grid never moves. The first check watched the grid and passed with the entire restore deleted,
+which is a check that cannot fail and therefore is not one.
+
 ## A size is only ever asked for once it has been measured
 
 Terminals were changing size thousands of times a second: tabs visibly flickering, pages laggy
@@ -568,6 +573,19 @@ Twenty-seven thousand size changes in ten seconds, across five sessions.
 
 Four separate faults, each harmless alone and none of them visible in any single sample. What made
 them findable was a detector that records the **sequence** of sizes rather than the current one.
+
+### Telling a loop from somebody dragging the window
+
+That detector reported at twelve changes in two seconds. The flicker being reported was about five
+a second, so the guard sat just above the fault it was guarding against, and a return of the exact
+thing complained about would have gone unrecorded.
+
+Counting cannot fix it, because a window being dragged produces just as many changes and is not a
+fault. What separates them is not how many changes there are but **how many different sizes**. A
+drag moves through a new size every time and never returns to one. A loop is two or three sizes
+repeating, because something is feeding its own input. So a few sizes changed many times is a loop,
+and many sizes changed many times is a person with a mouse. A flood past forty in two seconds is
+reported whatever the sizes, since no drag reaches that rate.
 
 **A measurement that failed returned a default.** `fit` returned the terminal's current size when
 the element could not be measured, and a terminal that has never been fitted is 80 by 24, xterm's

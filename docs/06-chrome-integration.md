@@ -340,6 +340,20 @@ Sessions are also reachable from a right click on the toolbar icon, alongside se
 opens a terminal tab with the panel already on that pane rather than a separate settings page.
 Every setting there is about how a terminal behaves and is worth changing while looking at one.
 
+That menu is registered from a list rather than written out as a run of calls. `chrome.contextMenus`
+has no `getAll` in a manifest v3 worker, so a menu built by eight creates in a row can only be
+checked by opening it and looking, and two entries once went missing while a check said nothing
+about them. The list is a value, and its order, its titles and its contexts are asserted like any
+other value.
+
+Opening a terminal is the first of its entries, so the menu is never a dead end: everything else
+on it configures or ends things. Launching an agent comes next, because it is a thing you do
+rather than a thing you configure, and it opens its own tab, which is why it makes sense from a
+window with no terminal in it. The entries that need a page, sending a selection and cloning a
+repository, stay off the icon: offering them there would be offering them everywhere, including
+where they cannot mean anything. Chrome puts its own name above all of it, and nothing can go
+higher.
+
 ---
 
 ### A tab that was never used does not survive being left

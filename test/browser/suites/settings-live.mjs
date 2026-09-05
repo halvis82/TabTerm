@@ -1,5 +1,5 @@
 // A setting is a preference, so it applies everywhere and it applies now.
-import { openTerminal, evaluate, sleep, finish, waitFor } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, finish, waitFor, press } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -189,6 +189,60 @@ r.ok(
   shortcutRows.some((t) => /[⌘⌥⇧⌃]/.test(t)),
   JSON.stringify(shortcutRows.slice(0, 2)),
 );
+
+/**
+ * A shortcut can be taken away, and Escape while recording one does not take the panel with it.
+ *
+ * Both were asked for and neither had a check, which is how ten items came to be built and then
+ * read back out of the code to find out whether they were still true.
+ */
+r.ok(
+  'the fixed keys are not listed among the settings',
+  !shortcutRows.some((t) => t.includes('These are fixed')),
+  JSON.stringify(shortcutRows.filter((t) => t.includes('fixed')).slice(0, 2)),
+);
+
+{
+  const row = `[...document.querySelectorAll('.set-key-row')].find((r) => r.textContent.includes('Split down'))`;
+  const keysNow = () => evaluate(a.client, `${row}?.querySelector('.set-key')?.textContent ?? ''`);
+  const before = String(await keysNow());
+  r.ok('a shortcut starts with keys on it', before !== '', before);
+
+  await evaluate(a.client, `${row}?.querySelector('.set-key-clear')?.click()`);
+  await sleep(400);
+  const cleared = String(await keysNow());
+  r.ok(
+    'and can be taken away entirely, rather than only replaced',
+    cleared.trim() === '' || cleared.toLowerCase().includes('not bound'),
+    `${before} -> ${cleared}`,
+  );
+
+  // Recording, then Escape. The panel must still be there afterwards.
+  await evaluate(a.client, `${row}?.querySelector('.set-key')?.click()`);
+  await sleep(250);
+  r.ok(
+    'pressing the key button starts recording',
+    String(await keysNow()).includes('Press the keys'),
+    String(await keysNow()),
+  );
+  await press(a.client, 'Escape', 'Escape');
+  await sleep(400);
+  r.ok(
+    'Escape leaves the shortcut alone without closing the whole panel',
+    Number(await evaluate(a.client, `document.querySelectorAll('.cmd-panel').length`)) === 1,
+  );
+
+  // And bound again, so the tab is left the way it was found.
+  await evaluate(a.client, `${row}?.querySelector('.set-key')?.click()`);
+  await sleep(250);
+  await press(a.client, 'd', 'KeyD', 10, 68);
+  await sleep(400);
+  r.ok(
+    'and a new binding takes, so nothing is left unbindable',
+    String(await keysNow()).includes('D'),
+    String(await keysNow()),
+  );
+}
 
 /**
  * Starting over, which asks before it acts.

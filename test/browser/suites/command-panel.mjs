@@ -3,7 +3,7 @@
 // Selection and action are separate steps everywhere in this product, and this is the surface
 // where that matters most: the list sits over a live terminal, and a click that pasted would
 // mean you could never read a command before choosing it.
-import { openTerminal, evaluate, readScreen, sleep, type, finish } from '../helpers.mjs';
+import { openTerminal, evaluate, readScreen, sleep, type, finish, waitFor } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -180,6 +180,100 @@ r.ok(
   'the button in the corner brings it back',
   (await evaluate(client, `!document.querySelector('.cmd-panel').hidden`)) === true,
 );
+
+/**
+ * The star keeps a command and takes it back out, and asks before the second one.
+ *
+ * It used to be one way only: a filled star that showed a state and refused to change it, which
+ * is a control that lies. Asking first because it is small, sits beside a row people click to
+ * paste, and the thing it removes was deliberately kept.
+ */
+{
+  await evaluate(
+    client,
+    `[...document.querySelectorAll('.cmd-tab')].find(t => t.textContent === 'Recent')?.click()`,
+  );
+  await sleep(500);
+  const firstStar = `document.querySelector('.cmd-row .cmd-star')`;
+  const state = () => evaluate(client, `${firstStar}?.textContent ?? ''`);
+  const had = String(await state());
+  r.ok('a recent command offers a star', had === '★' || had === '☆', had);
+
+  if (had === '☆') {
+    await evaluate(client, `${firstStar}?.click()`);
+    await sleep(600);
+    r.ok('starring it fills the star', String(await state()) === '★', String(await state()));
+  }
+
+  await evaluate(client, `${firstStar}?.click()`);
+  await sleep(500);
+  const asked = String(
+    await evaluate(client, `document.querySelector('.cmd-ask')?.textContent ?? ''`),
+  );
+  r.ok(
+    'pressing a filled star asks before removing it, rather than doing nothing',
+    asked.toLowerCase().includes('remove'),
+    asked.slice(0, 60),
+  );
+  await evaluate(
+    client,
+    `[...document.querySelectorAll('.cmd-ask button')].find(b => /cancel/i.test(b.textContent))?.click()`,
+  );
+  await sleep(400);
+  r.ok('and cancelling leaves it kept', String(await state()) === '★', String(await state()));
+}
+
+/**
+ * An action's controls are at the end of its row and are always there.
+ *
+ * They used to appear on hover, which reads as tidier and means the only way to find out that an
+ * action can be edited is to happen to point at it.
+ */
+{
+  await evaluate(
+    client,
+    `(async () => {
+       await chrome.storage.local.set({ 'tabterm.actions': [
+         { id: 'suite-1', name: 'Suite action', kind: 'command',
+           command: 'echo SUITE', where: 'new-tab' } ] });
+     })()`,
+  );
+  await evaluate(
+    client,
+    `[...document.querySelectorAll('.cmd-tab')].find(t => t.textContent === 'Actions')?.click()`,
+  );
+  await sleep(900);
+  const shown = await waitFor(client, `!!document.querySelector('.cmd-row-edit')`, 8000);
+  r.ok('an action of your own is listed', shown);
+
+  const visible = JSON.parse(
+    await evaluate(
+      client,
+      `(() => { const e = document.querySelector('.cmd-row-edit');
+         const x = document.querySelector('.cmd-row-remove');
+         const on = (n) => { if (!n) return null; const s = getComputedStyle(n);
+           const b = n.getBoundingClientRect();
+           return { shown: s.visibility !== 'hidden' && s.display !== 'none' && Number(s.opacity) > 0.05,
+                    right: Math.round(b.right) }; };
+         return JSON.stringify({ edit: on(e), remove: on(x) }); })()`,
+    ),
+  );
+  r.ok(
+    'the pencil and the cross are visible without pointing at the row',
+    visible.edit?.shown === true && visible.remove?.shown === true,
+    JSON.stringify(visible),
+  );
+  r.ok(
+    'and the cross is to the right of the pencil, at the end of the row',
+    visible.remove.right > visible.edit.right,
+    JSON.stringify(visible),
+  );
+
+  await evaluate(
+    client,
+    `(async () => { await chrome.storage.local.remove('tabterm.actions'); })()`,
+  );
+}
 
 // Settings.
 await evaluate(client, `document.querySelector('.cmd-gear')?.click()`);

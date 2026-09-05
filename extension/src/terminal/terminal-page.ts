@@ -66,6 +66,7 @@ import type {
   NotifyPolicy,
   ShellIntegrationStatus,
 } from '@tabterm/shared';
+import { distinctSizes, isResizeStorm, RESIZE_WINDOW_MS } from './resize-storm.js';
 import { shouldRedrawAfterAway } from './wake-redraw.js';
 import { buildStats } from '../launcher/stats-view.js';
 import { SessionStats } from '../launcher/session-stats.js';
@@ -2159,6 +2160,15 @@ function askForSize(paneId: string, size: { cols: number; rows: number }, why: s
 }
 
 /**
+ * The sizes the daemon said it applied, most recent last.
+ *
+ * Kept only so that the effect of a resize can be seen from the page at all. Bounded, because it
+ * is a window on the recent past and not a history.
+ */
+const sessionSizes: { paneId: string; cols: number; rows: number }[] = [];
+const SESSION_SIZE_MEMORY = 40;
+
+/**
  * Sizes asked for recently, so a pane that has started resizing itself in a loop says so.
  *
  * A terminal caught in one is visible to the person watching it and to nothing else: by the time
@@ -2169,11 +2179,13 @@ function askForSize(paneId: string, size: { cols: number; rows: number }, why: s
  *
  * It reports once and then stays quiet for a while, because a log line per resize would be the
  * same storm written down.
+ *
+ * What counts as one is in `resize-storm.ts`, and it is not a count. Counting cannot tell a loop
+ * from a window being dragged, and the first version tried: it wanted six changes a second while
+ * the flicker being reported was about five, so it sat just above the fault it was watching for.
  */
 const recentSizes = new Map<string, { at: number; cols: number; rows: number; why: string }[]>();
 let lastResizeReport = 0;
-const RESIZE_STORM = 12;
-const RESIZE_WINDOW_MS = 2000;
 const RESIZE_REPORT_GAP_MS = 60_000;
 
 function noticeResize(paneId: string, size: { cols: number; rows: number }, why: string): void {
@@ -2181,7 +2193,7 @@ function noticeResize(paneId: string, size: { cols: number; rows: number }, why:
   const seen = (recentSizes.get(paneId) ?? []).filter((s) => now - s.at < RESIZE_WINDOW_MS);
   seen.push({ at: now, ...size, why });
   recentSizes.set(paneId, seen);
-  if (seen.length < RESIZE_STORM || now - lastResizeReport < RESIZE_REPORT_GAP_MS) return;
+  if (!isResizeStorm(seen) || now - lastResizeReport < RESIZE_REPORT_GAP_MS) return;
   lastResizeReport = now;
   client?.send({
     t: 'note',
@@ -2189,6 +2201,7 @@ function noticeResize(paneId: string, size: { cols: number; rows: number }, why:
     detail: {
       paneId: paneId.slice(0, 8),
       changes: seen.length,
+      distinct: distinctSizes(seen),
       windowMs: RESIZE_WINDOW_MS,
       sizes: seen
         .slice(-8)
@@ -2595,7 +2608,12 @@ function paneLabel(paneId: string): { label: string; color?: string } {
  * their own are left out, because a right click on a pane is a question about that pane.
  */
 function paneActionsForMenu(target: (run: () => void) => () => void): PaneMenuAction[] {
-  const wanted = new Set(['agent-split', 'split-right', 'split-down', 'focus-mode']);
+  /**
+   * The splits are deliberately not here. The menu already has them, a few rows up, as entries
+   * of its own, and reading the palette for them put a second `Split right` under the first.
+   * Two rows that do the same thing is not two ways to reach it, it is a menu that looks broken.
+   */
+  const wanted = new Set(['agent-split', 'focus-mode']);
   const actions = paletteActions().filter((a) => wanted.has(a.id) || a.group === 'custom');
   if (actions.length === 0) return [];
   return actions.map((action, i) => ({
@@ -3585,6 +3603,17 @@ function onControl(msg: ServerMessage): void {
       const pane = panesHost?.forSession(msg.sessionId);
       if (!pane) return;
       /**
+       * Written down before the decision, because the decision is usually to do nothing.
+       *
+       * A size that matches what this pane asked for is the daemon agreeing, and agreeing looks
+       * exactly like never being asked. That made the repaint nudge unobservable from here: it
+       * changes the size the PTY runs at and never the grid on screen, so a check that watched
+       * the grid passed just as happily with the nudge removed. This is the sequence the daemon
+       * actually applied, which is the thing the nudge is trying to cause.
+       */
+      sessionSizes.push({ paneId: pane.paneId, cols: msg.cols, rows: msg.rows });
+      if (sessionSizes.length > SESSION_SIZE_MEMORY) sessionSizes.shift();
+      /**
        * Followed only when it is not the size this pane asked for.
        *
        * A size arriving that matches our own request is the daemon agreeing, and there is
@@ -3948,6 +3977,10 @@ declare global {
   interface Window {
     __tabterm?: {
       readScreen: (paneId?: string) => string;
+      /** Nudge every pane to repaint, as a tab back from a long absence does. */
+      redrawAfterAway: () => void;
+      /** The sizes the daemon reported applying, oldest first. */
+      appliedSizes: () => string[];
       /** Only what is on screen right now, which the strip makes a different question. */
       readViewport: (paneId?: string) => string;
       /** Draw text on a pane, for checks about what is shown rather than how it got there. */
@@ -4060,6 +4093,19 @@ function installTestHook(): void {
       return pane?.controller.term.options.theme;
     },
     dropConnection: () => client?.close(),
+    /**
+     * A tab coming back after a long absence, without the absence.
+     *
+     * The rule for when this happens is in `wake-redraw.ts` and is checked there. This is the
+     * wiring: that the nudge actually reaches a pane and that the pane ends up at the size it
+     * started at rather than a row short of it. Faking the absence is the only way to check it
+     * in less than a minute, and a minute is the point of the threshold.
+     */
+    redrawAfterAway: () => {
+      for (const pane of panesHost?.all ?? []) askForRedraw(pane.paneId);
+    },
+    /** What the daemon said it applied, which is where a nudge is visible and the grid is not. */
+    appliedSizes: () => sessionSizes.map((s) => `${s.cols}x${s.rows}`),
     /**
      * A second view of one session, at a size of its choosing.
      *

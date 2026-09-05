@@ -135,5 +135,82 @@ await sleep(300);
 r.ok('and ticked once it is on', String(await tickOf()).includes('\u2713'));
 await evaluate(client, "document.querySelector('.term-menu')?.remove()");
 
+/**
+ * The actions are here too, and they are the same actions.
+ *
+ * Asked for that way, and it is fine for one to appear twice: a menu is a list of what can be
+ * done here, and launching an agent beside this pane is exactly a thing to do here. Read from
+ * the list the command menu reads, so an action written in the Actions tab arrives without
+ * anybody adding it in a second place.
+ */
+{
+  await evaluate(
+    client,
+    `(async () => { await chrome.storage.local.set({ 'tabterm.actions': [
+       { id: 'menu-1', name: 'Menu suite action', kind: 'command',
+         command: 'echo MENU', where: 'new-tab' } ] }); })()`,
+  );
+  await sleep(900);
+  await openPaneMenu(client);
+  await sleep(400);
+  const labels = JSON.parse(
+    await evaluate(
+      client,
+      `JSON.stringify([...document.querySelectorAll('.term-menu-item')].map((b) => (b.textContent ?? '').trim()))`,
+    ),
+  );
+  r.ok(
+    'the pane actions are offered on the pane itself',
+    labels.some((l) => l.includes('Launch an agent beside this pane')) &&
+      labels.some((l) => l.toLowerCase().includes('focus mode')),
+    labels.join(' | '),
+  );
+  r.ok(
+    'and so is an action of your own, without being added here separately',
+    labels.some((l) => l.includes('Menu suite action')),
+    labels.join(' | '),
+  );
+  /**
+   * And nothing is offered twice.
+   *
+   * Reading the palette for the splits put a second `Split right` under the one the menu already
+   * had. Two rows that do the same thing is not two ways to reach it.
+   */
+  const twice = labels.filter((l, i) => l !== '' && labels.indexOf(l) !== i);
+  r.ok('and nothing appears in the menu twice', twice.length === 0, twice.join(' | '));
+
+  /**
+   * And the menu that grew because of them stays reachable.
+   *
+   * Adding the actions made it taller than a short window, and its last entries went off the
+   * bottom where nothing could reach them. No position fixes that, so it scrolls.
+   */
+  const box = JSON.parse(
+    await evaluate(
+      client,
+      `(() => { const m = document.querySelector('.term-menu');
+         const b = m.getBoundingClientRect();
+         return JSON.stringify({ b: Math.round(b.bottom), t: Math.round(b.top),
+           h: Math.round(b.height), scroll: m.scrollHeight > m.clientHeight + 1,
+           view: window.innerHeight }); })()`,
+    ),
+  );
+  r.ok(
+    'the menu stays inside the window however long the list gets',
+    box.t >= 0 && box.b <= box.view + 1,
+    JSON.stringify(box),
+  );
+  r.ok(
+    'and scrolls when it cannot fit rather than running off the bottom',
+    !box.scroll || box.h <= box.view,
+    JSON.stringify(box),
+  );
+  await evaluate(client, "document.querySelector('.term-menu')?.remove()");
+  await evaluate(
+    client,
+    `(async () => { await chrome.storage.local.remove('tabterm.actions'); })()`,
+  );
+}
+
 await finish();
 r.done();

@@ -1,3 +1,4 @@
+import { ALL_MENU } from './chrome/icon-menu.js';
 import { daemonPort } from './transport/port.js';
 import { getToken } from './transport/token.js';
 import {
@@ -610,87 +611,25 @@ function installContextMenus(): void {
     });
   };
 
+  /**
+   * Registered from a list rather than written out here.
+   *
+   * `chrome.contextMenus` has no `getAll` in a manifest v3 worker, so a menu built by eight calls
+   * in a row can only be checked by opening it and looking, and two entries once went missing
+   * while a check said nothing. The list is in `chrome/icon-menu.ts`, where its order and its
+   * contexts are asserted.
+   */
   chrome.contextMenus.removeAll(() => {
-    add({
-      id: 'send-selection',
-      title: 'Send selection to a terminal',
-      contexts: ['selection'],
-    });
-    add({
-      id: 'clone-repo',
-      title: 'Clone this repository in a terminal',
-      contexts: ['page', 'link'],
-      documentUrlPatterns: [
-        'https://github.com/*',
-        'https://gitlab.com/*',
-        'https://bitbucket.org/*',
-        'https://codeberg.org/*',
-      ],
-    });
-    add({
-      id: 'open-url',
-      title: 'Fetch this link in a terminal',
-      contexts: ['link'],
-    });
-    /**
-     * Opening a terminal, first, because it is what somebody reaching for this icon wants.
-     *
-     * The icon's own click already does it. Having it in the menu too costs a line and means the
-     * menu is never a dead end: everything else here is about configuring or ending things.
-     */
-    add({
-      id: 'new-terminal-tab',
-      title: 'New TabTerm terminal',
-      contexts: ['action'],
-    });
-    /**
-     * Launching an agent, from the icon, because it is a thing you do rather than a thing you
-     * configure.
-     *
-     * The same action as the browser shortcut of that name, running whatever the agent command
-     * in settings says. It opens its own tab, which is why it makes sense from anywhere,
-     * including a window with no terminal in it.
-     */
-    add({
-      id: 'launch-agent-tab',
-      title: 'Launch an agent in a new tab',
-      contexts: ['action'],
-    });
-    /**
-     * Settings, from a right click on the toolbar icon.
-     *
-     * It opens a terminal tab with the panel already on settings rather than a page of its own,
-     * because every setting here is about how a terminal behaves and is worth changing while
-     * looking at one.
-     */
-    add({
-      id: 'open-settings',
-      title: 'TabTerm settings',
-      contexts: ['action'],
-    });
-
-    /**
-     * The way out when something has gone wrong.
-     *
-     * The ellipsis is doing real work: this opens a confirmation rather than acting, because it
-     * sits next to Settings on the same icon and the cost of a misclick is somebody's running
-     * work.
-     */
-    /**
-     * Where shortcuts are changed, which is a Chrome page and cannot be anywhere else.
-     *
-     * Under Settings rather than beside it: it is a setting, it is just one Chrome owns.
-     */
-    add({
-      id: 'edit-shortcuts',
-      title: 'Edit keyboard shortcuts',
-      contexts: ['action'],
-    });
-    add({
-      id: 'reset-tabterm',
-      title: 'End all sessions and close tabs...',
-      contexts: ['action'],
-    });
+    for (const entry of ALL_MENU) {
+      add({
+        id: entry.id,
+        title: entry.title,
+        contexts: entry.contexts,
+        ...(entry.documentUrlPatterns === undefined
+          ? {}
+          : { documentUrlPatterns: entry.documentUrlPatterns }),
+      });
+    }
   });
 }
 

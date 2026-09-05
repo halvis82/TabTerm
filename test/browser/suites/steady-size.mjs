@@ -150,5 +150,55 @@ r.ok(
   );
 }
 
+/**
+ * A tab back from a long absence repaints, and ends up the size it started.
+ *
+ * The nudge is a size taken down a row and put back, which is the one thing every terminal
+ * application treats as "draw it all again". The risk it carries is obvious: a resize that does
+ * not come back leaves every pane a row short, and a resize that does not settle is the flicker
+ * this suite exists for. So it is done here, in the suite that counts sizes, rather than
+ * anywhere else.
+ *
+ * The absence itself is faked. Waiting a minute is the point of the threshold and no way to
+ * spend a minute of a test run. When it fires is checked in `wake-redraw.test.ts`.
+ */
+{
+  /**
+   * Read from what the daemon applied, not from the grid on screen.
+   *
+   * The grid never moves: the page follows a size only when it is overruled, and a nudge is this
+   * pane's own request, so the daemon agrees and there is nothing to follow. A first version of
+   * this check watched the grid and passed with the whole restore deleted, which is a check that
+   * cannot fail and therefore is not one.
+   */
+  const applied = async () =>
+    JSON.parse(await evaluate(client, 'JSON.stringify(window.__tabterm.appliedSizes())'));
+  const g = JSON.parse(await evaluate(client, 'JSON.stringify(window.__tabterm.geometry())'));
+  const at = `${String(g.cols)}x${String(g.rows)}`;
+  const shorter = `${String(g.cols)}x${String(g.rows - 1)}`;
+  const seenBefore = (await applied()).length;
+
+  await evaluate(client, 'window.__tabterm.redrawAfterAway()');
+  await sleep(1500);
+  const after = (await applied()).slice(seenBefore);
+  r.ok(
+    'a woken tab really does change the size the terminal runs at',
+    after.includes(shorter),
+    `${at}: ${after.join(' ')}`,
+  );
+  r.ok(
+    'and puts it back, rather than leaving every pane a row short',
+    after[after.length - 1] === at,
+    `${at}: ${after.join(' ')}`,
+  );
+
+  const afterNudge = await watch(4);
+  r.ok(
+    'and settles rather than hunting after the nudge',
+    afterNudge.length === 1,
+    JSON.stringify(afterNudge.slice(0, 8)),
+  );
+}
+
 await finish();
 r.done();
