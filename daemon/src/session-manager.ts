@@ -615,10 +615,18 @@ export class SessionManager {
     if (!Number.isFinite(cols) || !Number.isFinite(rows)) return;
     if (cols === session.vt.cols && rows === session.vt.rows) return;
     /**
-     * Who claimed what, at debug level, because a size nobody asked for has to come from
-     * somewhere and the only way to find out is to see every claim at the moment one is applied.
+     * Who claimed what, and at info, because this is the record that says whether terminals are
+     * holding still.
+     *
+     * It was at debug, which meant it was written by nobody's daemon: answering "is it stable"
+     * needed a special build, and in the meantime the absence of these lines was read as the
+     * absence of the fault. That is not a mistake worth being able to make twice.
+     *
+     * It is affordable because a size that did not change returned above this line. Every line
+     * here is a real change, and a machine holding still writes none of them for hours. A machine
+     * that is not holding still writes a great many, which is the point.
      */
-    debug('session.resize.applied', {
+    info('session.resize.applied', {
       why,
       sessionId: session.id.slice(0, 8),
       applied: `${String(cols)}x${String(rows)}`,

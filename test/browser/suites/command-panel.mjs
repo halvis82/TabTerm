@@ -201,12 +201,18 @@ r.ok(
 
   if (had === '☆') {
     await evaluate(client, `${firstStar}?.click()`);
-    await sleep(600);
-    r.ok('starring it fills the star', String(await state()) === '★', String(await state()));
+    // Waited for rather than slept past: keeping a favorite is a round trip to the daemon, and
+    // how long that takes is not this suite's business.
+    const filled = await waitFor(
+      client,
+      `document.querySelector('.cmd-row .cmd-star')?.textContent === '\u2605'`,
+      8000,
+    );
+    r.ok('starring it fills the star', filled, String(await state()));
   }
 
   await evaluate(client, `${firstStar}?.click()`);
-  await sleep(500);
+  await waitFor(client, `!!document.querySelector('.cmd-ask')`, 6000);
   const asked = String(
     await evaluate(client, `document.querySelector('.cmd-ask')?.textContent ?? ''`),
   );

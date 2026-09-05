@@ -66,7 +66,7 @@ import type {
   NotifyPolicy,
   ShellIntegrationStatus,
 } from '@tabterm/shared';
-import { distinctSizes, isResizeStorm, RESIZE_WINDOW_MS } from './resize-storm.js';
+import { distinctSizes, HISTORY_MS, isResizeStorm, recordChange } from './resize-storm.js';
 import { shouldRedrawAfterAway } from './wake-redraw.js';
 import { buildStats } from '../launcher/stats-view.js';
 import { SessionStats } from '../launcher/session-stats.js';
@@ -2190,10 +2190,9 @@ const RESIZE_REPORT_GAP_MS = 60_000;
 
 function noticeResize(paneId: string, size: { cols: number; rows: number }, why: string): void {
   const now = Date.now();
-  const seen = (recentSizes.get(paneId) ?? []).filter((s) => now - s.at < RESIZE_WINDOW_MS);
-  seen.push({ at: now, ...size, why });
+  const seen = recordChange(recentSizes.get(paneId) ?? [], { at: now, ...size, why });
   recentSizes.set(paneId, seen);
-  if (!isResizeStorm(seen) || now - lastResizeReport < RESIZE_REPORT_GAP_MS) return;
+  if (!isResizeStorm(seen, now) || now - lastResizeReport < RESIZE_REPORT_GAP_MS) return;
   lastResizeReport = now;
   client?.send({
     t: 'note',
@@ -2202,7 +2201,7 @@ function noticeResize(paneId: string, size: { cols: number; rows: number }, why:
       paneId: paneId.slice(0, 8),
       changes: seen.length,
       distinct: distinctSizes(seen),
-      windowMs: RESIZE_WINDOW_MS,
+      windowMs: HISTORY_MS,
       sizes: seen
         .slice(-8)
         .map((s) => `${s.why}:${String(s.cols)}x${String(s.rows)}`)

@@ -587,6 +587,30 @@ repeating, because something is feeding its own input. So a few sizes changed ma
 and many sizes changed many times is a person with a mouse. A flood past forty in two seconds is
 reported whatever the sizes, since no drag reaches that rate.
 
+Two windows, because a loop does not have one speed. The fast one catches the several-a-second
+flicker that was reported. A slow one, ten seconds wide and stricter about how many sizes it will
+accept, catches an oscillation of about one a second: just as visible to the person watching, and
+under any threshold a two second window can carry without firing on ordinary work. Over ten
+seconds a person opens a panel, splits a pane and changes a font, and that is several sizes rather
+than two.
+
+**A size that did not change is not a change.** Several paths ask for one without knowing whether
+anything moved: a terminal announcing itself, a refit after a panel opens, an attach. Counting
+those measured activity rather than instability, and it showed within a day of the detector being
+installed: an ordinary reattach reported a storm made of one deliberate repaint nudge and three
+requests for the size the pane already had.
+
+### The record of what the terminal actually resized to
+
+`session.resize.applied` is written at **info**, not debug, and carries every claim at the moment
+one is applied. It was at debug, which meant no ordinary daemon wrote it: answering "are terminals
+holding still" needed a special build, and in the meantime the absence of the lines was read as
+the absence of the fault.
+
+It is affordable because a size that did not change returns before the line is written. Every one
+of them is a real change to the size a terminal is running at. A machine holding still writes none
+for hours; a machine that is not writes a great many, which is exactly what wants recording.
+
 **A measurement that failed returned a default.** `fit` returned the terminal's current size when
 the element could not be measured, and a terminal that has never been fitted is 80 by 24, xterm's
 default. So a pane whose element was not laid out yet reported 80 by 24 as though it had measured
