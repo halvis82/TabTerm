@@ -74,12 +74,28 @@ export function authDelayMs(source: string): number {
   return Math.min(MAX_DELAY_MS, entry.count * 100);
 }
 
-export function recordFailure(source: string): void {
+/**
+ * Who was refused, as well as how often.
+ *
+ * The count alone says something is wrong and nothing about what. Which client it was, and how
+ * long a token it offered, is the difference between "the extension has the wrong token" and
+ * "something else on this machine is knocking on the port". Never the token itself.
+ */
+export function recordFailure(
+  source: string,
+  who?: { clientId?: string; role?: string; tokenLength?: number },
+): void {
   const entry = failures.get(source) ?? { count: 0, last: 0 };
   entry.count++;
   entry.last = Date.now();
   failures.set(source, entry);
-  warn('auth.failed', { source, attempt: entry.count });
+  warn('auth.failed', {
+    source,
+    attempt: entry.count,
+    ...(who?.clientId ? { clientId: who.clientId.slice(0, 40) } : {}),
+    ...(who?.role ? { role: who.role } : {}),
+    ...(who?.tokenLength === undefined ? {} : { tokenLength: who.tokenLength }),
+  });
 }
 
 export function recordSuccess(source: string): void {

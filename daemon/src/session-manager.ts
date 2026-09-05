@@ -479,6 +479,24 @@ export class SessionManager {
      */
     client.cols = SessionManager.sane(client.cols, 80);
     client.rows = SessionManager.sane(client.rows, 24);
+    /**
+     * A client that is already attached keeps the size it has, rather than being handed one.
+     *
+     * Several attach paths pass a placeholder, because the caller has no idea how big the panes
+     * are and the client corrects it a moment later. That was harmless while nobody was told
+     * about the applied size. It is not harmless now: the placeholder becomes the size of the
+     * terminal, every view is told, and the view sets its grid to 80 by 24 and then measures its
+     * way back. Ninety-five size changes in two seconds, which is a terminal that visibly
+     * flickers.
+     *
+     * The size a client last reported is a fact about that client. An attach is not new
+     * information about it.
+     */
+    const known = session.clients.get(client.clientId);
+    if (known) {
+      client.cols = known.cols;
+      client.rows = known.rows;
+    }
     session.clients.set(client.clientId, client);
     session.lastAttachedAt = Date.now();
     if (session.reapTimer) {
@@ -487,13 +505,13 @@ export class SessionManager {
       debug('session.reap.cancelled', { sessionId: session.id });
     }
     this.#transition(session, 'attached');
-    this.#applyResize(session);
+    this.#applyResize(session, 'attach');
   }
 
   detach(session: Session, clientId: string): void {
     if (!session.clients.delete(clientId)) return;
     if (session.clients.size > 0) {
-      this.#applyResize(session);
+      this.#applyResize(session, 'detach');
       return;
     }
     session.lastDetachedAt = Date.now();
@@ -520,7 +538,7 @@ export class SessionManager {
     if (!client) return;
     client.cols = SessionManager.sane(cols, client.cols);
     client.rows = SessionManager.sane(rows, client.rows);
-    this.#applyResize(session);
+    this.#applyResize(session, 'resize-pane');
   }
 
   /**
@@ -586,7 +604,7 @@ export class SessionManager {
    * minimum rows across all of them, computed per dimension. Any larger client would render
    * into columns the shell does not know exist. See docs/04-session-lifecycle.md §2.
    */
-  #applyResize(session: Session): void {
+  #applyResize(session: Session, why = 'unknown'): void {
     if (session.clients.size === 0) return; // Retain the last size when nobody is attached.
     let cols = Infinity;
     let rows = Infinity;
@@ -596,6 +614,18 @@ export class SessionManager {
     }
     if (!Number.isFinite(cols) || !Number.isFinite(rows)) return;
     if (cols === session.vt.cols && rows === session.vt.rows) return;
+    /**
+     * Who claimed what, at debug level, because a size nobody asked for has to come from
+     * somewhere and the only way to find out is to see every claim at the moment one is applied.
+     */
+    debug('session.resize.applied', {
+      why,
+      sessionId: session.id.slice(0, 8),
+      applied: `${String(cols)}x${String(rows)}`,
+      claims: [...session.clients.values()]
+        .map((c) => `${c.clientId.slice(-6)}:${String(c.cols)}x${String(c.rows)}`)
+        .join(' '),
+    });
     session.vt.resize(cols, rows);
     try {
       this.#pty.resize(session.id, cols, rows);

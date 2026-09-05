@@ -78,23 +78,6 @@ const THRESHOLDS: [ms: number, label: string][] = [
 // Derived from the table that defines them, so the list and the themes cannot disagree.
 const THEMES = THEME_CHOICES;
 
-/** Shortcuts the page handles itself, as opposed to the ones Chrome owns. */
-/**
- * The handful that are fixed, and therefore not in the list above.
- *
- * Everything rebindable comes from the live table, so this holds only what cannot be changed:
- * keys the page must answer to whatever anybody prefers. It used to list the rebindable ones
- * too, from a copy that had already drifted, claiming Command D for split right when the key
- * bound to it was Command Shift D. Three hand-written copies of one fact is three chances to be
- * wrong about it.
- */
-const FIXED_KEYS: [keys: string, does: string][] = [
-  ['⌘C / ⌘V', 'Copy and paste'],
-  ['⌘Z', 'Take back a clear, while it is offered'],
-  ['Esc', 'Leave a maximized pane or focus mode'],
-  ['⌘W', 'Close the pane, in focus mode only'],
-];
-
 /**
  * One section, with a heading that says what the settings under it are about.
  *
@@ -264,6 +247,25 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
     const problem = document.createElement('span');
     problem.className = 'set-desc set-key-problem';
 
+    /**
+     * A way to have no shortcut at all.
+     *
+     * Recording one is the only thing this offered, so a key could be changed and never removed:
+     * the way back was to bind it to something else and hope. Only shown when there is one to
+     * clear, because a button that does nothing is worse than no button.
+     */
+    const clear = document.createElement('button');
+    clear.className = 'cmd-button set-key-clear';
+    clear.textContent = 'Clear';
+    clear.title = 'Leave this with no shortcut';
+    clear.hidden = shortcut.keys === '';
+    clear.addEventListener('click', () => {
+      options.onRebind(shortcut.id, '');
+      button.textContent = prettyKeys('');
+      problem.textContent = '';
+      clear.hidden = true;
+    });
+
     button.addEventListener('click', () => {
       if (button.dataset['recording'] === 'yes') return;
       button.dataset['recording'] = 'yes';
@@ -271,8 +273,17 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
       problem.textContent = '';
 
       const onKey = (e: KeyboardEvent): void => {
+        /**
+         * Stopped here, and stopped **hard**, while a key is being recorded.
+         *
+         * Escape closes the settings panel, which is right everywhere except in the middle of
+         * this: pressing it to say "leave the shortcut alone" closed the whole menu. The listener
+         * runs at the capture phase, so stopping propagation immediately is what keeps the panel
+         * out of it. `stopImmediatePropagation` rather than `stopPropagation` because another
+         * listener on this same element would otherwise still see it.
+         */
         e.preventDefault();
-        e.stopPropagation();
+        e.stopImmediatePropagation();
         // A modifier on its own is somebody still reaching for the rest of the combination.
         if (['Shift', 'Meta', 'Control', 'Alt'].includes(e.key)) return;
         document.removeEventListener('keydown', onKey, true);
@@ -282,11 +293,23 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
           button.textContent = prettyKeys(shortcut.keys);
           return;
         }
+        /**
+         * Backspace clears it, which is what every settings screen that binds keys does.
+         *
+         * The button beside it does the same thing for somebody who does not know that.
+         */
+        if (e.key === 'Backspace' || e.key === 'Delete') {
+          options.onRebind(shortcut.id, '');
+          button.textContent = prettyKeys('');
+          clear.hidden = true;
+          return;
+        }
         const keys = describeKeys(e);
         const refused = options.onRebind(shortcut.id, keys);
         if (refused === null) {
           button.textContent = prettyKeys(keys);
           problem.textContent = '';
+          clear.hidden = false;
           return;
         }
         button.textContent = prettyKeys(shortcut.keys);
@@ -295,29 +318,25 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
       document.addEventListener('keydown', onKey, true);
     });
 
-    row.append(label, button, problem);
+    row.append(label, button, clear, problem);
     mine.append(row);
   }
   keys.append(mine);
-  const fixedHeading = document.createElement('p');
-  fixedHeading.className = 'set-desc';
-  fixedHeading.textContent = 'These are fixed:';
-  keys.append(fixedHeading);
 
-  const list = document.createElement('div');
-  list.className = 'cmd-keys';
-  for (const [combo, does] of FIXED_KEYS) {
-    const row = document.createElement('div');
-    row.className = 'cmd-key-row';
-    const kbd = document.createElement('kbd');
-    kbd.textContent = combo;
-    const description = document.createElement('span');
-    description.textContent = does;
-    row.append(kbd, description);
-    list.append(row);
-  }
-  keys.append(list);
-
+  /**
+   * What not to bind, said before somebody spends a minute finding out.
+   *
+   * The refusal that comes back names the combination that was pressed, which is the right
+   * moment for a specific message and the wrong moment for a general one.
+   */
+  const caution = document.createElement('p');
+  caution.className = 'set-desc';
+  caution.textContent =
+    'Chrome keeps combinations like Command W, Command T and Command L for itself, and other ' +
+    'extensions can claim their own. A key Chrome has taken never reaches this page, so it is ' +
+    'refused here rather than bound to something that will not work.';
+  keys.append(caution);
+  // The keys that cannot be changed are not settings and were only ever a list to read past.
   const chromeNote = document.createElement('p');
   chromeNote.className = 'set-desc';
   chromeNote.textContent =

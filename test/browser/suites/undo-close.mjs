@@ -32,10 +32,12 @@ await waitFor(
 );
 
 await evaluate(client, 'window.__tabterm.closePane()');
-await sleep(2000);
-r.ok('closing takes the pane away', (await panes()) === 1, String(await panes()));
+// Waited for rather than slept through: closing is a round trip to the daemon and back, and two
+// seconds is an idle machine's answer to a question about a busy one.
+const closed = await waitFor(client, 'window.__tabterm.paneIds().length === 1', 30000);
+r.ok('closing takes the pane away', closed, String(await panes()));
 
-const offered = await waitFor(client, `!document.getElementById('undo-offer')?.hidden`, 15000);
+const offered = await waitFor(client, `!document.getElementById('undo-offer')?.hidden`, 30000);
 r.ok(
   'and a way back appears under the menu button',
   offered,
@@ -70,9 +72,16 @@ await client.send('Input.dispatchKeyEvent', {
   modifiers: 4,
   windowsVirtualKeyCode: 90,
 });
-const back = await waitFor(client, 'window.__tabterm.paneIds().length === 2', 20000);
+const back = await waitFor(client, 'window.__tabterm.paneIds().length === 2', 40000);
 r.ok('Command+Z brings the pane back even after the button was hidden', back);
 
+// Waited for: a restored pane draws its snapshot a moment after the layout says it exists, and
+// under load that moment is longer than a read taken straight afterwards allows for.
+await waitFor(
+  client,
+  `window.__tabterm.paneIds().some((p) => (window.__tabterm.readScreen(p) ?? '').includes('SECOND-PANE-MARKER'))`,
+  30000,
+);
 const screens = JSON.parse(
   await evaluate(
     client,
@@ -102,19 +111,24 @@ await evaluate(client, `window.__tabterm.focus(${JSON.stringify(restored)})`);
 await sleep(400);
 await evaluate(client, 'window.__tabterm.detachPane()');
 await sleep(3000);
-const movedOut = await waitFor(client, 'window.__tabterm.paneIds().length === 1', 20000);
+const movedOut = await waitFor(client, 'window.__tabterm.paneIds().length === 1', 40000);
 r.ok('moving a pane out leaves this tab with one', movedOut);
 
-const moveBack = await waitFor(client, `!document.getElementById('undo-offer')?.hidden`, 15000);
+const moveBack = await waitFor(client, `!document.getElementById('undo-offer')?.hidden`, 30000);
 const label = String(
   await evaluate(client, `document.getElementById('undo-offer-do')?.textContent ?? ''`),
 );
 r.ok('and offers to move it back', moveBack && /move/i.test(label), label);
 
 await realClick(client, '#undo-offer-do');
-const returned = await waitFor(client, 'window.__tabterm.paneIds().length === 2', 25000);
+const returned = await waitFor(client, 'window.__tabterm.paneIds().length === 2', 40000);
 r.ok('which brings it back into this tab', returned);
 
+await waitFor(
+  client,
+  `window.__tabterm.paneIds().some((p) => (window.__tabterm.readScreen(p) ?? '').includes('SECOND-PANE-MARKER'))`,
+  30000,
+);
 const afterMove = JSON.parse(
   await evaluate(
     client,

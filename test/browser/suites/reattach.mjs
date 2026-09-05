@@ -56,6 +56,34 @@ r.ok(
 );
 
 /**
+ * And not one frame of the start screen's placeholder, at any point.
+ *
+ * A new tab draws the shape of the start screen immediately rather than sitting empty while the
+ * daemon answers. The condition that must hold is the other one: a tab reattaching to work must
+ * never show any of it, not even for a moment. It is keyed on the workspace in the URL, which is
+ * known before anything is asked of anybody, rather than on what is on screen, which is the
+ * guess that used to put the start screen over somebody's session.
+ *
+ * Watched over four seconds rather than sampled once, because a flash is exactly what a single
+ * sample misses.
+ */
+let placeholderFrames = 0;
+for (let i = 0; i < 40; i++) {
+  const n = Number(
+    await evaluate(client, `document.querySelectorAll('.launcher-skeleton-row').length`).catch(
+      () => 0,
+    ),
+  );
+  if (n > 0) placeholderFrames++;
+  await sleep(100);
+}
+r.ok(
+  'and no frame of the start screen placeholder on a tab that has work in it',
+  placeholderFrames === 0,
+  `${String(placeholderFrames)} frames of it`,
+);
+
+/**
  * And a refresh from the start screen keeps the prompt in the strip.
  *
  * Reported three times as "the prompt is gone from the box at the bottom". It was never gone: a

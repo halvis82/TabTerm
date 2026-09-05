@@ -24,6 +24,8 @@ export interface DaemonClientOptions {
   onControl: (msg: ServerMessage) => void;
   /** Something arrived that could not be read or handled. Reported, never swallowed. */
   onProtocolError?: (detail: string) => void;
+  /** The daemon refused these credentials. Fetch them again rather than retrying the same. */
+  onAuthRefused?: () => void;
   onOutput: (streamId: number, data: Uint8Array) => void;
   onStatus: (status: ConnectionStatus) => void;
 }
@@ -39,6 +41,8 @@ export class DaemonClient {
   #backoff = BACKOFF_MIN_MS;
   #stopped = false;
   #ready = false;
+  /** Set when a token is replaced after being refused. See `setToken`. */
+  #token: string | null = null;
 
   constructor(opts: DaemonClientOptions) {
     this.#opts = opts;
@@ -63,7 +67,7 @@ export class DaemonClient {
           t: 'auth',
           v: PROTOCOL_VERSION,
           role: this.#opts.role,
-          token: this.#opts.token,
+          token: this.#tokenNow(),
           clientId: this.#opts.clientId,
         }),
       );
@@ -92,6 +96,20 @@ export class DaemonClient {
             this.#ready = true;
             this.#backoff = BACKOFF_MIN_MS;
             this.#opts.onStatus('ready');
+          }
+          /**
+           * A token the daemon will not accept is a token to stop using.
+           *
+           * Retrying with it forever is what happened: the connection reconnected on its own
+           * schedule, offered the same rejected token every time, and the extension stayed
+           * broken until the browser was restarted. A token can genuinely change, when a daemon
+           * is reinstalled or its state directory is cleared, and this is that case.
+           *
+           * The caller is told rather than this fetching a new one itself: only it knows where
+           * its credentials come from.
+           */
+          if (frame.message.t === 'auth-fail') {
+            this.#opts.onAuthRefused?.();
           }
           this.#opts.onControl(frame.message as ServerMessage);
           return;
@@ -129,6 +147,22 @@ export class DaemonClient {
    * terminal keystroke and the wrong one for a caller that has to know, such as the report of
    * which tabs exist: dropping that one ends terminals.
    */
+  /**
+   * Use a different token from the next attempt onwards.
+   *
+   * The token is not a property of the connection, it is a property of the installation, and it
+   * can change under a running page: a daemon reinstalled, a state directory cleared. Without
+   * this the only way to pick up a new one was to build another client.
+   */
+  setToken(token: string): void {
+    this.#token = token;
+  }
+
+  /** The token to authenticate with: whatever it was last set to, or the one it was built with. */
+  #tokenNow(): string {
+    return this.#token ?? this.#opts.token;
+  }
+
   get connected(): boolean {
     return this.#ws?.readyState === WebSocket.OPEN;
   }

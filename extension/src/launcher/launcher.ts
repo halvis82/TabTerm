@@ -112,6 +112,8 @@ export class Launcher {
   #resumable: readonly ResumableAgentSession[] = [];
   /** Which conversation is open, if any. One at a time, so the list stays a list. */
   #expandedResume: string | null = null;
+  /** Set for the one render after opening one, so it is scrolled to once rather than every time. */
+  #justExpanded = false;
   /** Conversations that have been read, by session. Absent means "asked, not back yet". */
   readonly #transcripts = new Map<string, readonly { role: 'you' | 'agent'; text: string }[]>();
   #servers: readonly LocalServer[] = [];
@@ -978,6 +980,47 @@ export class Launcher {
     this.#completionList = null;
   }
 
+  /**
+   * Draw the shape of the screen before the daemon has said anything.
+   *
+   * A new tab spent about a third of a second on an empty page and then everything appeared at
+   * once, which reads as a stall and then a jolt. The headings and the boxes are the same every
+   * time, so they can be there immediately and fill in.
+   *
+   * **Only for a tab that has no session.** A tab reattaching to work must never show a flash of
+   * this, so the caller passes that judgement in rather than this guessing: the URL says whether
+   * there is a workspace, and that is known before anything is asked of anybody.
+   */
+  renderPlaceholder(): void {
+    if (this.#dismissed || this.#state) return;
+
+    const skeleton = (heading: string, rows: number): HTMLElement => {
+      const section = document.createElement('div');
+      section.className = 'launcher-section is-placeholder';
+      const title = document.createElement('p');
+      title.className = 'launcher-heading';
+      title.textContent = heading;
+      section.append(title);
+      for (let i = 0; i < rows; i++) {
+        const row = document.createElement('div');
+        row.className = 'launcher-skeleton-row';
+        section.append(row);
+      }
+      return section;
+    };
+
+    const body = document.createElement('div');
+    body.className = 'launcher-body';
+    body.append(skeleton('Open a folder', 2), skeleton('Resume an agent session', 2));
+
+    const hint = document.createElement('div');
+    hint.className = 'launcher-hint';
+    hint.textContent = 'Start typing to use the shell. Command+K for history and saved commands.';
+
+    this.#el.replaceChildren(body, hint);
+    this.#el.hidden = false;
+  }
+
   render(): void {
     if (this.#dismissed || !this.#state) return;
     /**
@@ -1059,12 +1102,36 @@ export class Launcher {
      * part that is cut off entirely. Putting the scrolling and the fade on the body leaves the
      * hint readable wherever the list ends.
      */
+    /**
+     * Where the list was scrolled to, kept across the redraw.
+     *
+     * Every render replaces this element, so the scroll position went back to the top: opening a
+     * conversation halfway down the list threw the list back to the beginning, which is the one
+     * thing that must not happen when the point is to look at the row you clicked.
+     */
+    const wasScrolled = this.#el.querySelector('.launcher-body')?.scrollTop ?? 0;
+
     const body = document.createElement('div');
     body.className = 'launcher-body';
     body.replaceChildren(...sections);
+    if (wasScrolled > 0) {
+      // Set before the element is on screen, so it never paints at the top and then jumps.
+      body.scrollTop = wasScrolled;
+    }
 
     this.#el.replaceChildren(body, hint);
     this.#el.hidden = false;
+    /**
+     * And the row that was just opened is brought fully into view, if it is not already.
+     *
+     * Only when something has just been expanded, and only far enough: `nearest` scrolls by the
+     * least it can, so a row already on screen does not move at all.
+     */
+    if (this.#expandedResume && this.#justExpanded) {
+      this.#justExpanded = false;
+      const opened = body.querySelector('.launcher-row-holder');
+      opened?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
 
     if (typed && this.#dirInput) {
       this.#dirInput.value = typed;
@@ -1589,16 +1656,24 @@ export class Launcher {
        * Expanding rather than opening something. What is below is pushed down, which is what a
        * list does when one of its rows has more to say, and nothing is covered up.
        */
+      /**
+       * Said in words rather than drawn as a chevron.
+       *
+       * A chevron at the end of a row is a thing people find by accident. This is the control
+       * that makes the list usable when three conversations start the same way, so it says what
+       * it does.
+       */
       const expand = document.createElement('button');
       expand.className = 'launcher-row-action is-expand';
       const open = this.#expandedResume === session.sessionId;
       expand.title = open ? 'Hide the conversation' : 'Read the conversation';
-      expand.textContent = open ? '\u2304' : '\u203a';
+      expand.textContent = open ? 'Collapse' : 'Expand';
       expand.setAttribute('aria-expanded', open ? 'true' : 'false');
       expand.addEventListener('click', (e) => {
         e.stopPropagation();
         // A second click on the open one closes it: one open at a time, so the list stays a list.
         this.#expandedResume = open ? null : session.sessionId;
+        this.#justExpanded = !open;
         if (!open) this.#opts.onReadAgentSession?.(session.sessionId);
         this.render();
       });

@@ -536,3 +536,34 @@ does on reattach, for the same reason.
 Never for a screen that came back empty. A session created a moment ago gets a snapshot too, and
 nudging there is two size changes arriving exactly while a template is waiting for a prompt to
 type its command into.
+
+## A size is only ever asked for once it has been measured
+
+Terminals were changing size thousands of times a second: tabs visibly flickering, pages laggy
+because they were laying themselves out constantly, and an agent that could not settle on a width.
+Twenty-seven thousand size changes in ten seconds, across five sessions.
+
+Four separate faults, each harmless alone and none of them visible in any single sample. What made
+them findable was a detector that records the **sequence** of sizes rather than the current one.
+
+**A measurement that failed returned a default.** `fit` returned the terminal's current size when
+the element could not be measured, and a terminal that has never been fitted is 80 by 24, xterm's
+default. So a pane whose element was not laid out yet reported 80 by 24 as though it had measured
+it. It returns nothing now, and nothing is asked for.
+
+**Being told a size was treated as asking for one.** Resizing a terminal makes it announce its
+size, and that announcement travelled the same path as a measurement. So following the daemon's
+size became a request for it, which the daemon answered, which looked like being overruled again.
+
+**Replaying a snapshot resized the terminal**, which announced itself the same way, so a screen
+serialised at 80 by 24 became an instruction to every view of that session.
+
+**Output moved the cursor, and the cursor was read as the prompt's width.** The box under the
+start screen grows to fit the line being typed, and it learns where the prompt ends from where the
+cursor sits when the line is empty. While a command runs the cursor is wherever the output put it,
+so the box grew and shrank on every chunk. Output is not an instruction to resize anything, and
+the cursor is only read as a prompt width when the shell is at a prompt with an empty line.
+
+An attach also handed the daemon a placeholder size, which was harmless while nobody was told the
+applied size and became an instruction once they were. A client that is already attached keeps the
+size it reported; an attach is not new information about it.

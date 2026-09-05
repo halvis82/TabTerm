@@ -21,9 +21,29 @@ import { DaemonClient } from '../transport/daemon-client.js';
  */
 
 let client: DaemonClient | null = null;
+/** What the current connection was made with, so different credentials can be recognised. */
+let using: { token: string; port: number } | null = null;
 
+/**
+ * Connect, or reconnect when the credentials have changed.
+ *
+ * Returning early whenever a connection existed was right for the ordinary case and wrong for the
+ * one that matters: a token that has been replaced. The connection then goes on failing
+ * authentication forever against a daemon that will never accept it, and nothing retries with
+ * the new one because nothing noticed it arrived.
+ *
+ * That is not hypothetical. The browser suites point a fresh browser at their own daemon by
+ * writing its token, and the extension can ask the installed native host for one first: the
+ * document connected with the wrong token and stayed wrong for the whole run, which read as the
+ * harness being unreliable.
+ */
 function start(token: string, clientId: string, port: number): void {
-  if (client) return;
+  if (client && using && using.token === token && using.port === port) return;
+  if (client) {
+    client.close();
+    client = null;
+  }
+  using = { token, port };
   startOn(port, token, clientId);
 }
 
@@ -73,6 +93,18 @@ function startOn(port: number, token: string, clientId: string): void {
     },
     onStatus: () => {
       /* Reconnect is handled inside the client, with backoff. */
+    },
+    /**
+     * Refused credentials are asked for again rather than offered a second time.
+     *
+     * A token can genuinely change: a daemon reinstalled, or a state directory cleared. Before
+     * this the connection retried with the rejected token on its own schedule and the extension
+     * stayed broken until the browser was restarted.
+     */
+    onAuthRefused: () => {
+      using = null;
+      void chrome.runtime.sendMessage({ t: 'tabterm:token-refused' }).catch(() => undefined);
+      setTimeout(() => void requestCredentials(), 1500);
     },
   });
   client.connect();

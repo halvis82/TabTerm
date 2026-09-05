@@ -163,7 +163,13 @@ await evaluate(
      i.dispatchEvent(new Event('input', { bubbles: true }));
    })()`,
 );
-await sleep(600);
+// Waited for rather than slept through: the chip only exists once the templates have loaded, and
+// on a busy machine six hundred milliseconds is an idle machine's answer.
+await waitFor(
+  client,
+  `[...document.querySelectorAll('.launcher-template')].some((c) => c.textContent.includes('probe'))`,
+  20000,
+);
 await evaluate(
   client,
   `[...document.querySelectorAll('.launcher-template')].find((c) => c.textContent.includes('probe'))?.click()`,
@@ -173,7 +179,7 @@ await evaluate(
 const ran = await waitFor(
   client,
   `(window.__tabterm.readScreen() ?? '').includes('/Documents')`,
-  25000,
+  40000,
 );
 r.ok(
   'the command runs, in the folder from the box rather than the one it was saved in',

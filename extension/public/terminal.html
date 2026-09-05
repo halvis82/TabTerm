@@ -793,10 +793,22 @@
     font-size: 11px;
     color: #8a91a3;
   }
+  /*
+   * At the end of the row, and always there.
+   *
+   * They appeared on hover, which reads as tidier and means the only way to discover that an
+   * action can be edited is to happen to point at it.
+   */
+  .cmd-row-controls {
+    flex: none;
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
   .cmd-row-edit,
   .cmd-row-remove {
     flex: none;
-    margin-left: 6px;
     padding: 0 5px;
     border: 0;
     background: transparent;
@@ -804,13 +816,6 @@
     font: inherit;
     font-size: 12px;
     cursor: pointer;
-    opacity: 0;
-  }
-  .cmd-row:hover .cmd-row-edit,
-  .cmd-row:hover .cmd-row-remove,
-  .cmd-row.selected .cmd-row-edit,
-  .cmd-row.selected .cmd-row-remove {
-    opacity: 1;
   }
   .cmd-row-edit:hover {
     color: #9ec5ff;
@@ -1852,6 +1857,27 @@
   .launcher-section {
     margin-bottom: 10px;
   }
+  /*
+   * The shape of the screen before the daemon has answered.
+   *
+   * A new tab spent about a third of a second empty and then everything arrived at once. The
+   * headings and the boxes are the same every time, so they are drawn immediately and filled in.
+   * Quiet on purpose: it is scaffolding, not content, and it must not read as something to use.
+   */
+  .launcher-section.is-placeholder {
+    opacity: 0.55;
+  }
+  .launcher-skeleton-row {
+    height: 30px;
+    margin-bottom: 6px;
+    border-radius: 6px;
+    background: linear-gradient(
+      90deg,
+      rgba(90, 100, 130, 0.1),
+      rgba(90, 100, 130, 0.16),
+      rgba(90, 100, 130, 0.1)
+    );
+  }
   /* Quiet. A heading here is a label, not a banner. */
   .launcher-heading {
     font-size: 10px;
@@ -2391,13 +2417,28 @@
     color: var(--text);
     background: rgba(255, 255, 255, 0.06);
   }
-  /* The chevron that opens a conversation, quieter than the cross beside it. */
+  /*
+   * The control that opens a conversation, in words rather than as a chevron.
+   *
+   * It is the thing that makes this list usable when three sessions start the same way, so it
+   * says what it does instead of being found by accident.
+   */
   .launcher-row-action.is-expand {
-    font-size: 13px;
-    color: #4e5464;
+    width: auto;
+    padding: 0 8px;
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #7d8398;
+    border: 1px solid rgba(90, 100, 130, 0.28);
+  }
+  .launcher-row-action.is-expand:hover {
+    color: var(--text);
+    border-color: #3d6ba8;
   }
   .launcher-row-action.is-expand[aria-expanded='true'] {
     color: #9ec5ff;
+    border-color: rgba(122, 162, 247, 0.45);
   }
   /**
    * An expanded row and its conversation, which push what is below them down.
@@ -2411,7 +2452,7 @@
     gap: 4px;
   }
   .launcher-transcript {
-    max-height: 168px;
+    max-height: 190px;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
@@ -2430,17 +2471,30 @@
     color: #5f6672;
     font-style: italic;
   }
+  /*
+   * One turn: who, then what, with the text able to wrap under itself.
+   *
+   * The speaker sits in a fixed column so the conversation reads straight down. A turn is capped
+   * in height so one enormous message cannot fill the panel and hide the rest of the exchange,
+   * which is the thing being read for.
+   */
+  /*
+   * A turn is shown whole and the panel scrolls, rather than each turn being clipped.
+   *
+   * Clipping every turn and fading its last line was tried first: it made the whole panel look
+   * washed out and unreadable, which is worse than a panel somebody scrolls. The reader already
+   * shortens anything that is really tool output rather than talk.
+   */
   .launcher-turn {
     display: flex;
-    gap: 7px;
+    gap: 8px;
     align-items: baseline;
   }
-  /* Who said it, in a fixed column, so the conversation reads down rather than zigzagging. */
   .launcher-turn-who {
     flex: none;
-    width: 34px;
+    width: 38px;
     text-align: right;
-    font-size: 10px;
+    font-size: 9.5px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: #5f6672;

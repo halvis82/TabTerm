@@ -51,6 +51,25 @@ const FIRST = [
   'sessions',
   // Measures how many messages arrive in a window. Other suites' traffic is noise in that.
   'no-busy-loop',
+  /**
+   * Measures how often a pane changes size, which every other browser's work perturbs.
+   *
+   * Counting size changes over four seconds is the only way to tell a size that settles from one
+   * that oscillates, and it is exactly the kind of measurement three other browsers on the same
+   * machine make meaningless.
+   */
+  'steady-size',
+  /**
+   * These two are long round trips rather than measurements, and they time out under load.
+   *
+   * `undo-close` closes a pane, waits for the daemon to hold it, brings it back, moves one to
+   * another tab and back again. Alone it takes thirteen seconds; beside three other browsers it
+   * took a hundred and forty and ran out of patience partway. `start-screen-typing` sends a
+   * thousand keystrokes one at a time. Raising their timeouts hides the problem in the good case
+   * and does not fix the bad one; not competing does both.
+   */
+  'undo-close',
+  'start-screen-typing',
 ];
 
 /**
@@ -443,13 +462,25 @@ function startTestDaemon() {
     },
   };
 
-  // It writes its token on startup; the browsers need it to authenticate.
+  /**
+   * It writes its token on startup, and the browsers need it to authenticate.
+   *
+   * Waited for by **content**, not by existence. A file exists the instant it is created, which
+   * is before anything has been written into it, so reading it then yields an empty string. The
+   * browsers were then pointed at this daemon with no token, every authentication was refused,
+   * and the run failed with every page saying the daemon was not responding. Intermittent,
+   * because it depends on how the two processes are scheduled, which is why it presented as the
+   * harness being unreliable rather than as anything with a cause.
+   */
   const tokenFile = join(home, '.local', 'state', 'tabterm', 'token');
   const deadline = Date.now() + 15_000;
   for (;;) {
-    if (existsSync(tokenFile)) break;
+    if (existsSync(tokenFile)) {
+      const written = readFileSync(tokenFile, 'utf8').trim();
+      if (/^[0-9a-f]{64}$/.test(written)) break;
+    }
     if (Date.now() > deadline)
-      throw new Error(`the test daemon never started; see ${home}/daemon.log`);
+      throw new Error(`the test daemon never wrote a usable token; see ${home}/daemon.log`);
     execFileSync('sleep', ['0.2']);
   }
   return {

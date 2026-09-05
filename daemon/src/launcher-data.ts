@@ -376,11 +376,25 @@ export class LauncherData {
     limit: number,
     offset: number,
   ): CommandEntry[] {
+    /**
+     * One row per command, not one per command and directory.
+     *
+     * A command is stored per directory, which is what makes "commands from this project" a
+     * question the database can answer. It is not what a list of recent commands means: `pwd`
+     * appeared four times over, with its uses split between them, and the list read as though
+     * something were broken.
+     *
+     * Grouped by the text, with the uses added up and the most recent row's details kept.
+     * SQLite's bare-column rule makes that exact rather than arbitrary: with `max(last_used_at)`
+     * in the select, the other bare columns come from the row that maximum was found in.
+     */
     const rows = this.#db.handle
       .prepare(
-        `SELECT id, command, cwd, last_used_at, use_count, exit_code, duration_ms, git_root
+        `SELECT id, command, cwd, max(last_used_at) AS last_used_at,
+                sum(use_count) AS use_count, exit_code, duration_ms, git_root
          FROM commands
          WHERE ${where.sql} ${like === null ? '' : 'AND command LIKE ?'}
+         GROUP BY command
          ORDER BY last_used_at DESC
          LIMIT ? OFFSET ?`,
       )

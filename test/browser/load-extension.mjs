@@ -82,6 +82,29 @@ if (port && token) {
     awaitPromise: true,
     returnByValue: true,
   });
+  /**
+   * And the extension is told, rather than left to notice.
+   *
+   * Writing the token is not enough on its own. The extension starts the moment it is loaded and
+   * asks the installed native host for a token of its own, which belongs to the daemon somebody
+   * is working in: it connects with that, is refused, and retries forever. Whether it happens
+   * depends on which finishes first, which is why this presented as the harness failing at
+   * random. Pushing the credentials makes the connection be made again with these.
+   */
+  await c.send('Runtime.evaluate', {
+    expression: `Promise.all([
+      chrome.storage.session.set({ 'tabterm.token': ${JSON.stringify(token)} }),
+      chrome.storage.local.set({ 'tabterm.port': ${Number(port)} }),
+    ]).then(() => chrome.runtime.sendMessage({
+      t: 'tabterm:credentials',
+      token: ${JSON.stringify(token)},
+      clientId: 'suite-browser',
+      port: ${Number(port)},
+    })).then(() => 'told', () => 'told')`,
+    awaitPromise: true,
+    returnByValue: true,
+  });
+
   // Checked, rather than assumed. Assuming it is what let this fail silently for weeks.
   if (written.exceptionDetails || String(written.result?.value) !== String(Number(port))) {
     console.error(

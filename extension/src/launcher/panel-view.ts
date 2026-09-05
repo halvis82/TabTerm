@@ -2,6 +2,7 @@ import type { CommandEntry, SavedItem } from '@tabterm/shared';
 import {
   DEFAULT_PLACEMENT,
   actionRows,
+  canBeKept,
   clampPlacement,
   matches,
   operationsFor,
@@ -466,6 +467,9 @@ export class CommandPanel {
     label.textContent = rowLabel(row);
     el.append(label);
 
+    /** Controls that belong at the end of a row, appended after everything that describes it. */
+    let rowControls: HTMLElement | null = null;
+
     const meta = document.createElement('span');
     meta.className = 'cmd-row-meta';
     if (row.kind === 'action') {
@@ -482,11 +486,15 @@ export class CommandPanel {
       const customId = row.action.customId;
       if (customId !== undefined) {
         /**
-         * A pencil and a cross, on the ones that are yours.
+         * A pencil and a cross, at the end of the row, always there.
          *
-         * Only on custom actions, so the list reads as things to do rather than as a table of
-         * things to administer. Editing is where a shortcut is bound to one as well.
+         * They used to appear on hover, which reads as tidier and means the only way to find out
+         * that an action can be edited is to happen to point at it. They sit after the
+         * description rather than beside the name, so the row still reads as a thing to do with
+         * its controls at the end, where controls go.
          */
+        const controls = document.createElement('span');
+        controls.className = 'cmd-row-controls';
         const edit = document.createElement('button');
         edit.className = 'cmd-row-edit';
         edit.title = 'Edit this action, and its shortcut';
@@ -503,7 +511,9 @@ export class CommandPanel {
           e.stopPropagation();
           this.#opts.onDeleteAction?.(customId);
         });
-        el.append(edit, remove);
+        controls.append(edit, remove);
+        // Held, and appended after the description below, so they end the row.
+        rowControls = controls;
       }
     } else if (row.kind === 'favorite') {
       // The command itself is the useful secondary line when the row shows a name instead.
@@ -526,6 +536,7 @@ export class CommandPanel {
       meta.textContent = bits.join(' · ');
     }
     el.append(meta);
+    if (rowControls) el.append(rowControls);
 
     /**
      * Selecting and acting are separate, except for an action, where they are not.
@@ -761,9 +772,16 @@ export class CommandPanel {
       this.render();
       return;
     }
-    if (e.metaKey && e.key.toLowerCase() === 's' && row) {
+    /**
+     * Kept, but only if it is a command.
+     *
+     * Favorites are commands somebody wants back. Pressing this on an action made a favorite
+     * whose body was the action's name, which pastes a sentence into a shell, and on a heading it
+     * made one out of a label.
+     */
+    if (e.metaKey && e.key.toLowerCase() === 's' && canBeKept(row)) {
       e.preventDefault();
-      this.#opts.onKeep(rowText(row));
+      if (row) this.#opts.onKeep(rowText(row));
     }
   }
 

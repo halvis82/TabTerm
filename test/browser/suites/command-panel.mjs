@@ -188,9 +188,16 @@ r.ok(
   'the gear opens settings with a theme choice',
   (await evaluate(client, `!!document.querySelector('.cmd-settings select')`)) === true,
 );
+/**
+ * The keys this page owns, each with a way to change it.
+ *
+ * Counted from the rows that can be rebound. It used to count the list of fixed keys underneath,
+ * which was a list of constants in a panel of settings and has been removed: nothing there could
+ * be changed, so it was four lines to read past.
+ */
 r.ok(
-  'and lists the shortcuts the page itself owns',
-  Number(await evaluate(client, `document.querySelectorAll('.cmd-key-row').length`)) > 3,
+  'and lists the shortcuts the page itself owns, each rebindable',
+  Number(await evaluate(client, `document.querySelectorAll('.set-key-row').length`)) > 3,
 );
 
 await finish();

@@ -108,10 +108,29 @@ export function matches(haystack: string, query: string): boolean {
  */
 export function operationsFor(row: PanelRow | undefined): string[] {
   if (!row) return ['Arrows to select'];
-  if (row.kind === 'action') return ['Enter runs', 'Double-click runs', 'Esc closes'];
+  if (row.kind === 'action') return ['Enter runs', 'Click runs', 'Esc closes'];
+  /**
+   * A heading is a label, so it borrows the wording of the things under it.
+   *
+   * It used to fall past both named cases into the wording for a command, so the Actions tab
+   * offered "Enter pastes" and "Cmd+S keeps" underneath a list of things that are neither
+   * pasted nor kept. Falling through is how a list of cases quietly grows a wrong default.
+   */
+  if (row.kind === 'heading') return ['Enter runs', 'Click runs', 'Esc closes'];
   const common = ['Enter pastes', 'Double-click pastes', 'Cmd+Enter copies'];
   if (row.kind === 'favorite') return [...common, 'E edits'];
   return [...common, 'Cmd+S keeps'];
+}
+
+/**
+ * Can this row be kept as a favorite?
+ *
+ * Only a command. Favorites are commands somebody wants back, and an action is already a thing
+ * they made and can edit: keeping one produced a favorite whose body was the action's name, which
+ * pastes a sentence into a shell.
+ */
+export function canBeKept(row: PanelRow | undefined): boolean {
+  return row?.kind === 'recent' || row?.kind === 'favorite';
 }
 
 export interface PanelPlacement {

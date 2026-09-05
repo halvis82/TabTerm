@@ -573,7 +573,11 @@ export class DaemonServer {
         return;
       }
       if (!verifyToken(msg.token)) {
-        recordFailure(source);
+        recordFailure(source, {
+          ...(typeof msg.clientId === 'string' ? { clientId: msg.clientId } : {}),
+          ...(typeof msg.role === 'string' ? { role: msg.role } : {}),
+          tokenLength: typeof msg.token === 'string' ? msg.token.length : -1,
+        });
         // Delay the rejection rather than refusing future connections: on loopback the source
         // address cannot tell the real extension from a hostile process, so refusing would
         // lock out the legitimate client. See docs/05-security.md.
@@ -1742,6 +1746,23 @@ export class DaemonServer {
        * rather than handed to a shell: this is a command line a person typed, and a shell would
        * make `claude; rm -rf ~` a working instruction.
        */
+      /**
+       * A line in the log about something only the page could have seen.
+       *
+       * Bounded and shaped: an event name and a flat record of scalars. The daemon does not act
+       * on it, which is the point. It exists so that a defect nobody can reproduce leaves
+       * evidence the next time it happens rather than a description of it afterwards.
+       */
+      case 'note': {
+        const detail: Record<string, string | number | boolean> = {};
+        for (const [key, value] of Object.entries(msg.detail).slice(0, 12)) {
+          if (typeof value === 'string') detail[key.slice(0, 40)] = value.slice(0, 120);
+          else detail[key.slice(0, 40)] = value;
+        }
+        info(`page.${msg.event.slice(0, 40)}`, detail);
+        return;
+      }
+
       case 'get-agent-command':
       case 'set-agent-command': {
         if (msg.t === 'set-agent-command') {

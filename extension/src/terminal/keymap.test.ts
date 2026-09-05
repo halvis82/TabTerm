@@ -65,14 +65,17 @@ describe('command keys never reach the shell', () => {
     expect(kind({ key: 'f', metaKey: true })).toBe('search');
   });
 
-  it('leaves Command+K to the page, because that opens the command panel', () => {
-    // It used to clear the terminal. When the panel took the same key both fired, so opening
-    // the panel wiped the scrollback behind it while the button did not.
+  /**
+   * Neither Command+K nor Shift+Command+K is decided here.
+   *
+   * Both are page shortcuts, chosen in settings, and this table answered for one of them as
+   * well. Both fired: clearing ran twice, and the second run saved the already cleared screen as
+   * what to put back, so taking a clear back restored a bare prompt. Two owners for one key is a
+   * defect whatever the key does.
+   */
+  it('leaves Command+K and Shift+Command+K to the page, which owns both', () => {
     expect(kind({ key: 'k', metaKey: true })).toBe('browser');
-  });
-
-  it('clears on Shift+Command+K instead', () => {
-    expect(kind({ key: 'k', metaKey: true, shiftKey: true })).toBe('clear');
+    expect(kind({ key: 'k', metaKey: true, shiftKey: true })).toBe('browser');
   });
 
   it('leaves the rest to Chrome rather than swallowing it', () => {

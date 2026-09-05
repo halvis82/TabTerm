@@ -507,6 +507,19 @@ chrome.runtime.onMessage.addListener((msg: NotifyMessage, _sender, sendResponse)
     return false;
   }
 
+  /**
+   * A token the daemon refused. Forget it, so the next fetch asks for a new one.
+   *
+   * The cache is what makes a rejected token permanent: every context reads it, including the
+   * one that was just refused. Clearing it here is the only place that helps, because the
+   * document that noticed has no access to storage.
+   */
+  if (msg.t === 'tabterm:token-refused') {
+    void chrome.storage.session.remove('tabterm.token');
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (msg.t === 'tabterm:count-terminal-tabs') {
     void chrome.tabs
       .query({ url: `${chrome.runtime.getURL('terminal.html')}*` })

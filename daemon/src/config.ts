@@ -129,7 +129,15 @@ export const DEFAULTS: Config = {
   agentCommand: ['claude'],
   editor: 'nvim',
   guiEditor: 'code',
-  logLevel: 'info',
+  /**
+   * Raised with `TABTERM_LOG=debug`, so a defect that only happens on somebody's machine can be
+   * looked at without shipping them a special build.
+   */
+  logLevel: (['debug', 'info', 'warn', 'error'] as const).includes(
+    (process.env['TABTERM_LOG'] ?? '') as 'debug' | 'info' | 'warn' | 'error',
+  )
+    ? (process.env['TABTERM_LOG'] as 'debug' | 'info' | 'warn' | 'error')
+    : 'info',
   memoryMode: 'balanced',
   archiveOutput: false,
 };

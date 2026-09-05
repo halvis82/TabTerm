@@ -56,10 +56,18 @@ export function classifyKey(e: KeyInput): KeyAction {
       case 'a':
         return { kind: 'select-all' };
       case 'k':
-        // The command panel. It used to clear the terminal, and when the panel took the same
-        // key both still fired: opening the panel wiped the scrollback behind it, while opening
-        // it from the button did not. Clearing moved to Shift+Command+K.
-        return e.shiftKey ? { kind: 'clear' } : { kind: 'browser' };
+        /**
+         * Neither of these is decided here any more.
+         *
+         * The command panel and clearing are both page shortcuts, chosen in settings, and this
+         * table used to answer for one of them as well. Both fired: clearing ran twice, and the
+         * second run saved the already cleared screen as what to put back, so taking a clear
+         * back restored a bare prompt. Two owners for one key is a defect whatever the key does.
+         *
+         * The page still gets the keystroke, because `browser` here means "not ours to swallow",
+         * and its own table is what acts on it.
+         */
+        return { kind: 'browser' };
       case 'f':
         return { kind: 'search' };
       default:

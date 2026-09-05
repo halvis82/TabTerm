@@ -118,10 +118,14 @@ r.ok(
   ).includes('exists'),
 );
 
-// `..` goes back up.
+// `..` goes back up. Waited for: the box is rewritten after the daemon answers about the folder.
 await realClick(client, '.launcher-completion', '..');
-await sleep(1000);
-r.ok('and `..` goes back up', String(await boxValue()) === '', String(await boxValue()));
+const wentUp = await waitFor(
+  client,
+  `(document.querySelector('.launcher-input')?.value ?? 'x') === ''`,
+  15000,
+);
+r.ok('and `..` goes back up', wentUp, String(await boxValue()));
 
 /**
  * A path typed several levels deep, without a tilde.

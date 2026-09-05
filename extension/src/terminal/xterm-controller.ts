@@ -535,11 +535,30 @@ export class XtermController {
     return { width: box.width / this.term.cols, height: box.height / this.term.rows };
   }
 
-  fit(): { cols: number; rows: number } {
+  /**
+   * Measure the pane, or say that it could not be measured.
+   *
+   * Null rather than a guess. This used to return the terminal's current size whenever the
+   * measurement failed, and a terminal that has never been fitted is **80 by 24**, xterm's
+   * default. So a pane whose element was not laid out yet reported 80 by 24 as though it had
+   * measured it, the daemon believed it, every view was told, and the pane spent the next second
+   * flickering between that and its real size. Thousands of size changes, four tabs at once.
+   *
+   * `proposeDimensions` is the addon's own answer to "can this be measured", and it returns
+   * nothing when the element has no box. Asking it is the difference between a measurement and
+   * a default that looks like one.
+   */
+  fit(): { cols: number; rows: number } | null {
     try {
+      const proposed = this.#fit.proposeDimensions();
+      if (!proposed || !Number.isFinite(proposed.cols) || !Number.isFinite(proposed.rows)) {
+        return null;
+      }
+      if (proposed.cols < 2 || proposed.rows < 2) return null;
       this.#fit.fit();
     } catch {
-      /* container not laid out yet */
+      // Not laid out yet. A size cannot be invented for it.
+      return null;
     }
     return { cols: this.term.cols, rows: this.term.rows };
   }

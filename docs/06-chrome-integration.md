@@ -764,6 +764,26 @@ looks exactly like a tab that was never used. The flag records what actually hap
 inferring it from a state that stops being distinguishable. `sessionStorage` because it is per
 tab and per browsing session, which is exactly the lifetime of the fact.
 
+### A refused token is dropped rather than offered again
+
+The extension holds the daemon's token in session storage, fetched from the native messaging host.
+A token can genuinely change: a daemon reinstalled, a state directory cleared. When that happened,
+the connection reconnected on its own schedule, offered the same rejected token every time, and
+the page said "tabtermd is not responding" until the tab was closed.
+
+A refusal now clears the cached token and fetches a fresh one, in the page and in the offscreen
+document. The connection can also be given a new token without being rebuilt, because the token
+belongs to the installation rather than to the connection.
+
+### The key that had two owners
+
+`Shift+Command+K` cleared the screen twice: the page's own shortcut table ran it, and the
+terminal's built-in keymap ran it as well. The second run saved the already cleared screen as what
+to put back, so taking the clear back restored a bare prompt, which reads as undo being broken.
+
+The page's table owns every key it can bind, and the keymap answers `browser` for those, meaning
+"not ours to swallow". Two owners for one key is a defect whatever the key does.
+
 ### One list of keys, whatever they are bound to
 
 Everything the page can be asked to do is one list: the shipped actions, and each action

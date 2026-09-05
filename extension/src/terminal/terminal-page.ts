@@ -346,15 +346,39 @@ function showActionForm(existing?: CustomAction): void {
     shortcutButton.textContent = prettyKeys(chosenKeys);
   };
   drawKeys();
+  /**
+   * A way to have no key at all, beside the one that records one.
+   *
+   * Recording was the only thing offered, so a key could be changed and never removed.
+   */
+  const clearKeys = document.createElement('button');
+  clearKeys.className = 'launcher-chip';
+  clearKeys.textContent = 'Clear';
+  clearKeys.title = 'Leave this action with no shortcut';
+  clearKeys.addEventListener('click', (e) => {
+    e.preventDefault();
+    chosenKeys = '';
+    problem.textContent = '';
+    drawKeys();
+  });
+
   shortcutButton.addEventListener('click', (e) => {
     e.preventDefault();
     if (shortcutButton.dataset['recording'] === 'yes') return;
     shortcutButton.dataset['recording'] = 'yes';
-    shortcutButton.textContent = 'Press the keys, or Escape to leave it';
+    shortcutButton.textContent = 'Press the keys, Escape to leave it, Backspace to clear it';
     problem.textContent = '';
     const onKey = (event: KeyboardEvent): void => {
+      /**
+       * Stopped here and nowhere else, while a key is being recorded.
+       *
+       * Escape closes this form, which is right except in the middle of this: pressing it to say
+       * "leave the shortcut alone" closed the whole thing and lost what had been typed into it.
+       * `stopImmediatePropagation` because this runs at the capture phase and another listener
+       * on the same element would otherwise still see it.
+       */
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
       // A modifier on its own is somebody still reaching for the rest of the combination.
       if (['Shift', 'Meta', 'Control', 'Alt'].includes(event.key)) return;
       document.removeEventListener('keydown', onKey, true);
@@ -365,6 +389,7 @@ function showActionForm(existing?: CustomAction): void {
       }
       if (event.key === 'Backspace' || event.key === 'Delete') {
         chosenKeys = '';
+        problem.textContent = '';
         drawKeys();
         return;
       }
@@ -387,9 +412,22 @@ function showActionForm(existing?: CustomAction): void {
     };
     document.addEventListener('keydown', onKey, true);
   });
-  shortcutRow.append(shortcutLabel, shortcutButton, problem);
+  /**
+   * What not to try, said before somebody spends a minute finding out.
+   *
+   * A key Chrome keeps never reaches this page at all, and one another extension has claimed
+   * reaches it after that extension has already acted. Both are refused when they are pressed,
+   * and being told in advance is worth a line.
+   */
+  const caution = document.createElement('div');
+  caution.className = 'set-desc';
+  caution.textContent =
+    'Chrome keeps combinations like Command W, Command T and Command L for itself, and another ' +
+    'extension may already use one. Those are refused here rather than bound to nothing.';
 
-  form.append(name, description, kind, command, where, template, shortcutRow);
+  shortcutRow.append(shortcutLabel, shortcutButton, clearKeys, problem);
+
+  form.append(name, description, kind, command, where, template, shortcutRow, caution);
 
   const row = document.createElement('div');
   row.className = 'template-actions';
@@ -1501,7 +1539,17 @@ function buildHosts(): void {
       client?.write(pane.streamId, new TextEncoder().encode(data));
     },
     onResize: (paneId, cols, rows) => {
-      if (workspaceId) client?.send({ t: 'resize-pane', workspaceId, paneId, cols, rows });
+      // A size this pane was told to take is not a size it is asking for. See `session-size`.
+      if (followingSize.has(paneId)) return;
+      /**
+       * Through the same door as every other request, so the record of what was asked stays true.
+       *
+       * This fires when the terminal itself changes size, including when it is changed to follow
+       * a size the daemon reported. Sending straight to the daemon left the record saying one
+       * thing and the daemon holding another, and the next report then looked like being
+       * overruled, which is a resize, which fires this again.
+       */
+      askForSize(paneId, { cols, rows }, 'terminal-said-so');
     },
     onClear: (paneId) => {
       const pane = panesHost?.get(paneId);
@@ -1920,6 +1968,18 @@ function buildLauncher(): void {
    * which is also what takes down the keys it binds.
    */
   if (hasLaunched()) launcher.dismiss();
+  /**
+   * A tab with no workspace is a new tab, and a new tab always shows the start screen.
+   *
+   * Known from the URL, before anything has been asked of the daemon, which is what makes this
+   * safe: a tab reattaching to work has a workspace in its URL and never draws any of this, not
+   * even for a moment. The alternative, guessing from what is on screen, is exactly the guess
+   * that used to put the start screen over somebody's session.
+   */
+  else if (!new URL(location.href).searchParams.get('workspace')) {
+    root.classList.add('panel-open');
+    launcher.renderPlaceholder();
+  }
 }
 
 const quote = quotePath;
@@ -1993,8 +2053,20 @@ function sendToFocusedPane(text: string): void {
  * It is what tmux does when you reattach, and for the same reason.
  */
 function repaintAfterRestore(paneId: string, screen: string): void {
+  // Null means the pane could not be measured. Nudging a size nobody knows is how the flicker
+  // started: see `fit`.
   const size = panesHost?.fit(paneId);
   if (!size || !workspaceId) return;
+  /**
+   * Once for a pane, not once per snapshot.
+   *
+   * A snapshot can arrive again for the same pane: a resync, a reattach, anything that makes the
+   * daemon resend one. Nudging every time is a size change every time, and the nudge itself
+   * changes the size, so it kept its own cause alive. That is a terminal that flickers rather
+   * than one that repaints.
+   */
+  if (nudgedPanes.has(paneId)) return;
+  nudgedPanes.add(paneId);
   /**
    * Only for a screen that had something on it.
    *
@@ -2004,10 +2076,11 @@ function repaintAfterRestore(paneId: string, screen: string): void {
    * deal worse than the thing this exists to fix.
    */
   if (screen.trim() === '') return;
-  askForSize(paneId, { cols: size.cols, rows: Math.max(1, size.rows - 1) });
+  askForSize(paneId, { cols: size.cols, rows: Math.max(1, size.rows - 1) }, 'nudge-down');
   setTimeout(() => {
-    const now = panesHost?.fit(paneId) ?? size;
-    askForSize(paneId, now);
+    // Measured again, and only sent if it really was measured.
+    const now = panesHost?.fit(paneId);
+    if (now) askForSize(paneId, now, 'nudge-back');
   }, 60);
 }
 
@@ -2045,17 +2118,74 @@ function attachSize(): { cols: number; rows: number } {
  * only needs to change its grid when the answer is not what it asked for.
  */
 const requestedSizes = new Map<string, { cols: number; rows: number }>();
+/** Panes being resized to follow the daemon, whose own resize event is not a new request. */
+const followingSize = new Set<string>();
+/** Panes whose restored screen has already been repainted once. See `repaintAfterRestore`. */
+const nudgedPanes = new Set<string>();
 
-function askForSize(paneId: string, size: { cols: number; rows: number }): void {
+/**
+ * Ask the daemon for a size, and record why.
+ *
+ * The reason is carried because a size on its own does not say where it came from, and every
+ * flicker so far has been one path asking for something another path had just decided. When the
+ * detector reports a storm it reports the reasons with it, which is the difference between
+ * knowing that a pane is resizing and knowing what keeps resizing it.
+ */
+function askForSize(paneId: string, size: { cols: number; rows: number }, why: string): void {
   if (!workspaceId) return;
   requestedSizes.set(paneId, size);
+  noticeResize(paneId, size, why);
   client?.send({ t: 'resize-pane', workspaceId, paneId, ...size });
+}
+
+/**
+ * Sizes asked for recently, so a pane that has started resizing itself in a loop says so.
+ *
+ * A terminal caught in one is visible to the person watching it and to nothing else: by the time
+ * it is reported the evidence is gone, and asking somebody to open a console while it is
+ * happening is asking them to do the debugging. Every case of it so far has been a measurement
+ * feeding its own input, and the useful evidence is the sequence of sizes, which is exactly what
+ * this keeps.
+ *
+ * It reports once and then stays quiet for a while, because a log line per resize would be the
+ * same storm written down.
+ */
+const recentSizes = new Map<string, { at: number; cols: number; rows: number; why: string }[]>();
+let lastResizeReport = 0;
+const RESIZE_STORM = 12;
+const RESIZE_WINDOW_MS = 2000;
+const RESIZE_REPORT_GAP_MS = 60_000;
+
+function noticeResize(paneId: string, size: { cols: number; rows: number }, why: string): void {
+  const now = Date.now();
+  const seen = (recentSizes.get(paneId) ?? []).filter((s) => now - s.at < RESIZE_WINDOW_MS);
+  seen.push({ at: now, ...size, why });
+  recentSizes.set(paneId, seen);
+  if (seen.length < RESIZE_STORM || now - lastResizeReport < RESIZE_REPORT_GAP_MS) return;
+  lastResizeReport = now;
+  client?.send({
+    t: 'note',
+    event: 'resize-storm',
+    detail: {
+      paneId: paneId.slice(0, 8),
+      changes: seen.length,
+      windowMs: RESIZE_WINDOW_MS,
+      sizes: seen
+        .slice(-8)
+        .map((s) => `${s.why}:${String(s.cols)}x${String(s.rows)}`)
+        .join(' '),
+      panes: panesHost?.all.length ?? 0,
+      panelOpen: root.classList.contains('panel-open'),
+      windowWidth: window.innerWidth,
+      windowHeight: window.innerHeight,
+    },
+  });
 }
 
 function refitAllPanes(): void {
   for (const pane of panesHost?.all ?? []) {
     const size = panesHost?.fit(pane.paneId);
-    if (size) askForSize(pane.paneId, size);
+    if (size) askForSize(pane.paneId, size, 'refit');
   }
 }
 
@@ -2129,7 +2259,26 @@ function growStripToFit(): void {
    * and costs nothing. Without it a long prompt like `(base) halvis82@Halvor-Mac ~ %` is nearly
    * a third of a row that the arithmetic does not know about.
    */
-  if (typed === 0) promptColumns = buffer.cursorX;
+  /**
+   * Nothing typed means nothing to grow for, and the box goes back to one line.
+   *
+   * Returning here is the important half. The prompt's width is learned from where the cursor
+   * sits when the line is empty, and while a command is running the cursor is wherever the
+   * output put it: a cursor far to the right made the arithmetic ask for a second row, the next
+   * chunk moved it back, and the box grew and shrank on every chunk of output. Thousands of size
+   * changes a second, which is a terminal that flickers and a page that feels laggy because it
+   * is laying itself out constantly.
+   *
+   * So the cursor is only read as a prompt width when the shell is **at** a prompt with an empty
+   * line, which is exactly when it means that. Output is not an instruction to resize anything.
+   */
+  if (typed === 0) {
+    promptColumns = Math.min(buffer.cursorX, Math.max(1, term.cols - 1));
+    resetStrip();
+    keepLauncherAbovePane(pane);
+    scrollCursorSoon(term);
+    return;
+  }
   const inputRows = rowsNeeded(promptColumns, typed, term.cols);
 
   /**
@@ -2211,27 +2360,39 @@ function growStripToFit(): void {
    * from the bottom of the window. It does not: the terminal has padding of its own below it,
    * so the start screen's opaque edge sat two pixels over the pane's top border.
    */
-  const top = pane.element.getBoundingClientRect().top;
-  if (top > 0) {
-    document.documentElement.style.setProperty(
-      '--launcher-bottom',
-      `${String(Math.round(window.innerHeight - top + 4))}px`,
-    );
-  }
+  keepLauncherAbovePane(pane);
+  scrollCursorSoon(term);
+}
 
-  /**
-   * And the line being typed is in view once the writing has finished.
-   *
-   * **The cursor, not the bottom of the buffer.** Those are the same place while somebody is
-   * typing and are not after a reload: the screen that comes back is the session's whole 24 row
-   * screen, with the prompt on the first line and blank lines under it, so scrolling to the
-   * bottom of it showed two of those blank lines. That is the box that looked empty and was
-   * reported three times as "the prompt is gone": it was there, two rows above the window.
-   *
-   * Deferred, because xterm parses what it is given on its own schedule, so a scroll issued in
-   * the same turn as the write happens before the content has landed. Coalesced, because this
-   * runs on every chunk and a scroll per chunk is a scroll per keystroke.
-   */
+/**
+ * Where the start screen must stop, measured from the pane rather than computed.
+ *
+ * It was `strip height plus a few pixels`, which assumes the strip begins exactly that far from
+ * the bottom of the window. It does not: the terminal has padding of its own below it, so the
+ * start screen's opaque edge sat two pixels over the pane's top border.
+ */
+function keepLauncherAbovePane(pane: { element: HTMLElement }): void {
+  const top = pane.element.getBoundingClientRect().top;
+  if (top <= 0) return;
+  document.documentElement.style.setProperty(
+    '--launcher-bottom',
+    `${String(Math.round(window.innerHeight - top + 4))}px`,
+  );
+}
+
+/**
+ * Put the line being typed in view once the writing has finished.
+ *
+ * **The cursor, not the bottom of the buffer.** Those are the same place while somebody is typing
+ * and are not after a reload: the screen that comes back is the session's whole twenty-four row
+ * screen, with the prompt on the first line and blanks under it, so scrolling to the bottom of it
+ * showed two blank lines. That is the box reported three times as "the prompt is gone".
+ *
+ * Deferred, because xterm parses what it is given on its own schedule, so a scroll issued in the
+ * same turn as a write happens before the content has landed. Coalesced, because this runs on
+ * every chunk and a scroll per chunk is a scroll per keystroke.
+ */
+function scrollCursorSoon(term: Terminal): void {
   clearTimeout(stripScrollTimer);
   stripScrollTimer = setTimeout(() => showCursorRow(term), 40);
 }
@@ -3225,8 +3386,17 @@ function onControl(msg: ServerMessage): void {
     case 'snapshot': {
       const pane = panesHost?.paneForStream(msg.snapshot.streamId);
       if (pane) {
-        // At the size it was serialized at, then measured back to this pane's real size.
+        /**
+         * At the size it was serialized at, then measured back to this pane's real size.
+         *
+         * Guarded, because setting the grid to the picture's width is not a request for that
+         * width. Without the guard the terminal announced it, the announcement travelled the
+         * same path as a measurement, and a snapshot taken at 80 by 24 became an instruction to
+         * every view of that session to be 80 by 24.
+         */
+        followingSize.add(pane.paneId);
         panesHost?.restore(pane.paneId, msg.snapshot.screen, msg.snapshot.cols, msg.snapshot.rows);
+        followingSize.delete(pane.paneId);
         // A leftover partial-line marker above the first prompt. See `tidyPartialLine`.
         tidyPartialLine(pane.paneId);
         // Only when something came back. See `repaintAfterRestore`.
@@ -3344,7 +3514,28 @@ function onControl(msg: ServerMessage): void {
       if (!asked) return;
       if (asked.cols === msg.cols && asked.rows === msg.rows) return;
       if (pane.controller.term.cols !== msg.cols || pane.controller.term.rows !== msg.rows) {
+        /**
+         * Recorded as ours before the terminal is told, not after.
+         *
+         * Resizing the terminal makes it announce its new size, which comes back through the
+         * same path as a measurement. If the record still said what this pane last measured, the
+         * announcement would look like a fresh request, the daemon would answer, and the answer
+         * would look like being overruled again. That is a loop, and a loop of resizes is a
+         * terminal that visibly shakes.
+         */
+        requestedSizes.set(pane.paneId, { cols: msg.cols, rows: msg.rows });
+        /**
+         * Resized without asking for it, because it was not asked for.
+         *
+         * Resizing the terminal makes it announce its size, which travels the same path as a
+         * measurement and became a request for the size we had just been given. The daemon
+         * answered, the answer looked like being overruled again, and the pane changed size
+         * ninety-five times in two seconds. Being told and asking are different things and the
+         * code now says so.
+         */
+        followingSize.add(pane.paneId);
         pane.controller.term.resize(msg.cols, msg.rows);
+        followingSize.delete(pane.paneId);
       }
       return;
     }
@@ -4114,6 +4305,22 @@ async function start(): Promise<void> {
       growStripToFit();
     },
     onStatus: statusFor,
+    onAuthRefused: () => {
+      /**
+       * The token this page holds has been refused, so it is dropped and fetched again.
+       *
+       * Retrying with a rejected token forever is what a page did before this: it reconnected on
+       * schedule, offered the same one every time, and showed "not responding" until the tab was
+       * closed. A token can genuinely change under a running page, when a daemon is reinstalled
+       * or its state directory is cleared.
+       */
+      void (async () => {
+        await chrome.storage.session.remove('tabterm.token');
+        const fresh = await getToken();
+        if (fresh) client?.setToken(fresh);
+      })();
+      setStatus('Reconnecting to tabtermd', 'warn');
+    },
     onProtocolError: (detail) => {
       // Said out loud rather than logged. A tab that quietly stops updating is the worst
       // possible failure, because nothing distinguishes it from a session with nothing to say.

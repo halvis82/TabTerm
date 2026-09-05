@@ -283,3 +283,38 @@ The PNG is decoded in `helpers.mjs` rather than by a dependency: a Chrome screen
 non-interlaced, and RGB or RGBA, which is a short and completely defined problem. The background
 is taken as the most common color in the region rather than named, so it cannot drift from the
 theme.
+
+## The browser the suites drive gets its own native messaging host
+
+The extension asks the installed native messaging host for a token the moment it loads, and that
+host knows only the daemon somebody is working in. The suites write their own daemon's token into
+the browser afterwards, which is a race: when the host answered first, every connection in the run
+was refused and every page showed "tabtermd is not responding". About half of all runs.
+
+It presented as the harness being unreliable, which is the worst way for a defect to present:
+suites that fail at random teach you to re-run rather than to look, and a real failure hides among
+them. It also cost an hour of hunting for a product bug that was not there.
+
+So `launch.sh` writes a host of its own into the throwaway profile, answering with this run's
+token. The browser cannot obtain the real one at all, which is the property the suites want
+anyway: nothing here can reach the daemon somebody is using.
+
+The daemon says who failed to authenticate now, not merely that somebody did. The client id, the
+role and the length of the token offered are the difference between "the extension has the wrong
+token" and "something else is knocking on the port", and that one line is what made this findable.
+
+## Waits, not sleeps
+
+A fixed sleep encodes what an idle machine does. These suites run on a machine somebody is
+working on, beside three other browsers, and every fixed sleep becomes a coin toss under load: a
+full run at load average 17 failed a different handful of checks each time, none of them real.
+
+Where a check waits for something to happen, it waits for the thing rather than for the clock.
+`waitFor` with a generous timeout is not slower in the ordinary case, because it returns as soon
+as the condition holds.
+
+**Check what a wall clock time means before drawing a lesson from it.** One full run was recorded
+as taking three and a half hours, and it was written up here as evidence about running on a busy
+machine. It was not: the laptop had been closed in the middle of it. The real lesson is the
+narrower one, that a machine in use makes a fixed sleep a coin toss, and that a run whose timings
+look impossible should be read as a question rather than as data.

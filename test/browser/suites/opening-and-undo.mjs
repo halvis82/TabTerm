@@ -145,5 +145,65 @@ r.ok(
   `before ${JSON.stringify(beforeRefresh.slice(-30))}, after ${JSON.stringify(afterRefresh.slice(-30))}`,
 );
 
+/**
+ * A clear from the keyboard can be taken back, the same as one from the menu.
+ *
+ * It could not: the key was owned twice. The page's own shortcut table ran the clear, and the
+ * terminal's built-in keymap ran it again, and the second run saved the already cleared screen as
+ * what to put back. Pressing Command+Z restored a bare prompt, which looks like undo being
+ * broken rather than like a key with two owners.
+ */
+{
+  const fresh = await openTerminal();
+  await waitFor(fresh.client, "document.querySelector('.launcher-input')");
+  await type(fresh.client, 'echo KEYBOARD-CLEAR-MARKER\r');
+  await waitFor(
+    fresh.client,
+    `(window.__tabterm.readScreen() ?? '').includes('KEYBOARD-CLEAR-MARKER')`,
+    20000,
+  );
+
+  await evaluate(
+    fresh.client,
+    `document.querySelector('.pane.focused .xterm-helper-textarea')?.focus()`,
+  );
+  for (const kind of ['keyDown', 'keyUp']) {
+    await fresh.client.send('Input.dispatchKeyEvent', {
+      type: kind,
+      key: 'K',
+      code: 'KeyK',
+      modifiers: 12,
+      windowsVirtualKeyCode: 75,
+    });
+  }
+  await sleep(1200);
+  r.ok(
+    'the keyboard clears the screen',
+    !String(await evaluate(fresh.client, `window.__tabterm.readScreen()`)).includes(
+      'KEYBOARD-CLEAR-MARKER',
+    ),
+  );
+  r.ok(
+    'and offers a way back',
+    !(await evaluate(fresh.client, `document.getElementById('clear-undo')?.hidden`)),
+  );
+
+  for (const kind of ['keyDown', 'keyUp']) {
+    await fresh.client.send('Input.dispatchKeyEvent', {
+      type: kind,
+      key: 'z',
+      code: 'KeyZ',
+      modifiers: 4,
+      windowsVirtualKeyCode: 90,
+    });
+  }
+  const back = await waitFor(
+    fresh.client,
+    `(window.__tabterm.readScreen() ?? '').includes('KEYBOARD-CLEAR-MARKER')`,
+    15000,
+  );
+  r.ok('and Command+Z really puts the output back', back);
+}
+
 await finish();
 r.done();

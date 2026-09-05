@@ -262,6 +262,21 @@ export type ClientMessage =
       /** How many turns from the end. The end is what says what a session was about. */
       limit?: number;
     }
+  | {
+      /**
+       * Something the page noticed that only the page can see, written to the daemon's log.
+       *
+       * For defects that cannot be reproduced on demand. A terminal that starts resizing itself
+       * in a loop is visible to the person watching it and to nothing else: by the time it is
+       * reported the evidence is gone, and asking somebody to open a console mid-problem is
+       * asking them to do the debugging. This leaves a line in the log instead.
+       *
+       * Never anything a person typed or a terminal printed. Sizes, counts and identifiers.
+       */
+      t: 'note';
+      event: string;
+      detail: Record<string, string | number | boolean>;
+    }
   | { t: 'get-agent-command' }
   | {
       /**

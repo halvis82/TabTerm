@@ -76,10 +76,28 @@ describe('the footer describes the selected row', () => {
     expect(operationsFor(undefined)).toEqual(['Arrows to select']);
   });
 
-  it('always mentions double-click, since that is the mouse route', () => {
-    for (const row of [favorite, recent, action]) {
+  /**
+   * The mouse route, which is not the same for both kinds.
+   *
+   * A command needs a double click, because running somebody's old command when the pointer
+   * landed slightly wrong is a real cost. An action is a button with a verb on it, so one click
+   * runs it, and the footer says so rather than describing the other kind's rule.
+   */
+  it('names the mouse route for each kind', () => {
+    for (const row of [favorite, recent]) {
       expect(operationsFor(row).join(' ')).toContain('Double-click');
     }
+    expect(operationsFor(action).join(' ')).toContain('Click runs');
+  });
+
+  it('never offers keeping a row that is not a command', () => {
+    // Favorites are commands somebody wants back. Keeping an action made a favorite whose body
+    // was the action's name, which pastes a sentence into a shell.
+    expect(operationsFor(action).join(' ')).not.toContain('keeps');
+    expect(operationsFor({ kind: 'heading', text: 'Actions you made' }).join(' ')).not.toContain(
+      'keeps',
+    );
+    expect(operationsFor(recent).join(' ')).toContain('keeps');
   });
 });
 
