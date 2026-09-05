@@ -1110,6 +1110,20 @@ function syncPaneChoosers(): void {
     if (!paneIds.includes(paneId)) {
       chooser.dismiss();
       paneChoosers.delete(paneId);
+      continue;
+    }
+    /**
+     * And one whose pane has since printed something goes too.
+     *
+     * The offer is for a pane with nothing in it. A pane opened to run something has nothing in
+     * it for the moment it takes the program to start, so the offer was drawn and then stayed
+     * over a running agent, asking whether to open a folder there. The question is decided by
+     * what is on the pane, so it is asked again whenever that changes rather than only once.
+     */
+    const pane = panesHost?.get(paneId);
+    if (pane && linesWithContent(pane.controller.term) > 1) {
+      chooser.dismiss();
+      paneChoosers.delete(paneId);
     }
   }
   if (paneIds.length < 2) return;
@@ -1881,6 +1895,11 @@ function buildLauncher(): void {
       client?.send({ t: 'launch-project-template', cwd: path, ...size });
       launcher?.dismiss();
     },
+    onWantsTerminal: () => {
+      // The shell under the start screen takes the keyboard, so typing is never going nowhere.
+      const paneId = splitView?.focused ?? panesHost?.all[0]?.paneId;
+      if (paneId) panesHost?.focus(paneId);
+    },
     onDismiss: () => {
       /**
        * Written down here, because this is the one place every dismissal passes through.
@@ -2429,6 +2448,8 @@ function resetStrip(): void {
 }
 
 let stripScrollTimer: ReturnType<typeof setTimeout> | undefined;
+/** Coalesces asking again whether a pane still has nothing in it. See `syncPaneChoosers`. */
+let chooserRecheckTimer: ReturnType<typeof setTimeout> | undefined;
 /** Where the prompt ends, measured while the line is empty. See `growStripToFit`. */
 let promptColumns = 0;
 /**
@@ -4303,6 +4324,17 @@ async function start(): Promise<void> {
     onOutput: (streamId, data) => {
       panesHost?.write(streamId, data, (bytes) => client?.ack(streamId, bytes));
       growStripToFit();
+      /**
+       * A pane that has started printing is a pane in use, so any offer over it goes.
+       *
+       * Coalesced, because this runs on every chunk and the answer only changes once. Deferred
+       * as well, since xterm parses what it is given on its own schedule and asking immediately
+       * asks about the screen as it was before this chunk.
+       */
+      if (paneChoosers.size > 0) {
+        clearTimeout(chooserRecheckTimer);
+        chooserRecheckTimer = setTimeout(syncPaneChoosers, 120);
+      }
     },
     onStatus: statusFor,
     onAuthRefused: () => {

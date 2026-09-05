@@ -831,6 +831,29 @@
     color: #8a91a3;
   }
 
+  /*
+   * A question asked in place, above the list, rather than in a window over it.
+   *
+   * It replaces nothing and covers nothing: the row that raised it is still visible underneath,
+   * which is the point of asking there rather than in a dialog.
+   */
+  .cmd-ask {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 6px;
+    padding: 7px 9px;
+    border-radius: 7px;
+    border: 1px solid rgba(224, 200, 121, 0.35);
+    background: rgba(224, 200, 121, 0.08);
+    font-size: 12px;
+  }
+  .cmd-ask-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--text);
+  }
+
   /* Selection carries an accent bar as well as a background: it is a step of its own. */
   .cmd-row.selected {
     background: rgba(70, 100, 155, 0.42);

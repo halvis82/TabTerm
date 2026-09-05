@@ -74,6 +74,8 @@ export interface LauncherOptions {
   onAttachServer: (server: LocalServer) => void;
   onStopServer: (server: LocalServer, restart: boolean) => void;
   onDismiss: () => void;
+  /** A click that was not about the path: the shell should take the keyboard. */
+  onWantsTerminal?: () => void;
 }
 
 /**
@@ -128,6 +130,36 @@ export class Launcher {
     this.#el.className = 'launcher';
     this.#el.hidden = true;
     opts.root.append(this.#el);
+
+    /**
+     * One box or the other always has the keyboard.
+     *
+     * Two places on this screen take typing: the path box at the top and the shell at the bottom.
+     * Clicking a folder keeps the path box, because the next thing somebody does is type more of
+     * a path. Clicking anywhere that is not about the path hands the keyboard to the shell,
+     * because that is the only other thing typing can mean here.
+     *
+     * Neither having it is the state to avoid: the caret disappears, the keystrokes go nowhere
+     * anybody can see, and the screen looks frozen.
+     *
+     * On `mouseup` rather than `mousedown`, so it runs after whatever the click was for, and
+     * only for a click that landed on nothing interactive: a button knows what focus it wants.
+     */
+    this.#el.addEventListener('mouseup', (e) => {
+      const target = e.target instanceof Element ? e.target : null;
+      if (!target) return;
+      if (target.closest('input, textarea, select, button, a, [contenteditable]')) return;
+      if (target.closest('.launcher-path-row, .launcher-completions')) {
+        this.#dirInput?.focus();
+        return;
+      }
+      this.#opts.onWantsTerminal?.();
+    });
+  }
+
+  /** Put the keyboard back in the path box, which is what a folder click means. */
+  focusPathBox(): void {
+    this.#dirInput?.focus();
   }
 
   get dismissed(): boolean {

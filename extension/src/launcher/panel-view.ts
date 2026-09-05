@@ -445,6 +445,41 @@ export class CommandPanel {
     return add;
   }
 
+  /**
+   * Ask before doing something small but irreversible, in the row itself.
+   *
+   * A modal over a list would be a second thing to read before answering a question the row has
+   * already asked. The question replaces the row's controls until it is answered, and anything
+   * else puts it back.
+   */
+  #ask(question: string, confirmLabel: string, onConfirm: () => void): void {
+    const bar = document.createElement('div');
+    bar.className = 'cmd-ask';
+    const text = document.createElement('span');
+    text.className = 'cmd-ask-text';
+    text.textContent = question;
+    const yes = document.createElement('button');
+    yes.className = 'cmd-button is-warning';
+    yes.textContent = confirmLabel;
+    const no = document.createElement('button');
+    no.className = 'cmd-button';
+    no.textContent = 'Cancel';
+    bar.append(text, yes, no);
+
+    const close = (): void => bar.remove();
+    yes.addEventListener('click', (e) => {
+      e.stopPropagation();
+      close();
+      onConfirm();
+    });
+    no.addEventListener('click', (e) => {
+      e.stopPropagation();
+      close();
+    });
+    this.#el.querySelector('.cmd-ask')?.remove();
+    this.#list.before(bar);
+  }
+
   #rowElement(row: PanelRow, index: number): HTMLElement {
     const el = document.createElement('div');
     el.className = `cmd-row${index === this.#selected ? ' selected' : ''} is-${row.kind}`;
@@ -586,13 +621,30 @@ export class CommandPanel {
       const kept = this.#favorites.some((f) => f.body.trim() === row.entry.command.trim());
       const star = document.createElement('button');
       star.className = `cmd-icon cmd-star${kept ? ' on' : ''}`;
-      star.title = kept ? 'Already a favorite' : 'Keep as a favorite';
+      star.title = kept ? 'Remove from favorites' : 'Keep as a favorite';
       star.textContent = kept ? '★' : '☆';
       star.addEventListener('click', (e) => {
         e.stopPropagation();
         // Starring something already kept would make a second copy of it, which is never what
         // the click meant.
-        if (!kept) this.#opts.onStar(row.entry);
+        if (!kept) {
+          this.#opts.onStar(row.entry);
+          return;
+        }
+        /**
+         * A filled star takes it back out, once the question has been answered.
+         *
+         * It did nothing at all before, which makes it a control that lies: it shows a state and
+         * refuses to change it. Asking first because the star is small, sits beside a row people
+         * click to paste, and the thing it removes was deliberately kept.
+         */
+        const already = this.#favorites.find((f) => f.body.trim() === row.entry.command.trim());
+        if (!already) return;
+        const label =
+          row.entry.command.length > 40 ? `${row.entry.command.slice(0, 40)}…` : row.entry.command;
+        this.#ask(`Remove "${label}" from favorites?`, 'Remove', () =>
+          this.#opts.onDelete(already.id),
+        );
       });
       el.append(star);
     }
