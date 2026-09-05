@@ -522,6 +522,12 @@ command end.
 
 Nothing syncs off the machine. Ever. There is no remote endpoint in the codebase.
 
+A decision that has not changed is not written again. The sweep that decides whether to end an
+idle session runs continually, and a session kept because its tab is open is kept for that reason
+all day: writing it every time put two thousand copies of one sentence in the log and rotated the
+events worth reading out of the file. Only a change of reason is recorded, which is the part that
+says what happened.
+
 
 ---
 

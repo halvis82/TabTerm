@@ -108,6 +108,47 @@ r.ok(
     Number(await evaluate(a.client, `document.querySelectorAll('.launcher-transcript').length`)) ===
       0,
   );
+
+  /**
+   * And expanding does not throw the list back to the top.
+   *
+   * The list is redrawn from scratch when a row opens, and a fresh element starts at scroll zero,
+   * so the row somebody was reading jumped off the screen. The scroll is put back before the
+   * list is on screen, so it never paints at the top and then moves.
+   *
+   * The window the harness uses is tall enough that the list does not overflow, which is why this
+   * went unchecked: with nothing to scroll there is no position to lose. So the list is made
+   * short here, which is the same situation as a list with more in it.
+   */
+  await evaluate(
+    a.client,
+    `(() => { const s = document.createElement('style');
+       s.textContent = '.launcher-body { max-height: 120px; overflow-y: auto; }';
+       document.head.append(s); })()`,
+  );
+  await sleep(150);
+  // A rule rather than an inline style, because the list is rebuilt from scratch when a row
+  // opens and the element the style was put on is gone by the time it matters.
+  await evaluate(
+    a.client,
+    `(() => { const b = document.querySelector('.launcher-body'); if (b) b.scrollTop = 60; })()`,
+  );
+  await sleep(150);
+  const scrolledTo = Number(
+    await evaluate(a.client, `document.querySelector('.launcher-body')?.scrollTop ?? 0`),
+  );
+  await realClick(a.client, '.launcher-row-action.is-expand');
+  await sleep(500);
+  const keptScroll = Number(
+    await evaluate(a.client, `document.querySelector('.launcher-body')?.scrollTop ?? 0`),
+  );
+  r.ok(
+    'expanding keeps the place in the list rather than jumping to the top',
+    scrolledTo === 0 || keptScroll > 0,
+    `${String(scrolledTo)} -> ${String(keptScroll)}`,
+  );
+  await realClick(a.client, '.launcher-row-action.is-expand');
+  await sleep(300);
 }
 
 // Resuming from a tab that is still showing its start screen happens **in** that tab.

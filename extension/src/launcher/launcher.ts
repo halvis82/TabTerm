@@ -1146,12 +1146,20 @@ export class Launcher {
     const body = document.createElement('div');
     body.className = 'launcher-body';
     body.replaceChildren(...sections);
-    if (wasScrolled > 0) {
-      // Set before the element is on screen, so it never paints at the top and then jumps.
-      body.scrollTop = wasScrolled;
-    }
 
     this.#el.replaceChildren(body, hint);
+    /**
+     * Put back **after** the element is in the document, and not before.
+     *
+     * Setting it on the element while it was still detached read like the careful thing to do
+     * and did nothing at all: an element outside the document has no scrollable box, so the
+     * assignment is dropped without complaint. The list still went back to the top, which is
+     * what was reported, and the code that was supposed to prevent it looked correct.
+     *
+     * Nothing is seen at the top first. This runs in the same task as the replacement, and the
+     * browser paints at the end of the task, so the only frame ever drawn is the right one.
+     */
+    if (wasScrolled > 0) body.scrollTop = wasScrolled;
     this.#el.hidden = false;
     /**
      * And the row that was just opened is brought fully into view, if it is not already.

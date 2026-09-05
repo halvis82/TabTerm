@@ -66,6 +66,7 @@ import type {
   NotifyPolicy,
   ShellIntegrationStatus,
 } from '@tabterm/shared';
+import { shouldRedrawAfterAway } from './wake-redraw.js';
 import { buildStats } from '../launcher/stats-view.js';
 import { SessionStats } from '../launcher/session-stats.js';
 import { Palette, type PaletteAction } from '../launcher/palette.js';
@@ -2223,20 +2224,58 @@ function refitAllPanes(): void {
  */
 function installRefitOnWake(): void {
   let pending = 0;
+  let hiddenSince = 0;
+
   const remeasure = (): void => {
     clearTimeout(pending);
     // One frame later, so the browser has finished whatever it was doing to the window first.
     pending = window.setTimeout(() => {
       for (const pane of panesHost?.all ?? []) pane.controller.restoreRenderer();
       refitAllPanes();
+      /**
+       * A tab left alone for a long time is asked to draw itself again.
+       *
+       * A full-screen program draws differentially and repaints in full only when it is told the
+       * size changed. If its idea of the width and the terminal's ever part company, nothing
+       * brings them back: the size is already correct, so no resize is sent, so nothing repaints.
+       * A tab opened after five hours showed an agent drawn across a third of the window with
+       * the rest blank, and refreshing was the only way out.
+       *
+       * The threshold is what keeps this from being a nuisance. Flicking between two tabs is
+       * constant, and repainting an agent every time would be its own defect; a tab nobody has
+       * looked at for a minute is a different thing, and that is when the picture can have gone
+       * stale without anybody being told.
+       */
+      const away = hiddenSince;
+      hiddenSince = 0;
+      if (!shouldRedrawAfterAway(away, Date.now())) return;
+      for (const pane of panesHost?.all ?? []) askForRedraw(pane.paneId);
     }, 60);
   };
 
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') remeasure();
+    else if (hiddenSince === 0) hiddenSince = Date.now();
   });
   window.addEventListener('focus', remeasure);
   window.addEventListener('pageshow', remeasure);
+}
+
+/**
+ * Ask whatever is running in a pane to draw itself again.
+ *
+ * A size change is the one thing every terminal application treats as "you know nothing, draw it
+ * all", so the size is nudged by a row and put back. The same trick a multiplexer uses on
+ * reattach, and the only way to clear a divergence that has already happened.
+ */
+function askForRedraw(paneId: string): void {
+  const size = panesHost?.fit(paneId);
+  if (!size || !workspaceId) return;
+  askForSize(paneId, { cols: size.cols, rows: Math.max(1, size.rows - 1) }, 'redraw-down');
+  setTimeout(() => {
+    const now = panesHost?.fit(paneId);
+    if (now) askForSize(paneId, now, 'redraw-back');
+  }, 60);
 }
 
 /**
@@ -2548,6 +2587,25 @@ function paneLabel(paneId: string): { label: string; color?: string } {
   return (layout ? walk(layout) : null) ?? { label: '' };
 }
 
+/**
+ * Actions worth offering on the pane itself, from the same list the command menu draws.
+ *
+ * Read from `paletteActions` rather than written again, so the two cannot drift: a menu that
+ * describes actions from its own copy is a second thing to keep true. The ones that open a tab of
+ * their own are left out, because a right click on a pane is a question about that pane.
+ */
+function paneActionsForMenu(target: (run: () => void) => () => void): PaneMenuAction[] {
+  const wanted = new Set(['agent-split', 'split-right', 'split-down', 'focus-mode']);
+  const actions = paletteActions().filter((a) => wanted.has(a.id) || a.group === 'custom');
+  if (actions.length === 0) return [];
+  return actions.map((action, i) => ({
+    label: action.title,
+    // The first of them starts a group of its own, so they do not read as more clipboard items.
+    ...(i === 0 ? { separated: true } : {}),
+    run: target(() => action.run()),
+  }));
+}
+
 function paneMenuActions(paneId: string): PaneMenuAction[] {
   const paneCount = layout ? collectPanes(layout).length : 1;
   const hasSiblings = paneCount > 1;
@@ -2649,6 +2707,14 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
       enabled: hasSiblings,
       run: target(() => detachFocused()),
     },
+    /**
+     * The actions, on the pane they act on.
+     *
+     * The same things the command menu offers, in the other place somebody looks for them. It is
+     * fine for one to appear twice: a menu is a list of what can be done here, and launching an
+     * agent beside this pane is exactly a thing to do here.
+     */
+    ...paneActionsForMenu(target),
     {
       /**
        * The same panel as Command+K and the button in the corner.

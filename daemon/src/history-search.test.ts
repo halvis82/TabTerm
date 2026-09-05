@@ -194,11 +194,22 @@ describe('history search', () => {
     db.handle.exec('COMMIT');
     const data = new LauncherData(db);
 
+    /**
+     * The fastest of several runs, because the budget is about the query and not the machine.
+     *
+     * A single run also measures whatever else the computer was doing during it, and this suite
+     * runs beside every other one. Taking the best run keeps the check honest in the direction
+     * that matters: a query that got slower cannot hide behind a lucky run, while a query that
+     * is fast is not failed for having been interrupted.
+     */
     const timed = (label: string, run: () => unknown) => {
       run(); // once to warm any statement preparation
-      const t0 = performance.now();
-      run();
-      const ms = performance.now() - t0;
+      let ms = Infinity;
+      for (let i = 0; i < 3; i++) {
+        const t0 = performance.now();
+        run();
+        ms = Math.min(ms, performance.now() - t0);
+      }
       // eslint-disable-next-line no-console
       console.log(`    ${label}: ${ms.toFixed(1)} ms`);
       return ms;

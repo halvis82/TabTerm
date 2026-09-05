@@ -761,6 +761,9 @@ export class SessionManager {
     this.#workspaceOf = fn;
   }
 
+  /** Why each session was last left alone, so the same sentence is not written every sweep. */
+  readonly #lastReapReason = new Map<string, string>();
+
   #scheduleReap(session: Session): void {
     // Any previous timer is void: this is a fresh decision, and leaving the old one running
     // would end a session whose tab has since come back.
@@ -782,9 +785,21 @@ export class SessionManager {
     );
 
     if (decision.afterSeconds === null) {
-      info('session.reap.declined', { sessionId: session.id, reason: decision.reason });
+      /**
+       * Said once, and again only when the reason changes.
+       *
+       * This runs on every sweep, for every session, and a session kept for a tab that is still
+       * open is kept for that reason all day. Repeating it filled the log with two thousand
+       * copies of the same sentence and rotated the events worth reading out of the file, which
+       * is the opposite of what a log is for. A change of reason is news and is still recorded.
+       */
+      if (this.#lastReapReason.get(session.id) !== decision.reason) {
+        this.#lastReapReason.set(session.id, decision.reason);
+        info('session.reap.declined', { sessionId: session.id, reason: decision.reason });
+      }
       return;
     }
+    this.#lastReapReason.delete(session.id);
 
     const timer = setTimeout(() => {
       /**
@@ -903,6 +918,7 @@ export class SessionManager {
     session.vt.dispose();
     session.clients.clear();
     this.#sessions.delete(session.id);
+    this.#lastReapReason.delete(session.id);
 
     /**
      * Tell everyone else, exactly as a process ending does.

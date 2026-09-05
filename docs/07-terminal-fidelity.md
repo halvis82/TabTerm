@@ -331,6 +331,17 @@ entries, then the actions that belong to the pane itself: split, move to its own
 kill the session. An entry that cannot apply is greyed rather than hidden, so the menu keeps a
 stable shape and says why instead of doing nothing when clicked.
 
+Below those come the actions that act on a pane, read from the same list the command palette
+reads: the splits, focus mode, and every action the user wrote themselves. Reading the one list
+means an action added in the Actions tab appears here without anybody remembering to add it, and
+a menu built from its own copy of the list would drift out of date the first time the other one
+changed. The same action being reachable from the palette, a shortcut, and this menu is the point
+rather than a duplication.
+
+A menu taller than the window scrolls. The list grew when the actions joined it, and on a short
+window its last entries went off the bottom of the screen where nothing could reach them.
+Position cannot fix that, because past a point no position fits.
+
 Entries act on **the pane that was right-clicked**, which is focused first. A menu whose actions
 landed on whichever pane happened to be focused would be a trap.
 
@@ -536,6 +547,18 @@ does on reattach, for the same reason.
 Never for a screen that came back empty. A session created a moment ago gets a snapshot too, and
 nudging there is two size changes arriving exactly while a template is waiting for a prompt to
 type its command into.
+
+### And again after a tab has been away for a long time
+
+The same nudge runs when a tab becomes visible after a minute or more out of sight. A full-screen
+program draws only what it believes changed, so once its picture and the terminal's have parted
+company nothing brings them back on its own: the size is already right, so no size change is
+sent, so nothing repaints. A tab opened after five hours showed an agent drawn across a third of
+the window with the rest blank, and reloading the page was the only way out.
+
+A minute is what keeps this from being its own defect. Flicking between two tabs is constant and
+repainting an agent every time would be worse than the fault; a tab nobody has looked at since
+before the window was last resized is where a stale picture actually comes from.
 
 ## A size is only ever asked for once it has been measured
 
