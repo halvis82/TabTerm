@@ -224,6 +224,13 @@ there.
 distinguish a missing program from a crash, so a command that fails to start says so in the
 session's own output, the way a shell does.
 
+**A field of the wrong type is ignored, never coerced.** The temptation is to run a bad value
+through the same clamp as a good one and take whatever comes out. That is how a setting reset
+itself: `set-background-timeout` carrying a string reached a clamp that returns null for anything
+that is not a finite number, null means keep a session forever, and so the most permissive setting
+in the product was what a malformed message quietly selected. A message the daemon cannot read is
+logged and dropped, and the setting keeps the value the person chose.
+
 **A bad frame does not take the tab with it.** Decoding and handling are both contained, and a
 failure in either is reported rather than left to escape into an event handler, where it presents
 as a tab that quietly stopped updating.

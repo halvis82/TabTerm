@@ -165,6 +165,22 @@ Non-optional, per `05-security.md` §10.
 
 ---
 
+## The suite gets its own home directory
+
+Every test process runs with `HOME` pointing at a scratch directory made for the run. Not for
+tidiness. Nine test files build a real daemon, and a daemon reads and writes the settings file,
+the database and the logs of whoever is running it, because those paths are derived from `HOME`.
+One malformed-message test sent a background timeout the daemon could not read, and the value it
+wrote landed in the real settings file. Running the tests changed how the product behaved
+afterwards, silently, and the only symptom was a setting that would not stay put.
+
+The scratch home lives under `~/.cache/tabterm-test` rather than under `/tmp`. The product
+deliberately ignores directories under `/tmp` and `/var/folders` when it records where somebody
+has been, since those are not places anybody works, so a test home there is invisible to the very
+code some of these tests are exercising.
+
+---
+
 ## Browser suites
 
 `npm run test:browser` runs everything in `test/browser/suites/` against one daemon and several
