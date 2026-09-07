@@ -403,6 +403,7 @@ six things everywhere is a list to read past rather than a set of things to do.
 | Where | What it offers |
 |---|---|
 | A terminal | Its own menu, unchanged: selection, clipboard, highlights, markers, the pane's actions |
+| A saved template | Its card, pinned open, the same as the `i` on the end of the chip |
 | A text box | Cut, copy, paste and select all, acting on that box |
 | The start screen | Paste, then a new tab, the menu, settings, and closing the tab |
 | The command menu | Settings, and a way to put it away rather than a way to open it |
@@ -411,9 +412,13 @@ six things everywhere is a list to read past rather than a set of things to do.
 Markers and highlights are deliberately absent outside a terminal: they act on a place in a screen
 of output, and there is no such place on a start screen.
 
-Anything that has already answered keeps its answer. The terminal and the pane chooser handle the
-gesture themselves, so the page-level handler runs after them and steps aside when the event is
-already spoken for. A second menu over the first would be worse than Chrome's.
+Anything that has already answered keeps its answer. The terminal, the pane chooser and a template
+chip handle the gesture themselves, so the page-level handler runs after them and steps aside when
+the event is already spoken for. A second menu over the first would be worse than Chrome's.
+
+A chip answers with `preventDefault` rather than by stopping the event from travelling. Stopping
+it would leave nothing to decline the gesture, and Chrome's own menu would open instead, which is
+the one thing all of this exists to prevent.
 
 ## Light mode is a theme, not a filter over a dark one
 

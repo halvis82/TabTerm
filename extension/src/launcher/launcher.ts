@@ -371,6 +371,7 @@ export class Launcher {
       this.#askFolderState();
       return;
     }
+    this.#awaitingFolderState = null;
     this.#folderState = reply;
     this.#renderFolderState();
   }
@@ -575,7 +576,33 @@ export class Launcher {
     const typed = this.#dirInput?.value.trim() ?? '';
     if (typed === '') return;
     const asked = this.#resolved(typed);
-    this.#checkTimer = window.setTimeout(() => this.#opts.onCheckFolder(asked), 260);
+    this.#checkTimer = window.setTimeout(() => {
+      this.#awaitingFolderState = asked;
+      this.#opts.onCheckFolder(asked);
+    }, 260);
+  }
+
+  /**
+   * The question this is still waiting on an answer to, if any.
+   *
+   * A question is sent once and then waited on forever. Nothing here ever asks twice, so a reply
+   * that never arrives leaves the line under the box blank for good, and the offer to create a
+   * folder that is not there never appears. That is not hypothetical: the answer travels on the
+   * socket, and a socket that drops takes every question in flight with it.
+   */
+  #awaitingFolderState: string | null = null;
+
+  /**
+   * The connection came back. Ask again about anything nobody answered.
+   *
+   * A degraded state that never retries is permanent, which is the whole of this. The folder
+   * listing recovers on its own because typing asks again, and the state line does not, because
+   * the box has not changed: it is still showing the path whose answer went missing.
+   */
+  connectionReady(): void {
+    if (this.#dismissed) return;
+    if (this.#awaitingFolderState === null) return;
+    this.#askFolderState();
   }
 
   #renderFolders(): void {
@@ -766,6 +793,24 @@ export class Launcher {
       this.#showTemplateCard(chip, template, input, true);
     });
     chip.append(info);
+
+    /**
+     * A right click anywhere on the chip does what the dot does.
+     *
+     * Asked for directly: "i wanna make it so you can right click the templates. it should be
+     * the same as the (i) button on each". The dot is four pixels wide at the end of a chip, and
+     * the whole chip is the thing somebody is pointing at.
+     *
+     * `preventDefault` rather than only `stopPropagation`, because the page's own right-click
+     * menu is on `document` and declines only what has already been answered. Stopping the event
+     * from bubbling would leave Chrome's menu to open instead, which is the thing that menu
+     * exists to replace.
+     */
+    chip.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (this.#templateCard?.dataset['template'] === template.id && this.#cardPinned) return;
+      this.#showTemplateCard(chip, template, input, true);
+    });
 
     let hoverTimer = 0;
     chip.addEventListener('mouseenter', () => {

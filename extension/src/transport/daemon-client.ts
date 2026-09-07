@@ -189,4 +189,15 @@ export class DaemonClient {
     this.#stopped = true;
     this.#ws?.close();
   }
+
+  /**
+   * Lose the socket the way a network does, rather than the way a shutdown does.
+   *
+   * `close` is deliberate and permanent: it stops the client for good, which is right when a page
+   * is going away and useless for asking what survives a blip. This drops the socket and leaves
+   * the reconnect to the same code that handles a real one.
+   */
+  dropForTest(): void {
+    this.#ws?.close();
+  }
 }
