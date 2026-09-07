@@ -38,6 +38,34 @@ const lines = Number(await evaluate(client, `window.__tabterm.readScreen().split
 r.ok('a buffer with a lot in it', lines > 500, `${String(lines)} lines`);
 
 /**
+ * How fast this browser hands out frames when nothing at all is happening.
+ *
+ * Without it this suite could not tell slow drawing from a slow clock, and that is not a
+ * hypothetical: it read a steady 33.3 ms and reported a scrolling regression, which is a browser
+ * running at thirty frames a second and a terminal keeping up with every one of them. A frame
+ * budget is the machine's, and what belongs to the product is how much of it gets used.
+ */
+const idle = JSON.parse(
+  await evaluate(
+    client,
+    `(async () => {
+       const times = [];
+       let last = performance.now();
+       for (let i = 0; i < 30; i++) {
+         await new Promise((done) => requestAnimationFrame(done));
+         const now = performance.now();
+         times.push(now - last);
+         last = now;
+       }
+       return JSON.stringify(times.slice(2));
+     })()`,
+  ),
+);
+idle.sort((a, b) => a - b);
+const budget = idle[Math.floor(idle.length / 2)] ?? 16.7;
+console.log(`    this browser hands out a frame every ${budget.toFixed(1)} ms`);
+
+/**
  * Scroll it, and record how long each frame took.
  *
  * Frames rather than a total, because what a person feels is the worst frame rather than the
@@ -72,17 +100,22 @@ frames.sort((a, b) => a - b);
 const median = frames[Math.floor(frames.length / 2)] ?? -1;
 const worst = frames[frames.length - 1] ?? -1;
 
-console.log(`    scrolling frames: median ${median.toFixed(1)} ms, worst ${worst.toFixed(1)} ms`);
+console.log(
+  `    scrolling frames: median ${median.toFixed(1)} ms, worst ${worst.toFixed(1)} ms, ` +
+    `budget ${budget.toFixed(1)} ms`,
+);
 /**
  * A frame each, rather than a stutter.
  *
- * Sixteen and a bit milliseconds is one frame at sixty a second, which is as fast as a screen
- * changes. A worst frame far above that is a visible hitch in the middle of a gesture.
+ * Measured against what this browser is handing out rather than against sixteen milliseconds.
+ * Scrolling cannot go faster than the screen changes, so the question is whether a heavy buffer
+ * makes the terminal miss frames it was being offered. Half a frame of headroom on the median,
+ * and no single frame worth more than two and a half, which is the length a hand feels.
  */
 r.ok(
   'a heavy buffer scrolls at a frame each',
-  median > 0 && median < 25 && worst < 60,
-  `median ${median.toFixed(1)} ms, worst ${worst.toFixed(1)} ms`,
+  median > 0 && median < budget * 1.5 && worst < budget * 2.5,
+  `median ${median.toFixed(1)} ms, worst ${worst.toFixed(1)} ms, budget ${budget.toFixed(1)} ms`,
 );
 
 /** And it is doing that with the accelerated renderer, which is what makes it possible. */

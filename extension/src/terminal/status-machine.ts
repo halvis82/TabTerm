@@ -41,11 +41,21 @@ export function needsAttention(state: FaviconState): boolean {
 /**
  * Whether a state waits to be seen.
  *
- * An outcome does. A condition does not: `running` describes the present and speaks for itself,
- * and `approval` clears when the approval is answered rather than when it is noticed.
+ * An outcome does, and so does a request for somebody's attention that the looking itself
+ * answers. `running` describes the present and speaks for itself. `approval` is the one thing
+ * here that outlives being noticed, because what clears it is answering it.
+ *
+ * `waiting` is on this list for a reason worth writing down. An agent fires its notification
+ * about a minute after it finishes a turn, so the real order of events is finish, then wait,
+ * and the tab went amber a minute after every turn and stayed amber. Nothing in the sequence
+ * ever cleared it: the next thing that happens is a person coming back to the tab, and coming
+ * back is not something the agent has a hook for. So the tab sat there asking for somebody who
+ * was already there, and after a while an amber tab meant nothing at all.
+ *
+ * Looking is the answer to "waiting for you". It is not the answer to "may I run this".
  */
 export function isSticky(state: FaviconState): boolean {
-  return state === 'success' || state === 'failed' || state === 'done';
+  return state === 'success' || state === 'failed' || state === 'done' || state === 'waiting';
 }
 
 export class StatusMachine {

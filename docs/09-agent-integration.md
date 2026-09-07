@@ -41,10 +41,18 @@ agent CLI hook fires
 |---|---|---|
 | User prompt submitted | `working` | Running favicon, elapsed timer starts |
 | Tool use pending approval | `approval` | Approval favicon, **critical notification**, title status |
-| Notification | `waiting` | Waiting favicon, important notification |
+| Notification | `waiting` | Waiting favicon until the tab is looked at, important notification |
 | Stop | `idle` | Idle favicon, completion notification if past the duration threshold |
 | Session start | `starting` | Title switches to the agent form |
 | Non-zero completion | `failed` | Failure favicon, critical notification |
+
+**A notification usually arrives after the stop, not before it.** An agent raises it about a
+minute after it finishes a turn, when nobody has replied. That ordering is why the waiting favicon
+clears on being looked at rather than on the next event: there is no next event. See
+`06-chrome-integration.md`.
+
+**State is replayed to a client that attaches.** It is pushed on change and never polled, so a
+reloaded tab would otherwise show idle for an agent that is waiting for somebody.
 
 ### What hooks cannot tell us
 

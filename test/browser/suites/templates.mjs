@@ -4,7 +4,16 @@
 // prompt, so they landed above it and belonged to nothing. A template opened in the folder it
 // was saved from rather than the one in the box, so it was only usable in one project. And the
 // templates sat in a strip of their own with no shortcut, no description and no way to edit one.
-import { openTerminal, evaluate, sleep, finish, waitFor, readScreen } from '../helpers.mjs';
+import {
+  openTerminal,
+  evaluate,
+  sleep,
+  finish,
+  waitFor,
+  readScreen,
+  boxOf,
+  openPaneMenu,
+} from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -115,6 +124,48 @@ r.ok(
   'and offers editing rather than only deleting',
   card.includes('Edit') && card.includes('Delete'),
 );
+
+/**
+ * And a right click on the chip does the same thing, which is what was asked for.
+ *
+ * A real one through the input domain rather than a dispatched event: the page has its own
+ * right-click menu on `document`, and the question is which of the two answers. A synthetic
+ * event would exercise the chip's handler and say nothing about that.
+ */
+await evaluate(client, `document.querySelector('.template-card')?.remove()`);
+await waitFor(client, `document.querySelector('.launcher-template') !== null`);
+const chipBox = await boxOf(client, '.launcher-template');
+await openPaneMenu(client, chipBox.x + chipBox.width / 2, chipBox.y + chipBox.height / 2);
+await sleep(400);
+/**
+ * Pinned, which is the half that hovering does not do.
+ *
+ * Checking only that a card appeared proves nothing: moving the pointer onto the chip to right
+ * click it is itself a hover, and the hover card looks the same. What the dot does and hovering
+ * does not is leave the card up after the pointer goes away.
+ */
+await client.send('Input.dispatchMouseEvent', {
+  type: 'mouseMoved',
+  x: chipBox.x + chipBox.width / 2,
+  y: chipBox.y + chipBox.height * 4,
+});
+await evaluate(
+  client,
+  `document.querySelector('.launcher-template')?.dispatchEvent(new MouseEvent('mouseleave'))`,
+);
+await sleep(400);
+r.ok(
+  'right clicking a template pins its card up, the same as the i',
+  Boolean(await evaluate(client, `document.querySelector('.template-card') !== null`)),
+);
+r.ok(
+  "and TabTerm's own page menu stays out of the way",
+  !(await evaluate(client, `document.querySelector('.term-menu') !== null`)),
+);
+
+// Put the start screen back the way the rest of this suite found it.
+await evaluate(client, `document.querySelector('.template-card')?.remove()`);
+await waitFor(client, `document.querySelector('.launcher-input') !== null`);
 
 // A template is draggable, which is what reorders it and renumbers its shortcut with it.
 r.ok(

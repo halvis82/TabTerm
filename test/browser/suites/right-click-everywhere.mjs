@@ -7,7 +7,15 @@
 //   1. Chrome's own menu never appears, which means ours took the event.
 //   2. What ours offers fits the place it landed.
 //   3. Every entry it offers actually does something.
-import { openTerminal, evaluate, sleep, finish, waitFor, openPaneMenu } from '../helpers.mjs';
+import {
+  openTerminal,
+  evaluate,
+  sleep,
+  finish,
+  waitFor,
+  openPaneMenu,
+  boxOf,
+} from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -75,12 +83,6 @@ const PLACES = [
     mustNot: ['Add a marker here'],
   },
   {
-    what: 'a template chip',
-    sel: '.launcher-template',
-    must: ['Paste'],
-    mustNot: ['Kill session'],
-  },
-  {
     what: 'the hint line',
     sel: '.launcher-hint',
     must: ['Paste', 'Settings'],
@@ -120,6 +122,31 @@ for (const place of PLACES) {
     menu.enabled > 0,
     `${String(menu.enabled)} of ${String(menu.labels.length)}`,
   );
+}
+
+/**
+ * A template chip is the one place on the start screen that answers for itself.
+ *
+ * Asked for: right clicking a template should do what the `i` on it does. So the general menu
+ * must stay away, and what must not happen instead is Chrome's own menu, which is what a chip
+ * that merely stopped the event from travelling would have left in charge.
+ */
+{
+  const chip = await boxOf(client, '.launcher-template');
+  if (chip === null) {
+    r.skip('right click on a template chip', 'no template on screen in this state');
+  } else {
+    await openPaneMenu(client, chip.x + chip.width / 2, chip.y + chip.height / 2);
+    r.ok(
+      'right click on a template chip shows the template card, not the page menu',
+      Boolean(await evaluate(client, `document.querySelector('.template-card') !== null`)),
+    );
+    r.ok(
+      '  and the page menu stays away',
+      !(await evaluate(client, `document.querySelector('.term-menu') !== null`)),
+    );
+    await evaluate(client, `document.querySelector('.template-card')?.remove()`);
+  }
 }
 
 /** The command menu and its own surfaces. */

@@ -91,6 +91,25 @@ describe('which states pulse', () => {
     expect(isSticky('running')).toBe(false);
     expect(isSticky('approval')).toBe(false);
   });
+
+  it('clears "waiting for you" when somebody looks, since looking is the answer to it', () => {
+    // An agent notifies about a minute after it finishes a turn, so the order on a real machine
+    // is finish then wait, and nothing after that ever cleared it. The tab went amber a minute
+    // after every turn and stayed amber, which is how an amber tab came to mean nothing.
+    expect(isSticky('waiting')).toBe(true);
+    const m = new StatusMachine();
+    m.set('a', 'waiting');
+    expect(m.effective()).toBe('waiting');
+    expect(m.seen()).toBe(true);
+    expect(m.effective()).toBe('idle');
+  });
+
+  it('keeps an approval up, because looking is not answering it', () => {
+    const m = new StatusMachine();
+    m.set('a', 'approval');
+    m.seen();
+    expect(m.effective()).toBe('approval');
+  });
 });
 
 describe('the title', () => {

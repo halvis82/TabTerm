@@ -2048,6 +2048,21 @@ export class DaemonServer {
       }),
     );
 
+    /**
+     * What each agent is doing, said again for a client that has just arrived.
+     *
+     * Agent state is pushed when it changes and never asked for, so a tab that reloads while an
+     * agent is waiting for a person had no way to learn that: it drew a fresh idle tab, and the
+     * next thing the agent would say was whatever it said after somebody came back, which is the
+     * one event that never arrives when nobody knows to come.
+     */
+    for (const { sessionId } of entries) {
+      const session = this.#sessions.get(sessionId);
+      const state = session?.agentState;
+      if (state === undefined) continue;
+      send(client.socket, controlFrame({ t: 'agent-state', sessionId, state }));
+    }
+
     // Sizes are per pane, so the client sends real ones once it has laid the panes out.
     for (const entry of toAttach) {
       const session = this.#sessions.get(entry.sessionId);

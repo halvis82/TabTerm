@@ -110,12 +110,25 @@ const inside = await waitFor(
 );
 r.ok('and the list moves to what is inside it', inside, await names());
 
-// The validity line follows along.
+/**
+ * The validity line follows along.
+ *
+ * Waited for rather than read straight away. It is a round trip: the box changes, the daemon is
+ * asked, and the line is drawn when it answers. Reading it in the same breath as the click is
+ * reading it before the question has even been sent, and it passed only because an idle machine
+ * happens to be quick.
+ */
+const saysExists = await waitFor(
+  client,
+  `(document.querySelector('.launcher-folder-state')?.textContent ?? '').includes('exists')`,
+  10000,
+);
 r.ok(
   'the folder is reported as existing',
+  saysExists,
   String(
     await evaluate(client, "document.querySelector('.launcher-folder-state')?.textContent ?? ''"),
-  ).includes('exists'),
+  ),
 );
 
 // `..` goes back up. Waited for: the box is rewritten after the daemon answers about the folder.
@@ -152,6 +165,38 @@ if (child === undefined) {
   );
   r.ok(`a relative path two levels down still lists (Documents/${child}/)`, deep, await names());
 }
+
+/**
+ * A question that was in flight when the connection dropped is asked again.
+ *
+ * The line under the box is a round trip, sent once and then waited on forever, so a socket that
+ * drops takes the answer with it and the line stays blank for good: not only the reassurance
+ * that a folder is there, but the offer to create one that is not. Nothing about the box changes
+ * when this happens, so nothing else was ever going to ask again.
+ */
+await evaluate(
+  client,
+  `(() => {
+     const i = document.querySelector('.launcher-input');
+     i.focus();
+     i.value = '~/Documents';
+     i.dispatchEvent(new Event('input', { bubbles: true }));
+     window.__tabterm.loseConnection();
+   })()`,
+);
+// The client reconnects on its own, which is the point: nothing here helps it.
+const cameBack = await waitFor(
+  client,
+  `(document.querySelector('.launcher-folder-state')?.textContent ?? '').includes('exists')`,
+  15000,
+);
+r.ok(
+  'and a question lost with the connection is asked again',
+  cameBack,
+  String(
+    await evaluate(client, "document.querySelector('.launcher-folder-state')?.textContent ?? ''"),
+  ),
+);
 
 await finish();
 r.done();

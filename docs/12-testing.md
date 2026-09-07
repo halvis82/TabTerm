@@ -165,6 +165,16 @@ Non-optional, per `05-security.md` §10.
 
 ---
 
+## A frame budget belongs to the machine, not to the product
+
+The suite that measures scrolling read a steady 33.3 millisecond frame and reported a regression.
+Nothing had regressed: the browser was handing out thirty frames a second instead of sixty, and
+the terminal was using exactly one of each. The number was real and it was a measurement of the
+machine.
+
+It measures the browser's idle cadence first now, and asserts against that. What belongs to the
+product is how much of an offered frame gets used, never how often one is offered.
+
 ## The suite gets its own home directory
 
 Every test process runs with `HOME` pointing at a scratch directory made for the run. Not for

@@ -231,13 +231,42 @@ Waiting outranks failed deliberately: one of them can still be acted on.
 
 ### Outcomes wait to be seen
 
-`success`, `failed` and `done` persist **until the tab is actually looked at**, and are cleared by
-the look rather than by a timer. This is the whole point of the indicator. A command that finished
-while you were in another tab is exactly the thing you left to find out, and a state that expires
-on a timer expires while nobody is there to read it.
+`success`, `failed`, `done` and `waiting` persist **until the tab is actually looked at**, and are
+cleared by the look rather than by a timer. This is the whole point of the indicator. A command
+that finished while you were in another tab is exactly the thing you left to find out, and a state
+that expires on a timer expires while nobody is there to read it.
+
+`waiting` is on that list because looking is the answer to it. An agent raises its notification
+about a minute after it finishes a turn, so the real order of events is finish, then wait, and
+nothing after that ever clears it: the next thing that happens is a person coming back to the tab,
+and coming back is not something an agent has a hook for. The tab went amber a minute after every
+single turn and stayed amber, which is how an amber tab came to mean nothing at all.
 
 Conditions do not work this way. `running` describes the present and speaks for itself, and
-`approval` clears when the approval is answered rather than when it is noticed.
+`approval` clears when the approval is answered rather than when it is noticed. Looking at a tab
+is the answer to "waiting for you". It is not the answer to "may I run this".
+
+### A question in flight when the socket drops is asked again
+
+The line under the path box is a round trip: the box changes, the daemon is asked, and the line is
+drawn when the answer arrives. It was asked once and then waited on forever, so a socket that
+dropped took the answer with it and the line stayed blank permanently, taking with it the offer to
+create a folder that is not there. Nothing about the box changes when a connection blips, so
+nothing else was ever going to ask again.
+
+The start screen is told when the connection is ready and re-asks anything nobody answered. The
+folder listing needs no such thing: typing asks again, and typing is what produces it.
+
+### A tab that attaches keeps what the agent was doing
+
+Agent state is pushed when it changes and never polled, so a page that reloads or reconnects has
+no way to ask. Attaching used to set every pane back to idle, which meant a tab that blinked its
+connection while an agent was waiting for somebody came back saying nothing was happening, and
+the event that would have corrected it is the one that never arrives: the agent is waiting, and
+what it does next is wait some more.
+
+The daemon replays the current state of every session in a workspace right after `workspace-
+attached`, and the page leaves alone any pane it already had a state for.
 
 **Animation policy, from the background-tab status spike:**
 

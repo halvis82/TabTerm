@@ -887,16 +887,51 @@ function tidyPartialLine(paneId: string): void {
   client?.write(pane.streamId, new TextEncoder().encode(String.fromCharCode(12)));
 }
 
+/**
+ * Every decision about the icon, most recent last.
+ *
+ * The icon is the one part of this product that is read from another tab, and until this existed
+ * the only account of why it showed what it showed was the pixels. A report of one stuck on the
+ * wrong state had nothing behind it to look at.
+ */
+const faviconLog: {
+  at: number;
+  asked: FaviconState;
+  drew: FaviconState | 'nothing';
+  why: string;
+}[] = [];
+
+function recordFavicon(asked: FaviconState, drew: FaviconState | 'nothing', why: string): void {
+  faviconLog.push({ at: Date.now(), asked, drew, why });
+  if (faviconLog.length > 200) faviconLog.shift();
+}
+
 function setFavicon(state: FaviconState): void {
   // A flash is a deliberate override and outranks the ordinary icon until it is noticed.
-  if (tabFlasher.flashing) return;
+  if (tabFlasher.flashing) {
+    /**
+     * The state is still remembered, even though nothing is drawn.
+     *
+     * Dropping it as well as the drawing left the page believing the icon said whatever it said
+     * before the flash began, and the repaint a tab does when it is hidden then drew that. The
+     * flash restores from the machine when it ends, so the only thing this needs to keep right
+     * is what the page thinks is on the tab.
+     */
+    faviconState = state;
+    recordFavicon(state, 'nothing', 'flashing');
+    return;
+  }
   faviconState = state;
   clearInterval(animTimer);
   animTimer = undefined;
   // In the lowest memory mode a hidden tab stops redrawing its icon. Nothing is lost: the
   // favicon is brought up to date the moment the tab is looked at again.
-  if (!memorySettings.faviconWhileHidden && document.visibilityState === 'hidden') return;
+  if (!memorySettings.faviconWhileHidden && document.visibilityState === 'hidden') {
+    recordFavicon(state, 'nothing', 'hidden-and-saving-memory');
+    return;
+  }
   applyFavicon(drawFavicon(state, animPhase));
+  recordFavicon(state, state, 'drawn');
 
   const visible = document.visibilityState === 'visible';
   /**
@@ -2378,6 +2413,8 @@ let memorySettings = {
   scrollbackLines: 10_000,
 };
 let rendererTimer: ReturnType<typeof setTimeout> | undefined;
+/** Set once the page is wired up. See its definition for why a check needs to call it. */
+let lookedAtTab: () => void = () => undefined;
 
 /**
  * Release renderers after a tab has been hidden for a while.
@@ -3712,6 +3749,9 @@ function statusFor(s: ConnectionStatus): void {
       return;
     case 'ready':
       setStatus('', 'hidden');
+      // Anything the start screen asked about and never heard back on. A question travels on
+      // this socket, so a socket that dropped took every one in flight with it.
+      launcher?.connectionReady();
       return;
     case 'retrying':
       setStatus('tabtermd is not responding. Retrying', 'error');
@@ -3820,7 +3860,16 @@ function onControl(msg: ServerMessage): void {
       }
 
       for (const p of msg.panes) {
-        paneStatus.set(p.paneId, 'idle');
+        /**
+         * Only a pane this page has never had a state for.
+         *
+         * Attaching is not a fresh start. It happens on every reload and on every reconnect,
+         * and it used to set every pane back to idle, so a tab that blinked its connection while
+         * an agent was waiting for somebody came back saying nothing was happening. The daemon
+         * replays what it knows straight after this, which covers a genuine reload; this covers
+         * the reconnect of a page that already knew.
+         */
+        if (paneStatus.stateOf(p.paneId) === undefined) paneStatus.set(p.paneId, 'idle');
         const state = timeStateFor(p.paneId);
         state.sessionStartedAt ??= Date.now();
       }
@@ -4547,6 +4596,8 @@ declare global {
       setTheme: (name: string) => void;
       terminalTheme: () => { background?: string } | undefined;
       dropConnection: () => void;
+      /** Lose the socket the way a network does, leaving the client to reconnect on its own. */
+      loseConnection: () => void;
       /** Open a second, differently sized view of a pane's session, which is what a mirror is. */
       attachSecondView: (paneId: string, cols: number, rows: number) => void;
       reconnect: () => void;
@@ -4574,6 +4625,17 @@ declare global {
       endSessions: () => void;
       workspaceId: () => string;
       paneIds: () => string[];
+      /** What the tab's icon says, what the panes say, and every decision behind it. */
+      faviconNow: () => {
+        showing: string;
+        effective: string;
+        panes: { paneId: string; state: string }[];
+        log: { at: number; asked: string; drew: string; why: string }[];
+      };
+      /** The session behind each pane, which is what an agent hook reports against. */
+      paneSessions: () => { paneId: string; sessionId: string }[];
+      /** Do what looking at the tab does, which is how an outcome stops being news. */
+      lookAtTab: () => void;
       attached: () => boolean;
       split: (direction: 'horizontal' | 'vertical') => void;
       closePane: () => void;
@@ -4634,7 +4696,6 @@ function installTestHook(): void {
       const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
       return pane?.controller.term.options.theme;
     },
-    dropConnection: () => client?.close(),
     /**
      * A tab coming back after a long absence, without the absence.
      *
@@ -4846,6 +4907,20 @@ function installTestHook(): void {
     },
     workspaceId: () => workspaceId,
     paneIds: () => (layout ? collectPanes(layout) : []),
+    faviconNow: () => ({
+      showing: faviconState,
+      effective: paneStatus.effective(),
+      panes: (layout ? collectPanes(layout) : []).map((paneId) => ({
+        paneId,
+        state: paneStatus.stateOf(paneId) ?? 'none',
+      })),
+      log: [...faviconLog],
+    }),
+    paneSessions: () =>
+      (panesHost?.all ?? []).map((p) => ({ paneId: p.paneId, sessionId: p.sessionId })),
+    lookAtTab: () => lookedAtTab(),
+    dropConnection: () => client?.close(),
+    loseConnection: () => client?.dropForTest(),
     attached: () => attached,
     split: (direction) => splitFocused(direction),
     closePane: () => closeFocused(),
@@ -5080,22 +5155,34 @@ async function start(): Promise<void> {
   });
   client.connect();
 
+  /**
+   * The tab is being looked at.
+   *
+   * Its own function so a check can call it. A synthetic `visibilitychange` is not a substitute:
+   * `document.visibilityState` is read inside, and it is whatever the browser says regardless of
+   * what event was dispatched, so a faked one exercises the hidden branch and reports that the
+   * visible one works.
+   */
+  lookedAtTab = (): void => {
+    clearTimeout(rendererTimer);
+    rendererTimer = undefined;
+    panesHost?.restoreRenderers();
+    if (splitView?.focused) panesHost?.focus(splitView.focused);
+    /**
+     * Looking at the tab is what clears an outcome.
+     *
+     * A tick that said a command finished has now done its job, and it goes back to idle so
+     * the next one still means something. On a timer instead it would expire while nobody
+     * was there to read it, which is the exact case it exists for.
+     */
+    if (paneStatus.seen()) refreshTitle();
+    setFavicon(paneStatus.effective());
+    startTimeTicking();
+  };
+
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      clearTimeout(rendererTimer);
-      rendererTimer = undefined;
-      panesHost?.restoreRenderers();
-      if (splitView?.focused) panesHost?.focus(splitView.focused);
-      /**
-       * Looking at the tab is what clears an outcome.
-       *
-       * A tick that said a command finished has now done its job, and it goes back to idle so
-       * the next one still means something. On a timer instead it would expire while nobody
-       * was there to read it, which is the exact case it exists for.
-       */
-      if (paneStatus.seen()) refreshTitle();
-      setFavicon(paneStatus.effective());
-      startTimeTicking();
+      lookedAtTab();
     } else {
       clearInterval(animTimer);
       animTimer = undefined;
