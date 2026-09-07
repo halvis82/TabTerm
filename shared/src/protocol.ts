@@ -426,6 +426,11 @@ export type ClientMessage =
   | { t: 'list-launcher' }
   | { t: 'recall-workspace'; workspaceId: string }
   | {
+      t: 'forget-command';
+      /** The command text. Every run of it goes, since the list folds repeats into one row. */
+      command: string;
+    }
+  | {
       t: 'list-history';
       query?: string;
       /** Applied on top of the query. The daemon supplies the context from the session. */

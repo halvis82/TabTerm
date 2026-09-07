@@ -46,6 +46,19 @@ export interface ControllerOptions {
    * was written down it was invisible to everyone including the person feeling it.
    */
   onRendererLost?: () => void;
+  /**
+   * Whether this pane should answer a right click at all.
+   *
+   * It declines while the start screen is up. The terminal is still there, three rows tall under
+   * the panel, and its menu offered to split it, name it, mark a place in it and kill it. None of
+   * those mean anything in a tab where nothing has happened yet, and splitting rearranged the
+   * layout under a start screen that is not laid out for two panes, which is what "split right
+   * and split down work from the homescreen and they make the view all messed up" was.
+   *
+   * Declining rather than showing a shorter menu, so the gesture travels on and the page answers
+   * it with the start screen's own menu. See `pageMenuItems`.
+   */
+  shouldOpenMenu?: () => boolean;
   /** The color a highlight gets when the entry is clicked rather than the swatch. */
   highlightColor?: () => string;
   /** The last few highlight colors, for the row of swatches under the map. */
@@ -217,6 +230,9 @@ export class XtermController {
     );
 
     this.term.element?.addEventListener('contextmenu', (e: MouseEvent) => {
+      // Declined without `preventDefault`, so the page's own handler answers instead. See
+      // `shouldOpenMenu`.
+      if (this.#opts.shouldOpenMenu?.() === false) return;
       e.preventDefault();
       this.#showMenu(e.clientX, e.clientY);
     });
@@ -234,6 +250,7 @@ export class XtermController {
    * hand the gesture back rather than each overlay growing a menu of its own.
    */
   openMenuAt(x: number, y: number): void {
+    if (this.#opts.shouldOpenMenu?.() === false) return;
     this.#showMenu(x, y);
   }
 

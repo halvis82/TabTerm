@@ -20,6 +20,12 @@ export interface SplitViewOptions {
   onRatioChange: (paneId: string, ratio: number) => void;
   onFocusPane: (paneId: string) => void;
   onPaneResized: (paneId: string, element: HTMLElement) => void;
+  /** What the bar on top of a pane calls it, which is the session's name or its process. */
+  paneTitle?: (paneId: string) => string;
+  /** Close this pane, from the cross on its bar. */
+  onClosePane?: (paneId: string) => void;
+  /** The pane's own menu, at a point, from the dots on its bar. */
+  onPaneMenu?: (paneId: string, x: number, y: number) => void;
 }
 
 export class SplitView {
@@ -68,6 +74,15 @@ export class SplitView {
     if (this.#maximized && !live.has(this.#maximized)) this.#maximized = null;
 
     this.#opts.root.replaceChildren(this.#build(layout));
+    /**
+     * Bars only in a tab that has more than one pane.
+     *
+     * A single terminal's name is already the tab's, and a strip across the top of it would take
+     * rows from the terminal to repeat something. Set on the root rather than per pane, so the
+     * whole layout changes together the moment a split appears or the last one closes.
+     */
+    this.#opts.root.classList.toggle('many-panes', live.size > 1);
+    this.refreshTitleBars();
     if (!this.#focused) {
       const first = collectPanes(layout)[0];
       if (first) this.focus(first);
@@ -98,14 +113,24 @@ export class SplitView {
    * because leaving it held would take Command+W away from the whole browser.
    */
   async enterFocusMode(paneId: string): Promise<boolean> {
-    try {
-      await this.#opts.root.requestFullscreen();
-    } catch {
-      return false;
-    }
+    /**
+     * The pane is maximized first, and fullscreen is asked for after.
+     *
+     * They used to be one step, with the maximize behind the fullscreen: a browser that declined
+     * fullscreen left the entry doing nothing whatsoever, which is the worst possible answer for
+     * a menu item. A browser declines it for several ordinary reasons, and giving somebody the
+     * pane filling the tab is most of what they asked for.
+     */
     this.#maximized = paneId;
     if (this.#layout) this.render(this.#layout);
     this.focus(paneId);
+
+    try {
+      await this.#opts.root.requestFullscreen();
+    } catch {
+      // The pane keeps the tab, and Escape still puts the layout back. See `exitFocusMode`.
+      return false;
+    }
 
     try {
       await navigator.keyboard?.lock(['KeyW', 'KeyT', 'KeyN', 'KeyQ']);
@@ -230,13 +255,71 @@ export class SplitView {
       wrapper = document.createElement('div');
       wrapper.className = 'pane';
       wrapper.dataset['paneId'] = paneId;
-      wrapper.append(this.#opts.paneElement(paneId, sessionId));
+      wrapper.append(this.#titleBar(paneId), this.#opts.paneElement(paneId, sessionId));
       wrapper.addEventListener('pointerdown', () => this.focus(paneId));
       this.#wrappers.set(paneId, wrapper);
       this.#resizeObserver.observe(wrapper);
     }
     wrapper.classList.toggle('focused', this.#focused === paneId);
     return wrapper;
+  }
+
+  /**
+   * A bar on top of a pane, saying which pane it is and offering the two things you do to one.
+   *
+   * Only in a tab that has more than one, which is the whole reason it exists: with a single
+   * terminal the tab's own title already says what this would, and a strip across the top would
+   * be a row of pixels taken from the terminal for nothing.
+   *
+   * Deliberately thin. It is furniture around a terminal, not a toolbar: a name, a way to the
+   * pane's own menu, and a way to close it. Everything else that can be done to a pane is in
+   * that menu already, and putting any of it here would be a second place to keep in step.
+   */
+  #titleBar(paneId: string): HTMLElement {
+    const bar = document.createElement('div');
+    bar.className = 'pane-bar';
+
+    const name = document.createElement('span');
+    name.className = 'pane-bar-name';
+    bar.append(name);
+
+    const menu = document.createElement('button');
+    menu.className = 'pane-bar-button';
+    menu.title = 'This pane';
+    menu.textContent = '\u2026';
+    menu.addEventListener('click', (e) => {
+      e.stopPropagation();
+      /**
+       * Opened under the button rather than at the pointer.
+       *
+       * A menu raised from a control belongs below the control that raised it, whatever the
+       * pointer was doing. Its left edge follows the button, so it opens back into the pane
+       * instead of off the right hand side of a narrow one.
+       */
+      const box = menu.getBoundingClientRect();
+      this.focus(paneId);
+      this.#opts.onPaneMenu?.(paneId, box.left, box.bottom + 2);
+    });
+
+    const close = document.createElement('button');
+    close.className = 'pane-bar-button is-close';
+    close.title = 'Close this pane';
+    close.textContent = '\u00d7';
+    close.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.#opts.onClosePane?.(paneId);
+    });
+
+    bar.append(menu, close);
+    return bar;
+  }
+
+  /** Refresh what every bar says, which changes as sessions are named and processes come and go. */
+  refreshTitleBars(): void {
+    for (const [paneId, wrapper] of this.#wrappers) {
+      const name = wrapper.querySelector('.pane-bar-name');
+      if (name) name.textContent = this.#opts.paneTitle?.(paneId) ?? '';
+    }
   }
 
   /**

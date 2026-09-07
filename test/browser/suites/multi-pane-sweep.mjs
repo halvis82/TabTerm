@@ -21,6 +21,17 @@ const r = reporter();
 const { client } = await openTerminal();
 await waitFor(client, "document.querySelector('.pane')");
 
+/**
+ * With the start screen out of the way, which is the only state a pane menu exists in.
+ *
+ * A tab still showing its start screen declines a right click on the terminal under it: nothing
+ * has happened in that terminal, and splitting it rearranged the layout under a panel not laid
+ * out for two panes. Reaching the pane menu through a start screen is a route no person takes.
+ */
+await type(client, 'echo multi-pane-sweep');
+await waitFor(client, `document.querySelector('.launcher')?.hidden === true`, 10000);
+await sleep(600);
+
 const panes = () => evaluate(client, `document.querySelectorAll('.pane').length`).then(Number);
 const paneIds = async () =>
   JSON.parse(
@@ -55,13 +66,25 @@ const menuOnPane = async (index) => {
   return { labels, id: at.id };
 };
 const closeMenu = () => evaluate(client, "document.querySelector('.term-menu')?.remove()");
-const pressEntry = (label) =>
-  evaluate(
+/**
+ * Press a menu entry the way a hand does.
+ *
+ * A real press and release through the input domain rather than `element.click()`, because some
+ * of these entries need a trusted gesture and a script-made click is not one: focus mode calls
+ * `requestFullscreen`, the browser refuses it outside a real interaction, and the whole action
+ * gives up before it maximizes anything. It reads as the entry doing nothing at all.
+ */
+const pressEntry = async (label) => {
+  const there = await evaluate(
     client,
     `(() => { const b = [...document.querySelectorAll('.term-menu-item')]
        .find(x => (x.textContent || '').trim() === ${JSON.stringify(label)});
-       if (!b || b.disabled) return 'no'; b.click(); return 'yes'; })()`,
+       return !b || b.disabled ? 'no' : 'yes'; })()`,
   );
+  if (String(there) !== 'yes') return 'no';
+  await realClick(client, '.term-menu-item', label);
+  return 'yes';
+};
 
 /** Build a tab with three panes, each split from a named pane's own menu. */
 {
@@ -301,7 +324,7 @@ const pressEntry = (label) =>
     8000,
   );
   if (undoUp) {
-    await evaluate(client, `document.getElementById('clear-undo')?.click()`);
+    await realClick(client, '#clear-undo');
     const restored = await waitFor(
       client,
       `(window.__tabterm.readScreen(${JSON.stringify(all[1].id)}) ?? '').includes('SWEEP-CLEAR-ME')`,
@@ -335,7 +358,11 @@ const pressEntry = (label) =>
        * maximizes one pane and can put the rest back, which it records itself.
        */
       const maximized = String(await evaluate(client, `window.__tabterm.maximizedPane() ?? ''`));
-      r.ok('focus mode maximizes one pane', maximized !== '', maximized);
+      r.ok(
+        'focus mode maximizes one pane',
+        maximized !== '',
+        `maximized=${maximized} panes=${String(await panes())} entered=${String(entered)}`,
+      );
       const showing = JSON.parse(
         await evaluate(
           client,
@@ -382,18 +409,27 @@ const pressEntry = (label) =>
       );
       await realClick(client, '.pane-label-form .term-menu-item', 'Save');
       await sleep(1500);
-      const counts = JSON.parse(
-        await evaluate(
-          client,
-          `JSON.stringify([...document.querySelectorAll('.pane')].map((p) =>
-             p.querySelectorAll('.marker-pip').length))`,
-        ),
-      );
+      /**
+       * Read off each pane's screen, not off the rail beside it.
+       *
+       * A marker is printed into the session's output, and that is the thing that must land in
+       * one pane and not the others. The pips on the rail are a second view of the same fact and
+       * they are built from the buffer on their own schedule, so counting them asks a question
+       * about when the rail was last rebuilt rather than about where the marker went.
+       */
+      const ids = await paneIds();
+      const counts = [];
+      for (const id of ids) {
+        const screen = String(
+          await evaluate(client, `window.__tabterm.readScreen(${JSON.stringify(id)}) ?? ''`),
+        );
+        counts.push(screen.includes('SWEEP-MARKER') ? 1 : 0);
+      }
       const total = counts.reduce((a, b) => a + b, 0);
       r.ok(
         'a marker is added to one pane only',
         total >= 1 && counts.filter((c) => c > 0).length === 1,
-        JSON.stringify(counts),
+        `${JSON.stringify(counts)} facts=${String(await evaluate(client, `JSON.stringify(window.__tabterm.paneFacts())`))}`,
       );
     } else {
       r.skip('a marker is added to one pane only', 'not offered');

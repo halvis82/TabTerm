@@ -440,6 +440,18 @@ export class LauncherData {
     this.#db.handle.exec('DELETE FROM commands');
   }
 
+  /**
+   * Take one command out of the history, everywhere it was run.
+   *
+   * By its text rather than by a row id, because that is what a person means by "this command":
+   * the list already folds repeats of the same text into one row with a count, so removing the
+   * row has to remove what the row stands for. Removing one of five identical rows would look
+   * like nothing happened.
+   */
+  forgetCommand(command: string): void {
+    this.#db.handle.prepare('DELETE FROM commands WHERE command = ?').run(command);
+  }
+
   // --- saved items -------------------------------------------------------
 
   /**

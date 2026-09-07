@@ -1363,6 +1363,19 @@ export class DaemonServer {
         return;
       }
 
+      case 'forget-command': {
+        /**
+         * One command out of the history, at somebody's request.
+         *
+         * Not a favorite and not a file: only the record that it was run. The list folds repeats
+         * of the same text into one row with a count, so this removes what the row stands for
+         * rather than one of the runs behind it.
+         */
+        this.#launcher.forgetCommand(msg.command);
+        this.launcherChanged();
+        return;
+      }
+
       case 'list-history': {
         // A scope is resolved from the session the user is looking at, not from anything the
         // page asserts, so "this project" always means the project they are actually in.

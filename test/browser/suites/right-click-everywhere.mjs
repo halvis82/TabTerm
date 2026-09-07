@@ -15,6 +15,7 @@ import {
   waitFor,
   openPaneMenu,
   boxOf,
+  type,
 } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
@@ -94,12 +95,6 @@ const PLACES = [
     must: ['Paste', 'Settings'],
     mustNot: ['Add a marker here'],
   },
-  {
-    what: 'the terminal',
-    sel: '.xterm-screen',
-    must: ['Copy', 'Paste', 'Clear', 'Add a marker here', 'Close session', 'Kill session'],
-    mustNot: [],
-  },
 ];
 
 for (const place of PLACES) {
@@ -125,6 +120,72 @@ for (const place of PLACES) {
 }
 
 /**
+ * The terminal strip under the start screen belongs to the start screen.
+ *
+ * A tab showing its start screen still has a real terminal in it, a few rows tall below the
+ * panel, and right-clicking that got the full pane menu: split it, name it, mark a place in it,
+ * kill it. None of that means anything in a tab where nothing has happened yet, and splitting
+ * rearranged the layout under a panel that is not laid out for two panes, which is what "split
+ * right and split down work from the homescreen and they make the view all messed up" was.
+ *
+ * The pane declines the gesture rather than offering a shorter menu, so it travels on and the
+ * page answers with the start screen's own.
+ */
+{
+  const at = await evaluate(
+    client,
+    `(() => {
+       const pane = document.querySelector('.pane');
+       if (!pane) return '';
+       const b = pane.getBoundingClientRect();
+       const panel = document.querySelector('.launcher')?.getBoundingClientRect();
+       // Below the panel, which is where the terminal is actually visible.
+       const y = panel ? Math.round(panel.bottom + (b.bottom - panel.bottom) / 2) : Math.round(b.bottom - 8);
+       if (y >= b.bottom || y <= b.top) return '';
+       return JSON.stringify({ x: Math.round(b.left + b.width / 2), y });
+     })()`,
+  );
+  const showing = await evaluate(
+    client,
+    `String(document.querySelector('.launcher')?.hidden === false)`,
+  );
+  if (String(at) === '' || String(showing) !== 'true') {
+    r.skip(
+      'right click on the terminal under the start screen',
+      `no strip visible in this state (at=${String(at)}, showing=${String(showing)})`,
+    );
+  } else {
+    const { x, y } = JSON.parse(String(at));
+    await openPaneMenu(client, x, y);
+    const labels = JSON.parse(
+      await evaluate(
+        client,
+        `JSON.stringify([...document.querySelectorAll('.term-menu-item')].map((b) => (b.textContent ?? '').trim()))`,
+      ),
+    );
+    r.ok(
+      'right click on the terminal under the start screen opens a menu',
+      labels.length > 0,
+      labels.join(' | '),
+    );
+    r.ok(
+      "  and it is the start screen's, not the pane's",
+      !labels.some((l) => l.includes('Split right') || l.includes('Split down')),
+      labels.join(' | '),
+    );
+    r.ok(
+      '  so nothing it offers acts on a terminal nobody has used',
+      !labels.some(
+        (l) =>
+          l.includes('Add a marker') || l.includes('Kill session') || l.includes('Name session'),
+      ),
+      labels.join(' | '),
+    );
+    await evaluate(client, "document.querySelector('.term-menu')?.remove()");
+  }
+}
+
+/**
  * A template chip is the one place on the start screen that answers for itself.
  *
  * Asked for: right clicking a template should do what the `i` on it does. So the general menu
@@ -147,6 +208,52 @@ for (const place of PLACES) {
     );
     await evaluate(client, `document.querySelector('.template-card')?.remove()`);
   }
+}
+
+/**
+ * The row says what it will do, not what it is called.
+ *
+ * "Open menu" while the menu is open either does nothing or reads as a bug. Right-clicking inside
+ * the panel already said "Close menu"; everywhere else went on offering to open what was open.
+ */
+/**
+ * Somewhere the panel is not, since the panel has a menu of its own.
+ *
+ * The top left corner of the page, which the command menu never occupies and which is the
+ * "anywhere else" case: the small set, without paste, and the way to the menu.
+ */
+const menuInTheCorner = async () => {
+  await openPaneMenu(client, 8, 8);
+  const labels = JSON.parse(
+    await evaluate(
+      client,
+      `JSON.stringify([...document.querySelectorAll('.term-menu-item')].map((b) => (b.textContent ?? '').trim()))`,
+    ),
+  );
+  await evaluate(client, "document.querySelector('.term-menu')?.remove()");
+  return labels;
+};
+
+await evaluate(client, `document.getElementById('cmd-button')?.click()`);
+await waitFor(client, `!document.querySelector('.cmd-panel')?.hidden`, 8000);
+{
+  const labels = await menuInTheCorner();
+  r.ok(
+    'with the menu open, the way to it says Close menu',
+    labels.includes('Close menu') && !labels.includes('Open menu'),
+    JSON.stringify(labels),
+  );
+}
+// The button that opened it is the button that closes it, which is what a person would click.
+await evaluate(client, `document.getElementById('cmd-button')?.click()`);
+await waitFor(client, `document.querySelector('.cmd-panel')?.hidden === true`, 8000);
+{
+  const labels = await menuInTheCorner();
+  r.ok(
+    'and with it closed, it says Open menu again',
+    labels.includes('Open menu') && !labels.includes('Close menu'),
+    JSON.stringify(labels),
+  );
 }
 
 /** The command menu and its own surfaces. */
@@ -303,6 +410,33 @@ await sleep(500);
     `${String(first)} then ${String(after)}`,
   );
   await evaluate(client, "document.querySelector('.term-menu')?.remove()");
+}
+
+/**
+ * And a terminal somebody is actually using offers the whole pane menu.
+ *
+ * Last, and after the start screen has gone, because that is the only state in which it applies.
+ * It used to sit in the table above and be skipped every run: the start screen was up, so the
+ * terminal was a strip with no measurable box, and the richest menu in the product was covered by
+ * nothing at all.
+ */
+await type(client, 'echo right-click-everywhere');
+await waitFor(client, `document.querySelector('.launcher')?.hidden === true`, 10000);
+await sleep(600);
+{
+  const menu = await menuOn('.xterm-screen');
+  if (menu === null) {
+    r.skip('right click on a terminal in use', 'no terminal on screen in this state');
+  } else {
+    const must = ['Copy', 'Paste', 'Clear', 'Add a marker here', 'Close session', 'Kill session'];
+    const missing = must.filter((m) => !menu.labels.some((l) => l.includes(m)));
+    r.ok(
+      'right click on a terminal in use offers the whole pane menu',
+      missing.length === 0,
+      `missing: ${missing.join(', ')} | had: ${menu.labels.join(' | ')}`,
+    );
+    r.ok('  and every entry is usable', menu.enabled > 0, String(menu.enabled));
+  }
 }
 
 await finish();

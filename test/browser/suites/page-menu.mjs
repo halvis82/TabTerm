@@ -4,7 +4,7 @@
 // not the chrome right click... just choose logically for every possible place to right click".
 // Chrome's menu knows nothing about a terminal drawn on a canvas: it offers Reload, Save As and
 // an offer to translate the page.
-import { openTerminal, evaluate, sleep, finish, waitFor, openPaneMenu } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, finish, waitFor, openPaneMenu, type } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -90,7 +90,17 @@ r.ok(
 await evaluate(client, `document.querySelector('.cmd-header .cmd-icon')?.click()`);
 await sleep(500);
 
-// And the terminal keeps its own, which is much richer.
+/**
+ * And a terminal somebody is using keeps its own, which is much richer.
+ *
+ * After the start screen has gone, because that is the only state where it applies. A tab still
+ * showing its start screen has a terminal in it that nothing has happened in, and its menu offered
+ * to split, name, mark and kill it. Splitting from there rearranged the layout under a panel that
+ * is not laid out for two panes.
+ */
+await type(client, 'echo page-menu');
+await waitFor(client, `document.querySelector('.launcher')?.hidden === true`, 10000);
+await sleep(600);
 const onTerminal = (await menuAt('.xterm-screen')) ?? [];
 r.ok(
   'a terminal keeps its own menu, which the page one never replaces',

@@ -28,6 +28,8 @@ export interface PaneHostOptions {
   onColorUsed?: (color: string) => void;
   /** The browser took a pane's accelerated renderer away. See `XtermController`. */
   onRendererLost?: (paneId: string) => void;
+  /** Whether a pane should answer a right click. See `shouldOpenMenu` on the controller. */
+  shouldOpenMenu?: () => boolean;
 }
 
 interface Pane {
@@ -89,6 +91,7 @@ export class PaneHost {
       highlightRecents: () => this.#opts.highlightRecents?.() ?? [],
       onColorUsed: (color) => this.#opts.onColorUsed?.(color),
       onRendererLost: () => this.#opts.onRendererLost?.(paneId),
+      shouldOpenMenu: () => this.#opts.shouldOpenMenu?.() !== false,
     });
 
     /**

@@ -42,6 +42,17 @@ const splitFromMenu = async (label) => {
   await evaluate(client, "document.querySelector('.term-menu')?.remove()");
 };
 
+/**
+ * With the start screen out of the way first, which is the only state a pane menu exists in.
+ *
+ * A tab still showing its start screen declines the gesture: the terminal under the panel has
+ * nothing in it, and splitting rearranged the layout under a panel that is not laid out for two
+ * panes. This suite was reaching the pane menu through a start screen that a person never would.
+ */
+await type(client, 'echo pane-close');
+await waitFor(client, `document.querySelector('.launcher')?.hidden === true`, 10000);
+await sleep(600);
+
 // Three panes, so there is something to close twice and something left over.
 await splitFromMenu('Split right');
 await splitFromMenu('Split down');

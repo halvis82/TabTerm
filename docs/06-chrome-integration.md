@@ -229,6 +229,32 @@ approval > waiting > failed > success > done > running > idle
 
 Waiting outranks failed deliberately: one of them can still be acted on.
 
+### A bar on each pane, only when there is more than one
+
+A tab holding several terminals gives each one a thin strip across the top: what that pane is, a
+button that opens the pane's own menu, and a cross that closes it. Twenty-two pixels, which is two
+rows of its text, and it is furniture rather than a toolbar.
+
+**Only when a tab holds more than one pane.** With a single terminal the tab's own title already
+says what the bar would, and a strip across the top would take rows from the terminal to repeat
+something.
+
+**The dots open the pane's own menu, not a smaller one built for the bar.** Everything that can be
+done to a pane is in that menu already, and a bar carrying its own three entries would be a second
+list to keep in step with a list that is already right. It opens below the button and back into
+the pane, since the button sits at the right of a bar that can be half a narrow window wide.
+
+**What the bar says**, in order: the name somebody gave the session, because a name is chosen and
+everything else is inferred; otherwise the folder, and the process when one is running that is not
+the shell. A pane sitting at a prompt is not news, and four panes all saying "zsh" is four labels
+that distinguish nothing from each other.
+
+**The focused pane's bar is lit**, in the same color rather than a new one. The border already
+says which pane has the keyboard; this says it again at the top, where the name is.
+
+The tab's command button moves below the bars in a split tab. It lives in the same corner as the
+rightmost pane's cross, and at the same line it sat directly on top of it.
+
 ### Outcomes wait to be seen
 
 `success`, `failed`, `done` and `waiting` persist **until the tab is actually looked at**, and are
@@ -259,6 +285,11 @@ Two corrections. No panes at all is nothing here, not "cannot tell": two panes i
 empty tab. And the ceiling now waits for a pane to exist before it decides, up to a few seconds.
 Nothing is on screen either way while it waits, so waiting costs nothing and deciding early costs
 the answer.
+
+With one exception, which the first version of this got wrong: **a tab opened on a workspace has
+work by definition.** The panes are on their way and the only reason there are none yet is that
+the daemon has not answered. Reading that as an empty tab put the start screen over a session
+somebody was coming back to, which is the one thing a reattaching tab must never do.
 
 ### A redraw restores the box before it restores what is under it
 

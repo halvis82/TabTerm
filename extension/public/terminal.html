@@ -580,6 +580,16 @@
     cursor: pointer;
     backdrop-filter: blur(6px);
   }
+  /* Out of the way of the bar the rightmost pane grew.
+     The button lives in the tab's top right corner and the bars start at the same line, so in a
+     split tab it sat directly on top of that pane's close cross. It drops below the bars, which
+     is a place nothing else uses and keeps it in the same corner it has always been in. */
+  /* A sibling combinator, because the button is not inside the layout: it sits beside it in the
+     document, so a descendant selector matched nothing at all and the rule looked wrong rather
+     than absent. */
+  #terminal.many-panes ~ #cmd-button {
+    top: 28px;
+  }
   #cmd-button:hover {
     color: var(--text);
     border-color: var(--accent);
@@ -1516,6 +1526,85 @@
 
   /* A name somebody gave a pane. Quiet on purpose: it is for telling panes apart, not for
      reading, and one that competed with the output would be worse than none. */
+  /* --- the bar on top of a pane ----------------------------------------
+     Only in a tab that holds more than one. A single terminal's name is already the tab's, and
+     a strip across the top of it would take rows from the terminal to repeat something. */
+  .pane-bar {
+    display: none;
+  }
+  .many-panes .pane-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    /* Two rows of text tall at most. It is furniture around a terminal, not a toolbar, and every
+       pixel here is a pixel the terminal does not have. */
+    height: 22px;
+    flex: 0 0 22px;
+    padding: 0 4px 0 8px;
+    box-sizing: border-box;
+    font-size: 11px;
+    line-height: 1;
+    color: var(--dim);
+    /* A wash of the panel color rather than a color of its own, so it reads as the edge of the
+       pane rather than as a thing sitting on top of it. */
+    background: linear-gradient(var(--panel), color-mix(in srgb, var(--panel) 82%, var(--bg)));
+    border-bottom: 1px solid var(--edge);
+    user-select: none;
+  }
+  /* The focused pane's bar is the same color, lit. The border already says which pane has the
+     keyboard; this says it again at the top, where the name is, without introducing a new hue. */
+  .many-panes .pane.focused .pane-bar {
+    background: linear-gradient(
+      color-mix(in srgb, var(--accent) 20%, var(--panel)),
+      color-mix(in srgb, var(--accent) 9%, var(--panel))
+    );
+    color: var(--text);
+    border-bottom-color: color-mix(in srgb, var(--accent) 40%, var(--edge));
+  }
+  .pane-bar-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+  }
+  .pane-bar-button {
+    flex: 0 0 auto;
+    background: none;
+    border: 0;
+    color: inherit;
+    opacity: 0.75;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 2px 5px;
+    border-radius: 4px;
+  }
+  .pane-bar-button:hover {
+    opacity: 1;
+    background: var(--hover);
+  }
+  .pane-bar-button.is-close:hover {
+    background: var(--danger);
+    color: var(--panel);
+  }
+  /* The pane becomes a column, so the bar takes its height off the top and the terminal gets
+     the rest. Without this the terminal is still the full height and the bar covers its first
+     row, which is where a prompt is. */
+  .many-panes .pane {
+    display: flex;
+    flex-direction: column;
+  }
+  .many-panes .pane > .pane-terminal {
+    /* Out of the absolute fill it uses on its own, so the bar and the terminal share the pane
+       as two rows instead of the terminal covering the bar. */
+    position: relative;
+    inset: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
   .pane-label {
     position: absolute;
     /* Top right, clear of the command button in the same corner. The form that types it moved

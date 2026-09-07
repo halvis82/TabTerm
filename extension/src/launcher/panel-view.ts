@@ -45,6 +45,8 @@ export interface PanelOptions {
   ) => void;
   onDelete: (id: string) => void;
   onCreate: (fields: { title: string; body: string; hotstring: string }) => void;
+  /** Take one command out of the history. Every run of it, since the list folds repeats. */
+  onForget: (command: string) => void;
   onClose: () => void;
   onOpen: () => void;
   onPlacement: (placement: PanelPlacement) => void;
@@ -57,6 +59,11 @@ export interface PanelOptions {
 }
 
 const PANEL_WIDTH = 460;
+
+/** A command short enough to sit inside a question. */
+function shortLabel(text: string): string {
+  return text.length > 40 ? `${text.slice(0, 40)}\u2026` : text;
+}
 
 export class CommandPanel {
   readonly #opts: PanelOptions;
@@ -165,8 +172,32 @@ export class CommandPanel {
     this.#applyPlacement();
   }
 
+  /**
+   * The ids that existed when a new favorite was asked for, or null when none was.
+   *
+   * Cleared as soon as one arrives, so a list that changes for some other reason later does not
+   * open an editor over whatever somebody was reading.
+   */
+  #awaitingNew: Set<string> | null = null;
+
   setFavorites(items: readonly SavedItem[]): void {
+    const before = this.#awaitingNew;
     this.#favorites = items;
+    /**
+     * A command just created opens its own editor.
+     *
+     * It arrives called "New command" with nothing in it, which is not a favorite yet: filling it
+     * in is the next thing to do either way, and every other route to that form is a second
+     * deliberate act. Making it happen here rather than in the button, because the item does not
+     * exist until the daemon says it does.
+     */
+    if (before) {
+      const fresh = items.find((item) => !before.has(item.id));
+      if (fresh) {
+        this.#awaitingNew = null;
+        this.#editing = fresh.id;
+      }
+    }
     if (this.#open) this.render();
   }
 
@@ -200,6 +231,10 @@ export class CommandPanel {
   }
 
   close(): void {
+    // A question goes with the panel it was asked in. Leaving it behind means the next opening
+    // starts with an unanswered one about a row nobody is looking at.
+    this.#pendingAsk?.element.remove();
+    this.#pendingAsk = null;
     this.#open = false;
     this.#el.hidden = true;
     this.#opts.onClose();
@@ -440,6 +475,14 @@ export class CommandPanel {
     add.className = 'cmd-add';
     add.textContent = '+  Add a command';
     add.addEventListener('click', () => {
+      /**
+       * What is here now, so the one that arrives can be told from it.
+       *
+       * Creating goes to the daemon and comes back as a new list, and nothing in that reply says
+       * which row is the new one. Comparing against what was here is the only honest way to know,
+       * and it is exact: an id that was not there a moment ago is the id that was just made.
+       */
+      this.#awaitingNew = new Set(this.#favorites.map((f) => f.id));
       this.#opts.onCreate({ title: 'New command', body: '', hotstring: '' });
     });
     return add;
@@ -452,6 +495,32 @@ export class CommandPanel {
    * already asked. The question replaces the row's controls until it is answered, and anything
    * else puts it back.
    */
+  /**
+   * The question on screen, if there is one, so the keyboard can answer it.
+   *
+   * It was a bare element with two buttons and no way to press either without the pointer, which
+   * for a confirmation is most of the way to not having asked.
+   */
+  #pendingAsk: { element: HTMLElement; confirm: () => void } | null = null;
+
+  /** Whether a question is waiting to be answered, which changes what Escape means. */
+  get hasQuestion(): boolean {
+    return this.#pendingAsk !== null;
+  }
+
+  /** Take the question away without answering it. */
+  dismissQuestion(): void {
+    this.#dismissAsk();
+  }
+
+  #dismissAsk(): void {
+    this.#pendingAsk?.element.remove();
+    this.#pendingAsk = null;
+    // Only while the panel is still up. Focusing a box in a panel that is closing puts the
+    // keyboard somewhere nobody can see.
+    if (this.isOpen) this.#search.focus();
+  }
+
   #ask(question: string, confirmLabel: string, onConfirm: () => void): void {
     const bar = document.createElement('div');
     bar.className = 'cmd-ask';
@@ -466,18 +535,21 @@ export class CommandPanel {
     no.textContent = 'Cancel';
     bar.append(text, yes, no);
 
-    const close = (): void => bar.remove();
     yes.addEventListener('click', (e) => {
       e.stopPropagation();
-      close();
+      this.#dismissAsk();
       onConfirm();
     });
     no.addEventListener('click', (e) => {
       e.stopPropagation();
-      close();
+      this.#dismissAsk();
     });
     this.#el.querySelector('.cmd-ask')?.remove();
     this.#list.before(bar);
+    this.#pendingAsk = { element: bar, confirm: onConfirm };
+    // The box keeps the keyboard, so Return and Escape reach the handler above rather than
+    // whichever button the browser happened to focus.
+    this.#search.focus();
   }
 
   #rowElement(row: PanelRow, index: number): HTMLElement {
@@ -647,6 +719,23 @@ export class CommandPanel {
         );
       });
       el.append(star);
+
+      /**
+       * And a cross, which takes the command out of the list.
+       *
+       * Only the record that it was run: not the favorite it may also be, and nothing on disk.
+       * A history that cannot be tidied fills with typos and one-off commands and stops being
+       * the short list of things worth running again that it exists to be.
+       */
+      const forget = document.createElement('button');
+      forget.className = 'cmd-icon cmd-drop';
+      forget.title = 'Remove from recent';
+      forget.textContent = '\u00d7';
+      forget.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.#opts.onForget(row.entry.command);
+      });
+      el.append(forget);
     }
     if (row.kind === 'favorite') {
       const edit = document.createElement('button');
@@ -658,7 +747,26 @@ export class CommandPanel {
         this.#editing = row.item.id;
         this.render();
       });
-      el.append(edit);
+      /**
+       * And a cross to the right of it, which is the only way to remove one from this list.
+       *
+       * A favorite could be taken back out through the filled star on its recent row, which only
+       * exists while the same command is still in the history. Something kept months ago had no
+       * way out at all.
+       */
+      const drop = document.createElement('button');
+      drop.className = 'cmd-icon cmd-drop';
+      drop.title = 'Delete this favorite';
+      drop.textContent = '\u00d7';
+      drop.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // Asked first: it is small, it sits beside a row people click to paste, and what it
+        // removes was deliberately kept.
+        this.#ask(`Delete "${shortLabel(rowLabel(row))}"?`, 'Delete', () =>
+          this.#opts.onDelete(row.item.id),
+        );
+      });
+      el.append(edit, drop);
       el.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         this.#editing = row.item.id;
@@ -780,6 +888,30 @@ export class CommandPanel {
   }
 
   #onKey(e: KeyboardEvent): void {
+    /**
+     * A question that is up answers the keyboard, and nothing else does.
+     *
+     * Return says yes, because the question was asked by the gesture that was just made and
+     * agreeing with it is the whole reason to reach for the keyboard. Escape says no and takes
+     * the question away, and **only** the question: it used to close the panel, so declining to
+     * delete something also threw away the list you were reading.
+     */
+    if (this.#pendingAsk) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const confirm = this.#pendingAsk.confirm;
+        this.#dismissAsk();
+        confirm();
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        this.#dismissAsk();
+        return;
+      }
+      return;
+    }
+
     if (this.#editing || this.#showingSettings) {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -805,7 +937,16 @@ export class CommandPanel {
         return;
       case 'Enter':
         e.preventDefault();
-        this.#activate(e.metaKey ? 'copy' : 'run');
+        /**
+         * Return pastes. It does not run.
+         *
+         * Asked for, and it is the same gesture a double-click makes: "give me this at the
+         * prompt". Running somebody's old command from a list they were reading is a thing that
+         * cannot be taken back, and the Return that runs it is the one they press themselves,
+         * looking at what is about to run. An action is different and still runs, because an
+         * action is a button with a verb on it.
+         */
+        this.#activate(e.metaKey ? 'copy' : 'paste');
         return;
       case 'Tab':
         // Cycling tabs from the keyboard, since the panel has three of them and reaching for

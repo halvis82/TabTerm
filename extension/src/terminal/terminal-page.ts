@@ -1471,14 +1471,20 @@ function thisTabIsUnused(): boolean {
 
   const panes = panesHost?.all ?? [];
   /**
-   * No panes at all is not "cannot tell". It is nothing here.
+   * No panes at all is nothing here, **unless this tab is attaching to a workspace**.
    *
-   * This used to fall through the same door as two panes and answer "in use", on the reasoning
-   * that anything uncertain should be left alone. Two panes really is work. Zero is an empty
-   * tab, and calling it used meant the start screen was dismissed and the terminal, which had
-   * nothing in it, took the whole page.
+   * Zero panes used to fall through the same door as two and answer "in use", so a tab whose
+   * ceiling fired before any pane existed dismissed the start screen and gave the whole page to
+   * an empty terminal. Two panes really is work. Zero usually is not.
+   *
+   * Usually. A tab opened on a workspace has work by definition: the panes are on their way and
+   * the only reason there are none yet is that the daemon has not answered. Reading that as an
+   * empty tab put the start screen over a session somebody was coming back to, which is the one
+   * thing a reattaching tab must never do.
    */
-  if (panes.length === 0) return true;
+  if (panes.length === 0) {
+    return new URL(location.href).searchParams.get('workspace') === null;
+  }
   if (panes.length !== 1) return false;
   const only = panes[0];
   if (!only) return false;
@@ -1720,9 +1726,22 @@ function wayOutItems(separated: boolean): ShellItem[] {
         void chrome.tabs.create({ url: chrome.runtime.getURL('terminal.html'), active: true });
       },
     },
-    { label: 'Open menu', run: () => commandPanel?.open() },
+    menuToggleItem(),
     { label: 'Settings', run: () => commandPanel?.openSettings() },
   ];
+}
+
+/**
+ * One entry, saying what it will do rather than what it is called.
+ *
+ * "Open menu" while the menu is open is an entry that either does nothing or reads as a bug. The
+ * menu is one thing with two states, so the row follows the state it is in. Right-clicking inside
+ * the panel already said "Close menu"; everywhere else went on offering to open what was open.
+ */
+function menuToggleItem(): ShellItem {
+  return commandPanel?.isOpen === true
+    ? { label: 'Close menu', run: () => commandPanel?.close() }
+    : { label: 'Open menu', run: () => commandPanel?.open() };
 }
 
 function pageMenuItems(target: Element): ShellItem[] {
@@ -1812,7 +1831,23 @@ function installAmbientFocus(): void {
     (e) => {
       if (e.key === 'Escape' && commandPanel?.isOpen) {
         e.preventDefault();
-        commandPanel.close();
+        /**
+         * A question takes Escape before the panel does.
+         *
+         * This runs in the capture phase, so it answered Escape before the panel's own handler
+         * ever saw it, and declining to delete a favorite threw away the list being read as
+         * well. Escape closes one thing: whichever is on top.
+         */
+        /**
+         * And it stops here, because this handler has decided what Escape meant.
+         *
+         * It runs in the capture phase, so without this the event went on to the panel's own
+         * handler, which found no question left to dismiss and closed the panel: the question
+         * was taken away and the list with it, which is the whole of what this was meant to stop.
+         */
+        e.stopPropagation();
+        if (commandPanel.hasQuestion) commandPanel.dismissQuestion();
+        else commandPanel.close();
       }
     },
     true,
@@ -1899,6 +1934,21 @@ function buildHosts(): void {
      * Written down, because it is the difference between a pane that scrolls well and one that
      * does not, and it was invisible to everyone including the person feeling it.
      */
+    /**
+     * Not while the start screen is up.
+     *
+     * A tab showing its start screen still has a real terminal in it, a few rows tall below the
+     * panel, and right-clicking that got the whole pane menu: split it, name it, mark a place in
+     * it, kill it. None of that means anything in a tab where nothing has happened yet, and
+     * splitting rearranged the layout under a panel that is not laid out for two panes, which is
+     * what "split right and split down work from the homescreen and they make the view all
+     * messed up" was.
+     *
+     * Declined rather than shortened, so the gesture travels on and the page answers it with the
+     * start screen's own menu. `isShowing` rather than `dismissed`, because a start screen can be
+     * drawn and not shown, and a menu decision has to follow what is on screen.
+     */
+    shouldOpenMenu: () => launcher?.isShowing !== true,
     onRendererLost: (paneId) => {
       client?.send({
         t: 'note',
@@ -1996,6 +2046,19 @@ function buildHosts(): void {
       if (workspaceId) client?.send({ t: 'set-ratio', workspaceId, paneId, ratio });
     },
     onFocusPane: (paneId) => panesHost?.focus(paneId),
+    paneTitle,
+    onClosePane: (paneId) => {
+      splitView?.focus(paneId);
+      closeFocused();
+    },
+    /**
+     * The dots open the pane's own menu, which is the same menu a right click gives.
+     *
+     * Not a second, smaller menu built for the bar. Everything that can be done to a pane is in
+     * that one already, and a bar with its own three entries would be a list to keep in step
+     * with a list that is already right.
+     */
+    onPaneMenu: (paneId, x, y) => panesHost?.get(paneId)?.controller.openMenuAt(x, y),
     onPaneResized: (paneId) => {
       const size = panesHost?.fit(paneId);
       if (size && workspaceId && attached) {
@@ -3024,6 +3087,45 @@ function closeFocused(): void {
  * first. Right-clicking a pane and having the action land somewhere else would be a trap.
  */
 /** What a pane is currently called, read from the layout, which is where it lives. */
+/**
+ * The shells, which are not worth naming in a pane's bar.
+ *
+ * A pane sitting at a prompt is not news, and four panes all saying "zsh" is four labels that
+ * distinguish nothing from each other. Anything else running is worth saying.
+ */
+const SHELLS = new Set(['zsh', 'bash', 'sh', 'fish', 'dash', '-zsh', '-bash', 'login']);
+
+/** What each session calls itself, kept per session because a tab can hold several. */
+const sessionTitles = new Map<string, TitleFields>();
+
+/**
+ * What the bar on top of a pane says.
+ *
+ * The name somebody gave it first, because a name is chosen and everything else is inferred.
+ * Then whatever is running in it, then the folder it is in, and then nothing rather than a
+ * placeholder: an empty bar is honest and "Terminal" written four times is not.
+ */
+function paneTitle(paneId: string): string {
+  const named = paneLabel(paneId).label;
+  if (named !== '') return named;
+
+  const sessionId = panesHost?.get(paneId)?.sessionId ?? '';
+  const fields = sessionTitles.get(sessionId);
+  const where = fields?.cwd ?? '';
+  const folder = where === '' ? '' : where === launcherHome ? '~' : (where.split('/').pop() ?? '');
+  /**
+   * The folder, and what is running in it when that is worth saying.
+   *
+   * A shell sitting at a prompt is not news: four panes all saying "zsh" is four labels that
+   * distinguish nothing. A folder always distinguishes something, and a process is added only
+   * when it is not the shell that pane was started with.
+   */
+  const process = fields?.process ?? '';
+  const running = process !== '' && !SHELLS.has(process) ? process : '';
+  if (folder === '') return running;
+  return running === '' ? folder : `${folder} \u00b7 ${running}`;
+}
+
 function paneLabel(paneId: string): { label: string; color?: string } {
   const walk = (node: LayoutNode): { label: string; color?: string } | null => {
     if (node.type === 'terminal') {
@@ -3205,9 +3307,8 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
        * Three ways to the same place, deliberately: a shortcut for people who know it, a button
        * for people who look, and a menu entry for people already in the menu.
        */
-      label: 'Open menu',
+      ...menuToggleItem(),
       separated: true,
-      run: () => commandPanel?.open(),
     },
     {
       // Reachable from the terminal as well as from the command menu and the toolbar icon.
@@ -3482,6 +3583,23 @@ function buildCommandPanel(): void {
     onEdit: (id, changes) => client?.send({ t: 'update-saved', id, ...changes }),
     onDelete: (id) => client?.send({ t: 'delete-saved', id }),
     onCreate: (fields) => client?.send({ t: 'save-item', title: fields.title, body: fields.body }),
+    onForget: (command) => {
+      client?.send({ t: 'forget-command', command });
+      /**
+       * And ask for the list again, because nothing pushes it.
+       *
+       * Recents are answered when they are asked for, so removing one left the row on screen
+       * until the panel was closed and reopened, which reads as the cross having done nothing.
+       */
+      const sessionId = focusedSessionId();
+      client?.send({
+        t: 'list-history',
+        query: '',
+        scope: 'global',
+        limit: 100,
+        ...(sessionId ? { sessionId } : {}),
+      });
+    },
     onClose: () => {
       // The terminal takes the keyboard back, and its cursor starts blinking again.
       root.classList.remove('panel-has-keyboard');
@@ -4377,6 +4495,10 @@ function onControl(msg: ServerMessage): void {
 
     case 'title': {
       titleFields = msg.fields;
+      // Per session as well as for the tab, because a tab with four panes has four of these and
+      // the bar on each one has to say what that pane is, not what the tab is called.
+      sessionTitles.set(msg.sessionId, msg.fields);
+      splitView?.refreshTitleBars();
       refreshTitle();
       return;
     }
