@@ -1470,6 +1470,15 @@ function thisTabIsUnused(): boolean {
   if (hasLaunched()) return false;
 
   const panes = panesHost?.all ?? [];
+  /**
+   * No panes at all is not "cannot tell". It is nothing here.
+   *
+   * This used to fall through the same door as two panes and answer "in use", on the reasoning
+   * that anything uncertain should be left alone. Two panes really is work. Zero is an empty
+   * tab, and calling it used meant the start screen was dismissed and the terminal, which had
+   * nothing in it, took the whole page.
+   */
+  if (panes.length === 0) return true;
   if (panes.length !== 1) return false;
   const only = panes[0];
   if (!only) return false;
@@ -4636,6 +4645,10 @@ declare global {
       paneSessions: () => { paneId: string; sessionId: string }[];
       /** Do what looking at the tab does, which is how an outcome stops being news. */
       lookAtTab: () => void;
+      /** What the line under the path box knows, for when it is blank and should not be. */
+      folderStateDebug: () => Record<string, unknown>;
+      /** Make the start screen redraw itself, the way a change anywhere else in TabTerm does. */
+      refreshStartScreen: () => void;
       attached: () => boolean;
       split: (direction: 'horizontal' | 'vertical') => void;
       closePane: () => void;
@@ -4919,6 +4932,8 @@ function installTestHook(): void {
     paneSessions: () =>
       (panesHost?.all ?? []).map((p) => ({ paneId: p.paneId, sessionId: p.sessionId })),
     lookAtTab: () => lookedAtTab(),
+    folderStateDebug: () => launcher?.folderStateDebug() ?? {},
+    refreshStartScreen: () => client?.send({ t: 'list-launcher' }),
     dropConnection: () => client?.close(),
     loseConnection: () => client?.dropForTest(),
     attached: () => attached,
@@ -5051,7 +5066,28 @@ async function start(): Promise<void> {
      * nothing at all.
      */
     root.classList.add('deciding');
-    setTimeout(decideStartScreen, 900);
+    /**
+     * The ceiling, which waits for there to be something to decide about.
+     *
+     * Nine hundred milliseconds is generous on an idle machine and short on a loaded one, and
+     * when it fired before any pane existed the tab decided what to show on no evidence at all.
+     * Nothing is on screen either way while this waits, so waiting costs nothing and deciding
+     * early costs the answer.
+     *
+     * It still has an end. A snapshot that never arrives must not leave a tab showing nothing.
+     */
+    const decideWhenThereIsSomething = (waited: number): void => {
+      if ((panesHost?.all.length ?? 0) > 0 || waited >= 4000) {
+        decideStartScreen();
+        return;
+      }
+      setTimeout(() => {
+        decideWhenThereIsSomething(waited + 300);
+      }, 300);
+    };
+    setTimeout(() => {
+      decideWhenThereIsSomething(900);
+    }, 900);
   }
   // Leaving fullscreen by any route, including the Escape the browser handles itself, must
   // put the layout back and release the lock.

@@ -39,6 +39,10 @@ export const THEMES: Record<string, Theme> = {
       '--dim': '#9aa1b8',
       '--accent': '#7aa2f7',
       '--hover': '#2b4d7a',
+      /* What a selected row in a list sits on. Its own token because selection and hover mean
+         different things, and because a wash written out by hand has no light form. */
+      '--selected': '#31405e',
+      '--selected-edge': '#8fb6e8',
       '--warn': '#e8c26a',
       '--danger': '#ff8a7a',
     },
@@ -58,6 +62,11 @@ export const THEMES: Record<string, Theme> = {
       '--dim': '#5c6478',
       '--accent': '#2b6cb0',
       '--hover': '#dce7f8',
+      /* Light enough that everything on a row keeps its contrast, the dim icons included. The
+         dark theme's hand-written wash measured 3.6 to 1 under the label, and the first light
+         value tried cleared the label at 10.5 and left the icons on it at 4.0. */
+      '--selected': '#dce9fa',
+      '--selected-edge': '#2b6cb0',
       /* Darker than the dark theme's amber and coral, which measured 1.7 and 2.3 to 1 on white:
          a warning nobody can read is not a warning. */
       '--warn': '#8a5a00',
@@ -79,6 +88,8 @@ export const THEMES: Record<string, Theme> = {
       '--dim': '#79839e',
       '--accent': '#6ee7d5',
       '--hover': '#16304a',
+      '--selected': '#1d2b45',
+      '--selected-edge': '#5f8fd0',
       '--warn': '#e8c26a',
       '--danger': '#ff8a7a',
     },

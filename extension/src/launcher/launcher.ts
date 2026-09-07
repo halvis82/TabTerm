@@ -599,6 +599,23 @@ export class Launcher {
    * listing recovers on its own because typing asks again, and the state line does not, because
    * the box has not changed: it is still showing the path whose answer went missing.
    */
+  /**
+   * What the line under the path box knows, for when it is blank and should not be.
+   *
+   * It is drawn from three things that have to agree, and when they do not the line simply says
+   * nothing, which is indistinguishable from nothing having been asked. This says which.
+   */
+  folderStateDebug(): Record<string, unknown> {
+    const typed = this.#dirInput?.value.trim() ?? '';
+    return {
+      typed,
+      resolved: typed === '' ? '' : this.#resolved(typed),
+      home: this.#state?.home ?? null,
+      answer: this.#folderState,
+      awaiting: this.#awaitingFolderState,
+    };
+  }
+
   connectionReady(): void {
     if (this.#dismissed) return;
     if (this.#awaitingFolderState === null) return;
@@ -1357,16 +1374,6 @@ export class Launcher {
       opened?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
 
-    /**
-     * And what was known about the folder in the box, which a redraw rebuilt empty.
-     *
-     * The answer is kept in `#folderState` and drawn into a slot in place, so a full redraw made
-     * the slot again and left it blank: the line saying a folder does not exist, and the offer to
-     * create it, disappeared. That only mattered when something else caused a redraw, and until
-     * the start screen followed what other tabs were doing, almost nothing did.
-     */
-    this.#renderFolderState();
-
     if (typed && this.#dirInput) {
       this.#dirInput.value = typed;
       if (hadFocus) {
@@ -1377,6 +1384,21 @@ export class Launcher {
         }
       }
     }
+
+    /**
+     * And what was known about the folder in the box, which a redraw rebuilt empty.
+     *
+     * The answer is kept in `#folderState` and drawn into a slot in place, so a full redraw made
+     * the slot again and left it blank: the line saying a folder does not exist, and the offer to
+     * create it, disappeared. That only mattered when something else caused a redraw, and until
+     * the start screen followed what other tabs were doing, almost nothing did.
+     *
+     * **After the box has its text back**, which is the whole of the second half of this. It ran
+     * before, when the input in the document was the new empty one, and this compares the answer
+     * to what is typed: an empty box matches no answer, so it drew nothing and left the line
+     * blank for good. Correct code in the wrong order, and it read fine both times.
+     */
+    this.#renderFolderState();
   }
 
   #layoutSection(state: LauncherState): HTMLElement {

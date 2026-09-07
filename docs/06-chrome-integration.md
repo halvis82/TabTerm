@@ -246,6 +246,31 @@ Conditions do not work this way. `running` describes the present and speaks for 
 `approval` clears when the approval is answered rather than when it is noticed. Looking at a tab
 is the answer to "waiting for you". It is not the answer to "may I run this".
 
+### A tab decides what to show only once there is something to decide about
+
+A reattaching tab waits for its snapshot before choosing between the start screen and the
+terminal, with a timer as the ceiling so a snapshot that never arrives cannot leave the tab
+showing nothing. On a loaded machine that ceiling fired before any pane existed, and the tab then
+answered the question on no evidence: a tab with no panes fell through the same door as a tab with
+two, which answers "in use", so the start screen was dismissed and an empty terminal took the
+whole page.
+
+Two corrections. No panes at all is nothing here, not "cannot tell": two panes is work, zero is an
+empty tab. And the ceiling now waits for a pane to exist before it decides, up to a few seconds.
+Nothing is on screen either way while it waits, so waiting costs nothing and deciding early costs
+the answer.
+
+### A redraw restores the box before it restores what is under it
+
+The start screen follows what the rest of TabTerm is doing, so it redraws whenever a session
+starts anywhere, and a redraw builds a new path box and a new line to go under it. The answer
+about the folder is kept and drawn back in. It was drawn back in **before** the box got its text,
+and the line compares the answer against what is typed, so an empty box matched no answer, the
+line drew nothing, and it stayed blank until the next keystroke. Correct code in the wrong order,
+and it reads fine in both places.
+
+The order is now: put the text back, then draw the line under it.
+
 ### A question in flight when the socket drops is asked again
 
 The line under the path box is a round trip: the box changes, the daemon is asked, and the line is

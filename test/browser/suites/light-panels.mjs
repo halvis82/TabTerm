@@ -4,15 +4,58 @@
 // because the first pass at light mode fixed what was visible in a screenshot and left the
 // command menu with five things nobody could read: the tabs at 3.2 to 1, the chosen tab at 2.9,
 // and the two buttons that end things at 1.7 and 2.3, which for a warning is worse than nothing.
-import { openTerminal, evaluate, sleep, finish, waitFor } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, finish, waitFor, type } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 const r = reporter();
 const { client } = await openTerminal();
 await waitFor(client, "document.querySelector('.launcher-input')");
+/**
+ * With something in the list, and something selected in it.
+ *
+ * An empty menu has no rows, and a row is where the reported fault was: a selected one sat on a
+ * hand-written dark blue wash with no light form at all, black text on it at 3.6 to 1. The suite
+ * had never seen it because it opened an empty menu, and the only run that caught it was a full
+ * one, where other suites had left history behind.
+ */
+for (const command of ['echo light-one', 'echo light-two']) {
+  await type(client, command);
+  await sleep(700);
+}
 await evaluate(client, `window.__tabterm.setTheme('light')`);
 await sleep(700);
 await evaluate(client, `document.getElementById('cmd-button')?.click()`);
+// Recent, because Favorites is empty on a fresh profile and a row is the thing being measured.
+await evaluate(
+  client,
+  `[...document.querySelectorAll('.cmd-tab')].find(t => t.textContent === 'Recent')?.click()`,
+);
+await waitFor(client, `document.querySelector('.cmd-row') !== null`, 8000);
+// Clicked, because nothing is selected until somebody picks a row.
+await evaluate(client, `document.querySelectorAll('.cmd-row')[0]?.click()`);
 await sleep(900);
+/**
+ * And one of them is a favorite, because a lit star is its own color.
+ *
+ * The gold it was written in measured 1.7 to 1 on white. Nothing in this suite had ever seen it
+ * lit: it takes a favorited command, and only a full run, where a suite that went before had
+ * starred something, ever produced one.
+ */
+await evaluate(client, `document.querySelector('.cmd-row .cmd-star')?.click()`);
+await sleep(700);
+r.ok(
+  'a star is lit, which is the other thing being measured',
+  Boolean(await evaluate(client, `document.querySelector('.cmd-star.on') !== null`)),
+);
+r.ok(
+  'a row is selected, which is the thing being measured',
+  Boolean(await evaluate(client, `document.querySelector('.cmd-row.selected') !== null`)),
+  String(
+    await evaluate(
+      client,
+      `JSON.stringify({ rows: document.querySelectorAll('.cmd-row').length, classes: [...document.querySelectorAll('.cmd-row')].slice(0,3).map(e => e.className), tab: document.querySelector('.cmd-tab.selected, .cmd-tab.is-on')?.textContent ?? null })`,
+    ),
+  ),
+);
 const MEASURE = `(() => {
   const lum = (c) => { const m = (c||'').match(/[0-9]*\\.?[0-9]+/g) || [0,0,0];
     const [r,g,b] = m.slice(0,3).map(Number).map(v => { const s = v > 1 ? v/255 : v;

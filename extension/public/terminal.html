@@ -16,6 +16,9 @@
     --dim: #9aa1b8;
     --accent: var(--accent);
     --hover: #2b4d7a;
+    --selected: #31405e;
+    --selected-edge: #8fb6e8;
+    --warn: #e8c26a;
   }
   :root[data-theme='light'] {
     color-scheme: light;
@@ -874,8 +877,8 @@
 
   /* Selection carries an accent bar as well as a background: it is a step of its own. */
   .cmd-row.selected {
-    background: rgba(70, 100, 155, 0.42);
-    box-shadow: inset 3px 0 0 #8fb6e8;
+    background: var(--selected);
+    box-shadow: inset 3px 0 0 var(--selected-edge);
   }
   .cmd-row:hover:not(.selected) {
     background: rgba(140, 155, 190, 0.12);
@@ -958,8 +961,10 @@
   .cmd-row.selected .cmd-jump {
     opacity: 1;
   }
+  /* The theme's own amber, not a gold written out here: on white the gold measured 1.7 to 1,
+     which is a star you can only see if you already know it is lit. */
   .cmd-star.on {
-    color: #e8c34a;
+    color: var(--warn);
   }
   .cmd-gear {
     font-size: 19px;
@@ -2812,8 +2817,8 @@
    * a background, because a background alone is easy to lose against a long list.
    */
   .palette-row.selected {
-    background: #31384f;
-    box-shadow: inset 3px 0 0 #7fa8d8;
+    background: var(--selected);
+    box-shadow: inset 3px 0 0 var(--selected-edge);
   }
   /* Hover is deliberately weaker than selection. They mean different things now. */
   .palette-row:hover:not(.selected) {

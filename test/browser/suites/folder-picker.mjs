@@ -167,6 +167,39 @@ if (child === undefined) {
 }
 
 /**
+ * A redraw keeps the line under the box.
+ *
+ * The start screen follows what the rest of TabTerm is doing, so it redraws whenever a session
+ * starts anywhere, and a redraw builds a new box and a new line to go under it. The answer is
+ * kept and drawn back in, but it was drawn back in before the box got its text, and the line
+ * compares the answer to what is typed: an empty box matches nothing, so it drew nothing and the
+ * line stayed blank for good. Correct code in the wrong order, and it read fine both times.
+ */
+await evaluate(
+  client,
+  `(() => {
+     const i = document.querySelector('.launcher-input');
+     i.focus();
+     i.value = '~/Documents';
+     i.dispatchEvent(new Event('input', { bubbles: true }));
+   })()`,
+);
+await waitFor(
+  client,
+  `(document.querySelector('.launcher-folder-state')?.textContent ?? '').includes('exists')`,
+  10000,
+);
+await evaluate(client, 'window.__tabterm.refreshStartScreen()');
+await sleep(1200);
+r.ok(
+  'a redraw of the start screen keeps the line under the box',
+  String(
+    await evaluate(client, "document.querySelector('.launcher-folder-state')?.textContent ?? ''"),
+  ).includes('exists'),
+  String(await evaluate(client, 'JSON.stringify(window.__tabterm.folderStateDebug())')),
+);
+
+/**
  * A question that was in flight when the connection dropped is asked again.
  *
  * The line under the box is a round trip, sent once and then waited on forever, so a socket that

@@ -441,6 +441,17 @@ and nothing fades the content it is showing. That found two real faults nobody h
 badge saying a session is open somewhere sat at 4.3 to 1 in light and 3.4 in dark, and a project
 chip put the theme's text color on a hardcoded navy at 1.3 to 1.
 
+### A measurement only covers what it can see
+
+A third fault survived all of that. The selected row in the command menu carried a hand-written
+dark blue wash with no light form at all, black text on it at 3.6 to 1, and the check that would
+have caught it opened an empty menu: no rows, so no selected row, so nothing to measure. It
+surfaced only in a full run, where suites that had gone before left history behind.
+
+Selection is a token now, per theme, like everything else that is a color. The suite gives the
+menu something to hold and picks a row before it measures, because a check of an empty list is a
+check of nothing.
+
 ## A renderer the browser takes away is asked for again
 
 A browser keeps a limited number of accelerated contexts and takes the oldest away when something

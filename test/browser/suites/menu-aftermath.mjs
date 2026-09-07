@@ -132,7 +132,11 @@ const folderNow = String(
        }); })()`,
   ),
 );
-r.ok('creating it makes the offer go away', folderNow.includes('exists'), folderNow);
+r.ok(
+  'creating it makes the offer go away',
+  folderNow.includes('exists'),
+  `${folderNow} launcher: ${String(await evaluate(fresh.client, 'JSON.stringify(window.__tabterm.folderStateDebug())'))}`,
+);
 
 await rm(MADE, { recursive: true, force: true });
 await finish();
