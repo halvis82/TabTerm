@@ -1920,7 +1920,12 @@ export class DaemonServer {
     const workspace = this.#workspaces.get(workspaceId);
     if (!workspace) return;
 
-    const entries: { paneId: string; sessionId: string; streamId: number }[] = [];
+    const entries: {
+      paneId: string;
+      sessionId: string;
+      streamId: number;
+      startedWithCommand?: boolean;
+    }[] = [];
     const toAttach: { sessionId: string; streamId: number }[] = [];
 
     for (const { paneId, sessionId } of panes(workspace.layout)) {
@@ -1930,14 +1935,27 @@ export class DaemonServer {
       // Only attach panes this client is not already rendering. Re-attaching an existing pane
       // would resend its snapshot, which resets the renderer and can discard output that
       // arrived mid-flight. Splitting one pane must not disturb its neighbors.
+      // Whether anything was launched here, which the page cannot tell from the screen.
+      const started = session.command !== undefined && session.command.length > 0;
+
       const existing = client.streams.get(sessionId);
       if (existing !== undefined) {
-        entries.push({ paneId, sessionId, streamId: existing });
+        entries.push({
+          paneId,
+          sessionId,
+          streamId: existing,
+          ...(started ? { startedWithCommand: true } : {}),
+        });
         continue;
       }
 
       const streamId = this.#bind(client, session);
-      entries.push({ paneId, sessionId, streamId });
+      entries.push({
+        paneId,
+        sessionId,
+        streamId,
+        ...(started ? { startedWithCommand: true } : {}),
+      });
       toAttach.push({ sessionId, streamId });
     }
 

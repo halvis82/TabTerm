@@ -504,6 +504,24 @@ Verified end to end against `kill -9` of the daemon, which is the worst case bec
 to run on the way out: the process survived, the tab reconnected without an expiry page, the
 earlier output was on screen, and the session still accepted commands.
 
+### A reconnect is not proof that anything died
+
+When the connection to the host comes back, the daemon **asks what the host still has** before
+letting go of anything. Sessions it still holds are kept and their missed output is replayed from
+the sequence number the daemon last saw, so no screen comes back with a hole in it. Sessions it
+does not have are genuinely gone.
+
+This used to end every session the moment the socket reconnected, on the reasoning that a
+reconnect means a new host and a new host means the old one's processes are gone. The second half
+is true and the first half is not: the socket is reconnected after any close at all, including
+ones the host survives, and its own error handler closes it. One `ECONNRESET` would have ended
+every terminal on the machine while every one of their processes was still running and still
+adoptable. Nobody hit it, which was luck rather than design.
+
+If the host cannot be asked at all, **everything is kept**. The two mistakes are not equal: ending
+a session cannot be undone, and keeping one costs a terminal that answers nothing until the next
+reconnect, seconds away.
+
 What this does **not** cover is the host itself being replaced or killed. That is rare by design,
 and when it happens the sessions are genuinely gone and the tab falls back to §8.
 

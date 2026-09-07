@@ -1350,8 +1350,33 @@ function thisTabIsUnused(): boolean {
   if (panes.length !== 1) return false;
   const only = panes[0];
   if (!only) return false;
+
+  /**
+   * And a pane that something was launched into is never a start screen, whatever is on it.
+   *
+   * `sessionStorage` is the usual answer and it survives a reload, but it does not survive the
+   * tab being recreated, which is what an extension reload does to every tab. After one of
+   * those, the only evidence left was the screen, and the screen is a guess that is wrong in
+   * exactly the case that hurts most: an agent that has printed nothing yet, or one showing a
+   * compact prompt, has as few lines on it as a shell nobody has used. Drawing the start screen
+   * over it squeezes the terminal into a three row strip, and a full-screen program redraws
+   * itself into three rows.
+   *
+   * The daemon knows, because it started the process, and now says so with the pane.
+   */
+  if (panesWithCommand.has(only.paneId)) return false;
+
   return linesWithContent(only.controller.term) <= 1;
 }
+
+/**
+ * Panes whose session was started with a command rather than as a bare shell.
+ *
+ * Reported by the daemon on attach, which is the only place the fact is known before output
+ * arrives. Not cleared when a pane closes: the set is small, bounded by the panes a tab has ever
+ * held, and a stale entry could only ever make this more conservative.
+ */
+const panesWithCommand = new Set<string>();
 
 const LAUNCHED = 'tabterm.launched';
 
@@ -3362,6 +3387,8 @@ function onControl(msg: ServerMessage): void {
       for (const p of msg.panes) {
         panesHost?.element(p.paneId, p.sessionId);
         panesHost?.bindStream(p.paneId, p.sessionId, p.streamId);
+        // Something was launched in this pane, said by the daemon, which knows. See below.
+        if (p.startedWithCommand === true) panesWithCommand.add(p.paneId);
       }
       applyLayout(msg.layout);
       attached = true;
@@ -4001,6 +4028,8 @@ declare global {
       redrawAfterAway: () => void;
       /** The sizes the daemon reported applying, oldest first. */
       appliedSizes: () => string[];
+      /** Which panes the daemon said something was launched into. */
+      paneFacts: () => { paneId: string; startedWithCommand: boolean }[];
       /** Only what is on screen right now, which the strip makes a different question. */
       readViewport: (paneId?: string) => string;
       /** Draw text on a pane, for checks about what is shown rather than how it got there. */
@@ -4126,6 +4155,12 @@ function installTestHook(): void {
     },
     /** What the daemon said it applied, which is where a nudge is visible and the grid is not. */
     appliedSizes: () => sessionSizes.map((s) => `${s.cols}x${s.rows}`),
+    /** Which panes the daemon said something was launched into. */
+    paneFacts: () =>
+      (panesHost?.all ?? []).map((p) => ({
+        paneId: p.paneId,
+        startedWithCommand: panesWithCommand.has(p.paneId),
+      })),
     /**
      * A second view of one session, at a size of its choosing.
      *

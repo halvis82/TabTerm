@@ -598,6 +598,20 @@ export interface WorkspacePane {
   paneId: string;
   sessionId: string;
   streamId: number;
+  /**
+   * This session was started with a command rather than as a bare shell.
+   *
+   * Which is to say: something was launched here. The page needs that fact before any output has
+   * arrived, because it decides whether to draw the start screen over the pane, and drawing it
+   * squeezes the terminal into a three row strip. Reading it off the screen instead is a guess,
+   * and it is wrong in exactly the case that hurts most: an agent that has printed nothing yet,
+   * or one showing a compact prompt, looks identical to a shell that has never been used.
+   *
+   * A tab remembers having launched something in its own `sessionStorage`, which is the usual
+   * answer and survives a reload. It does not survive the tab being recreated, which is what an
+   * extension reload does to every tab.
+   */
+  startedWithCommand?: boolean;
 }
 
 /** A session in another tab that could be pulled into this workspace. */

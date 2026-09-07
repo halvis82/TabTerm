@@ -645,6 +645,22 @@ copy of its own screen, and a full-screen program had to be resized before it lo
 The host has held the true size all along and reports it in the same list adoption already reads.
 It was being discarded one call before it was needed.
 
+### The start screen is never drawn over a pane that something was launched into
+
+Drawing it squeezes the terminal into a three row strip, and a full-screen program redraws itself
+into three rows. Whether a tab has launched anything is remembered in that tab's own
+`sessionStorage`, which is the usual answer and survives a reload.
+
+It does not survive the tab being **recreated**, which is what an extension reload does to every
+tab. After one of those the only evidence left was the screen, and the screen is a guess that is
+wrong in exactly the case that hurts most: a program that has printed nothing yet, or one showing
+a compact prompt, has as few lines on it as a shell nobody has used.
+
+So the daemon says so instead. It started the process, so it knows, and each pane now arrives with
+whether its session was started with a command rather than as a bare shell. Measured against the
+old behavior, a recreated tab on a pane running something that prints nothing went from
+**44 rows to 3**.
+
 ### The record of what the terminal actually resized to
 
 `session.resize.applied` is written at **info**, not debug, and carries every claim at the moment

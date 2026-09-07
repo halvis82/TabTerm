@@ -142,7 +142,7 @@ const COVERS = [
   ['daemon/src/pty-host/', ['survives-restart', 'resilience']],
   ['daemon/src/pty-manager', ['survives-restart', 'resilience', 'terminal']],
   ['daemon/src/restore-store', ['reattach']],
-  ['daemon/src/project-', ['project-trust']],
+  ['daemon/src/project-', ['project-trust', 'launched-pane']],
   ['daemon/src/notify', ['notifications']],
 ];
 

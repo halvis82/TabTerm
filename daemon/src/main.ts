@@ -35,6 +35,7 @@ import { HOST_LOCK, HOST_POINTER, HOST_SOCKET } from './pty-host/paths.js';
 
 /** The shortest the settings panel will offer. Anything under it was never chosen by a person. */
 const SHORTEST_OFFERED_TIMEOUT = 5 * 60;
+import { decideReconnect } from './host-reconnect.js';
 import { planAdoption, prunePanes } from './adopt.js';
 import { readUserSettings } from './user-settings.js';
 
@@ -458,17 +459,79 @@ async function main(): Promise<void> {
 
   if (usingHost) {
     /**
-     * A new host means every session the old one held is gone.
+     * A reconnect is not proof that anything died. Ask before letting go of anything.
      *
-     * Their processes died with it and cannot be recovered, so the daemon lets go of them
-     * rather than holding sessions whose PTYs do not exist. A tab on one then gets the page
-     * that says the session expired, which is true, instead of a terminal that never responds.
+     * This used to end **every** session the moment the socket came back, on the reasoning that
+     * a reconnect means a new host and a new host means the old one's processes are gone. The
+     * second half is true and the first half is not: the socket is reconnected after any close
+     * at all, including one the host survives, and an error handler calls `destroy` which closes
+     * it. So a single transient socket error would have ended every terminal on the machine
+     * while every one of their processes was still running and still adoptable.
+     *
+     * Nobody has hit it, and that is luck rather than design: it needs one `ECONNRESET`.
+     *
+     * The host can simply be asked. Sessions it still has are kept, and their missed output is
+     * replayed so no screen is left with a hole in it. Sessions it does not have are genuinely
+     * gone and are let go, which is the case this was written for and still handles.
      */
     hostClient.onReconnect(() => {
-      const orphaned = sessions.all;
-      warn('pty-host.sessions-lost', { count: orphaned.length });
-      for (const session of orphaned) void sessions.kill(session, true);
-      hostClient.setBudget(server.scrollbackBytes);
+      void (async () => {
+        let live: { sessionId: string; seq: number }[] = [];
+        try {
+          live = await ptyBackend.adoptable();
+        } catch (e: unknown) {
+          /**
+           * The one place where guessing is the safer answer, and the guess is "keep them".
+           *
+           * If the host cannot be asked, ending everything is unrecoverable and keeping
+           * everything costs sessions that answer nothing until the next reconnect, which is
+           * seconds away. Nothing is lost by waiting and everything can be by not.
+           */
+          warn('pty-host.reconnect-unverified', {
+            error: String(e),
+            kept: decideReconnect(
+              sessions.all.map((s) => s.id),
+              null,
+            ).kept.length,
+          });
+          hostClient.setBudget(server.scrollbackBytes);
+          return;
+        }
+        const verdict = decideReconnect(
+          sessions.all.map((s) => s.id),
+          live.map((s) => s.sessionId),
+        );
+        const stillThere = new Set(verdict.kept);
+        if (verdict.lost.length > 0) {
+          warn('pty-host.sessions-lost', {
+            count: verdict.lost.length,
+            kept: verdict.kept.length,
+          });
+        } else {
+          info('pty-host.reconnected-intact', { kept: verdict.kept.length });
+        }
+        for (const id of verdict.lost) {
+          const session = sessions.get(id);
+          if (session) void sessions.kill(session, true);
+        }
+        hostClient.setBudget(server.scrollbackBytes);
+        /**
+         * And the gap is filled, for the ones that survived.
+         *
+         * Output produced while the socket was down is held by the host and is asked for from
+         * the sequence number this daemon last saw, which is the same mechanism adoption uses.
+         * Without it a surviving session comes back with a hole in the middle of its screen,
+         * which looks exactly like the corruption this product spent a week removing.
+         */
+        for (const session of sessions.all) {
+          if (!stillThere.has(session.id)) continue;
+          try {
+            await (ptyBackend as HostPtyBackend).replay(session.id, session.vt.seq);
+          } catch {
+            /* best effort: a screen with a gap beats no session at all */
+          }
+        }
+      })();
     });
 
     // Clearing and the memory budget both have to reach the process that holds the buffers.
