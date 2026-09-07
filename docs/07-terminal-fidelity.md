@@ -436,6 +436,40 @@ and nothing fades the content it is showing. That found two real faults nobody h
 badge saying a session is open somewhere sat at 4.3 to 1 in light and 3.4 in dark, and a project
 chip put the theme's text color on a hardcoded navy at 1.3 to 1.
 
+## A renderer the browser takes away is asked for again
+
+A browser keeps a limited number of accelerated contexts and takes the oldest away when something
+else wants one. For this product that means a person with a dozen terminal tabs open: one of them
+loses its renderer to another, falls back to drawing with DOM nodes, and stays there.
+
+Losing it used to be permanent for the life of the page. On a shell showing a prompt nobody would
+notice; on a tab holding thousands of lines of an agent's output it is the difference between
+scrolling at a frame each and scrolling badly. That is one tab feeling worse than the next for no
+reason anybody could see, and it was reported exactly that way.
+
+It is asked for again now, with a widening gap and only while the tab is being looked at: a hidden
+tab does not need one, and asking takes it from a tab that does. For the same reason a hidden tab
+gives its own back after four seconds rather than two minutes. The long delay was chosen to save
+memory, and memory is not the only thing these cost.
+
+**And it is written down.** A lost renderer is reported to the log like a resize storm is, because
+it is invisible otherwise, including to the person feeling it.
+
+### What scrolling actually is, measured
+
+Worth stating plainly, because it was assumed wrong twice. Read out of a real session's
+scrollback, an agent CLI here **never takes the alternate screen and never asks for mouse events**.
+So scrolling one of its tabs is the emulator scrolling its own buffer, exactly as in any other tab:
+no round trip, no input sent, nothing asked of the program.
+
+| | |
+|---|---|
+| Scrolling a four thousand line coloured buffer | 16.7 ms a frame, worst 17.4 |
+| Rebuilding the marker rail across that buffer | 1.1 ms |
+| Wheel events turned into messages, per forty | 7 |
+
+All of which is why the answer turned out to be the renderer rather than any of it.
+
 ## 8. Fonts and appearance
 
 The terminal emulator chooses the font, not the application running inside it. Configurable:
@@ -731,6 +765,17 @@ copy of its own screen, and a full-screen program had to be resized before it lo
 
 The host has held the true size all along and reports it in the same list adoption already reads.
 It was being discarded one call before it was needed.
+
+### A wrapped row continues a line rather than starting one
+
+Whether a tab has begun is answered from its screen when nothing better is known, by counting the
+lines with something on them. A wrapped row was counted separately, so one long line looked like
+two, and the line most likely to be long is the prompt: a shell in a narrow pane wraps
+`(base) name@machine ~ %` onto a second row.
+
+The consequence was a start screen that refreshed into a bare terminal. It appeared only when the
+window was small enough to wrap, which is why it looked like something else every time it turned
+up.
 
 ### A tab shows what it is, and never the other thing first
 

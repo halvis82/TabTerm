@@ -75,7 +75,11 @@ const afterLayout = JSON.parse(
 r.ok(
   'the refresh leaves the terminal a strip, which is what it stopped doing',
   afterLayout.panelOpen && afterLayout.paneShare < 0.5,
-  JSON.stringify(afterLayout),
+  // What the tab decided it was, and what it decided that on. This failed under load for days
+  // and was put down to load three times; a failure that cannot say why is worth nothing.
+  `${JSON.stringify(afterLayout)} decided on ${String(
+    await evaluate(client, `JSON.stringify(window.__tabterm.startScreenReason())`),
+  )}`,
 );
 
 /**

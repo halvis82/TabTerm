@@ -171,7 +171,12 @@ export class DaemonClient {
     if (this.#ws?.readyState === WebSocket.OPEN) this.#ws.send(controlFrame(msg));
   }
 
+  /** How much input this page has sent, for measuring what a gesture costs. */
+  readonly sent = { writes: 0, bytes: 0 };
+
   write(streamId: number, data: Uint8Array): void {
+    this.sent.writes += 1;
+    this.sent.bytes += data.byteLength;
     if (this.#ws?.readyState === WebSocket.OPEN) this.#ws.send(inputFrame(streamId, data));
   }
 

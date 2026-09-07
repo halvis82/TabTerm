@@ -11,7 +11,9 @@ interface BufferLike {
   buffer: {
     active: {
       length: number;
-      getLine: (y: number) => { translateToString: (trim: boolean) => string } | undefined;
+      getLine: (
+        y: number,
+      ) => { translateToString: (trim: boolean) => string; isWrapped?: boolean } | undefined;
     };
   };
 }
@@ -29,7 +31,17 @@ export function linesWithContent(term: BufferLike): number {
   const buffer = term.buffer.active;
   let count = 0;
   for (let y = 0; y < buffer.length; y++) {
-    const line = buffer.getLine(y)?.translateToString(true) ?? '';
+    const row = buffer.getLine(y);
+    /**
+     * A wrapped row continues the line above it rather than starting a new one.
+     *
+     * Counting it separately made one long line look like two, and the line most likely to be
+     * long is the prompt: a shell in a narrow pane wraps `(base) name@machine ~ %` onto a second
+     * row, which then reads as a tab with work in it. The consequence was a start screen that
+     * refreshed into a bare terminal, and it only showed up when the window was small.
+     */
+    if (row?.isWrapped === true) continue;
+    const line = row?.translateToString(true) ?? '';
     if (line.trim() !== '' && !isShellNoise(line)) count++;
     if (count > 1) return count;
   }

@@ -38,6 +38,14 @@ export interface ControllerOptions {
    * belong to is the page's business, since a pane can be given a different session.
    */
   onHighlightsChanged?: (highlights: readonly Highlight[]) => void;
+  /**
+   * The browser took the accelerated renderer away.
+   *
+   * Worth recording rather than absorbing: it is the difference between a pane that scrolls
+   * smoothly and one that does not, it happens for reasons outside this product, and until it
+   * was written down it was invisible to everyone including the person feeling it.
+   */
+  onRendererLost?: () => void;
   /** The color a highlight gets when the entry is clicked rather than the swatch. */
   highlightColor?: () => string;
   /** The last few highlight colors, for the row of swatches under the map. */
@@ -452,6 +460,11 @@ export class XtermController {
     });
   }
 
+  /** Rebuild the rail now. For measuring what a full-buffer scan costs. */
+  syncMarkersForTest(): void {
+    this.#markers?.sync(this.term, this.#highlights?.places() ?? []);
+  }
+
   /** Highlight what is selected. Returns how many lines it covered, zero when nothing was. */
   highlightSelection(color: string): number {
     const lines = this.#highlights?.add(color) ?? 0;
@@ -665,23 +678,55 @@ export class XtermController {
 
   dispose(): void {
     clearTimeout(this.#markerTimer);
+    clearTimeout(this.#retryTimer);
     this.#markers?.dispose();
     this.#webgl?.dispose();
     this.term.dispose();
   }
 
-  #tryWebgl(): void {
+  #retryTimer: number | undefined;
+
+  /**
+   * Get the accelerated renderer back after the browser takes it away.
+   *
+   * A browser keeps a limited number of WebGL contexts and drops the oldest when something else
+   * wants one, which for this product means a person with a dozen terminal tabs open. Losing it
+   * used to be permanent for the life of the page: the pane fell back to drawing with DOM nodes
+   * and stayed there, which is fine for a shell showing a prompt and slow for a tab holding
+   * thousands of lines of an agent's output. That is one tab feeling worse than the next for no
+   * reason anybody could see.
+   *
+   * Retried with a widening gap, a few times, and only while the tab is being looked at: a
+   * hidden tab does not need a context and asking for one takes it from a tab that does.
+   */
+  #scheduleRendererRetry(attempt: number): void {
+    if (attempt > 4) return;
+    clearTimeout(this.#retryTimer);
+    this.#retryTimer = window.setTimeout(
+      () => {
+        if (this.#webgl) return;
+        if (document.visibilityState !== 'visible') return; // the wake path will ask instead
+        this.#tryWebgl(attempt + 1);
+        if (!this.#webgl) this.#scheduleRendererRetry(attempt + 1);
+      },
+      Math.min(8000, 500 * 2 ** attempt),
+    );
+  }
+
+  #tryWebgl(attempt = 0): void {
     try {
       const addon = new WebglAddon();
-      // Losing a context degrades to canvas. It never breaks the pane.
       addon.onContextLoss(() => {
         addon.dispose();
         this.#webgl = null;
+        this.#opts.onRendererLost?.();
+        this.#scheduleRendererRetry(0);
       });
       this.term.loadAddon(addon);
       this.#webgl = addon;
     } catch {
-      /* No WebGL. xterm falls back on its own. */
+      // No WebGL to be had right now. xterm draws without it, and this asks again shortly.
+      this.#scheduleRendererRetry(attempt);
     }
   }
 }

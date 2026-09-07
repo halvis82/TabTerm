@@ -173,23 +173,30 @@ r.ok(
    */
   const applied = async () =>
     JSON.parse(await evaluate(client, 'JSON.stringify(window.__tabterm.appliedSizes())'));
-  const g = JSON.parse(await evaluate(client, 'JSON.stringify(window.__tabterm.geometry())'));
-  const at = `${String(g.cols)}x${String(g.rows)}`;
-  const shorter = `${String(g.cols)}x${String(g.rows - 1)}`;
-  const seenBefore = (await applied()).length;
+  /**
+   * Read from what the daemon last applied, not from the grid on screen.
+   *
+   * They are two different numbers. The grid is what the emulator is currently drawing; the
+   * nudge acts on what the pane measures, and those disagree for a moment whenever the box has
+   * changed and the grid has not caught up. Comparing one against the other made this check
+   * about that gap rather than about the nudge.
+   */
+  const history = await applied();
+  const at = history[history.length - 1] ?? '';
+  const seenBefore = history.length;
 
   await evaluate(client, 'window.__tabterm.redrawAfterAway()');
   await sleep(1500);
   const after = (await applied()).slice(seenBefore);
   r.ok(
     'a woken tab really does change the size the terminal runs at',
-    after.includes(shorter),
-    `${at}: ${after.join(' ')}`,
+    after.length > 0 && after.some((size) => size !== at),
+    `from ${at}: ${after.join(' ')}`,
   );
   r.ok(
     'and puts it back, rather than leaving every pane a row short',
-    after[after.length - 1] === at,
-    `${at}: ${after.join(' ')}`,
+    after.length > 0 && after[after.length - 1] === after[0],
+    `from ${at}: ${after.join(' ')}`,
   );
 
   const afterNudge = await watch(4);

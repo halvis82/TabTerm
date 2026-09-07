@@ -43,4 +43,43 @@ describe('how much is on a terminal screen', () => {
   it('stops at two, since the question is only ever "more than one"', () => {
     expect(linesWithContent(screen(['a', 'b', 'c', 'd', 'e']))).toBe(2);
   });
+
+  it('counts a wrapped prompt as the one line it is', () => {
+    /**
+     * A shell in a narrow pane wraps `(base) name@machine ~ %` onto a second row, and counting
+     * that row separately made an untouched shell look like a tab with work in it. The
+     * consequence was a start screen that refreshed into a bare terminal, and it only appeared
+     * when the window was small enough to wrap.
+     */
+    const term = {
+      buffer: {
+        active: {
+          length: 3,
+          getLine: (y: number) =>
+            [
+              { translateToString: () => '(base) halvis@machine ~ ', isWrapped: false },
+              { translateToString: () => '%', isWrapped: true },
+              { translateToString: () => '', isWrapped: false },
+            ][y],
+        },
+      },
+    };
+    expect(linesWithContent(term)).toBe(1);
+  });
+
+  it('still counts two real lines as two', () => {
+    const term = {
+      buffer: {
+        active: {
+          length: 2,
+          getLine: (y: number) =>
+            [
+              { translateToString: () => '$ echo hello', isWrapped: false },
+              { translateToString: () => 'hello', isWrapped: false },
+            ][y],
+        },
+      },
+    };
+    expect(linesWithContent(term)).toBeGreaterThan(1);
+  });
 });

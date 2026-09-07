@@ -12,7 +12,7 @@
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { openTerminal, evaluate, sleep, finish, waitFor, type } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, finish, waitFor, type, openPaneMenu } from '../helpers.mjs';
 import { reporter, listTargets } from '../cdp.mjs';
 
 const r = reporter();
@@ -113,6 +113,46 @@ if (workspace !== '') {
     state.paneHeight > state.windowHeight / 2,
     JSON.stringify(state),
   );
+}
+
+/**
+ * And a pane that something was launched into is not offered a marker.
+ *
+ * A marker is printed into the output: full width coloured bars written to the terminal itself,
+ * with a prompt redrawn under them. That works on a shell, whose screen is a transcript. A
+ * program that draws its own screen redraws over and around them, which was reported as two
+ * magenta stripes through the middle of a conversation, belonging to nothing.
+ */
+if (workspace !== '') {
+  const revisited = await openTerminal(`?workspace=${workspace}`);
+  await sleep(3000);
+  const at = JSON.parse(
+    await evaluate(
+      revisited.client,
+      `(() => { const p = document.querySelector('.pane').getBoundingClientRect();
+         return JSON.stringify({ x: Math.round(p.left + p.width / 2), y: Math.round(p.top + p.height / 2) }); })()`,
+    ),
+  );
+  await openPaneMenu(revisited.client, at.x, at.y);
+  const marker = JSON.parse(
+    await evaluate(
+      revisited.client,
+      `(() => { const b = [...document.querySelectorAll('.term-menu-item')]
+         .find(x => (x.textContent || '').trim() === 'Add a marker here');
+         return JSON.stringify({ there: !!b, enabled: b ? !b.disabled : null }); })()`,
+    ),
+  );
+  r.ok(
+    'a marker is still listed on a pane running something',
+    marker.there === true,
+    JSON.stringify(marker),
+  );
+  r.ok(
+    'and greyed rather than offered, since printing into it would corrupt the screen',
+    marker.enabled === false,
+    JSON.stringify(marker),
+  );
+  await evaluate(revisited.client, "document.querySelector('.term-menu')?.remove()");
 }
 
 await finish();

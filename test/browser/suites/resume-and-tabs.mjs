@@ -58,6 +58,14 @@ r.ok(
            return last ? Math.round(last.getBoundingClientRect().top) : -1; })()`,
       ),
     );
+  /**
+   * Waited for the row, not for the data behind it.
+   *
+   * The start screen draws once it has everything it asked for, so the answer arriving and the
+   * row existing are two moments now rather than one. Clicking on the strength of the first is
+   * clicking at nothing.
+   */
+  await waitFor(a.client, `!!document.querySelector('.launcher-row-action.is-expand')`, 10000);
   const beforeTop = await below();
   const opened = await realClick(a.client, '.launcher-row-action.is-expand');
   r.ok('a conversation can be opened from its row', opened !== false);
@@ -163,6 +171,13 @@ r.ok(
   const workspaceWas = String(await evaluate(fresh.client, 'window.__tabterm.workspaceId()'));
   // Matched on the agent badge, which now leads the row: agent, then when, then what was said,
   // then where. The old text `codex · ~` no longer exists.
+  // The same wait, for the same reason: the row exists when the screen has been drawn, not when
+  // the answer behind it arrived.
+  await waitFor(
+    fresh.client,
+    `[...document.querySelectorAll('.launcher-row.is-resume')].some((x) => (x.textContent || '').includes('codex'))`,
+    10000,
+  );
   const clicked = await realClick(fresh.client, '.launcher-row.is-resume', 'codex');
   r.ok('a resume row can be pressed', clicked !== false);
   // The resumed agent has started when the tab has changed workspace, which is the thing being

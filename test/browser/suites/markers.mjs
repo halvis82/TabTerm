@@ -116,5 +116,42 @@ r.ok(
   JSON.stringify(spans),
 );
 
+/**
+ * And the keyboard goes back to the terminal.
+ *
+ * The form took it to be typed into, and removing the form left it nowhere: whoever marked a
+ * place and carried on typing lost the first characters of whatever came next.
+ */
+{
+  await sleep(300);
+  const state = JSON.parse(
+    await evaluate(
+      client,
+      `(() => { const a = document.activeElement;
+         return JSON.stringify({
+           active: a ? (a.className || a.tagName) : 'none',
+           // xterm marks the terminal focused, which is what draws a solid cursor rather than
+           // a hollow one. Being able to type into something that does not look like it is
+           // taking typing is its own kind of broken.
+           looksFocused: !!document.querySelector('.xterm.focus, .terminal.focus'),
+         }); })()`,
+    ),
+  );
+  r.ok(
+    'after saving a marker the terminal has the keyboard again',
+    String(state.active).includes('xterm-helper-textarea'),
+    JSON.stringify(state),
+  );
+  r.ok('and looks like it', state.looksFocused === true, JSON.stringify(state));
+  const MARK = `AFTER-MARKER-${String(Date.now()).slice(-5)}`;
+  await type(client, `echo ${MARK}`);
+  const landed = await waitFor(
+    client,
+    `(window.__tabterm.readScreen() ?? '').includes(${JSON.stringify(MARK)})`,
+    12000,
+  );
+  r.ok('and what is typed next reaches the shell', landed);
+}
+
 await finish();
 r.done();

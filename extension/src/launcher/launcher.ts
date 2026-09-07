@@ -101,6 +101,115 @@ export class Launcher {
   readonly #el: HTMLElement;
   #state: LauncherState | null = null;
   #dismissed = false;
+  #renderQueued: number | undefined;
+
+  /**
+   * One redraw for one change, however many answers that change arrives in.
+   *
+   * The start screen draws three things the daemon owns, and it asks for all three when it hears
+   * that any of them changed. Each answer arrives in its own message and each used to redraw the
+   * whole screen: measured, a single command finishing in another tab cost **nine** rebuilds of
+   * a list of cards.
+   *
+   * A short timer rather than a frame, because a tab nobody is looking at still has to keep its
+   * screen right, and `requestAnimationFrame` does not run in one. Sixteen milliseconds is long
+   * enough to gather answers that were sent together and short enough that nobody sees a delay.
+   */
+  /**
+   * Answers this screen is waiting for before it is worth drawing again.
+   *
+   * The start screen is made of four things the daemon owns, and it asks for all of them at once
+   * on load and whenever it hears any of them changed. Each answer arrives in its own message,
+   * a round trip apart, and each used to redraw the whole screen: a refresh drew four different
+   * versions of the same page on its way to the right one, which is what "skipping between
+   * pages" is.
+   *
+   * Waiting on a clock cannot fix that, because the answers are not close together in time. So
+   * the screen is told what it asked for and draws once, when it has it.
+   */
+  readonly #awaited = new Set<string>();
+  #awaitedUntil = 0;
+
+  /**
+   * Called when a batch of requests goes out, naming what will come back.
+   *
+   * The deadline is the whole safety of it: an answer that never arrives must not leave the
+   * screen holding a skeleton, so the wait is bounded and what has arrived is drawn.
+   */
+  expecting(keys: readonly string[]): void {
+    if (this.#dismissed) return;
+    for (const key of keys) this.#awaited.add(key);
+    /**
+     * Short, because this is how long the screen is allowed to be wrong for.
+     *
+     * The answers arrive together, tens of milliseconds apart, so this is never reached in the
+     * ordinary case. It exists for the one that does not come at all, and a long deadline turns
+     * that into a visibly late screen: an answer that was never sent held the first drawing for
+     * a second and a half, which is worse than drawing without it.
+     */
+    this.#awaitedUntil = Date.now() + 250;
+  }
+
+  /** The answers each drawing was prompted by, so a redraw can say what caused it. */
+  readonly #renderLog: { at: number; since: string[] }[] = [];
+  readonly #answeredSince = new Set<string>();
+
+  /** What each drawing was prompted by. For checks that count drawings. */
+  renderLog(): readonly { at: number; since: string[] }[] {
+    return this.#renderLog;
+  }
+
+  /** One of them came back. */
+  #answered(key: string): void {
+    this.#answeredSince.add(key);
+    this.#awaited.delete(key);
+    this.#scheduleRender();
+  }
+
+  /** Whether the batch is still worth waiting for. */
+  #stillWaiting(): boolean {
+    if (this.#awaited.size === 0) return false;
+    if (Date.now() >= this.#awaitedUntil) {
+      // Long enough. Draw what there is rather than nothing at all.
+      this.#awaited.clear();
+      return false;
+    }
+    return true;
+  }
+
+  #renderDueBy = 0;
+  #scheduleRender(): void {
+    if (this.#dismissed) return;
+    const now = Date.now();
+    /**
+     * Waits for the answers to stop arriving, but never for long.
+     *
+     * A fixed window only merges answers that arrive inside it, and on a busy machine the three
+     * replies to one change can be tens of milliseconds apart: measured under a full test run,
+     * eleven redraws for one change rather than one. So each new answer restarts the wait, and a
+     * ceiling stops a steady trickle from holding the screen back indefinitely.
+     */
+    if (this.#renderQueued !== undefined) {
+      if (now >= this.#renderDueBy) return;
+      clearTimeout(this.#renderQueued);
+    } else {
+      this.#renderDueBy = now + 120;
+    }
+    const wait = Math.max(0, Math.min(30, this.#renderDueBy - now));
+    this.#renderQueued = window.setTimeout(() => {
+      this.#renderQueued = undefined;
+      if (this.#dismissed) return;
+      if (this.#stillWaiting()) {
+        // The rest of the batch is still coming. Look again shortly rather than drawing half.
+        this.#scheduleRender();
+        return;
+      }
+      this.#renderLog.push({ at: Math.round(performance.now()), since: [...this.#answeredSince] });
+      if (this.#renderLog.length > 20) this.#renderLog.shift();
+      this.#answeredSince.clear();
+      this.render();
+    }, wait);
+  }
   /** Per directory, what the daemon reported. Absent means not asked or nothing there. */
   readonly #projects = new Map<string, ProjectConfigInfo>();
   /**
@@ -174,12 +283,12 @@ export class Launcher {
 
   setLiveSessions(sessions: readonly LiveSession[]): void {
     this.#liveSessions = [...sessions];
-    if (!this.#dismissed) this.render();
+    this.#answered('live');
   }
 
   setState(state: LauncherState): void {
     this.#state = state;
-    if (!this.#dismissed) this.render();
+    this.#answered('state');
   }
 
   /**
@@ -229,7 +338,9 @@ export class Launcher {
   /** Templates the daemon-independent store gave us. Rendered as chips of their own. */
   setTemplates(templates: readonly LayoutTemplate[]): void {
     this.#templates = [...templates];
-    if (!this.#dismissed) this.render();
+    // Named like the rest, because it arrives on its own schedule: templates come from extension
+    // storage rather than the daemon, so they land beside the answers and drew a second screen.
+    this.#answered('templates');
   }
 
   /**
@@ -1496,7 +1607,7 @@ export class Launcher {
   /** Workspaces that could be brought back after a restart. */
   setRestorable(workspaces: readonly RestorableSummary[]): void {
     this.#restorable = workspaces;
-    if (!this.#dismissed) this.render();
+    this.#answered('restorable');
   }
 
   /**
@@ -1595,7 +1706,7 @@ export class Launcher {
     if (this.#confirming && !servers.some((s) => s.sessionId === this.#confirming?.sessionId)) {
       this.#confirming = null;
     }
-    if (!this.#dismissed) this.render();
+    this.#answered('servers');
   }
 
   /**
@@ -1689,7 +1800,7 @@ export class Launcher {
   /** Agent sessions that could be picked back up. Shown, never resumed automatically. */
   setResumable(sessions: readonly ResumableAgentSession[]): void {
     this.#resumable = sessions;
-    if (!this.#dismissed) this.render();
+    this.#answered('resumable');
   }
 
   /** Conversations dismissed from this list, which stay dismissed. */
@@ -1697,7 +1808,8 @@ export class Launcher {
 
   setHiddenResumes(ids: readonly string[]): void {
     this.#hiddenResumes = new Set(ids);
-    if (!this.#dismissed) this.render();
+    // Named, so it joins the batch it arrives with: which resume rows were dismissed, read from extension storage.
+    this.#answered('hidden-resumes');
   }
 
   #resumeSection(home: string): HTMLElement | null {
@@ -1847,7 +1959,8 @@ export class Launcher {
     this.#asked.add(cwd);
     if (config) this.#projects.set(cwd, config);
     else this.#projects.delete(cwd);
-    if (!this.#dismissed) this.render();
+    // Named, so it joins the batch it arrives with: a project file the daemon was asked to read for a folder in the list.
+    this.#answered('project');
   }
 
   /**

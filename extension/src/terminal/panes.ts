@@ -26,6 +26,8 @@ export interface PaneHostOptions {
   highlightColor?: () => string;
   highlightRecents?: () => readonly string[];
   onColorUsed?: (color: string) => void;
+  /** The browser took a pane's accelerated renderer away. See `XtermController`. */
+  onRendererLost?: (paneId: string) => void;
 }
 
 interface Pane {
@@ -86,6 +88,7 @@ export class PaneHost {
       highlightColor: () => this.#opts.highlightColor?.() ?? DEFAULT_COLOR.highlight,
       highlightRecents: () => this.#opts.highlightRecents?.() ?? [],
       onColorUsed: (color) => this.#opts.onColorUsed?.(color),
+      onRendererLost: () => this.#opts.onRendererLost?.(paneId),
     });
 
     /**

@@ -1276,14 +1276,41 @@ function syncPaneChoosers(): void {
  * Called when the snapshot has been applied, and by a timer as a ceiling. Everything before this
  * point is the tab deciding what it is, and during that time it shows neither.
  */
+/** What the last decision was made on, so a wrong one can be read rather than guessed at. */
+let startScreenReason: Record<string, unknown> = {};
+
 function decideStartScreen(): void {
   if (startScreenDecided) return;
   startScreenDecided = true;
   root.classList.remove('deciding');
+  {
+    const only = (panesHost?.all ?? [])[0];
+    startScreenReason = {
+      launched: hasLaunched(),
+      panes: panesHost?.all.length ?? 0,
+      lines: only ? linesWithContent(only.controller.term) : -1,
+      withCommand: only ? panesWithCommand.has(only.paneId) : false,
+      unused: thisTabIsUnused(),
+    };
+  }
   // Empty after the snapshot means the tab really has nothing in it, and the start screen is
   // what belongs there. Anything else keeps its terminal.
-  if (thisTabIsUnused()) openStartScreen();
-  else launcher?.dismiss();
+  if (thisTabIsUnused()) {
+    openStartScreen();
+    return;
+  }
+  launcher?.dismiss();
+  /**
+   * And the terminal takes the keyboard, so it looks like the thing that has it.
+   *
+   * Typing already reached the shell without this, because a keystroke with nowhere better to go
+   * is handed to the focused pane. What was missing is the cursor: a terminal nothing has focused
+   * draws a hollow one, so after every refresh the screen said the keyboard was somewhere else
+   * while it was in fact right here. Being able to type into something that does not look like it
+   * is taking typing is its own kind of broken.
+   */
+  const focused = splitView?.focused;
+  if (focused) panesHost?.focus(focused);
 }
 
 function openStartScreen(): void {
@@ -1824,6 +1851,21 @@ function buildHosts(): void {
     highlightColor: () => recentColors.highlight[0] ?? DEFAULT_COLOR.highlight,
     highlightRecents: () => recentColors.highlight,
     onColorUsed: (color) => useColor('highlight', color),
+    /**
+     * Written down, because it is the difference between a pane that scrolls well and one that
+     * does not, and it was invisible to everyone including the person feeling it.
+     */
+    onRendererLost: (paneId) => {
+      client?.send({
+        t: 'note',
+        event: 'renderer-lost',
+        detail: {
+          paneId: paneId.slice(0, 8),
+          panes: panesHost?.all.length ?? 0,
+          visible: document.visibilityState === 'visible',
+        },
+      });
+    },
     onData: (paneId, data) => {
       inputBytesSeen += data.length;
       const pane = panesHost?.get(paneId);
@@ -1948,12 +1990,23 @@ function useColor(use: ColorUse, color: string): void {
 const hiddenResumes = new Set<string>();
 
 function loadHiddenResumes(): void {
-  void chrome.storage.local.get('tabterm.hiddenResumes').then((stored) => {
-    const list: unknown = stored['tabterm.hiddenResumes'];
-    if (!Array.isArray(list)) return;
-    for (const id of list) if (typeof id === 'string') hiddenResumes.add(id);
-    launcher?.setHiddenResumes([...hiddenResumes]);
-  });
+  void chrome.storage.local
+    .get('tabterm.hiddenResumes')
+    .then((stored) => {
+      const list: unknown = stored['tabterm.hiddenResumes'];
+      if (Array.isArray(list)) {
+        for (const id of list) if (typeof id === 'string') hiddenResumes.add(id);
+      }
+      /**
+       * Answered even when there is nothing stored, which is the ordinary case.
+       *
+       * Returning early left the start screen waiting for an answer that was never coming, and
+       * it draws once it has what it asked for: on a profile that had never hidden a resume row,
+       * the whole screen waited for the deadline instead. "Nothing hidden" is an answer.
+       */
+      launcher?.setHiddenResumes([...hiddenResumes]);
+    })
+    .catch(() => launcher?.setHiddenResumes([...hiddenResumes]));
 }
 
 function buildLauncher(): void {
@@ -2332,11 +2385,27 @@ let rendererTimer: ReturnType<typeof setTimeout> | undefined;
  * Not immediately: flicking between two tabs is common, and tearing down a WebGL context on
  * every switch would cost more than it saves. The delay is what the memory mode sets.
  */
+/**
+ * A hidden tab gives its accelerated renderers back.
+ *
+ * Not only to save memory, which is what the delay was chosen for. A browser keeps a limited
+ * number of these and takes the oldest away when something else wants one, so a tab nobody is
+ * looking at holding onto one costs a tab somebody **is** looking at: the pane that loses it
+ * falls back to drawing with DOM nodes, which is fine for a prompt and slow for a tab holding an
+ * agent's output. With a dozen terminal tabs open, waiting two minutes each is how a context ends
+ * up being taken rather than given.
+ *
+ * So a hidden tab gives them up promptly, and the full delay is kept for the case the setting is
+ * really about: coming straight back to a tab you glanced away from.
+ */
+const RENDERER_HANDBACK_MS = 4000;
+
 function scheduleRendererRelease(): void {
   clearTimeout(rendererTimer);
+  const wait = Math.min(memorySettings.rendererUnloadMs, RENDERER_HANDBACK_MS);
   rendererTimer = setTimeout(() => {
     if (document.visibilityState === 'hidden') panesHost?.releaseRenderers();
-  }, memorySettings.rendererUnloadMs);
+  }, wait);
 }
 
 function focusedSessionId(): string | undefined {
@@ -3011,7 +3080,21 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
       // A landmark to scroll back to. Printed into the output rather than typed at the shell,
       // so it cannot run in whatever program is in the foreground.
       label: 'Add a marker here',
-      enabled: session !== '',
+      /**
+       * Not in a pane that something was launched into.
+       *
+       * A marker is printed into the output: full width coloured bars, written to the terminal
+       * itself, with a prompt redrawn under them. That works because a shell's screen is a
+       * transcript and printing into it is what everything else there does too.
+       *
+       * A program that draws its own screen is a different thing. It redraws over and around the
+       * bars, which is the reported screenshot: two magenta stripes through the middle of a
+       * conversation, belonging to nothing and removable only by clearing.
+       *
+       * Greyed rather than hidden, so the menu keeps its shape and the entry says the offer
+       * exists but not here.
+       */
+      enabled: session !== '' && !panesWithCommand.has(paneId),
       run: () => {
         splitView?.focus(paneId);
         const pane = panesHost?.get(paneId);
@@ -3033,8 +3116,24 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
               color,
               cols: pane.controller.term.cols,
             });
+            /**
+             * And the keyboard goes back to the terminal, visibly.
+             *
+             * The form took it to be typed into, and removing the form leaves it nowhere. Typing
+             * still reached the shell, because a keystroke with nowhere better to go is handed to
+             * the focused pane, but the cursor was drawn hollow: the screen said the keyboard was
+             * elsewhere while it was here.
+             *
+             * On the next frame, because the form is still being taken out of the document on
+             * this one and focusing something that is about to be removed hands it straight back.
+             */
+            requestAnimationFrame(() => pane.controller.focus());
           },
-          onCancel: () => document.querySelector('.pane-label-form')?.remove(),
+          onCancel: () => {
+            document.querySelector('.pane-label-form')?.remove();
+            // The same on the way out. Cancelling should leave things as they were found.
+            requestAnimationFrame(() => pane.controller.focus());
+          },
         });
       },
     },
@@ -3894,6 +3993,21 @@ function onControl(msg: ServerMessage): void {
       // A tab that has already started something never draws the start screen over it, whatever
       // its panes happen to contain right now.
       if (!reattaching || startScreenDecided) openStartScreen();
+      /**
+       * The rest of the start screen, named before it is asked for.
+       *
+       * A refresh drew four different versions of the same page on the way to the right one:
+       * the state, then the running list, then the restorable workspaces, then the resumable
+       * agents, each replacing the last. Naming them means one drawing, when the page is known.
+       */
+      launcher?.expecting([
+        'live',
+        'resumable',
+        'restorable',
+        'servers',
+        'templates',
+        'hidden-resumes',
+      ]);
       launcher?.setState(msg.state);
       launcherHome = msg.state.home;
       savedItems = [...msg.state.saved];
@@ -4064,6 +4178,24 @@ function onControl(msg: ServerMessage): void {
        * the few that care.
        */
       if (launcher?.isShowing !== true) return;
+      /**
+       * Named before they are asked for, so the screen draws once they are all back.
+       *
+       * Each of these answers arrives in its own message, a round trip apart, and each used to
+       * redraw the whole start screen. Measured, one change elsewhere cost three redraws even
+       * with a timer gathering them, because a timer cannot know how many are still coming.
+       */
+      /**
+       * Servers too, because asking for the state asks for those as well.
+       *
+       * The handler for launcher state sends a second round of requests, and each answer that
+       * reaches this screen redraws it. Naming them all is the difference between one drawing
+       * and one per answer; naming only some leaves the rest to arrive on their own afterwards.
+       */
+      const alsoState = commandPanel?.isOpen !== true;
+      launcher.expecting(
+        alsoState ? ['live', 'resumable', 'state', 'servers'] : ['live', 'resumable'],
+      );
       client?.send({ t: 'list-live-sessions' });
       client?.send({ t: 'list-resumable', limit: 8 });
       /**
@@ -4077,7 +4209,7 @@ function onControl(msg: ServerMessage): void {
        * Nothing is lost by waiting. The menu is a thing somebody is looking at right now, and
        * the folder list is refreshed the moment it closes.
        */
-      if (commandPanel?.isOpen !== true) client?.send({ t: 'list-launcher' });
+      if (alsoState) client?.send({ t: 'list-launcher' });
       return;
     }
 
@@ -4372,12 +4504,29 @@ declare global {
       redrawAfterAway: () => void;
       /** The sizes the daemon reported applying, oldest first. */
       appliedSizes: () => string[];
+      /** Which pane the layout has maximized, and a way out of it. */
+      /** What the tab decided it was on load, and what it decided that on. */
+      startScreenReason: () => Record<string, unknown>;
+      /** What prompted each drawing of the start screen, most recent last. */
+      renderLog: () => readonly { at: number; since: string[] }[];
+      maximizedPane: () => string | null;
+      leaveFocusMode: () => void | Promise<void>;
       /** Which panes the daemon said something was launched into. */
       paneFacts: () => { paneId: string; startedWithCommand: boolean }[];
       /** Only what is on screen right now, which the strip makes a different question. */
       readViewport: (paneId?: string) => string;
       /** Draw text on a pane, for checks about what is shown rather than how it got there. */
       writeToPane: (paneId: string, text: string) => void;
+      /** Send input the way a keystroke does, all the way to the shell and back. */
+      sendToPane: (paneId: string, text: string) => void;
+      /** How many separate writes of input this page has sent, and how many bytes. */
+      inputSent: () => { writes: number; bytes: number };
+      /** Which renderer each pane is drawing with, which decides how scrolling feels. */
+      renderers: () => { paneId: string; webgl: boolean }[];
+      /** Scroll the focused pane, the way a wheel does, for measuring how that performs. */
+      scrollLines: (lines: number) => void;
+      /** Rebuild the marker rail now, for measuring what that costs on a full buffer. */
+      syncMarkersNow: () => void;
       /** What the daemon last said about how long a tabless terminal is kept. */
       keepAlive: () => number | null | undefined;
       /**
@@ -4499,6 +4648,19 @@ function installTestHook(): void {
     },
     /** What the daemon said it applied, which is where a nudge is visible and the grid is not. */
     appliedSizes: () => sessionSizes.map((s) => `${s.cols}x${s.rows}`),
+    /**
+     * Which pane the layout has maximized, and a way out of it.
+     *
+     * Exposed because going full screen needs a real user gesture and a synthetic click is not
+     * one, so a check cannot reach this state through the interface. What it is checking is the
+     * layout, which is here.
+     */
+    /** What the tab decided it was on load, and what it decided that on. */
+    startScreenReason: () => startScreenReason,
+    /** What prompted each drawing of the start screen, most recent last. */
+    renderLog: () => launcher?.renderLog() ?? [],
+    maximizedPane: () => splitView?.maximized ?? null,
+    leaveFocusMode: () => splitView?.exitFocusMode(),
     /** Which panes the daemon said something was launched into. */
     paneFacts: () =>
       (panesHost?.all ?? []).map((p) => ({
@@ -4547,6 +4709,8 @@ function installTestHook(): void {
     insertMarker: (label, color) => {
       const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
       if (!pane) return;
+      // The same rule as the menu entry: printing into a screen a program owns corrupts it.
+      if (panesWithCommand.has(pane.paneId)) return;
       client?.send({
         t: 'insert-marker',
         sessionId: pane.sessionId,
@@ -4629,6 +4793,33 @@ function installTestHook(): void {
       const target = paneId || splitView?.focused || panesHost?.all[0]?.paneId;
       const pane = target ? panesHost?.get(target) : undefined;
       pane?.controller.write(new TextEncoder().encode(text), () => {});
+    },
+    /**
+     * Send input the way a keystroke does, all the way to the shell.
+     *
+     * `writeToPane` draws into the emulator here and never leaves the page, which is right for
+     * checking how something renders and useless for measuring how long anything takes. This is
+     * the other half: the same call a typed character makes, so what comes back has been through
+     * the host, the daemon and the socket.
+     */
+    inputSent: () => ({ ...(client?.sent ?? { writes: 0, bytes: 0 }) }),
+    syncMarkersNow: () => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : panesHost?.all[0];
+      pane?.controller.syncMarkersForTest();
+    },
+    scrollLines: (lines) => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : panesHost?.all[0];
+      pane?.controller.term.scrollLines(lines);
+    },
+    renderers: () =>
+      (panesHost?.all ?? []).map((p) => ({
+        paneId: p.paneId,
+        webgl: p.controller.rendererAttached,
+      })),
+    sendToPane: (paneId, text) => {
+      const target = paneId || splitView?.focused || panesHost?.all[0]?.paneId;
+      const pane = target ? panesHost?.get(target) : undefined;
+      if (pane) client?.write(pane.streamId, new TextEncoder().encode(text));
     },
     readViewport: (paneId) => {
       const target = paneId ?? splitView?.focused ?? panesHost?.all[0]?.paneId;

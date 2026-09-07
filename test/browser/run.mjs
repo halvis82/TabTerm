@@ -52,6 +52,16 @@ const FIRST = [
   // Measures how many messages arrive in a window. Other suites' traffic is noise in that.
   'no-busy-loop',
   /**
+   * Measures how long a tab takes to become usable, and how much work one change costs.
+   *
+   * Both are numbers about the product, and both become numbers about the machine the moment
+   * thirty-nine suites across four browsers are competing for it: measured in a full parallel
+   * run, a start screen that is usable in a hundred and fifty milliseconds reported twenty
+   * seconds. A budget that has to be loosened until it passes under that load is a budget that
+   * would not notice the product getting ten times slower.
+   */
+  'startup-cost',
+  /**
    * Measures how often a pane changes size, which every other browser's work perturbs.
    *
    * Counting size changes over four seconds is the only way to tell a size that settles from one
