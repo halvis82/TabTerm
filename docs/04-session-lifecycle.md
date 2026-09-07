@@ -494,7 +494,10 @@ A daemon that starts and finds live sessions **adopts** them:
 2. Read each session's directory, shell and workspace from `session_meta`
 3. Read the workspace layout, dropping panes whose session did not survive, because a pane that
    can never produce output is worse than an absent pane
-4. Replay the host's output buffer to rebuild each screen
+4. Replay the host's output buffer to rebuild each screen, **at the size it is really running
+   at**, which the host reports alongside everything else. Replaying into an emulator of the wrong
+   width wraps every line in the wrong place, and adoption used to pass eighty by twenty-four for
+   every session regardless
 5. Serve, so a reconnecting tab attaches to the session it had
 
 Verified end to end against `kill -9` of the daemon, which is the worst case because nothing gets

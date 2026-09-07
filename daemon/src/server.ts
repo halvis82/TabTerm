@@ -662,7 +662,13 @@ export class DaemonServer {
       case 'attach-workspace': {
         const workspace = this.#workspaces.get(msg.workspaceId);
         if (workspace) {
-          this.#attachWorkspace(client, msg.workspaceId, msg.cols, msg.rows);
+          this.#attachWorkspace(
+            client,
+            msg.workspaceId,
+            msg.cols,
+            msg.rows,
+            msg.estimated === true,
+          );
           return;
         }
 
@@ -825,7 +831,16 @@ export class DaemonServer {
         this.#workspaces.mergeInto(msg.workspaceId, target, msg.sessionId, 'horizontal');
         this.#closedPanes.delete(msg.sessionId);
         this.#sessions.rescheduleReaps();
-        this.#attachWorkspace(client, msg.workspaceId, 80, 24);
+        /**
+         * A placeholder, marked as one.
+         *
+         * Pulling a terminal in from another tab happens in the daemon, where nothing knows how
+         * big the panes are. This used to become the size of the terminal until the page
+         * measured, which for a full-screen program is a complete redraw at eighty columns and
+         * another one back. `80x24` in the middle of a size sequence was the signature of the
+         * original flicker.
+         */
+        this.#attachWorkspace(client, msg.workspaceId, 80, 24, true);
         this.#broadcastLayout(msg.workspaceId);
         return;
       }
@@ -991,7 +1006,8 @@ export class DaemonServer {
             });
             this.#notifyWorkspaceGone(sourceId);
           }
-          this.#attachWorkspace(client, msg.workspaceId, 80, 24);
+          // The same placeholder, for the same reason. See the merge above.
+          this.#attachWorkspace(client, msg.workspaceId, 80, 24, true);
           this.#broadcastLayout(msg.workspaceId);
         } catch (e) {
           warn('workspace.merge.failed', { error: String(e) });
@@ -1076,7 +1092,7 @@ export class DaemonServer {
           return;
         }
         const streamId = client.streams.get(id) ?? this.#bind(client, session);
-        this.#attach(client, session, streamId, msg.cols, msg.rows);
+        this.#attach(client, session, streamId, msg.cols, msg.rows, msg.estimated === true);
         return;
       }
 
@@ -1894,7 +1910,13 @@ export class DaemonServer {
    * This is what makes a multi-pane tab restore: the client gets the layout plus a snapshot
    * per pane, so it can rebuild the whole thing rather than reconnecting one terminal.
    */
-  #attachWorkspace(client: Client, workspaceId: string, cols: number, rows: number): void {
+  #attachWorkspace(
+    client: Client,
+    workspaceId: string,
+    cols: number,
+    rows: number,
+    estimated = false,
+  ): void {
     const workspace = this.#workspaces.get(workspaceId);
     if (!workspace) return;
 
@@ -1932,7 +1954,7 @@ export class DaemonServer {
     // Sizes are per pane, so the client sends real ones once it has laid the panes out.
     for (const entry of toAttach) {
       const session = this.#sessions.get(entry.sessionId);
-      if (session) this.#attach(client, session, entry.streamId, cols, rows);
+      if (session) this.#attach(client, session, entry.streamId, cols, rows, estimated);
     }
   }
 
@@ -2551,7 +2573,14 @@ export class DaemonServer {
     client.flow.delete(sessionId);
   }
 
-  #attach(client: Client, session: Session, streamId: number, cols: number, rows: number): void {
+  #attach(
+    client: Client,
+    session: Session,
+    streamId: number,
+    cols: number,
+    rows: number,
+    estimated = false,
+  ): void {
     const flow = new FlowController({
       windowBytes: this.#config.creditWindowBytes,
       coalesceMs: this.#config.coalesceMs,
@@ -2579,6 +2608,7 @@ export class DaemonServer {
       clientId: client.id,
       cols,
       rows,
+      ...(estimated ? { estimated: true } : {}),
       onOutput: (data) => flow.push(data),
     });
   }

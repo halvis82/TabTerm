@@ -1042,12 +1042,19 @@ function renderRecoveryActions(recall: {
       button(`Resume the agent session here`, () => {
         recoveryEl.hidden = true;
         root.style.display = '';
+        /**
+         * Measured, like every other way of starting something.
+         *
+         * This was the one place that sent a hardcoded eighty by twenty-four, so resuming a
+         * conversation from the recovery page started the agent at eighty columns and moved it
+         * to the real width a moment later. An agent redraws itself completely on a resize, so
+         * that is the whole conversation reflowed twice before it is even readable.
+         */
         client?.send({
           t: 'resume-agent',
           sessionId: resumable.sessionId,
           cwd,
-          cols: 80,
-          rows: 24,
+          ...(panesHost?.fit(splitView?.focused ?? '') ?? attachSize()),
         });
       });
     }
@@ -2117,7 +2124,7 @@ function repaintAfterRestore(paneId: string, screen: string): void {
  * is a small correction rather than a different screen. A wrong guess is only ever wrong for
  * that moment; 80 by 24 was wrong for the whole reattach.
  */
-function attachSize(): { cols: number; rows: number } {
+function attachSize(): { cols: number; rows: number; estimated?: true } {
   const measured = panesHost?.all[0]?.controller.fit();
   if (measured && measured.cols > 1 && measured.rows > 1) return measured;
   // A cell from the terminal's own font metrics when there is one, and a sane default when not.
@@ -2126,9 +2133,23 @@ function attachSize(): { cols: number; rows: number } {
   const height = cell?.height ?? 17;
   const usableWidth = Math.max(200, window.innerWidth - 24);
   const usableHeight = Math.max(120, window.innerHeight - 24);
+  /**
+   * Said to be a guess, because it is one.
+   *
+   * A page that has just loaded has no pane with a box, so this works a size out from the window
+   * and the answer is systematically too big: it does not know about the gap the launcher takes,
+   * the border, or the scrollbar. Measured against the real thing on this machine it was 212 by
+   * 47 where the truth was 195 by 44.
+   *
+   * That was being applied. Every tab open resized the terminal to the guess and then to the
+   * measurement a tenth of a second later, which for a shell is nothing and for a full-screen
+   * program is a complete redraw at the wrong width followed by another at the right one. On
+   * every single tab open. The daemon ignores a guess for a terminal that already has a size.
+   */
   return {
     cols: Math.max(20, Math.min(500, Math.floor(usableWidth / Math.max(1, width)))),
     rows: Math.max(5, Math.min(300, Math.floor(usableHeight / Math.max(1, height)))),
+    estimated: true,
   };
 }
 

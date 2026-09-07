@@ -51,7 +51,15 @@ export class HostPtyBackend implements PtyBackend {
   }
 
   async adoptable(): Promise<
-    { sessionId: string; pid: number; cwd: string; seq: number; startedAt?: number }[]
+    {
+      sessionId: string;
+      pid: number;
+      cwd: string;
+      seq: number;
+      startedAt?: number;
+      cols?: number;
+      rows?: number;
+    }[]
   > {
     const sessions = await this.#client.list();
     return sessions
@@ -62,6 +70,10 @@ export class HostPtyBackend implements PtyBackend {
         cwd: s.cwd,
         seq: s.seq,
         startedAt: s.startedAt,
+        // The host has held the real size all along. It was being thrown away here.
+        ...(typeof s.cols === 'number' && typeof s.rows === 'number'
+          ? { cols: s.cols, rows: s.rows }
+          : {}),
       }));
   }
 

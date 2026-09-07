@@ -28,6 +28,16 @@ export interface AdoptableSession {
    * clock would never have run out on a machine that keeps itself current.
    */
   startedAt?: number;
+  /**
+   * The size the terminal is really running at, which the host has held all along.
+   *
+   * The daemon rebuilds each screen by replaying output into a fresh emulator, and an emulator of
+   * the wrong width wraps every line in the wrong place. Without this, every restart rebuilt
+   * every screen at eighty columns while the terminals themselves carried on at whatever they
+   * were, and a reattaching tab was handed a folded-up copy of its own screen.
+   */
+  cols?: number;
+  rows?: number;
 }
 
 export interface AdoptionPlan {
@@ -39,6 +49,9 @@ export interface AdoptionPlan {
     command?: readonly string[];
     workspaceId?: string;
     startedAt?: number;
+    /** The size it is running at, when the host knows it. See `AdoptableSession`. */
+    cols?: number;
+    rows?: number;
   }[];
   workspaces: { id: string; layout: LayoutNode }[];
 }
@@ -85,6 +98,9 @@ export function planAdoption(
       shell: row?.shell ?? defaultShell,
       ...(command ? { command } : {}),
       ...(row?.workspace_id ? { workspaceId: row.workspace_id } : {}),
+      ...(session.cols !== undefined && session.rows !== undefined
+        ? { cols: session.cols, rows: session.rows }
+        : {}),
     });
     if (row?.workspace_id) wanted.add(row.workspace_id);
   }

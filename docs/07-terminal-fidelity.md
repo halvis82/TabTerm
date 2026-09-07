@@ -600,6 +600,51 @@ those measured activity rather than instability, and it showed within a day of t
 installed: an ordinary reattach reported a storm made of one deliberate repaint nudge and three
 requests for the size the pane already had.
 
+### A size nobody measured is not allowed to move a terminal
+
+Reading that record for a day found the next fault, and it was on every tab open. The sequence per
+tab was five changes:
+
+```
+attach 212x47   resize-pane 195x44   resize-pane 195x43   resize-pane 195x44   resize-pane 195x3
+```
+
+The first of those is a guess. A page that has just loaded has no pane with a box to measure, so
+it works a size out from the window, and that answer is systematically too big: it knows nothing
+about the launcher, the border or the scrollbar. It was 212 by 47 where the truth was 195 by 44,
+and it was reaching the PTY. For a shell that is nothing. For a full-screen program it is a
+complete redraw at the wrong width followed by another at the right one, every single time a tab
+is opened.
+
+An attach now says whether its size is a measurement or a guess, and a guess does not move a
+terminal that already has a size. The measurement follows within about a tenth of a second and is
+believed then. The rule that already covered a returning client covers this too, and for the same
+reason: **an attach is not new information about how big anything is.**
+
+Only when the session already has a size. A session being created has nothing better to go on and
+nothing on screen to spoil.
+
+Three places sent a size nobody had measured:
+
+- **A page-load reattach**, above. The largest, because it happens on every tab open.
+- **Pulling a terminal in from another tab**, which happens in the daemon where nothing knows how
+  big the panes are, and passed a literal `80, 24`. That is the `80x24` that appeared in the middle
+  of the original flicker sequence.
+- **Resuming an agent from the recovery page**, which passed a literal `80, 24` while every other
+  way of starting something measured first. The one path where the thing being started is
+  guaranteed to be a full-screen program.
+
+### A restart rebuilds each screen at the size it was really running at
+
+The daemon rebuilds an adopted session's screen by replaying the host's output into a fresh
+emulator, and an emulator of the wrong width wraps every line in the wrong place. Adoption passed
+`80, 24` for every session, so every restart rebuilt every screen at eighty columns while the
+terminals themselves carried on at whatever they were. A reattaching tab was handed a folded-up
+copy of its own screen, and a full-screen program had to be resized before it looked right.
+
+The host has held the true size all along and reports it in the same list adoption already reads.
+It was being discarded one call before it was needed.
+
 ### The record of what the terminal actually resized to
 
 `session.resize.applied` is written at **info**, not debug, and carries every claim at the moment

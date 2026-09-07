@@ -409,7 +409,22 @@ async function main(): Promise<void> {
         const plan = planAdoption(live, db, config.shell);
         const adopted = new Set<string>();
         for (const entry of plan.sessions) {
-          const session = sessions.adopt({ ...entry, cols: 80, rows: 24 });
+          /**
+           * Adopted at the size it is really running at, not at eighty by twenty-four.
+           *
+           * The screen is rebuilt by replaying the host's output into a fresh emulator, and an
+           * emulator of the wrong width wraps every line in the wrong place. Every restart used
+           * to rebuild every screen at eighty columns while the terminals themselves carried on
+           * at whatever they were, so a reattaching tab was handed a folded-up copy of its own
+           * screen and a full-screen program had to be resized before it looked right again.
+           *
+           * The host has held the true size all along; it was being discarded one call earlier.
+           */
+          const session = sessions.adopt({
+            ...entry,
+            cols: entry.cols ?? 80,
+            rows: entry.rows ?? 24,
+          });
           adopted.add(session.id);
         }
         for (const workspace of plan.workspaces) {

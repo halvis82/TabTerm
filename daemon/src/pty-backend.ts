@@ -48,8 +48,24 @@ export interface PtyBackend {
   onData(fn: (sessionId: string, data: Buffer) => void): void;
   onExit(fn: (sessionId: string, exitCode: number, signal?: number) => void): void;
   /** Sessions that already exist, which is empty for anything that cannot outlive the daemon. */
+  /**
+   * `cols` and `rows` are the size the terminal is actually running at, when the backend knows.
+   *
+   * It matters because the daemon rebuilds each screen by replaying output into a fresh emulator,
+   * and an emulator of the wrong width wraps every line in the wrong place. A restart used to
+   * rebuild every screen at eighty columns while the terminals themselves were still running at
+   * whatever they were, so the snapshot a reattaching tab received was folded up.
+   */
   adoptable(): Promise<
-    { sessionId: string; pid: number; cwd: string; seq: number; startedAt?: number }[]
+    {
+      sessionId: string;
+      pid: number;
+      cwd: string;
+      seq: number;
+      startedAt?: number;
+      cols?: number;
+      rows?: number;
+    }[]
   >;
   close(): void;
 }
@@ -125,7 +141,15 @@ export class LocalPtyBackend implements PtyBackend {
 
   /** Nothing. A PTY in this process cannot have outlived this process. */
   adoptable(): Promise<
-    { sessionId: string; pid: number; cwd: string; seq: number; startedAt?: number }[]
+    {
+      sessionId: string;
+      pid: number;
+      cwd: string;
+      seq: number;
+      startedAt?: number;
+      cols?: number;
+      rows?: number;
+    }[]
   > {
     return Promise.resolve([]);
   }

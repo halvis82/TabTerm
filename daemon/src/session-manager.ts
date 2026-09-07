@@ -25,6 +25,8 @@ export interface AttachedClient {
   clientId: string;
   cols: number;
   rows: number;
+  /** The size is a guess made from the window, because nothing was laid out to measure yet. */
+  estimated?: boolean;
   /** Called with raw PTY bytes. The transport decides how to frame them. */
   onOutput: (data: Buffer) => void;
 }
@@ -496,6 +498,26 @@ export class SessionManager {
     if (known) {
       client.cols = known.cols;
       client.rows = known.rows;
+    } else if (client.estimated && session.vt.cols > 0 && session.vt.rows > 0) {
+      /**
+       * And a client that says its size is a guess does not move a terminal that already has one.
+       *
+       * A page that has just loaded has no pane with a box to measure, so it works a size out
+       * from the window. That guess is systematically too big, and it was being applied: every
+       * tab open resized the terminal to the guess and then to the real measurement a tenth of a
+       * second later. Harmless for a shell, and not harmless for a full-screen program, which
+       * redraws itself completely on each one. That is an agent visibly reflowing at the wrong
+       * width every single time its tab is opened.
+       *
+       * The rule that already covers a returning client covers this too, and for the same
+       * reason: an attach is not new information about how big anything is. The measurement
+       * follows in a moment and is believed then.
+       *
+       * Only when the session already has a size. A session being created has nothing better to
+       * go on, and nothing on screen to reflow.
+       */
+      client.cols = session.vt.cols;
+      client.rows = session.vt.rows;
     }
     session.clients.set(client.clientId, client);
     session.lastAttachedAt = Date.now();

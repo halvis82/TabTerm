@@ -219,14 +219,29 @@ export interface AuthMessage {
 export type ClientMessage =
   | AuthMessage
   | { t: 'create-session'; cwd?: string; command?: readonly string[]; cols: number; rows: number }
-  | { t: 'attach'; sessionId?: string; workspaceId?: string; cols: number; rows: number }
+  | {
+      t: 'attach';
+      sessionId?: string;
+      workspaceId?: string;
+      cols: number;
+      rows: number;
+      /**
+       * The size is a guess, because nothing had been laid out to measure yet.
+       *
+       * A page that has just loaded has no pane with a box, so it works one out from the window.
+       * That guess is systematically wrong, and it used to become the size the terminal ran at
+       * for the moment before the real measurement arrived. A reattaching agent redrew itself at
+       * the wrong width and then again at the right one, on every tab open.
+       */
+      estimated?: boolean;
+    }
   | { t: 'detach'; sessionId: string }
   | { t: 'resize'; sessionId: string; cols: number; rows: number }
   | { t: 'request-scrollback'; sessionId: string; beforeSeq: number; maxLines: number }
   | { t: 'kill-session'; sessionId: string }
   | { t: 'set-pin'; sessionId?: string; workspaceId?: string; pinned: boolean }
   | { t: 'set-persistence'; sessionId: string; policyId?: string }
-  | { t: 'attach-workspace'; workspaceId: string; cols: number; rows: number }
+  | { t: 'attach-workspace'; workspaceId: string; cols: number; rows: number; estimated?: boolean }
   | {
       t: 'split-pane';
       workspaceId: string;
