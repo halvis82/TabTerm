@@ -504,6 +504,22 @@ Verified end to end against `kill -9` of the daemon, which is the worst case bec
 to run on the way out: the process survived, the tab reconnected without an expiry page, the
 earlier output was on screen, and the session still accepted commands.
 
+### A pane whose process ended stops being a pane, and the tab has to be told
+
+The workspace drops the pane and the tabs showing that workspace are sent the new layout. The
+sending is the part that was missing: it went out through the broadcast that reaches the **control
+role only**, which is the service worker, so the announcement that a pane had gone was delivered
+exclusively to the context that cannot draw anything. Every tab kept the pane.
+
+A pane holding a dead terminal is worse than no pane. It looks exactly like a live one and
+swallows everything typed into it, which is what "I can't close or kill a session from the
+right-click menu" and "after closing an agent I can't always type commands again" both look like
+from the outside. Neither was about the menu or the agent.
+
+A pane that ran a **declared command** is the exception and keeps its pane: its output is the
+reason it existed, and closing it the instant the command finished would throw away exactly what
+was being waited for.
+
 ### A reconnect is not proof that anything died
 
 When the connection to the host comes back, the daemon **asks what the host still has** before

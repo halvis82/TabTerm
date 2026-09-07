@@ -1050,7 +1050,15 @@ export class Launcher {
     hint.textContent = 'Start typing to use the shell. Command+K for history and saved commands.';
 
     this.#el.replaceChildren(body, hint);
-    this.#el.hidden = false;
+    /**
+     * Drawn, not shown. Whether it is on screen is `show`'s business and nobody else's.
+     *
+     * Unhiding here meant that merely being handed data put the start screen up, and the daemon
+     * hands a tab its launcher state as soon as it connects. So a tab reopened on a session it
+     * already had flashed the start screen for the fraction of a second before its own screen
+     * arrived, and then swapped. Held back for a reattaching tab in one place and given away in
+     * another, which is why the guard that existed did not work.
+     */
   }
 
   render(): void {
@@ -1160,7 +1168,15 @@ export class Launcher {
      * browser paints at the end of the task, so the only frame ever drawn is the right one.
      */
     if (wasScrolled > 0) body.scrollTop = wasScrolled;
-    this.#el.hidden = false;
+    /**
+     * Drawn, not shown. Whether it is on screen is `show`'s business and nobody else's.
+     *
+     * Unhiding here meant that merely being handed data put the start screen up, and the daemon
+     * hands a tab its launcher state as soon as it connects. A tab reopened on a session it
+     * already had drew the start screen about a sixth of a second in and swapped to the terminal
+     * when the snapshot arrived. The guard that was supposed to hold it back was in the page,
+     * which never got the chance: this element had already shown itself.
+     */
     /**
      * And the row that was just opened is brought fully into view, if it is not already.
      *

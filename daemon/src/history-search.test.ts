@@ -205,7 +205,10 @@ describe('history search', () => {
     const timed = (label: string, run: () => unknown) => {
       run(); // once to warm any statement preparation
       let ms = Infinity;
-      for (let i = 0; i < 3; i++) {
+      // Five rather than three. The budget has about twice the headroom it used to, since the
+      // recents page groups by command now, and on a machine that is also building something
+      // three samples can all land inside the same busy moment.
+      for (let i = 0; i < 5; i++) {
         const t0 = performance.now();
         run();
         ms = Math.min(ms, performance.now() - t0);

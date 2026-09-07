@@ -219,12 +219,14 @@ r.ok(
 
   // Recording, then Escape. The panel must still be there afterwards.
   await evaluate(a.client, `${row}?.querySelector('.set-key')?.click()`);
-  await sleep(250);
-  r.ok(
-    'pressing the key button starts recording',
-    String(await keysNow()).includes('Press the keys'),
-    String(await keysNow()),
+  // Waited for: clearing the shortcut redraws the panel, so a press sent immediately after can
+  // land on the row that is being replaced.
+  const recording = await waitFor(
+    a.client,
+    `(${row}?.querySelector('.set-key')?.textContent ?? '').includes('Press the keys')`,
+    6000,
   );
+  r.ok('pressing the key button starts recording', recording, String(await keysNow()));
   await press(a.client, 'Escape', 'Escape');
   await sleep(400);
   r.ok(

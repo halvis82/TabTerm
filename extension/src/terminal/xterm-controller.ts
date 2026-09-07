@@ -217,6 +217,18 @@ export class XtermController {
   /** What was selected when the right-click arrived, which is what the menu acts on. */
   #selectionAtRightClick = '';
 
+  /**
+   * The same menu, for anything drawn on top of this pane.
+   *
+   * A pane that has just been split is covered by the chooser offering to put something in it,
+   * and that overlay swallowed the right-click: the pane was plainly visible and had no menu at
+   * all, which read as the menu working once and then never again. Anything covering a pane can
+   * hand the gesture back rather than each overlay growing a menu of its own.
+   */
+  openMenuAt(x: number, y: number): void {
+    this.#showMenu(x, y);
+  }
+
   #showMenu(x: number, y: number): void {
     document.querySelector('.term-menu')?.remove();
 

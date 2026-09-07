@@ -1976,6 +1976,19 @@ export class DaemonServer {
     }
   }
 
+  /**
+   * A layout changed for a reason that did not come from a client.
+   *
+   * A process ending is the case: the pane goes, and the tab showing it has to be told by
+   * somebody. This used to go out through `broadcast`, which reaches the control role only, so
+   * the announcement that a pane had gone was delivered exclusively to the one context that
+   * cannot draw anything. Every tab kept the pane, and a pane holding a dead terminal looks
+   * exactly like a live one and swallows everything typed into it.
+   */
+  announceLayout(workspaceId: string): void {
+    this.#broadcastLayout(workspaceId);
+  }
+
   #broadcastLayout(workspaceId: string, except?: Client): void {
     const workspace = this.#workspaces.get(workspaceId);
     if (!workspace) return;

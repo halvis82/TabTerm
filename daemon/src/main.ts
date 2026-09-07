@@ -199,11 +199,16 @@ async function main(): Promise<void> {
 
     const surviving = s.command?.length ? undefined : workspaces.forgetSession(s.id);
     if (surviving) {
-      server.broadcast({
-        t: 'workspace-updated',
-        workspaceId: surviving.id,
-        layout: surviving.layout,
-      });
+      /**
+       * Sent to the tabs showing it, which `broadcast` does not do.
+       *
+       * `broadcast` reaches the control role only, so this announcement went exclusively to the
+       * service worker: every terminal page kept the pane whose process had just ended. A pane
+       * holding a dead terminal looks exactly like a live one and swallows everything typed into
+       * it, which is what "i can't close or kill a session from the right-click menu" and "after
+       * closing an agent I can't always type commands again" both looked like from outside.
+       */
+      server.announceLayout(surviving.id);
     }
     server.notifySession(s, {
       t: 'session-exited',

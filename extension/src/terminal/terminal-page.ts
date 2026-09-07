@@ -1157,6 +1157,8 @@ function syncPaneChoosers(): void {
         paneId,
         home: launcherHome,
         liveSessions: () => liveElsewhere,
+        // The pane under this overlay keeps its own menu. See `PaneChooserOptions`.
+        onContextMenu: (id, x, y) => panesHost?.get(id)?.controller.openMenuAt(x, y),
         onDismiss: (id) => panesHost?.focus(id),
         onChooseDir: (id, path) => {
           const target = panesHost?.get(id);
@@ -3448,6 +3450,9 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'workspace-updated': {
+      // A layout belongs to one workspace. Applying another's would rearrange this tab into
+      // somebody else's panes, which is only survivable because nothing had ever sent one.
+      if (msg.workspaceId !== workspaceId) return;
       applyLayout(msg.layout);
       // A pane opened or closed is exactly when a layout may stop being the template it came
       // from, which is the one moment the title has to be worked out again.

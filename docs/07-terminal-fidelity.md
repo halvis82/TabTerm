@@ -645,6 +645,18 @@ copy of its own screen, and a full-screen program had to be resized before it lo
 The host has held the true size all along and reports it in the same list adoption already reads.
 It was being discarded one call before it was needed.
 
+### The start screen draws itself only when something asks it to
+
+A tab reopened on a session it already had showed the start screen about a sixth of a second in
+and swapped to its terminal when the snapshot arrived. The page had a guard for exactly this and
+the guard never got the chance: the launcher unhid itself whenever it was handed data, and the
+daemon hands a tab its launcher state as soon as it connects.
+
+Rendering and being on screen are separate now. Drawing fills the element; only `show` makes it
+visible, and only the one place that decides a tab is empty calls it. Checked by sampling what is
+on screen from the first moment the page can run anything, because by the time it has settled the
+answer is right and the fault is invisible.
+
 ### The start screen is never drawn over a pane that something was launched into
 
 Drawing it squeezes the terminal into a three row strip, and a full-screen program redraws itself

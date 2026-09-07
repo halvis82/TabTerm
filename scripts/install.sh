@@ -108,9 +108,45 @@ done
 find "$LIBEXEC/node_modules/node-pty/prebuilds" -name spawn-helper -exec chmod 755 {} \;
 echo "  daemon staged at $LIBEXEC"
 
+# The daemon is launched through an app bundle, and the reason is privacy prompts.
+#
+# macOS attaches a privacy decision to the process's executable image. Launching Homebrew's node
+# directly makes every prompt read "node" and records the decision against a bare path with no
+# code requirement, which macOS does not honor next time: the prompt came back on every single
+# launch of an agent. Inside a bundle the same decision attaches to com.tabterm.daemon and
+# persists, which is why iTerm and VS Code are asked once and never again.
+#
+# The bundle carries its own copy of node, 68 KB, because a shell script cannot hold an identity:
+# a script's executable image is the interpreter, and a launcher that execs node replaces the
+# image with one outside the bundle. Only a real executable living inside it works.
+#
+# Everything else stays where it was. The daemon file, the PTY host and node_modules are still
+# read from $LIBEXEC, because the daemon finds the host beside itself and moving it would replace
+# the running host and end every terminal on the machine.
+APP="$LIBEXEC/TabTerm.app"
+if TABTERM_NODE="$NODE" "$NODE" "$REPO/scripts/build-app-bundle.mjs" >/dev/null 2>&1 &&
+   [ -x "$REPO/dist/TabTerm.app/Contents/MacOS/node" ]; then
+  rm -rf "$APP"
+  cp -R "$REPO/dist/TabTerm.app" "$APP"
+  # The copy loses nothing, but a signature checked by path wants re-sealing where it now lives.
+  codesign --force --deep --sign - --identifier com.tabterm.daemon "$APP" >/dev/null 2>&1 || true
+  if "$APP/Contents/MacOS/node" -e "require('node:sqlite')" >/dev/null 2>&1; then
+    LAUNCH_NODE="$APP/Contents/MacOS/node"
+    echo "  privacy identity: com.tabterm.daemon (prompts say TabTerm, and are asked once)"
+  else
+    LAUNCH_NODE="$NODE"
+    echo "  WARNING: the bundled runtime does not run here, falling back to $NODE"
+    echo "           privacy prompts will say \"node\" and may repeat"
+  fi
+else
+  LAUNCH_NODE="$NODE"
+  echo "  WARNING: could not build the app bundle, falling back to $NODE"
+  echo "           privacy prompts will say \"node\" and may repeat"
+fi
+
 PLIST="$HOME/Library/LaunchAgents/com.tabterm.daemon.plist"
 mkdir -p "$HOME/Library/LaunchAgents"
-sed -e "s|__NODE__|$NODE|g" -e "s|__LIBEXEC__|$LIBEXEC|g" \
+sed -e "s|__NODE__|$LAUNCH_NODE|g" -e "s|__LIBEXEC__|$LIBEXEC|g" \
     -e "s|__STATE__|$STATE|g" -e "s|__HOME__|$HOME|g" \
     "$REPO/launchd/com.tabterm.daemon.plist.template" > "$PLIST"
 # bootout is asynchronous. Bootstrapping immediately after can race and silently fail, so

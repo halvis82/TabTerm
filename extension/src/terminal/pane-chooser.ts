@@ -32,6 +32,14 @@ export interface PaneChooserOptions {
   onTakeSession: (paneId: string, session: MergeableSession) => void;
   onRefreshSessions: () => void;
   /**
+   * A right click on this overlay is a right click on the pane under it.
+   *
+   * Without this the chooser swallowed the gesture: a pane that had just been split was plainly
+   * visible and had no menu at all, which reads as the menu working once and then never again.
+   * The overlay hands it back rather than growing a menu of its own.
+   */
+  onContextMenu?: (paneId: string, x: number, y: number) => void;
+  /**
    * Everything running, so a session can be offered as the card it has on the start screen.
    *
    * A row of text cannot tell four shells in the same repository apart. The card carries the
@@ -60,6 +68,12 @@ export class PaneChooser {
     this.#opts = opts;
     this.#el = document.createElement('div');
     this.#el.className = 'pane-chooser';
+    this.#el.addEventListener('contextmenu', (e) => {
+      // Not when there is a real target for it, like a text box somebody is typing a path into.
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      e.preventDefault();
+      opts.onContextMenu?.(opts.paneId, e.clientX, e.clientY);
+    });
     opts.container.append(this.#el);
     this.render();
     opts.onRefreshSessions();

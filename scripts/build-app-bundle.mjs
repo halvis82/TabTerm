@@ -47,7 +47,7 @@ writeFileSync(
 <dict>
   <key>CFBundleIdentifier</key><string>${BUNDLE_ID}</string>
   <key>CFBundleName</key><string>TabTerm</string>
-  <key>CFBundleExecutable</key><string>tabtermd</string>
+  <key>CFBundleExecutable</key><string>node</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${version}</string>
   <key>CFBundleVersion</key><string>${version}</string>
@@ -86,11 +86,61 @@ if (existsSync(modules)) {
 }
 
 /**
- * The launcher.
+ * The runtime, copied in, because a shell script cannot carry a bundle's identity.
  *
- * A shell script rather than a copied node binary. Copying node into the bundle would double
- * its size and pin a runtime that the user upgrades independently; the identity that matters to
- * TCC comes from the bundle, and a child process inherits it either way.
+ * This is the entire point of the bundle and it was missing. macOS attaches a privacy decision to
+ * the process's **executable image**, and a `#!` script's image is the interpreter: `/bin/sh`,
+ * which lives outside any bundle. A launcher that then `exec`s Homebrew's node replaces the image
+ * with one outside the bundle as well. Either way the process macOS sees is not in TabTerm.app,
+ * the prompt reads "node", and the decision is recorded against a path with no code requirement,
+ * which macOS does not honor on the next launch. So the prompt came back every single time.
+ *
+ * The binary is 68 KB, because Homebrew's node links a shared `libnode`. Rather than copy that
+ * too and pin a runtime the user upgrades on their own, the copy gets an rpath to the Homebrew
+ * prefix, which is a stable symlink. `install_name_tool` invalidates the signature, so this must
+ * happen before the bundle is signed.
+ */
+const nodeBinary =
+  process.env['TABTERM_NODE'] ??
+  execFileSync('/usr/bin/which', ['node'], { encoding: 'utf8' }).trim();
+const realNode = execFileSync('/usr/bin/readlink', ['-f', nodeBinary], { encoding: 'utf8' }).trim();
+const bundledNode = join(CONTENTS, 'MacOS', 'node');
+cpSync(realNode, bundledNode);
+chmodSync(bundledNode, 0o755);
+/**
+ * Both the stable path and the real one.
+ *
+ * Homebrew's `opt/node@24` is a symlink that follows patch upgrades, so an rpath through it keeps
+ * working when `24.14.0` becomes `24.14.1` and the Cellar directory is renamed underneath. The
+ * resolved path is added as well, in case node came from somewhere with no such symlink.
+ */
+const libDirs = [...new Set([nodeBinary, realNode].map((p) => join(dirname(dirname(p)), 'lib')))];
+try {
+  for (const lib of libDirs) {
+    execFileSync('/usr/bin/install_name_tool', ['-add_rpath', lib, bundledNode], { stdio: 'pipe' });
+  }
+  /**
+   * Signed here as well as with the bundle later, because it cannot run until it is.
+   *
+   * `install_name_tool` invalidates a signature, and macOS kills an invalidly signed binary on
+   * launch rather than refusing it with an error. The smoke test below is the only thing that
+   * proves the rpaths were right, and it cannot run before this.
+   */
+  execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', bundledNode], { stdio: 'pipe' });
+  execFileSync(bundledNode, ['-e', 'process.exit(0)'], { stdio: 'pipe' });
+  console.log(`  runtime: ${realNode} copied in, libraries from ${libDirs.join(' and ')}`);
+} catch (e) {
+  console.error(`  the copied node does not run: ${String(e)}`);
+  console.error('  the bundle exists to give macOS a stable identity, and cannot do that with a');
+  console.error('  runtime it cannot start. Set TABTERM_NODE to a node that runs from a copy.');
+  process.exit(1);
+}
+
+/**
+ * And the same launcher as before, for running the daemon by hand.
+ *
+ * Not the bundle's executable any more, so it carries no identity and is not on the path launchd
+ * takes. Kept because starting the daemon in a terminal to watch it is a real thing to do.
  */
 writeFileSync(
   join(CONTENTS, 'MacOS', 'tabtermd'),

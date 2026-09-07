@@ -5,6 +5,35 @@ and a Chrome extension with a permanent identity. Both have a macOS-specific tra
 
 ---
 
+
+## The daemon is launched through an app bundle, and why that is not cosmetic
+
+macOS attaches a privacy decision to a process's **executable image**. Launching Homebrew's node
+directly makes every prompt read "node" and records the decision against a bare path with no code
+requirement, which macOS does not honor on the next launch. The observable result is a prompt on
+every single agent launch, forever, where iTerm and VS Code are asked once. Their decisions are
+recorded against a bundle identifier; TabTerm's was recorded against a path with a null code
+requirement and rewritten every time somebody clicked Allow.
+
+The bundle existed and did not help, for a reason worth writing down: its executable was a shell
+script that `exec`ed node. A script's executable image is the interpreter, `/bin/sh`, which lives
+outside any bundle, and an `exec` replaces the image with one outside the bundle as well. Either
+way the process macOS saw was never inside TabTerm.app.
+
+So the bundle carries its own copy of node, 68 KB, because Homebrew's node links a shared
+`libnode`. Rather than copy that too and pin a runtime the user upgrades independently, the copy
+gets an rpath to the Homebrew prefix, which is a stable symlink. `install_name_tool` invalidates a
+signature and macOS kills an invalidly signed binary on launch rather than refusing it with an
+error, so the copy is re-signed and then actually run once as a smoke test. That run is the only
+thing that proves the rpath was right.
+
+Everything else stays where it was. The daemon file, the PTY host and `node_modules` are still
+read from `~/.local/libexec/tabterm`, because the daemon finds the host beside itself and moving
+it would replace the running host and end every terminal on the machine.
+
+A machine where the bundle cannot be built still gets a working TabTerm. It gets the old prompts
+too, and the installer says so rather than leaving it to be discovered.
+
 ## 1. The daemon must be an app bundle
 
 Not a convenience. A requirement, driven by macOS TCC (`10-limitations.md` tier 2.1).
