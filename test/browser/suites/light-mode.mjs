@@ -118,5 +118,16 @@ const fades = JSON.parse(
 );
 r.ok('nothing fades the content it is showing', fades.length === 0, fades.join(' | '));
 
+/**
+ * Put the theme back the way it was found.
+ *
+ * A theme is a preference, so it is stored once and applies to every tab: leaving it set here
+ * changed what a suite running beside this one saw, and one of them checks that switching the
+ * theme repaints the page. It reported no change, correctly, because this suite had already
+ * switched it.
+ */
+await evaluate(client, `window.__tabterm.setTheme('dark')`);
+await sleep(400);
+
 await finish();
 r.done();

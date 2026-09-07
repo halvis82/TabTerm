@@ -39,6 +39,8 @@ export const THEMES: Record<string, Theme> = {
       '--dim': '#9aa1b8',
       '--accent': '#7aa2f7',
       '--hover': '#2b4d7a',
+      '--warn': '#e8c26a',
+      '--danger': '#ff8a7a',
     },
   },
   light: {
@@ -56,6 +58,10 @@ export const THEMES: Record<string, Theme> = {
       '--dim': '#5c6478',
       '--accent': '#2b6cb0',
       '--hover': '#dce7f8',
+      /* Darker than the dark theme's amber and coral, which measured 1.7 and 2.3 to 1 on white:
+         a warning nobody can read is not a warning. */
+      '--warn': '#8a5a00',
+      '--danger': '#b3261e',
     },
   },
   midnight: {
@@ -73,6 +79,8 @@ export const THEMES: Record<string, Theme> = {
       '--dim': '#79839e',
       '--accent': '#6ee7d5',
       '--hover': '#16304a',
+      '--warn': '#e8c26a',
+      '--danger': '#ff8a7a',
     },
   },
 };

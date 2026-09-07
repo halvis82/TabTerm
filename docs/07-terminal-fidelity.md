@@ -473,6 +473,26 @@ token had been echoed had cleared nothing.
 **Clear now drops all three**, plus the saved pane snapshot, which is what an expired tab offers
 to show you and would otherwise hand the same content back by another route.
 
+### The clear's own aftermath is not new work
+
+Clearing asks the shell to redraw by writing `Ctrl+L` to it, so the screen looks like one that
+just ran `clear` rather than a blank with no prompt. Two things follow from that, and both of them
+broke the undo.
+
+The shell integration reports what the shell runs, so the clear announces a **command start** of
+its own, and a command start takes the undo offer away: an undo over new output would put the old
+screen underneath it. The offer was therefore removed by the very thing meant to make the screen
+look normal. A command start within a moment and a half of our own clear, in that pane, is now
+understood as the clear finishing rather than as somebody running something.
+
+And the redraw arrives whenever it arrives. Putting the old text back before it lands means the
+redraw wipes it, so the undo appears to do nothing. Pressing the offer while the shell is still
+redrawing now waits for that to land and then applies.
+
+Neither was reachable by hand: a person takes longer to reach for the button than a shell takes to
+redraw. Both were found by a check that waits for the offer to appear rather than sleeping past
+it, which is faster than a person and was therefore the first thing ever to lose the race.
+
 ### The undo window
 
 Clearing is a reflex and it can destroy an hour of output, so an **Undo clear** button appears

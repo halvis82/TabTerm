@@ -64,8 +64,19 @@ r.ok(
 
 // The command menu offers a way to put it away rather than a way to open it.
 await evaluate(client, `document.getElementById('cmd-button')?.click()`);
-await sleep(700);
-const onPanel = await menuAt('.cmd-panel');
+// Waited for rather than slept past: opening the panel asks the daemon for what goes in it, and
+// how long that takes on a loaded machine is not this suite's business.
+const panelUp = await waitFor(client, `!document.querySelector('.cmd-panel')?.hidden`, 8000);
+r.ok('the command menu opens', panelUp);
+/**
+ * The header, not the middle of the panel.
+ *
+ * A favorite row has a right click of its own: it opens the editor for that row, which is a
+ * TabTerm thing to do and is what this feature asks for. Aiming at the centre hit a row whenever
+ * the machine had any history in it, which is most of the time and none of the time when this
+ * suite runs alone.
+ */
+const onPanel = await menuAt('.cmd-header');
 r.ok(
   'the command menu offers settings and a way to close itself',
   (onPanel ?? []).includes('Settings') && (onPanel ?? []).includes('Close menu'),

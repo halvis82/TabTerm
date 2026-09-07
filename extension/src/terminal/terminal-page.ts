@@ -713,12 +713,53 @@ let lastCommandHere = '';
  */
 let clearUndoTimer: number | undefined;
 
+/**
+ * Panes whose clear has not finished happening yet.
+ *
+ * Clearing writes `Ctrl+L` to the shell so the prompt comes back, and the shell's redraw arrives
+ * whenever it arrives. Until it does, the screen is mid-clear: putting the old text back before
+ * that redraw lands means the redraw wipes it, and the undo appears to have done nothing.
+ *
+ * Nobody hit this by hand, because a person takes longer to reach for the button than a shell
+ * takes to redraw. A check that waits for the button rather than sleeping is faster than a
+ * person, and it found it.
+ */
+const clearSettling = new Set<string>();
+
+/**
+ * When each pane was cleared by us, so the clear's own aftermath is not mistaken for new work.
+ *
+ * Clearing asks the shell to redraw by writing `Ctrl+L` to it, and the shell integration reports
+ * what the shell runs. So the clear announces a command start of its own, and the offer to undo
+ * is taken away the instant it appears, by the thing that was supposed to make the screen look
+ * normal again. That is "undo clear doesn't work if clear is done with cmd shift k", and it is
+ * why it looked intermittent: on a quick machine the offer is seen and pressed first.
+ */
+const clearedAt = new Map<string, number>();
+const CLEAR_AFTERMATH_MS = 1500;
+
 function offerClearUndo(paneId: string): void {
   const button = document.getElementById('clear-undo');
   if (!(button instanceof HTMLButtonElement)) return;
   clearTimeout(clearUndoTimer);
+  /**
+   * Offered at once, and armed when the clear has settled.
+   *
+   * Shown immediately because a control that appears late is a control nobody finds. Pressing it
+   * during the moment the shell is still redrawing re-runs itself once that redraw lands, rather
+   * than writing into a screen that is about to be wiped.
+   */
+  clearSettling.add(paneId);
+  clearedAt.set(paneId, Date.now());
+  // A shell that prints nothing back must not leave this armed forever.
+  setTimeout(() => clearSettling.delete(paneId), 1500);
   button.hidden = false;
-  button.onclick = () => {
+  const apply = (): void => {
+    if (clearSettling.has(paneId)) {
+      // The shell is still redrawing. Wait for that to land, then do exactly this.
+      setTimeout(apply, 40);
+      return;
+    }
     const pane = panesHost?.get(paneId);
     const text = pane?.controller.takeUndo() ?? '';
     /**
@@ -736,6 +777,7 @@ function offerClearUndo(paneId: string): void {
     }
     dismissClearUndo(paneId);
   };
+  button.onclick = apply;
   // Ten seconds, and gone the moment anything else is run: an undo offered over new output
   // would put the old screen underneath the new one.
   clearUndoTimer = window.setTimeout(() => dismissClearUndo(paneId), 10_000);
@@ -4061,7 +4103,17 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'command-start': {
-      dismissClearUndo();
+      /**
+       * Unless it is the redraw the clear itself asked for.
+       *
+       * A person who runs something after clearing does want the offer gone: an undo over new
+       * output would put the old screen underneath it. The clear's own `Ctrl+L` is not that.
+       */
+      const cleared = panesHost?.all.find((p) => p.sessionId === msg.sessionId);
+      const clearedWhen = cleared ? clearedAt.get(cleared.paneId) : undefined;
+      const isAftermath =
+        clearedWhen !== undefined && Date.now() - clearedWhen < CLEAR_AFTERMATH_MS;
+      if (!isAftermath) dismissClearUndo();
       sessionStats.begin(msg.sessionId, msg.command, msg.startedAt);
       const pane = panesHost?.all.find((p) => p.sessionId === msg.sessionId);
       if (pane) {
@@ -4694,6 +4746,11 @@ async function start(): Promise<void> {
     onControl,
     onOutput: (streamId, data) => {
       panesHost?.write(streamId, data, (bytes) => client?.ack(streamId, bytes));
+      // Output after a clear is the shell's redraw arriving, which is the clear finishing.
+      if (clearSettling.size > 0) {
+        const pane = panesHost?.paneForStream(streamId);
+        if (pane) clearSettling.delete(pane.paneId);
+      }
       growStripToFit();
       /**
        * A pane that has started printing is a pane in use, so any offer over it goes.
