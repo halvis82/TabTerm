@@ -200,6 +200,15 @@ export function clampTimeout(seconds: number | null): number | null {
  * the directory that was not there. The `Error:` prefix goes because it is noise in a sentence.
  */
 /** The shell's own clear-and-redraw, and the pair that discards a line and submits it empty. */
+/**
+ * Desktop notifications off, for a daemon nobody is using.
+ *
+ * Set by the test harness. A suite that drives an agent's hooks is asking what the daemon does,
+ * not asking to interrupt the person at the keyboard, and until this existed a full run put a
+ * stack of "an agent is waiting for you" on their screen.
+ */
+const QUIET = process.env['TABTERM_NO_NOTIFICATIONS'] === '1';
+
 const CTRL_L = String.fromCharCode(12);
 const CTRL_U = String.fromCharCode(21);
 const CARRIAGE_RETURN = String.fromCharCode(13);
@@ -480,6 +489,16 @@ export class DaemonServer {
    * a desktop notification, for instance, which no terminal page can raise.
    */
   broadcast(message: ServerMessage): void {
+    /**
+     * A test run does not interrupt whoever is running it.
+     *
+     * The browser suites drive real agent hooks against a real daemon, and every one of them
+     * raised a real desktop notification on the machine of the person running the tests: five
+     * of "an agent is waiting for you" inside a few seconds, from tabs that did not exist a
+     * minute earlier. The suites still assert on the message; what is suppressed is only the
+     * part that leaves the browser.
+     */
+    if (message.t === 'notify' && QUIET) return;
     for (const c of this.#clients) {
       if (c.authed && c.role === 'control') send(c.socket, controlFrame(message));
     }

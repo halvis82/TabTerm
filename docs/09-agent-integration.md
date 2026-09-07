@@ -46,6 +46,18 @@ agent CLI hook fires
 | Session start | `starting` | Title switches to the agent form |
 | Non-zero completion | `failed` | Failure favicon, critical notification |
 
+**A state is news when it is entered, not while it lasts.** Reported as five desktop
+notifications in five seconds, all of them "an agent is waiting for you", from tabs where nothing
+was happening. The daemon raised one for every event that reported a state rather than for a
+session entering it, and an agent's hooks are not a state machine anybody controls: a notification
+hook fires when the agent wants somebody, it can fire again, and a subagent fires its own.
+
+Entering a state is news. Being in it is not. Entering it repeatedly is not news more than once a
+minute either, because a person who has been told an agent is waiting does not need telling again
+a second later, and a notification that arrives five times is not five times as useful. An
+approval is exempt from that floor: it blocks the agent until somebody answers it, so a second one
+really is a second thing waiting on a person.
+
 **A notification usually arrives after the stop, not before it.** An agent raises it about a
 minute after it finishes a turn, when nobody has replied. That ordering is why the waiting favicon
 clears on being looked at rather than on the next event: there is no next event. See

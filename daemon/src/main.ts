@@ -14,7 +14,7 @@ import { initAuth, verifyToken } from './auth.js';
 import { AgentBridge } from './agent-bridge.js';
 import { loadConfig, paths } from './config.js';
 import { acquireLock } from './lockfile.js';
-import { error, info, initLog, warn } from './log.js';
+import { debug, error, info, initLog, warn } from './log.js';
 import { DaemonServer } from './server.js';
 import { SessionManager, type SessionEvents } from './session-manager.js';
 import { WorkspaceStore } from './workspace-store.js';
@@ -28,6 +28,7 @@ import { loadPlugins } from './plugin-loader.js';
 import { CommandTracker } from './command-tracker.js';
 import { ProjectTrust } from './project-trust.js';
 import { TurnTracker } from './agent-turns.js';
+import { AttentionNotices } from './attention-notices.js';
 import { LocalPtyBackend } from './pty-backend.js';
 import { PtyHostClient } from './pty-host/client.js';
 import { HostPtyBackend } from './pty-host/backend.js';
@@ -174,6 +175,7 @@ async function main(): Promise<void> {
     }
     archive.abandon(s.id);
     tracker.remove(s.id);
+    attention.forget(s.id);
     // A pane whose process ended stops being a pane, so a shell you typed `exit` into takes
     // its pane with it. A pane that was given a command is different: its output is the
     // reason it existed, and closing it the instant the command finishes would throw away
@@ -373,6 +375,7 @@ async function main(): Promise<void> {
   };
 
   const turns = new TurnTracker();
+  const attention = new AttentionNotices();
 
   // Agent state arrives over its own loopback endpoint rather than the socket, because hooks
   // are separate processes that cannot hold a WebSocket. Same token, same boundary.
@@ -385,6 +388,9 @@ async function main(): Promise<void> {
       const previous = session.agentState;
       session.agentState = state;
       server.recordAgentEvent(Date.now());
+      // Logged, because until this existed the entire path from a hook to a notification was
+      // invisible and a report of it misbehaving had nothing behind it to look at.
+      debug('agent.state', { sessionId, from: previous ?? 'none', to: state });
 
       server.notifySession(session, {
         t: 'agent-state',
@@ -393,10 +399,16 @@ async function main(): Promise<void> {
         ...(detail ? { detail } : {}),
       });
 
-      // Needing a person is the whole reason this exists, and it must arrive even with every
-      // terminal tab hidden. See docs/09-agent-integration.md.
-      if (state === 'approval' || state === 'waiting') {
+      /**
+       * Needing a person is the whole reason this exists, and it must arrive even with every
+       * terminal tab hidden. See docs/09-agent-integration.md.
+       *
+       * Once per entering the state, not once per event that reports it. See
+       * `attention-notices.ts` for what that distinction cost.
+       */
+      if (attention.shouldRaise(sessionId, state, previous, Date.now())) {
         const where = workspaces.findBySession(sessionId);
+        info('agent.attention', { sessionId, state });
         server.notify(
           state === 'approval' ? 'critical' : 'important',
           state === 'approval' ? 'Agent needs approval' : 'Agent is waiting for you',
