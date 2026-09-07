@@ -134,6 +134,50 @@ const only = args.filter((a) => !a.startsWith('-'));
  * quietly skips the suite that would have caught the bug is worse than no table, so the failure
  * mode is running too much rather than too little. Prefixes, first match wins.
  */
+/**
+ * The suites a change to a hub file runs.
+ *
+ * Some files are not about one thing. `terminal-page.ts` is five thousand lines and touches the
+ * layout, the start screen, the menus, focus, sizing and every message the daemon sends;
+ * `server.ts` and `protocol.ts` are the same on the other side. Mapping one of those to the
+ * suites it could break is mapping it to all of them, which is how `--changed` came to mean
+ * "run everything" for the six files that change most, which is to say it meant nothing.
+ *
+ * So a hub file runs this instead: a spread across the load-bearing paths, chosen to be fast.
+ * It is deliberately **not** a claim that nothing else can break. It is the inner loop, and the
+ * protocol around it is what makes that safe: a full run is what closes a work package, and this
+ * is what makes the twenty runs before it cost a minute instead of eight.
+ *
+ * See AGENTS/TESTING.md.
+ */
+const CORE = [
+  'terminal',
+  'layout',
+  'start-screen-refresh',
+  'pane-menu',
+  'straight-to-view',
+  'agent-favicon',
+];
+
+/**
+ * Paths no browser suite can be affected by.
+ *
+ * The failure mode of this list is running too little, so it holds only things that genuinely
+ * cannot reach a running page: prose, notes, and the repository's own furniture.
+ */
+const IRRELEVANT = [
+  'docs/',
+  'AGENTS/',
+  'README',
+  'package.json',
+  'package-lock.json',
+  '.gitignore',
+  'eslint.config',
+  'vitest.config',
+  '.prettier',
+  'tsconfig',
+];
+
 const COVERS = [
   ['extension/src/terminal/highlight', ['highlights']],
   ['extension/src/terminal/color-', ['highlights', 'pane-label']],
@@ -154,16 +198,59 @@ const COVERS = [
   ['daemon/src/restore-store', ['reattach']],
   ['daemon/src/project-', ['project-trust', 'launched-pane']],
   ['daemon/src/notify', ['notifications']],
+  ['daemon/src/attention-notices', ['agent-favicon', 'notifications']],
+  ['daemon/src/file-slice', ['resume-and-tabs']],
+  ['extension/src/terminal/themes', ['light-mode', 'light-panels']],
+  ['extension/src/terminal/status-machine', ['agent-favicon']],
+  ['extension/src/terminal/wake-redraw', ['steady-size']],
+  ['extension/src/terminal/resize-storm', ['steady-size']],
+  ['extension/src/terminal/screen-content', ['start-screen-refresh', 'straight-to-view']],
+  ['extension/src/terminal/panes', ['layout', 'workspace', 'steady-size']],
+  ['extension/src/transport/', ['resilience', 'reattach']],
+  ['extension/src/service-worker', ['sessions', 'tab-persistence']],
+  ['extension/src/chrome/', ['notifications', 'sessions']],
+  ['scripts/', CORE],
+  ['extension/public/terminal.html', ['light-mode', 'light-panels', 'palette', 'command-panel']],
+
+  /**
+   * The hub files. See `CORE` for why these are a spread rather than a claim.
+   */
+  ['extension/src/terminal/terminal-page.ts', CORE],
+  ['daemon/src/server.ts', CORE],
+  ['daemon/src/main.ts', CORE],
+  ['daemon/src/session-manager.ts', [...CORE, 'sessions', 'pane-close']],
+  ['shared/src/protocol.ts', CORE],
+  ['shared/src/', CORE],
 ];
 
-function changedSuites() {
-  const changed = execFileSync('git', ['status', '--porcelain', '-uall'], {
+/**
+ * What has changed, either in the working tree or since a branch point.
+ *
+ * `--changed` is for the loop you are in right now, so it reads the working tree. `--since <ref>`
+ * is for a branch about to be merged, where the working tree is clean and the change is every
+ * commit on top of the base.
+ */
+function changedPaths(since) {
+  if (since) {
+    return execFileSync('git', ['diff', '--name-only', `${since}...HEAD`], {
+      cwd: ROOT,
+      encoding: 'utf8',
+    })
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+  }
+  return execFileSync('git', ['status', '--porcelain', '-uall'], {
     cwd: ROOT,
     encoding: 'utf8',
   })
     .split('\n')
     .map((l) => l.slice(3).trim())
     .filter(Boolean);
+}
+
+function changedSuites(since) {
+  const changed = changedPaths(since);
   if (changed.length === 0) return [];
 
   const picked = new Set();
@@ -172,12 +259,32 @@ function changedSuites() {
       picked.add(path.replace('test/browser/suites/', '').replace(/\.mjs$/, ''));
       continue;
     }
-    // Nothing to do with what runs.
-    if (path.startsWith('docs/') || path.startsWith('AGENTS/') || path.endsWith('.test.ts')) {
+    /**
+     * Nothing a browser suite can see.
+     *
+     * Documentation, notes, the unit tests, and the repository's own furniture. A unit test is
+     * on this list because `npm run check` is what runs it, and running forty browser suites
+     * because somebody edited an assertion in a unit test is the behavior this exists to stop.
+     */
+    if (IRRELEVANT.some((prefix) => path.startsWith(prefix)) || path.endsWith('.test.ts')) {
       continue;
     }
+    /**
+     * The harness itself. Everything, and it says so rather than looking like a miss.
+     *
+     * A change to how suites are driven changes every suite, and there is no smaller honest
+     * answer than all of them.
+     */
+    if (path.startsWith('test/browser/') && !path.startsWith('test/browser/suites/')) {
+      console.log(`  ${path} is the harness itself, so running everything`);
+      return null;
+    }
     const hit = COVERS.find(([prefix]) => path.startsWith(prefix));
-    if (!hit) return null; // Unmapped: say so by asking for everything.
+    if (!hit) {
+      // Named, because "something is unmapped" is not something anybody can act on.
+      console.log(`  ${path} is not in the coverage table, so running everything`);
+      return null;
+    }
     for (const suite of hit[1]) picked.add(suite);
   }
   return [...picked];
@@ -185,10 +292,11 @@ function changedSuites() {
 
 function suiteNames() {
   let wanted = only;
-  if (args.includes('--changed')) {
-    const picked = changedSuites();
+  const sinceArg = args.find((a) => a.startsWith('--since='));
+  if (args.includes('--changed') || sinceArg) {
+    const picked = changedSuites(sinceArg ? sinceArg.slice('--since='.length) : null);
     if (picked === null) {
-      console.log('  changed files reach code no suite is mapped to, so running everything');
+      // The reason was printed where it was found, naming the file.
     } else if (picked.length === 0) {
       console.log('  nothing changed that any suite covers');
       process.exit(0);
@@ -209,6 +317,18 @@ function suiteNames() {
       .filter((n) => only.includes(n) || !SKIP.includes(n))
       .sort()
   );
+}
+
+/**
+ * Say what would run, and stop.
+ *
+ * The whole point of a narrowed run is knowing what it narrowed to before waiting for it, and
+ * the only way to find that out was to start one, which takes as long as the thing being avoided.
+ */
+function maybeDryRun(names) {
+  if (!args.includes('--dry')) return;
+  console.log(`  ${String(names.length)} suite(s): ${names.join(', ')}`);
+  process.exit(0);
 }
 
 function runSuite(name, port) {
@@ -425,7 +545,14 @@ function startTestDaemon() {
      */
     const child = spawn(process.execPath, [join(ROOT, 'daemon', 'dist', 'main.js')], {
       cwd: ROOT,
-      env: { ...process.env, TABTERM_HOME: home, TABTERM_PORT: String(state.port) },
+      env: {
+        ...process.env,
+        TABTERM_HOME: home,
+        TABTERM_PORT: String(state.port),
+        // A suite that drives an agent's hooks is asking what the daemon does, not asking to
+        // interrupt whoever is running the tests. See `QUIET` in daemon/src/server.ts.
+        TABTERM_NO_NOTIFICATIONS: '1',
+      },
       stdio: ['ignore', log, log],
       detached: true,
     });
@@ -556,11 +683,25 @@ if (process.env['TT_SKIP_BUILD'] !== '1') {
 }
 const names = suiteNames();
 // Kept in the declared order, not alphabetical: which phase a suite is in is load bearing.
+maybeDryRun(names);
+
 const first = FIRST.filter((n) => names.includes(n));
 const last = LAST.filter((n) => names.includes(n));
 const parallel = names.filter((n) => !SERIAL.includes(n));
 
-const BASE_PORT = Number(process.env['TT_CDP_PORT'] ?? '9223');
+/**
+ * A debugging port for each browser this run drives.
+ *
+ * Random by default rather than a fixed 9223, so two runs can happen at once: one somebody is
+ * driving by hand while another finishes in the background, or two agents working on separate
+ * branches. Everything else about a run is already its own: the daemon picks its own port and
+ * its own `TABTERM_HOME`, and every profile directory is temporary. This was the last thing
+ * shared, and sharing it meant the second run attached to the first run's browsers.
+ *
+ * Set `TT_CDP_PORT` to pin it, which is what to do when something has to be watched by hand.
+ */
+const BASE_PORT =
+  Number(process.env['TT_CDP_PORT'] ?? '') || 9300 + Math.floor(Math.random() * 300) * 10;
 const width = Math.max(1, Math.min(JOBS, parallel.length || 1));
 const ports = Array.from({ length: width }, (_, i) => BASE_PORT + i);
 

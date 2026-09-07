@@ -175,6 +175,41 @@ machine.
 It measures the browser's idle cadence first now, and asserts against that. What belongs to the
 product is how much of an offered frame gets used, never how often one is offered.
 
+## The protocol: run what the change can break
+
+The full browser suite is nine minutes. Running it as the answer to every question is how a
+one-line change came to cost an hour, and the fix is not a faster full run, it is not running it
+for everything.
+
+| | Command | Cost | When |
+|---|---|---|---|
+| 1 | `npm run check` | ~35 s | After every edit |
+| 2 | `npm run t <suite>` | 5-40 s | While working on one thing |
+| 3 | `npm run t:changed` | ~1 min | Before saying a change is done |
+| 4 | `npm run verify` | ~40 s | Before a commit |
+| 5 | `npm run verify:full` | ~9 min | Before closing a work package, and after anything shared |
+
+Tier 3 existed before and was useless: the six files that change most were not in its coverage
+table, so it answered "run everything" every time. Measured on a real commit afterwards: 14
+suites, 152 checks, **53 seconds**, against 56 suites, 570 checks, **422 seconds**.
+
+A file that is not in the table still runs everything, and now says which file put it there. That
+failure mode is deliberate. An out-of-date table that quietly skips the suite which would have
+caught the bug is worse than no table at all.
+
+The four files that are not about one thing (`terminal-page.ts`, `server.ts`, `main.ts`,
+`protocol.ts`) map to a spread across the load-bearing paths rather than to everything. That is a
+trade, and tier 5 is the other half of it. The whole protocol is in `AGENTS/TESTING.md`.
+
+## Two runs at once
+
+Everything about a run is its own: a random daemon port, a temporary `TABTERM_HOME`, a random
+debugging port and a throwaway Chrome profile per port. Two can happen side by side, which is what
+lets somebody work while a full run finishes.
+
+The debugging port used to be a fixed 9223, which was the last thing shared, and sharing it meant
+the second run drove the first run's browsers.
+
 ## The suite gets its own home directory
 
 Every test process runs with `HOME` pointing at a scratch directory made for the run. Not for
@@ -183,6 +218,12 @@ the database and the logs of whoever is running it, because those paths are deri
 One malformed-message test sent a background timeout the daemon could not read, and the value it
 wrote landed in the real settings file. Running the tests changed how the product behaved
 afterwards, silently, and the only symptom was a setting that would not stay put.
+
+A test run also raises no desktop notifications. The suites drive real agent hooks against a real
+daemon, and every one of them put a real "an agent is waiting for you" on the screen of whoever was
+running the tests, five of them inside a few seconds. `TABTERM_NO_NOTIFICATIONS=1` stops the daemon
+sending them; the suites still assert on the message, and only the part that leaves the browser is
+suppressed.
 
 The scratch home lives under `~/.cache/tabterm-test` rather than under `/tmp`. The product
 deliberately ignores directories under `/tmp` and `/var/folders` when it records where somebody
