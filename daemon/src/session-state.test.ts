@@ -25,6 +25,19 @@ describe('session state machine', () => {
     expect(canTransition('detached', 'attached')).toBe(true);
   });
 
+  it('allows a reprieve, which is expiry cancelled by nobody arriving', () => {
+    /**
+     * A reap timer means "look again", not "act on what I decided half an hour ago". A session
+     * about to be reaped whose reason has gone away goes back to being detached, and no client
+     * has to turn up for that to be true. The case is a laptop waking: every overdue timer fires
+     * at once, before Chrome has said which tabs it has, and then the tabs come back.
+     *
+     * Without this the reprieve threw. The timer had already been dropped by then, so the
+     * session was left in `expiring` with nothing left to move it, neither reaped nor kept.
+     */
+    expect(canTransition('expiring', 'detached')).toBe(true);
+  });
+
   it('never resurrects a reaped session', () => {
     for (const to of ALL) expect(canTransition('reaped', to)).toBe(false);
   });

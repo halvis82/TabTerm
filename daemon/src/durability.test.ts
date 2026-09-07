@@ -29,8 +29,25 @@ import { WorkspaceStore } from './workspace-store.js';
  * away, and what is allowed to be cleaned up.
  */
 const PORT = 7997;
-// Deliberately tiny grace periods, so expiry is observable inside a test rather than in minutes.
-const config: Config = { ...DEFAULTS, port: PORT, reapIdleShellSeconds: 1, reapDefaultSeconds: 1 };
+/**
+ * Deliberately tiny grace periods, so expiry is observable inside a test rather than in minutes.
+ *
+ * A fifth of a second rather than a whole one. Nothing rounds these to seconds: the reap is a
+ * single timer of `afterSeconds * 1000`, so a fraction is a shorter timer and nothing else. This
+ * file spent forty-one seconds asleep waiting out a one second policy, and it was the slowest
+ * thing in the unit suite by a factor of four, which is a cost paid on every run of every loop.
+ */
+const GRACE_SECONDS = 0.2;
+/** Comfortably past the policy plus the scheduling around it, without being a whole second. */
+const PAST_GRACE = 700;
+/** Scheduled, but not yet fired. */
+const BEFORE_GRACE = 100;
+const config: Config = {
+  ...DEFAULTS,
+  port: PORT,
+  reapIdleShellSeconds: GRACE_SECONDS,
+  reapDefaultSeconds: GRACE_SECONDS,
+};
 
 let server: DaemonServer;
 let sessions: SessionManager;
@@ -74,6 +91,19 @@ afterAll(async () => {
 });
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Wait for the thing to be true, not for a length of time.
+ *
+ * A fixed sleep long enough to be safe is most of what this file cost, and a fixed sleep short
+ * enough to be quick is a race. Where the expectation is that something **happens**, this returns
+ * as soon as it has. Where the expectation is that something does **not** happen, there is no
+ * alternative to waiting, and those waits are what the short grace periods are for.
+ */
+async function until(check: () => boolean, ms = 5000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline && !check()) await sleep(25);
+}
 
 class C {
   readonly ws: WebSocket;
@@ -141,7 +171,14 @@ async function makeSession(clientId: string, used = true): Promise<{ c: C; sessi
     streamId: number;
   };
   c.streamId = created.streamId;
-  await sleep(600);
+  /**
+   * Wait for the session to exist, which is what the sleep here was for.
+   *
+   * `session-created` is the daemon's answer to the request, and the manager has the session by
+   * then. Six hundred milliseconds of margin on top of that, once per test in a file of twenty,
+   * was twelve seconds of the unit suite spent waiting for something that had already happened.
+   */
+  await until(() => sessions.get(created.sessionId) !== undefined, 3000);
   const session = sessions.get(created.sessionId);
   if (session && used) session.hasRun = true;
   return { c, sessionId: created.sessionId };
@@ -160,7 +197,7 @@ describe('durability', () => {
     sessions.keepBackgroundSeconds = null;
     const { c, sessionId } = await makeSession('dur-1');
     c.close();
-    await sleep(2500); // comfortably longer than the 1s idle policy
+    await sleep(PAST_GRACE); // comfortably longer than the idle policy
 
     const session = sessions.get(sessionId);
     expect(session, 'a workspace pane must outlive its client').toBeTruthy();
@@ -200,7 +237,7 @@ describe('durability', () => {
      * a reap has to report one.
      */
     sessions.reportOpenWorkspaces('a-browser', []);
-    await sleep(2500);
+    await sleep(PAST_GRACE);
 
     const session = sessions.get(sessionId);
     expect(session === undefined || session.state !== 'detached').toBe(true);
@@ -210,7 +247,7 @@ describe('durability', () => {
   it('declines to schedule a reap and says why', async () => {
     const { c, sessionId } = await makeSession('dur-2');
     c.close();
-    await sleep(1200);
+    await sleep(PAST_GRACE);
     const session = sessions.get(sessionId);
     // Never moved to expiring, because the policy declined.
     expect(session?.state).toBe('detached');
@@ -227,7 +264,7 @@ describe('durability', () => {
       if (pane) workspaces.closePane(ws.id, pane);
     }
     c.close();
-    await sleep(3000);
+    await until(() => sessions.get(sessionId) === undefined);
     expect(sessions.get(sessionId), 'an unprotected idle shell should be reaped').toBeUndefined();
   });
 
@@ -241,7 +278,7 @@ describe('durability', () => {
       if (pane) workspaces.closePane(ws.id, pane);
     }
     c.close();
-    await sleep(3000);
+    await sleep(PAST_GRACE);
     expect(sessions.get(sessionId), 'pinned must win over every expiry rule').toBeTruthy();
   });
 
@@ -253,12 +290,12 @@ describe('durability', () => {
       if (pane) workspaces.closePane(ws.id, pane);
     }
     c.close();
-    await sleep(500); // reap scheduled but not yet fired
+    await sleep(BEFORE_GRACE); // reap scheduled but not yet fired
 
     const back = await C.connect('dur-5-again');
     back.send({ t: 'attach', sessionId, cols: 80, rows: 24 });
     await back.wait('snapshot');
-    await sleep(2500); // past when the reap would have fired
+    await sleep(PAST_GRACE); // past when the reap would have fired
 
     expect(sessions.get(sessionId), 'reattach must cancel the reap').toBeTruthy();
     expect(sessions.get(sessionId)?.state).toBe('attached');
@@ -303,7 +340,7 @@ describe('a merged-away tab, restored', () => {
       sessionId: b.sessionId,
       direction: 'horizontal',
     });
-    await sleep(1200);
+    await sleep(PAST_GRACE);
 
     // The second workspace is gone, its session now a pane in the first.
     expect(workspaces.get(orphanedWorkspace ?? '')).toBeUndefined();
@@ -376,7 +413,7 @@ describe('a session brought into an empty pane', () => {
       direction: 'horizontal',
       replace: true,
     });
-    await sleep(1200);
+    await until(() => sessions.get(host.sessionId) === undefined);
 
     const after = workspaces.get(hostWorkspace?.id ?? '');
     expect(after && paneCount(after.layout), 'one pane, not two').toBe(1);
@@ -413,7 +450,7 @@ describe('two views of one session', () => {
 
     // Typing in one view reaches the other, because it is one process.
     second.type('echo FROM-THE-DUPLICATE\r');
-    await sleep(1200);
+    await sleep(PAST_GRACE);
     expect(first.c.output, 'output reaches the original too').toContain('FROM-THE-DUPLICATE');
 
     first.c.close();
@@ -474,7 +511,7 @@ describe('startup herd', () => {
     for (const m of made) {
       m.c.type('for i in 1 2 3 4 5 6 7 8 9 10; do echo herd-line-$i; done\r');
     }
-    await sleep(1500);
+    await sleep(PAST_GRACE);
     for (const m of made) m.c.close();
     await sleep(800);
 
@@ -530,7 +567,7 @@ describe('a pane in an arrangement somebody built', () => {
       sessionId: second.sessionId,
       direction: 'horizontal',
     });
-    await sleep(1200);
+    await sleep(PAST_GRACE);
     expect(
       paneCount(
         workspaces.get(workspace?.id ?? '')?.layout ?? {
@@ -545,7 +582,7 @@ describe('a pane in an arrangement somebody built', () => {
     first.c.close();
     second.c.close();
     sessions.reportOpenWorkspaces('a-browser', []);
-    await sleep(1500);
+    await sleep(PAST_GRACE);
 
     expect(sessions.get(first.sessionId), 'the arrangement is kept').toBeTruthy();
     expect(sessions.get(first.sessionId)?.state).not.toBe('expiring');
@@ -562,7 +599,7 @@ describe('a pane nobody used', () => {
     c.close();
     // The tab is genuinely gone, which is what the never-used rule is about.
     sessions.reportOpenWorkspaces('a-browser', []);
-    await sleep(1200);
+    await sleep(PAST_GRACE);
     // Scheduled rather than gone: the delay is what makes an accidental close recoverable.
     expect(sessions.get(sessionId)?.state).toBe('expiring');
   });
@@ -586,7 +623,7 @@ describe('two browsers reporting their tabs', () => {
     sessions.reportOpenWorkspaces('browser-a', [ws]);
     // A different browser, which has never heard of this workspace, says what it has.
     sessions.reportOpenWorkspaces('browser-b', []);
-    await sleep(2000);
+    await sleep(PAST_GRACE);
 
     expect(sessions.get(sessionId), 'a tab in another browser still counts').toBeTruthy();
     sessions.keepBackgroundSeconds = null;
@@ -596,13 +633,13 @@ describe('two browsers reporting their tabs', () => {
     const { c, sessionId } = await makeSession('dur-gone-browser');
     const ws = workspaces.findBySession(sessionId)?.id ?? '';
     c.close();
-    sessions.keepBackgroundSeconds = 1;
+    sessions.keepBackgroundSeconds = GRACE_SECONDS;
 
     sessions.reportOpenWorkspaces('browser-a', [ws]);
     sessions.reportOpenWorkspaces('browser-b', []);
     // Chrome A quits. Its last report is not evidence about the world any more.
     sessions.forgetReporter('browser-a');
-    await sleep(2500);
+    await until(() => sessions.get(sessionId) === undefined);
 
     expect(sessions.get(sessionId)).toBeUndefined();
     sessions.keepBackgroundSeconds = null;
@@ -621,13 +658,19 @@ describe('a laptop that was closed for the night', () => {
     const { c, sessionId } = await makeSession('dur-woken');
     const ws = workspaces.findBySession(sessionId)?.id ?? '';
     c.close();
-    sessions.keepBackgroundSeconds = 1;
+    /**
+     * A longer window than the rest of this file uses, because the point is to come back
+     * **inside** it. Everything else here waits for a policy to expire; this one has to act
+     * before it does, so the window has to be long enough to act in.
+     */
+    sessions.keepBackgroundSeconds = 0.6;
     sessions.reportOpenWorkspaces('a-browser', []);
 
     // The tab comes back before the timer fires, which is what waking up looks like.
-    await sleep(300);
+    await sleep(200);
     sessions.reportOpenWorkspaces('a-browser', [ws]);
-    await sleep(2000);
+    // And then past when it would have fired, which is the half that makes this a test.
+    await sleep(900);
 
     expect(sessions.get(sessionId), 'the tab is open again, so it stays').toBeTruthy();
     sessions.keepBackgroundSeconds = null;

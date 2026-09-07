@@ -185,6 +185,14 @@ back an hour later, the panes are still there. Only unnamed scratch shells get r
 Before reaping, the daemon emits `session-expiring` with a deadline. Any attach before the deadline
 cancels the reap. Every reap is logged with the matched rule.
 
+**A timer means "look again", never "act on what I decided when I set it."** When it fires, the
+policy is asked again with everything known now, and a session whose reason to go has gone away
+returns to `detached`. That is the reprieve, and it is a state change like any other: it was
+missing from the transition table, so it threw, and by then the timer had already been dropped.
+The session was left in `expiring` with nothing to move it, neither reaped nor kept. The case is a
+laptop waking, where every overdue timer fires at once, before Chrome has said which tabs it has,
+and then the tabs come back.
+
 Reap escalation: `SIGHUP` → wait → `SIGTERM` → wait → `SIGKILL`. A process group is signalled, not
 just the leader, so orphaned children do not survive.
 
