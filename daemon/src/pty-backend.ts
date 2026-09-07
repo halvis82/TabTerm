@@ -135,6 +135,17 @@ export class LocalPtyBackend implements PtyBackend {
     this.#onData = fn;
   }
 
+  /**
+   * Deliver output as though the PTY had produced it.
+   *
+   * For measuring what the daemon does between output arriving and a tab being handed it. There
+   * is no other way in: the real path starts inside node-pty, and a real shell cannot be asked to
+   * emit an exact number of bytes at an exact moment.
+   */
+  deliverForTest(sessionId: string, data: Buffer): void {
+    this.#onData(sessionId, data);
+  }
+
   onExit(fn: (sessionId: string, exitCode: number, signal?: number) => void): void {
     this.#onExit = fn;
   }

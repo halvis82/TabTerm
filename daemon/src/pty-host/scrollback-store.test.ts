@@ -88,4 +88,20 @@ describe('scrollback on disk', () => {
     writeFileSync(join(dir, 'notes.txt'), 'not ours');
     expect(store.usage().files).toBe(0);
   });
+
+  it('makes the file with the right mode again after it is cleared', () => {
+    /**
+     * The check that the file exists moved to once per session rather than once per chunk, which
+     * is where it was costing a syscall on every piece of output. Clearing deletes the file, so
+     * the next write has to make it again: a remembered "already made" would leave the recreated
+     * file with whatever mode the append happened to give it.
+     */
+    const store = new ScrollbackStore({ directory: dir, budgetBytes: 64 * 1024 });
+    store.append('mode-check', new TextEncoder().encode('first\n'));
+    store.clear('mode-check');
+    store.append('mode-check', new TextEncoder().encode('second\n'));
+    const path = join(dir, 'mode-check.log');
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    expect(new TextDecoder().decode(store.read('mode-check'))).toContain('second');
+  });
 });

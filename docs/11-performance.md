@@ -5,6 +5,53 @@ It is not automatically true of the system.
 
 ---
 
+## What a byte waits for on its way to the screen
+
+A terminal in a browser has more between the process and the pixel than one that owns its own PTY,
+and anything done on that path **before** the bytes are passed on is added to the delay a person
+feels.
+
+| | |
+|---|---|
+| The daemon's own work before forwarding | 0.06 ms for a full coloured redraw |
+| The host writing history to disk, before | **0.203 ms a chunk**, now after |
+| The file-exists check in front of that write | 0.045 ms a chunk, now once a session |
+| Waiting to gather more output | **6 ms a chunk**, now only while output is already flowing |
+
+The daemon's number is the surprise and is why it was measured rather than assumed: the emulator's
+`write` queues and returns, so parsing a screen into it is not on the path at all. Reordering it
+would have bought sixty microseconds.
+
+The other two were. Nothing reads the history file until a session is adopted after a restart, so
+writing it in front of the bytes made a person wait for the disk on every frame. And coalescing
+protects the renderer from a flood, which the first chunk after a pause is not: it has nothing to
+be gathered with, so the wait bought nothing and cost the whole wait, on every keystroke coming
+back. The credit window still protects the renderer, and a burst still meets the timer.
+
+## What a tab costs, measured
+
+Numbers from an ordinary laptop, taken with the machine otherwise idle. They are in a suite so
+that a change to them is noticed rather than discovered.
+
+| | |
+|---|---|
+| A start screen, from navigation to usable | about **150 ms** |
+| A tab with work in it, back on its own screen | about **150 ms** |
+| Building the running list, 24 sessions with full screens | about **2.4 ms** |
+| Redraws of the start screen for one change elsewhere | **1** |
+
+That last one was **nine**. The start screen draws three things the daemon owns and asks for all
+three whenever it hears that any of them changed, and each answer redrew the whole screen. The
+answers arrive in separate messages a few milliseconds apart, so they are gathered: each new one
+restarts a short wait, with a ceiling so a steady trickle cannot hold the screen back. A fixed
+window is not enough, because on a busy machine those three replies can be tens of milliseconds
+apart, which measured eleven redraws rather than one.
+
+These are measured in a suite that runs **alone**. Under a full parallel run the same start screen
+reported twenty seconds to usable, which is a number about the machine and not about the product.
+A budget loosened until it passes under that load would not notice the product becoming ten times
+slower.
+
 ## 1. Memory hierarchy, corrected
 
 | Component | Cost | Note |

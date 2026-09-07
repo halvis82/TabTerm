@@ -76,9 +76,28 @@ export class FlowController {
     this.#discard();
   }
 
+  /** When output last went out, so a quiet line can be told from one already flowing. */
+  #lastSentAt = 0;
+
   #schedule(): void {
     if (this.#timer || this.#pending.length === 0) return;
     if (this.#outstanding >= this.#opts.windowBytes) return;
+    /**
+     * The first output after a pause goes at once. Only a stream already flowing is gathered.
+     *
+     * Coalescing is here to protect the renderer from a flood, and a flood is by definition more
+     * than one chunk. The first chunk after a quiet moment has nothing to be gathered with, so
+     * the wait buys nothing and costs the whole wait: it is added to every keystroke coming back
+     * and every frame of an agent redrawing while somebody scrolls it. The same reasoning as
+     * turning off Nagle on an interactive socket.
+     *
+     * The renderer is still protected. The credit window is untouched, and output arriving in a
+     * burst still meets the timer, because by then the line is no longer quiet.
+     */
+    if (Date.now() - this.#lastSentAt >= this.#opts.coalesceMs) {
+      this.#flush();
+      return;
+    }
     this.#timer = setTimeout(() => {
       this.#timer = null;
       this.#flush();
@@ -91,6 +110,7 @@ export class FlowController {
       const chunk = this.#take(budget);
       if (chunk.length === 0) break;
       this.#outstanding += chunk.length;
+      this.#lastSentAt = Date.now();
       this.#opts.send(chunk);
     }
     this.#schedule();

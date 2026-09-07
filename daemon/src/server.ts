@@ -390,16 +390,25 @@ export class DaemonServer {
          * that has just been typed has not printed anything yet. That is why the list is pushed
          * again whenever it changes rather than only when a tab opens.
          */
+        /**
+         * Serialized once per session, not twice.
+         *
+         * Whether a session is worth offering and what its card shows are both read from the
+         * screen, and each was asking the emulator to serialize it again. That is the expensive
+         * part of building this list, it is done for every session on the machine, and this list
+         * is now rebuilt whenever anything changes rather than only when a tab opens. Doing it
+         * once halves the cost of the whole path.
+         */
+        .map((s) => ({ session: s, screen: s.vt.snapshot(0).screen }))
         .filter(
-          (s) =>
-            s.command !== undefined ||
-            (s.hasRun === true && usedLines(s.vt.snapshot(0).screen) > 1),
+          ({ session, screen }) =>
+            session.command !== undefined || (session.hasRun === true && usedLines(screen) > 1),
         )
-        .map((session) => {
+        .map(({ session, screen }) => {
           const workspace = this.#workspaces.findBySession(session.id);
           // The serialized screen carries the escape sequences that produced it, and a preview
           // showing "[?2004h" beside a prompt looks like a bug in whatever is displaying it.
-          const lines = plainText(session.vt.snapshot(0).screen);
+          const lines = plainText(screen);
           return {
             sessionId: session.id,
             memoryBytes: memoryOf(session.pid),
@@ -1779,7 +1788,23 @@ export class DaemonServer {
       case 'get-background-timeout':
       case 'set-background-timeout': {
         if (msg.t === 'set-background-timeout') {
-          this.#sessions.keepBackgroundSeconds = clampTimeout(msg.seconds);
+          /**
+           * Nonsense is ignored rather than interpreted.
+           *
+           * `clampTimeout` turns anything it cannot make a number of into `null`, and `null` is
+           * not "no answer" here, it is **keep forever**. So a message carrying a string, or
+           * nothing at all, quietly changed a stored preference to the most permissive value it
+           * has. It was reported as the setting resetting itself, which is exactly what it was
+           * doing: something sent a malformed message and the daemon wrote down "forever".
+           *
+           * Only a real number, or an explicit `null` meaning forever, is an answer.
+           */
+          const asked = msg.seconds;
+          if (asked !== null && typeof asked !== 'number') {
+            warn('background-timeout.ignored', { seconds: String(asked) });
+            return;
+          }
+          this.#sessions.keepBackgroundSeconds = clampTimeout(asked);
           updateUserSetting('keepBackgroundSeconds', this.#sessions.keepBackgroundSeconds);
           // Applied to what is already detached, not only to what detaches next: a person who
           // just shortened this expects it to affect the sessions they were looking at.

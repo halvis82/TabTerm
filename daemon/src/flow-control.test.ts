@@ -91,4 +91,34 @@ describe('flow control', () => {
     await tick();
     expect(Buffer.concat(sent).toString()).toBe('after');
   });
+
+  it('sends the first output after a pause at once, and gathers a burst', async () => {
+    /**
+     * The whole reason the wait exists is a flood, and the first chunk after a quiet moment is
+     * not one: there is nothing to gather it with, so waiting adds the full wait to every
+     * keystroke coming back and every frame of a program redrawing while somebody scrolls it.
+     *
+     * What must not change is the protection during a burst, which is what the wait is for.
+     */
+    const sent: Buffer[] = [];
+    const flow = new FlowController({
+      windowBytes: 1 << 20,
+      coalesceMs: 20,
+      maxChunkBytes: 1 << 16,
+      send: (chunk) => sent.push(chunk),
+      onDesync: () => {},
+    });
+
+    flow.push(Buffer.from('first'));
+    // No waiting, no timers: it is already on its way.
+    expect(sent.map((b) => b.toString())).toEqual(['first']);
+
+    // And now the line is busy, so what follows is gathered rather than sent one at a time.
+    flow.push(Buffer.from('a'));
+    flow.push(Buffer.from('b'));
+    expect(sent).toHaveLength(1);
+    await new Promise((done) => setTimeout(done, 40));
+    expect(sent).toHaveLength(2);
+    expect(sent[1]?.toString()).toBe('ab');
+  });
 });

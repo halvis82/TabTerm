@@ -417,9 +417,23 @@ export class PtyHost {
   }
 
   /** Everything a session has printed goes through here, whatever produced it. */
+  /**
+   * Output from a terminal, sent on before it is written down.
+   *
+   * Everything here has to happen, and only one of them is between the process and the person
+   * looking at it. Keeping history meant a blocking write to disk on every chunk, measured at
+   * about a fifth of a millisecond each, in front of the bytes rather than behind them: a person
+   * scrolling a program that redraws waits for the disk on every frame, for no reason, since
+   * nothing reads that file until a session is adopted after a restart.
+   *
+   * The order the store and the ring see is unchanged, because this is still one call per chunk
+   * in the order they arrived.
+   */
   #emit(live: Live, data: Buffer): void {
     live.seq += data.length;
     const copy = new Uint8Array(data);
+    this.#broadcast(outputFrame({ sessionId: live.id, seq: live.seq, data: copy }));
+
     this.#store.append(live.id, copy);
     live.ring.push({ seq: live.seq, data: copy });
     live.ringBytes += copy.length;
@@ -428,7 +442,6 @@ export class PtyHost {
       const dropped = live.ring.shift();
       live.ringBytes -= dropped?.data.length ?? 0;
     }
-    this.#broadcast(outputFrame({ sessionId: live.id, seq: live.seq, data: copy }));
   }
 
   #wire(live: Live): void {
