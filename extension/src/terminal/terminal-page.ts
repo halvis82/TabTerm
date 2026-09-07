@@ -1270,6 +1270,22 @@ function syncPaneChoosers(): void {
  * time, under something. Both attempts to fix it looked at the buffer, which was right, and at
  * scrolling, which could not help: a terminal filling the window has nothing to scroll.
  */
+/**
+ * Show whichever of the two this tab turned out to be, once and only once.
+ *
+ * Called when the snapshot has been applied, and by a timer as a ceiling. Everything before this
+ * point is the tab deciding what it is, and during that time it shows neither.
+ */
+function decideStartScreen(): void {
+  if (startScreenDecided) return;
+  startScreenDecided = true;
+  root.classList.remove('deciding');
+  // Empty after the snapshot means the tab really has nothing in it, and the start screen is
+  // what belongs there. Anything else keeps its terminal.
+  if (thisTabIsUnused()) openStartScreen();
+  else launcher?.dismiss();
+}
+
 function openStartScreen(): void {
   if (!launcher || launcher.dismissed || hasLaunched()) return;
   launcher.show();
@@ -1539,26 +1555,51 @@ function installPageMenu(): void {
 }
 
 /** The clipboard entries a text box should have, acting on the box that was clicked. */
-function textBoxItems(box: HTMLInputElement | HTMLTextAreaElement): ShellItem[] {
+function textBoxItems(clicked: HTMLInputElement | HTMLTextAreaElement): ShellItem[] {
+  /**
+   * The box as it is when the entry runs, not as it was when the menu was built.
+   *
+   * A menu stays open while the page carries on, and the start screen redraws whenever anything
+   * changes: a session starting, a folder being recorded. The redraw replaces its inputs, so the
+   * element captured at right-click time is detached by the time an entry runs, and `focus` and
+   * `select` on a detached element do nothing at all and report nothing. The same trap as setting
+   * `scrollTop` on one, and just as quiet.
+   */
+  const live = (): HTMLInputElement | HTMLTextAreaElement => {
+    if (clicked.isConnected) return clicked;
+    const byId = clicked.id === '' ? null : document.getElementById(clicked.id);
+    if (byId instanceof HTMLInputElement || byId instanceof HTMLTextAreaElement) return byId;
+    const byClass =
+      clicked.className === ''
+        ? null
+        : document.querySelector(`.${clicked.className.trim().split(/\s+/).join('.')}`);
+    if (byClass instanceof HTMLInputElement || byClass instanceof HTMLTextAreaElement) {
+      return byClass;
+    }
+    return clicked;
+  };
+  const box = clicked;
   const selected = box.selectionStart !== box.selectionEnd;
   const replaceSelection = (text: string): void => {
-    const start = box.selectionStart ?? box.value.length;
-    const end = box.selectionEnd ?? start;
-    box.value = box.value.slice(0, start) + text + box.value.slice(end);
+    const target = live();
+    const start = target.selectionStart ?? target.value.length;
+    const end = target.selectionEnd ?? start;
+    target.value = target.value.slice(0, start) + text + target.value.slice(end);
     const at = start + text.length;
-    box.setSelectionRange(at, at);
+    target.setSelectionRange(at, at);
     // Dispatched, because everything that watches this box watches for input rather than polling.
-    box.dispatchEvent(new Event('input', { bubbles: true }));
-    box.focus();
+    target.dispatchEvent(new Event('input', { bubbles: true }));
+    target.focus();
   };
   return [
     {
       label: 'Cut',
       enabled: selected,
       run: () => {
-        const start = box.selectionStart ?? 0;
-        const end = box.selectionEnd ?? 0;
-        void navigator.clipboard.writeText(box.value.slice(start, end)).catch(() => {});
+        const target = live();
+        const start = target.selectionStart ?? 0;
+        const end = target.selectionEnd ?? 0;
+        void navigator.clipboard.writeText(target.value.slice(start, end)).catch(() => {});
         replaceSelection('');
       },
     },
@@ -1566,9 +1607,10 @@ function textBoxItems(box: HTMLInputElement | HTMLTextAreaElement): ShellItem[] 
       label: 'Copy',
       enabled: selected,
       run: () => {
-        const start = box.selectionStart ?? 0;
-        const end = box.selectionEnd ?? 0;
-        void navigator.clipboard.writeText(box.value.slice(start, end)).catch(() => {});
+        const target = live();
+        const start = target.selectionStart ?? 0;
+        const end = target.selectionEnd ?? 0;
+        void navigator.clipboard.writeText(target.value.slice(start, end)).catch(() => {});
       },
     },
     {
@@ -1589,8 +1631,9 @@ function textBoxItems(box: HTMLInputElement | HTMLTextAreaElement): ShellItem[] 
       separated: true,
       enabled: box.value !== '',
       run: () => {
-        box.focus();
-        box.select();
+        const target = live();
+        target.focus();
+        target.select();
       },
     },
   ];
@@ -3792,7 +3835,24 @@ function onControl(msg: ServerMessage): void {
          * every view of that session to be 80 by 24.
          */
         followingSize.add(pane.paneId);
-        panesHost?.restore(pane.paneId, msg.snapshot.screen, msg.snapshot.cols, msg.snapshot.rows);
+        /**
+         * And when that has been parsed, the tab knows what it is.
+         *
+         * The callback rather than the next line: `write` hands bytes to the emulator and the
+         * screen exists once they have been parsed. Asking a moment too early reads an empty
+         * terminal and answers "nothing here", whatever the snapshot held, which put the start
+         * screen over restored work.
+         *
+         * Decided here rather than on a timer, so a tab that is the start screen stops showing a
+         * terminal it is about to cover, and one with work in it stops waiting for a clock.
+         */
+        panesHost?.restore(
+          pane.paneId,
+          msg.snapshot.screen,
+          msg.snapshot.cols,
+          msg.snapshot.rows,
+          decideStartScreen,
+        );
         followingSize.delete(pane.paneId);
         // A leftover partial-line marker above the first prompt. See `tidyPartialLine`.
         tidyPartialLine(pane.paneId);
@@ -3989,6 +4049,35 @@ function onControl(msg: ServerMessage): void {
       completingPane = null;
       if (chooser) chooser.setListing(msg.partial, msg.matches);
       else launcher?.pathCompletion(msg);
+      return;
+    }
+
+    case 'launcher-stale': {
+      /**
+       * Something another tab did changed what this one is drawing.
+       *
+       * Only if this tab is actually showing the start screen. A tab with a terminal in it would
+       * be fetching a list nobody can see, and there are usually more of those than of these.
+       *
+       * Asked for rather than pushed: the daemon says the answer changed and says nothing about
+       * what it is, so the cost of an event is one comparison in every page and a request from
+       * the few that care.
+       */
+      if (launcher?.isShowing !== true) return;
+      client?.send({ t: 'list-live-sessions' });
+      client?.send({ t: 'list-resumable', limit: 8 });
+      /**
+       * The folder list too, unless the command menu is open.
+       *
+       * Launcher state carries the saved items, so asking for it also hands them to the command
+       * menu, which redraws. A redraw replaces the controls in it, and a control that is
+       * replaced while it is being used stops being the one that was clicked: a shortcut being
+       * recorded lost the button it was recording into, and the recording simply ended.
+       *
+       * Nothing is lost by waiting. The menu is a thing somebody is looking at right now, and
+       * the folder list is refreshed the moment it closes.
+       */
+      if (commandPanel?.isOpen !== true) client?.send({ t: 'list-launcher' });
       return;
     }
 
@@ -4679,13 +4768,24 @@ async function start(): Promise<void> {
    * the question cannot be answered.
    */
   if (reattaching) {
-    setTimeout(() => {
-      startScreenDecided = true;
-      // Empty after the snapshot means the tab really has nothing in it, and the start screen
-      // is what belongs there. Anything else keeps its terminal.
-      if (thisTabIsUnused()) openStartScreen();
-      else launcher?.dismiss();
-    }, 900);
+    /**
+     * Nothing is shown until the answer is known, and the answer is known when the snapshot has
+     * been applied rather than when a timer says so.
+     *
+     * Both wrong answers were reported. A tab with work in it flashed the start screen, which was
+     * fixed by holding the start screen back; a tab that **is** the start screen then paid the
+     * same wait in the other direction, showing its terminal for most of a second and then being
+     * covered over. Waiting is fine. Showing the wrong thing while waiting is not.
+     *
+     * The panes are hidden rather than removed, because a pane with no box cannot be measured,
+     * and a size nobody measured is the other thing that goes wrong on a tab that has just
+     * opened. `visibility` keeps the box and takes away only the picture.
+     *
+     * The timer stays as a ceiling. A snapshot that never arrives must not leave a tab showing
+     * nothing at all.
+     */
+    root.classList.add('deciding');
+    setTimeout(decideStartScreen, 900);
   }
   // Leaving fullscreen by any route, including the Escape the browser handles itself, must
   // put the layout back and release the lock.

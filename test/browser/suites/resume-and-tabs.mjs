@@ -195,6 +195,18 @@ const spare = await openTerminal();
 // The prompt is already there; this waits for the start screen's own lists.
 await waitFor(spare.client, "document.querySelector('.launcher-input')");
 const before = (await listTargets()).filter((t) => (t.url ?? '').includes('terminal.html')).length;
+/**
+ * Waited for, because the list follows the screen.
+ *
+ * A session is offered when something was started in it **and there is something on it**, so a
+ * command that has just been typed reaches the list when its output does. The daemon pushes the
+ * list again whenever it changes, so this is a wait for an event rather than for a duration.
+ */
+await waitFor(
+  spare.client,
+  `[...document.querySelectorAll('.session-card')].some((c) => (c.textContent ?? '').includes('RUNNING-HERE'))`,
+  15000,
+);
 const took = await realClick(spare.client, '.session-card', 'RUNNING-HERE');
 r.ok('the new tab lists the running session', took !== false);
 // The tab closes itself, so wait for it to be gone rather than for long enough that it must be.
@@ -237,6 +249,14 @@ await sleep(1800);
   const onlooker = await openTerminal();
   // The prompt is already there; this waits for the start screen's own lists.
   await waitFor(onlooker.client, "document.querySelector('.launcher-input')");
+  // The same wait, for the same reason: the list arrives when the output does.
+  await waitFor(
+    onlooker.client,
+    `[...document.querySelectorAll('.session-card')].filter((c) =>
+       (c.textContent ?? '').includes('RUNNING-HERE') ||
+       (c.textContent ?? '').includes('SECOND-PANE')).length === 2`,
+    15000,
+  );
   const listed = JSON.parse(
     await evaluate(
       onlooker.client,

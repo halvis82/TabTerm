@@ -197,7 +197,18 @@ async function main(): Promise<void> {
       });
     }
 
-    const surviving = s.command?.length ? undefined : workspaces.forgetSession(s.id);
+    /**
+     * A pane that ran a declared command keeps its pane, **unless somebody ended it**.
+     *
+     * Its output is the reason it existed, so closing it the instant the command finishes would
+     * throw away exactly what was being waited for. A kill is not that: a person chose to end
+     * this terminal, and a pane left holding a dead one is what "kill session doesn't close the
+     * pane" was.
+     */
+    const keepsItsPane = s.command?.length && s.endedByRequest !== true;
+    const surviving = keepsItsPane ? undefined : workspaces.forgetSession(s.id);
+    // One fewer thing to come back to, which every start screen is showing a list of.
+    server.launcherChanged();
     if (surviving) {
       /**
        * Sent to the tabs showing it, which `broadcast` does not do.
@@ -239,7 +250,7 @@ async function main(): Promise<void> {
   };
 
   events.onCwd = (s) => {
-    launcher.recordDir(s.cwd);
+    if (launcher.recordDir(s.cwd)) server.launcherChanged();
     const ws = workspaces.findBySession(s.id);
     launcher.rememberSession({
       id: s.id,
@@ -302,6 +313,14 @@ async function main(): Promise<void> {
     });
   };
   events.onCommand = (s, command, exitCode, durationMs) => {
+    /**
+     * A command that has finished has printed whatever it was going to print.
+     *
+     * Which is the moment a shell becomes a session worth offering: the running list asks what is
+     * on the screen, not only what was once started, so nudging at the **start** of a command
+     * rebuilds the list a moment too early and finds it still empty.
+     */
+    server.launcherChanged();
     archive.end(s.id, exitCode ?? 0);
     plugins.notify({
       type: 'command-end',

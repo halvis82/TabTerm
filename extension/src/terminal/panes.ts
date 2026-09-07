@@ -205,7 +205,13 @@ export class PaneHost {
    * thing that happens when a window is dragged, and which the application is told about so it
    * can repaint.
    */
-  restore(paneId: string, screen: string, cols?: number, rows?: number): void {
+  restore(
+    paneId: string,
+    screen: string,
+    cols?: number,
+    rows?: number,
+    onParsed?: () => void,
+  ): void {
     const pane = this.#panes.get(paneId);
     if (!pane) return;
     pane.controller.reset();
@@ -218,6 +224,12 @@ export class PaneHost {
     }
     pane.controller.write(new TextEncoder().encode(screen), () => {
       /* a snapshot is not acked: it never came off the credit window */
+      /**
+       * The callback fires once xterm has actually parsed the bytes, which is the first moment
+       * anything can be asked about the screen. Deciding what a tab is before this reads an
+       * empty terminal and answers "nothing here", whatever was in the snapshot.
+       */
+      onParsed?.();
     });
   }
 

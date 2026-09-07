@@ -110,18 +110,40 @@ describe('running now', () => {
     expect(ids).not.toContain(fresh.id);
   });
 
-  it('includes a session once a command has run in it', async () => {
+  it('includes a session once a command has run and printed something', async () => {
     const used = sessions.create({ cols: 80, rows: 24 });
     expect((await listed()).map((s) => s.sessionId)).not.toContain(used.id);
 
     sessions.noteCommandStarted(used);
+    used.vt.write(Buffer.from('$ echo hello\r\nhello\r\n$ ', 'utf8'));
 
     expect((await listed()).map((s) => s.sessionId)).toContain(used.id);
+  });
+
+  it('leaves out a session that was cleared back to a bare prompt', async () => {
+    /**
+     * Reported: an untouched shell in the home directory offered as work in progress, showing a
+     * card with one prompt on it. The cause is that having run something is remembered forever,
+     * and `clear` both counts as running something and empties the screen.
+     *
+     * What this list offers is a session to return to, and there is nothing to return to on an
+     * empty one. So the screen is asked as well as the history.
+     */
+    const cleared = sessions.create({ cols: 80, rows: 24 });
+    sessions.noteCommandStarted(cleared, 'clear');
+    cleared.vt.write(Buffer.from('$ clear\r\nsome output\r\n$ ', 'utf8'));
+    expect((await listed()).map((s) => s.sessionId)).toContain(cleared.id);
+
+    // And now the clear takes effect: the screen holds a prompt and nothing else.
+    cleared.vt.write(Buffer.from('\u001b[2J\u001b[H$ ', 'utf8'));
+    expect((await listed()).map((s) => s.sessionId)).not.toContain(cleared.id);
   });
 
   it('keeps a session listed after its command finishes', async () => {
     const done = sessions.create({ cols: 80, rows: 24 });
     sessions.noteCommandStarted(done);
+    // With its output on the screen, which is what makes it worth coming back to.
+    done.vt.write(Buffer.from('$ ls\r\nfile-one\r\nfile-two\r\n$ ', 'utf8'));
     done.commandRunning = false;
 
     expect((await listed()).map((s) => s.sessionId)).toContain(done.id);

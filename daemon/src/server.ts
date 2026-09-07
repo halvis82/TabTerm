@@ -54,7 +54,7 @@ import type { OutputArchive } from './output-archive.js';
 import type { PluginHost } from './plugin-api.js';
 import type { ProjectIndex } from './project-index.js';
 import type { WorkspaceStore } from './workspace-store.js';
-import { DEFAULT_KEEP_BACKGROUND_SECONDS } from './session-manager.js';
+import { DEFAULT_KEEP_BACKGROUND_SECONDS, usedLines } from './session-manager.js';
 import type { Session, SessionManager } from './session-manager.js';
 import type { LayoutShape, LiveSession, ResumableAgentSession, ShapeNode } from '@tabterm/shared';
 import { checkShape } from '@tabterm/shared';
@@ -339,29 +339,82 @@ export class DaemonServer {
    * Sessions started with an explicit command are in from the start, since the command is the
    * whole reason they exist and it may still be running.
    */
+  /**
+   * Tell every page that the start screen's data changed, without saying how.
+   *
+   * Called from the handful of events that alter what it draws. Coalesced over a frame's worth of
+   * time, because these arrive in clusters: opening a folder creates a session, records a
+   * directory and creates a workspace, which is one change to a person and three to the daemon.
+   */
+  #launcherStaleTimer: NodeJS.Timeout | undefined;
+  launcherChanged(): void {
+    if (this.#launcherStaleTimer) return;
+    this.#launcherStaleTimer = setTimeout(() => {
+      this.#launcherStaleTimer = undefined;
+      this.broadcastAll({ t: 'launcher-stale' });
+    }, 150);
+    this.#launcherStaleTimer.unref?.();
+  }
+
   #liveSessions(): LiveSession[] {
-    return this.#sessions.all
-      .filter((s) => s.state !== 'exited' && s.state !== 'reaped')
-      .filter((s) => s.hasRun === true || s.command !== undefined)
-      .map((session) => {
-        const workspace = this.#workspaces.findBySession(session.id);
-        // The serialized screen carries the escape sequences that produced it, and a preview
-        // showing "[?2004h" beside a prompt looks like a bug in whatever is displaying it.
-        const lines = plainText(session.vt.snapshot(0).screen);
-        return {
-          sessionId: session.id,
-          memoryBytes: memoryOf(session.pid),
-          ...(workspace ? { workspaceId: workspace.id } : {}),
-          cwd: session.cwd,
-          ...(session.titleFields.process ? { process: session.titleFields.process } : {}),
-          ...(session.pendingCommand ? { lastCommand: session.pendingCommand } : {}),
-          attached: session.clients.size > 0,
-          startedAt: session.createdAt,
-          preview: lines.slice(-PREVIEW_LINES),
-          busy: session.commandRunning,
-        };
-      })
-      .sort((a, b) => b.startedAt - a.startedAt);
+    return (
+      this.#sessions.all
+        .filter((s) => s.state !== 'exited' && s.state !== 'reaped')
+        /**
+         * Something was started here, **and there is still something to come back to**.
+         *
+         * `hasRun` records that a command was once started, and it never goes back: running
+         * `clear` sets it and then empties the screen, so an untouched shell in the home directory
+         * was offered as work in progress, showing a card with one bare prompt on it. Which was
+         * reported, and is exactly the debris this list exists to keep out.
+         *
+         * The screen is asked as well as the history, because what this list offers is a session
+         * to return to, and there is nothing to return to on an empty one. A session started with
+         * a command is kept regardless: its output is the reason it exists, and one that has been
+         * cleared is still that session.
+         */
+        /**
+         * Something was started here, **and there is still something to come back to**.
+         *
+         * `hasRun` records that a command was once started, and it never goes back: running
+         * `clear` sets it and then empties the screen, so an untouched shell in the home
+         * directory was offered as work in progress, showing a card with one bare prompt on it.
+         * Which was reported, and is exactly the debris this list exists to keep out.
+         *
+         * The screen is asked as well as the history, because what this list offers is a session
+         * to return to, and there is nothing to return to on an empty one. A session started with
+         * a command is kept regardless: its output is the reason it exists, and one that has been
+         * cleared is still that session.
+         *
+         * This makes membership depend on what is on screen right now, which moves: a command
+         * that has just been typed has not printed anything yet. That is why the list is pushed
+         * again whenever it changes rather than only when a tab opens.
+         */
+        .filter(
+          (s) =>
+            s.command !== undefined ||
+            (s.hasRun === true && usedLines(s.vt.snapshot(0).screen) > 1),
+        )
+        .map((session) => {
+          const workspace = this.#workspaces.findBySession(session.id);
+          // The serialized screen carries the escape sequences that produced it, and a preview
+          // showing "[?2004h" beside a prompt looks like a bug in whatever is displaying it.
+          const lines = plainText(session.vt.snapshot(0).screen);
+          return {
+            sessionId: session.id,
+            memoryBytes: memoryOf(session.pid),
+            ...(workspace ? { workspaceId: workspace.id } : {}),
+            cwd: session.cwd,
+            ...(session.titleFields.process ? { process: session.titleFields.process } : {}),
+            ...(session.pendingCommand ? { lastCommand: session.pendingCommand } : {}),
+            attached: session.clients.size > 0,
+            startedAt: session.createdAt,
+            preview: lines.slice(-PREVIEW_LINES),
+            busy: session.commandRunning,
+          };
+        })
+        .sort((a, b) => b.startedAt - a.startedAt)
+    );
   }
 
   get scrollbackBytes(): number {
@@ -1111,7 +1164,8 @@ export class DaemonServer {
 
       case 'kill-session': {
         const session = this.#sessions.get(msg.sessionId);
-        if (session) void this.#sessions.kill(session);
+        // By request: the pane goes with it, whatever it was running. See `kill`.
+        if (session) void this.#sessions.kill(session, false, true);
         return;
       }
 
@@ -1165,7 +1219,7 @@ export class DaemonServer {
                 : resolved.absolute.slice(0, resolved.absolute.lastIndexOf('/')) || '/';
               const spawned = this.#sessions.create({ cwd: dir, cols: 80, rows: 24 });
               const { workspace } = this.#workspaces.create(spawned.id);
-              this.#launcher.recordDir(dir);
+              if (this.#launcher.recordDir(dir)) this.launcherChanged();
               send(
                 client.socket,
                 controlFrame({
@@ -1250,7 +1304,7 @@ export class DaemonServer {
         void Promise.all(
           this.#sessions.all.map(async (session) => {
             const cwd = await this.#liveCwd(session);
-            this.#launcher.recordDir(cwd);
+            if (this.#launcher.recordDir(cwd)) this.launcherChanged();
           }),
         )
           .then(() => this.#sendLauncherState(client))
@@ -1496,7 +1550,7 @@ export class DaemonServer {
           rows: msg.rows,
           command: resumeCommand(agent, this.#agentExecutable(agent), msg.sessionId),
         });
-        this.#launcher.recordDir(msg.cwd);
+        if (this.#launcher.recordDir(msg.cwd)) this.launcherChanged();
         const { workspace } = this.#workspaces.create(session.id);
         send(
           client.socket,
@@ -2093,7 +2147,7 @@ export class DaemonServer {
     const { workspace, paneId } = this.#workspaces.create(first.id);
     if (layout) this.#realizeTemplate(workspace.id, layout, paneId, spawn);
 
-    this.#launcher.recordDir(cwd);
+    if (this.#launcher.recordDir(cwd)) this.launcherChanged();
     info('project.launched', { path: loaded.path, panes: commands.length });
     send(
       client.socket,
@@ -2271,7 +2325,7 @@ export class DaemonServer {
           this.#sessions.write(session, Buffer.from(pane.lastCommand ?? '', 'utf8'));
         }, 900).unref();
       }
-      this.#launcher.recordDir(pane.cwd);
+      if (this.#launcher.recordDir(pane.cwd)) this.launcherChanged();
     }
 
     info('restore.done', { from: msg.workspaceId, into: workspace.id, panes: created.length });
@@ -2380,7 +2434,7 @@ export class DaemonServer {
       }
     }
 
-    this.#launcher.recordDir(target);
+    if (this.#launcher.recordDir(target)) this.launcherChanged();
     send(
       client.socket,
       controlFrame({

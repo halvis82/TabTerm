@@ -732,6 +732,24 @@ copy of its own screen, and a full-screen program had to be resized before it lo
 The host has held the true size all along and reports it in the same list adoption already reads.
 It was being discarded one call before it was needed.
 
+### A tab shows what it is, and never the other thing first
+
+Both directions were reported. A tab with work in it flashed the start screen, which was fixed by
+holding the start screen back until the tab knew what it was. A tab that **is** the start screen
+then paid that same wait in the other direction: it showed its terminal for most of a second and
+was then covered over.
+
+So a tab that has not worked out what it is shows **neither**, and works it out when its screen
+arrives rather than when a timer says so. The panes are hidden with `visibility` rather than
+removed, because a pane with no box cannot be measured and a size nobody measured is the other
+thing that goes wrong on a tab that has just opened. The timer stays as a ceiling, since a
+snapshot that never arrives must not leave a tab showing nothing.
+
+The decision is made in the callback that fires once the emulator has **parsed** the restored
+screen, not on the line after handing it over. Asking a moment too early reads an empty terminal
+and answers "nothing here" whatever the snapshot held, which put the start screen over restored
+work.
+
 ### The start screen draws itself only when something asks it to
 
 A tab reopened on a session it already had showed the start screen about a sixth of a second in

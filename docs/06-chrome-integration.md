@@ -356,6 +356,34 @@ higher.
 
 ---
 
+### A start screen shows what is true now, not what was true when it opened
+
+Something done in one tab reaches the others: a session started, a folder opened, an agent
+resumed. The daemon says only that **the answer changed**, with no payload, and the pages that are
+actually showing the start screen ask for what they need. Everyone else ignores it, which costs
+one comparison.
+
+Sending the new state to every page instead would mean building all of it every time anything
+happens, most of it for pages showing a terminal that will never draw it.
+
+Two rules keep it from becoming a loop or a nuisance:
+
+**Only a real change counts.** Recording a folder that is already at the top of the list is the
+ordinary case, since every tab that opens reports the directory of every session it can see.
+Treating that as news made every start screen ask for the list again, which recorded the
+directories again: two hundred and twenty frames in four seconds on a tab nobody was touching.
+`recordDir` says whether the folder was new, and only a new one is announced.
+
+**An open command menu is left alone.** Launcher state carries the saved items, so refreshing it
+also redraws that menu, and a control redrawn while it is being used stops being the one that was
+clicked: a shortcut being recorded lost the button it was recording into. The folder list is
+refreshed when the menu closes.
+
+The nudge fires when a command **finishes**, not when it starts, because the running list asks
+what is on the screen and a command that has just been typed has not printed anything yet.
+
+---
+
 ### A tab that was never used does not survive being left
 
 Choosing a running session, or resuming an agent, from a tab still showing its start screen acts

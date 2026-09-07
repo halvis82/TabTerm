@@ -141,8 +141,22 @@ export class LauncherData {
    * Record a visit. Frequency and recency both matter, so both are tracked: a directory you
    * enter constantly should not fall off just because you were somewhere else this morning.
    */
-  recordDir(path: string): void {
-    if (!path.startsWith('/') || isBoring(path)) return;
+  /**
+   * Returns whether this was a folder the list did not already have.
+   *
+   * The caller uses it to decide whether anybody needs telling. Recording a folder that is
+   * already at the top of the list is the ordinary case, since every tab that opens reports the
+   * directory of every session it can see, and treating that as news made every start screen ask
+   * for the list again, which recorded the directories again. Two hundred and twenty frames in
+   * four seconds on a tab nobody was touching.
+   */
+  recordDir(path: string): boolean {
+    if (!path.startsWith('/') || isBoring(path)) return false;
+    const known =
+      (
+        this.#db.handle.prepare('SELECT 1 AS hit FROM recent_dirs WHERE path = ?').get(path) as
+          { hit: number } | undefined
+      )?.hit === 1;
     this.#db.handle
       .prepare(
         `INSERT INTO recent_dirs (path, name, last_used_at, use_count, pinned)
@@ -166,6 +180,7 @@ export class LauncherData {
     void this.#indexProject(path).catch(() => {
       /* a directory that vanished, or an unreadable parent. Not worth reporting. */
     });
+    return !known;
   }
 
   /**

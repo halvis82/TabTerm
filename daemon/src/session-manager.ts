@@ -51,6 +51,8 @@ export interface Session {
   foregroundProcess?: string;
   /** Latest state reported by an agent CLI's hooks, never inferred from output. */
   agentState?: AgentState;
+  /** Somebody asked for this to end, rather than the process ending on its own. */
+  endedByRequest?: boolean;
   /**
    * This session has emitted command marks, so the integration really is sourced.
    *
@@ -616,7 +618,16 @@ export class SessionManager {
    * `keepHistory` when this was a timeout rather than a person: nobody asked for it, a tab may
    * still be open on it, and its output is what that tab has left to show.
    */
-  async kill(session: Session, keepHistory = false): Promise<void> {
+  /**
+   * `byRequest` means a person asked for this to be gone, rather than a process ending.
+   *
+   * It decides what happens to the pane. A pane that ran a declared command keeps its pane when
+   * the command finishes, because its output is the reason it existed. That is exactly wrong for
+   * a kill: somebody chose `Kill session` on that pane, and leaving the pane sitting there
+   * holding a dead terminal is the opposite of what they asked for.
+   */
+  async kill(session: Session, keepHistory = false, byRequest = false): Promise<void> {
+    if (byRequest) session.endedByRequest = true;
     await this.#pty.kill(session.id, keepHistory);
     this.#reap(session);
   }

@@ -108,16 +108,31 @@ r.ok(
 );
 
 await realClick(fresh.client, '.launcher-create-folder');
-await sleep(1800);
-r.ok(
-  'creating it makes the offer go away',
-  String(
-    await evaluate(
-      fresh.client,
-      "document.querySelector('.launcher-folder-state')?.textContent ?? ''",
-    ),
-  ).includes('exists'),
+/**
+ * Waited for the answer, not for the button.
+ *
+ * Creating a folder is a round trip: the daemon makes it and then reports what it found there.
+ * The line changes when that report arrives, and waiting for the offer to disappear is waiting
+ * for something a moment earlier than what is being asserted.
+ */
+await waitFor(
+  fresh.client,
+  `(document.querySelector('.launcher-folder-state')?.textContent ?? '').includes('exists')`,
+  12000,
 );
+const folderNow = String(
+  await evaluate(
+    fresh.client,
+    `(() => { const s = document.querySelector('.launcher-folder-state');
+       return JSON.stringify({
+         cls: s?.className ?? null,
+         text: (s?.textContent ?? '').slice(0, 50),
+         typed: document.querySelector('.launcher-input')?.value ?? null,
+         offer: !!document.querySelector('.launcher-create-folder'),
+       }); })()`,
+  ),
+);
+r.ok('creating it makes the offer go away', folderNow.includes('exists'), folderNow);
 
 await rm(MADE, { recursive: true, force: true });
 await finish();

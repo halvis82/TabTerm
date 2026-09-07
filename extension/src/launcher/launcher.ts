@@ -1072,6 +1072,18 @@ export class Launcher {
      */
     const typed = this.#dirInput?.value ?? '';
     const hadFocus = document.activeElement === this.#dirInput;
+    /**
+     * And what was selected in it, which is part of what somebody is in the middle of.
+     *
+     * The value and the focus were carried across a redraw and the selection was not, so a
+     * selection made in the path box disappeared the next time this screen redrew for any
+     * reason: a session starting somewhere, a folder being recorded. Selecting the whole path
+     * and typing over it is the ordinary way to replace it, and it stopped working at random.
+     */
+    const selection =
+      hadFocus && this.#dirInput
+        ? { start: this.#dirInput.selectionStart, end: this.#dirInput.selectionEnd }
+        : null;
     const state = this.#state;
 
     const sections: HTMLElement[] = [];
@@ -1189,9 +1201,25 @@ export class Launcher {
       opened?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
 
+    /**
+     * And what was known about the folder in the box, which a redraw rebuilt empty.
+     *
+     * The answer is kept in `#folderState` and drawn into a slot in place, so a full redraw made
+     * the slot again and left it blank: the line saying a folder does not exist, and the offer to
+     * create it, disappeared. That only mattered when something else caused a redraw, and until
+     * the start screen followed what other tabs were doing, almost nothing did.
+     */
+    this.#renderFolderState();
+
     if (typed && this.#dirInput) {
       this.#dirInput.value = typed;
-      if (hadFocus) this.#dirInput.focus();
+      if (hadFocus) {
+        this.#dirInput.focus();
+        // Put back after the focus, because focusing a box moves the caret to the end of it.
+        if (selection && selection.start !== null && selection.end !== null) {
+          this.#dirInput.setSelectionRange(selection.start, selection.end);
+        }
+      }
     }
   }
 

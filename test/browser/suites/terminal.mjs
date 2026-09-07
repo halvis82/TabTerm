@@ -55,7 +55,9 @@ await sleep(600);
  */
 {
   const AFTER = `AFTER-INTERRUPT-${String(Date.now()).slice(-6)}`;
-  await type(client, `printf '\\033[?1049h'; /bin/sleep 30`);
+  // `tput smcup` rather than a printf full of escapes: the sequence has to survive being typed
+  // through a real keyboard path, and one that arrives half eaten runs as a command named `92`.
+  await type(client, 'tput smcup; /bin/sleep 30');
   await sleep(1200);
   await interrupt(client);
   await sleep(1200);

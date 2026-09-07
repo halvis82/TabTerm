@@ -1226,11 +1226,38 @@
     flex-direction: column;
     gap: 8px;
   }
+  /*
+   * Name, keys, and a quiet way to take the keys away, all on one line.
+   *
+   * The clear button had no rule of its own, so it fell into the first column of a two column
+   * grid and became a full width bar under every shortcut: five of them down the settings page,
+   * each as big as the thing it belonged to. It is a third column now, and it reads as an aside
+   * rather than as an action of equal weight.
+   */
   .set-key-row {
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: 1fr auto auto;
     align-items: center;
-    gap: 8px 10px;
+    gap: 8px 8px;
+  }
+  .set-key-clear {
+    padding: 3px 8px;
+    font-size: 11px;
+    color: var(--dim);
+    border-color: transparent;
+    background: transparent;
+  }
+  .set-key-clear:hover {
+    color: var(--text);
+    border-color: var(--edge);
+    background: var(--hover);
+  }
+  /* The problem line belongs under the name, across the whole row, not squeezed into a column. */
+  .set-key-problem {
+    grid-column: 1 / -1;
+  }
+  .set-key-problem:empty {
+    display: none;
   }
   .cmd-button.set-key {
     min-width: 96px;
@@ -1312,6 +1339,16 @@
    * the screen where nothing could reach them. Positioning alone cannot solve that: past a point
    * there is no position that fits.
    */
+  /*
+   * A tab that has not worked out what it is yet shows neither half of itself.
+   *
+   * `visibility`, not `display`: a pane with no box cannot be measured, and a size nobody
+   * measured is the other thing that goes wrong on a tab that has just opened.
+   */
+  .deciding .pane {
+    visibility: hidden;
+  }
+
   .term-menu {
     position: fixed;
     z-index: 60;

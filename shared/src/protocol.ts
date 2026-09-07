@@ -748,6 +748,18 @@ export type ServerMessage =
   | { t: 'scrollback-budget'; bytes: number }
   | { t: 'background-timeout'; seconds: number | null }
   | { t: 'live-sessions'; sessions: readonly LiveSession[] }
+  /**
+   * Something the start screen draws has changed. No payload, deliberately.
+   *
+   * A tab showing the start screen should reflect what happened in another one: a session opened
+   * from the running list, an agent resumed, a folder created. Sending the new state to every
+   * page would mean building all of it every time anything happens, most of it for pages that
+   * are showing a terminal and will never draw it.
+   *
+   * So this says only that the answer changed, and the pages that are actually showing the start
+   * screen ask for what they need. Everyone else ignores it, which costs one comparison.
+   */
+  | { t: 'launcher-stale' }
   | {
       t: 'path-completion';
       /** Echoed back, so a stale answer to an earlier keystroke can be ignored. */
