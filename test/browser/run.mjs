@@ -438,6 +438,14 @@ function startTestDaemon() {
       if (state.stopping) return;
       state.restarts++;
       /**
+       * Said out loud, with the time, because a daemon that dies takes a suite down with it and
+       * the suite reports a product bug. A run that ends with more restarts than the suites that
+       * kill it deliberately used to give no way at all to find out which death was which.
+       */
+      console.log(
+        `  daemon exited (${String(code ?? signal)}) at ${new Date().toISOString().slice(11, 19)}, restart ${String(state.restarts)}`,
+      );
+      /**
        * A port that turned out to be taken is answered with a different one.
        *
        * Asking the operating system for a free port and then binding it a moment later is a

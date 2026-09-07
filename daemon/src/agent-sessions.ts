@@ -1,6 +1,7 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
+import { readHead } from './file-slice.js';
 import { debug } from './log.js';
 
 /**
@@ -192,7 +193,7 @@ async function resolveStoreDir(name: string): Promise<string | null> {
  */
 async function readSessionId(path: string): Promise<string | null> {
   try {
-    const head = (await readFile(path, 'utf8')).slice(0, HEAD_BYTES);
+    const head = await readHead(path, HEAD_BYTES);
     for (const line of head.split('\n')) {
       if (!line.startsWith('{')) continue;
       let parsed: unknown;
@@ -212,7 +213,7 @@ async function readSessionId(path: string): Promise<string | null> {
 
 async function readSummary(path: string): Promise<string | null> {
   try {
-    const head = (await readFile(path, 'utf8')).slice(0, HEAD_BYTES);
+    const head = await readHead(path, HEAD_BYTES);
     for (const line of head.split('\n')) {
       if (!line.startsWith('{')) continue;
       let parsed: unknown;

@@ -13,7 +13,7 @@
  * Read from the **end**, because that is the part that says what a session was about by the time
  * it stopped, and because these files reach megabytes.
  */
-import { readFile, stat } from 'node:fs/promises';
+import { readTail } from './file-slice.js';
 import { debug } from './log.js';
 
 export interface TranscriptTurn {
@@ -34,16 +34,6 @@ const TAIL_BYTES = 256 * 1024;
 
 /** No single turn is worth more than this on a card. Long tool output is not conversation. */
 const MAX_CHARACTERS = 600;
-
-/** Read the last bytes of a file, on a boundary that keeps whole lines. */
-async function tailOf(path: string): Promise<string> {
-  const info = await stat(path);
-  const whole = await readFile(path, 'utf8');
-  if (info.size <= TAIL_BYTES) return whole;
-  const tail = whole.slice(-TAIL_BYTES);
-  // The first line of a tail is almost certainly half a record. Dropping it costs one turn.
-  return tail.slice(tail.indexOf('\n') + 1);
-}
 
 function clean(text: string): string {
   const flat = text.replace(/\s+/g, ' ').trim();
@@ -113,7 +103,7 @@ function codexTurn(record: Record<string, unknown>): TranscriptTurn | null {
 export async function readTranscript(path: string, limit = 12): Promise<TranscriptTurn[]> {
   let text: string;
   try {
-    text = await tailOf(path);
+    text = await readTail(path, TAIL_BYTES);
   } catch {
     debug('agent-transcript.unreadable', { path });
     return [];

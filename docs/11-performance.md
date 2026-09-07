@@ -255,6 +255,30 @@ Nothing loads wholesale.
 | Notes and saved items | Loaded when the interface opens, never at page load |
 | Session list | Summary fields only. Detail on selection |
 | The SQLite database | **Never mirrored into JS memory.** Enforced by a query-only access layer |
+| An agent's stored conversation | One end of the file, read from that position. Never the whole file |
+
+### The one that was not, and what it cost
+
+Three places wanted a small piece of an agent's stored conversation: the first 128 KB to learn a
+session's id and its title, or the last 256 KB to show how it ended. All three read the whole file
+into a string and then sliced it. That reads correctly and costs the whole file, and a JavaScript
+string holds text as sixteen-bit units, so a 98 MB conversation costs nearly 200 MB to look at
+0.1 per cent of.
+
+Measured on a real store of 308 MB, listing what could be resumed:
+
+| | Time | Peak RSS |
+|---|---|---|
+| Reading each file whole | 157 ms | 480 MB |
+| Reading the piece wanted | 8 ms | 84 MB |
+
+The daemon aborted on an out of memory during a full test run, in V8's UTF-8 string decoder. What
+a person sees when that happens is TabTerm stopping for no reason, with nothing left behind that
+says why.
+
+A read that starts in the middle of a file starts in the middle of a character as often as not.
+Dropping the first line of the result takes the broken character with it and costs one record,
+which is what the callers were already doing about half-written lines.
 
 ---
 

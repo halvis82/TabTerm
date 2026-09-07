@@ -1,6 +1,7 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { readHead } from './file-slice.js';
 import { debug } from './log.js';
 
 /**
@@ -155,7 +156,7 @@ export async function listCodexResumable(options?: {
     if (out.length >= limit) break;
     let head: string;
     try {
-      head = (await readFile(file.path, 'utf8')).slice(0, HEAD_BYTES);
+      head = await readHead(file.path, HEAD_BYTES);
     } catch {
       debug('codex-sessions.unreadable', { path: file.path });
       continue;
