@@ -200,5 +200,49 @@ r.ok(
   );
 }
 
+/**
+ * And with two views of one session, which is where competing sizes actually come from.
+ *
+ * One PTY has one size, so a second, smaller view makes the applied size smaller than this one
+ * asked for. That is the moment two authorities exist: what this page measured, and what the
+ * daemon decided. Every flicker this product has had was that pair taking turns.
+ *
+ * The size is expected to change **once**, to the smaller one, and then to hold. A second change
+ * would mean this page had argued back.
+ */
+{
+  const paneId = String(await evaluate(client, `window.__tabterm.paneIds()[0] ?? ''`));
+  r.ok('a pane to look at from two places', paneId !== '');
+  // Counted from here, because the log is everything this page has ever been told and the
+  // question is only about what the second view caused.
+  const before = JSON.parse(
+    await evaluate(client, 'JSON.stringify(window.__tabterm.appliedSizes())'),
+  ).length;
+  await evaluate(client, `window.__tabterm.attachSecondView(${JSON.stringify(paneId)}, 60, 14)`);
+  await sleep(3000);
+
+  const settled = await watch(4);
+  r.ok(
+    'a session with two views of different sizes settles rather than arguing',
+    settled.length === 1,
+    JSON.stringify(settled.slice(0, 8)),
+  );
+  r.ok(
+    'and settles on the smaller of the two, which is the only size correct for both',
+    settled[0] !== undefined && settled[0].cols <= 60 && settled[0].rows <= 14,
+    JSON.stringify(settled[0] ?? null),
+  );
+
+  /** And the daemon applied one size for it, not a run of them. */
+  const since = JSON.parse(
+    await evaluate(client, 'JSON.stringify(window.__tabterm.appliedSizes())'),
+  ).slice(before);
+  r.ok(
+    'and the terminal was told one thing rather than a sequence of them',
+    new Set(since).size <= 1,
+    since.join(' ') || '(nothing, which is also one thing)',
+  );
+}
+
 await finish();
 r.done();

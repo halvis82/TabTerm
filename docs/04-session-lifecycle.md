@@ -504,6 +504,31 @@ Verified end to end against `kill -9` of the daemon, which is the worst case bec
 to run on the way out: the process survived, the tab reconnected without an expiry page, the
 earlier output was on screen, and the session still accepted commands.
 
+### Every way a session can end, and what guards each
+
+| How | When it is right | What holds it back |
+|---|---|---|
+| The process exits on its own | Always. The shell is gone | Nothing to guard: this is the terminal ending, not the daemon deciding |
+| `Kill session` from a menu | A person asked for it, naming the pane | Acts on the pane that was right-clicked, not the focused one |
+| Closing a pane with siblings | A person asked for it | **Not ended.** Held for five minutes so it can be taken back |
+| Closing the only pane | The workspace goes with it and there is nowhere to put it back | Unreachable from the page, which refuses to close a lone pane |
+| A shell displaced by a merge | It is in no layout, so nothing could ever reach it again | Only the pane that was replaced, never the one that replaced it |
+| Reset | A person confirmed a sentence that says so | A confirmation, not a button |
+| The reap policy's timer | Only what the policy decides, re-decided when the timer fires | The whole of §4, checked below |
+| The PTY host being replaced | Those processes really are gone | The host is **asked** what it still has first |
+
+The policy is the only one of these that is not a person asking, so it is the one that is swept
+rather than sampled: **every combination of its inputs**, six thousand of them, checked against the
+things that must never happen. A session with somebody looking at it is never ended. Nor is one
+whose tab is open, unless its pane was deliberately closed and the undo window is running. Nor a
+pinned or persistent one. Nor one serving on a port. Nor one that was given a command to run, by
+the rule about untouched shells. Nor one sharing a workspace, which is the fault that ended five
+terminals thirty seconds after an extension reload.
+
+And "ends" is not the right question to ask of it. Everything the policy schedules is re-decided at
+the moment the timer fires, so a long delay is not a countdown to a death, it is a promise to look
+again later. The sweep asks how soon, not whether.
+
 ### A pane whose process ended stops being a pane, and the tab has to be told
 
 The workspace drops the pane and the tabs showing that workspace are sent the new layout. The

@@ -617,6 +617,30 @@ Twenty-seven thousand size changes in ten seconds, across five sessions.
 Four separate faults, each harmless alone and none of them visible in any single sample. What made
 them findable was a detector that records the **sequence** of sizes rather than the current one.
 
+### One terminal, one size, one authority
+
+Every flicker this product has had was two things believing they were entitled to set the same
+number, so the arbitration is checked as a property rather than by example: the smallest across the
+views wins per dimension, and **restating the same facts produces no second announcement**.
+
+That last part is the one that matters. Every announcement makes a page set its grid, and a page
+that sets its grid reports the size, which arrives back at the daemon. An announcement that says
+nothing new is the first half of a loop with no exit.
+
+Checked over every order the views can arrive in, because order is not something any of them
+controls: two tabs attach when they attach, and a size that depends on who spoke last is a size
+arrived at by a sequence rather than by the facts.
+
+On the page there are exactly two things that set the grid without measuring it: replaying a
+snapshot, and following a size the daemon applied. Both are wrapped in the flag that says "this is
+not a request", because a terminal announces every resize and that announcement travels the same
+path a measurement does. Everything else goes through the one door, which records what was asked
+so that being agreed with can be told from being overruled.
+
+Guarded end to end by `steady-size`, which now includes a session with two views of different
+sizes: the size is expected to change once, to the smaller, and then hold. A second change would
+mean the page had argued back.
+
 ### Telling a loop from somebody dragging the window
 
 That detector reported at twelve changes in two seconds. The flicker being reported was about five
