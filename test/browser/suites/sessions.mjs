@@ -2,7 +2,7 @@
 //
 // A path is not enough to recognize a terminal, so this checks the preview carries the actual
 // output, and that "open in a tab" is told apart from "no tab".
-import { openTerminal, evaluate, sleep, type, finish } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, type, finish, waitFor } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -113,7 +113,14 @@ const before = Number(
 await evaluate(viewer.client, `document.querySelector('.session-card .session-close')?.click()`);
 await sleep(2000);
 await evaluate(viewer.client, `location.reload()`);
-await sleep(5000);
+// Waited for the list to be one shorter rather than for a length of time. The reload has to
+// finish and the daemon has to answer, and how long that takes is not what is being checked.
+await waitFor(
+  viewer.client,
+  `document.querySelectorAll('.session-card').length > 0 &&
+   document.querySelectorAll('.session-card').length < ${String(before)}`,
+  15000,
+);
 const after = Number(
   await evaluate(viewer.client, `document.querySelectorAll('.session-card').length`),
 );
@@ -142,7 +149,9 @@ await evaluate(gone.client, `window.__tabterm.endSessions()`);
 await sleep(2500);
 
 const revisit = await openTerminal(`?workspace=${String(goneWorkspace)}`);
-await sleep(5000);
+// The page says so once it has heard back, which is sooner than five seconds on any machine
+// that is not busy and later than five seconds on one that is.
+await waitFor(revisit.client, `/expired/.test(document.body.innerText)`, 15000);
 const revisited = String(await evaluate(revisit.client, `document.body.innerText`));
 r.ok(
   'a workspace whose session ended says so, rather than rendering nothing',

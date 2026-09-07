@@ -1,5 +1,14 @@
 // Splits, and the layout surviving a tab being closed and reopened.
-import { openTerminal, evaluate, paneCount, sleep, newTab, connect, finish } from '../helpers.mjs';
+import {
+  openTerminal,
+  evaluate,
+  paneCount,
+  sleep,
+  newTab,
+  connect,
+  finish,
+  waitFor,
+} from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -13,8 +22,10 @@ for (let i = 0; i < 20; i++) {
 }
 
 await evaluate(client, `window.__tabterm.split('horizontal')`);
-await sleep(2500);
-r.ok('a pane splits', (await paneCount(client)) === 2, `${String(await paneCount(client))} panes`);
+// Waited for, not slept past. Two and a half seconds is generous on an idle machine and short on
+// a loaded one, which is a check that reports a product bug when the machine is busy.
+const split = await waitFor(client, `document.querySelectorAll('.pane').length === 2`, 15000);
+r.ok('a pane splits', split, `${String(await paneCount(client))} panes`);
 
 await evaluate(client, `window.__tabterm.split('vertical')`);
 await sleep(2500);

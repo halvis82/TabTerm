@@ -51,7 +51,8 @@ r.ok(
 
 // And through a reattach, which is where the placeholder used to arrive.
 await evaluate(client, 'location.reload()');
-await sleep(5000);
+// The wait below is the wait. Five seconds in front of it was five seconds of every run spent
+// waiting for something that had usually already happened.
 await waitFor(client, `(window.__tabterm?.readScreen() ?? '').includes('STEADY')`, 25000);
 const afterReload = await watch(4);
 r.ok(
