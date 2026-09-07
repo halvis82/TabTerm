@@ -35,12 +35,26 @@ r.ok(
     `JSON.stringify([...document.querySelectorAll('.cmd-tab')].map(t => t.textContent))`,
   )) === JSON.stringify(['Favorites', 'Recent', 'Actions', 'Stats']),
 );
+/**
+ * Asked as "is any of it see-through", not "is it spelled rgba".
+ *
+ * The old check matched the string, which made it a check about notation: the colour is built
+ * from the theme now, and `color-mix` computes to `color(srgb ...)` while being just as
+ * translucent. A check that fails on a rewrite that changed nothing it cares about is noise.
+ */
+const panelAlpha = String(
+  await evaluate(
+    client,
+    `(() => { const c = getComputedStyle(document.querySelector('.cmd-panel')).backgroundColor;
+       // Every number in the value, whatever notation it is written in. The alpha is the last.
+       const m = c.match(/[0-9]*\\.?[0-9]+/g) || [];
+       return m.length >= 4 ? String(m[m.length - 1]) + ' of ' + c : '1 of ' + c; })()`,
+  ),
+);
 r.ok(
   'and it is translucent, so output behind it stays readable',
-  (await evaluate(
-    client,
-    `getComputedStyle(document.querySelector('.cmd-panel')).backgroundColor.startsWith('rgba')`,
-  )) === true,
+  Number(panelAlpha.split(' ')[0]) < 1,
+  `alpha ${panelAlpha}`,
 );
 
 // Recent tab.

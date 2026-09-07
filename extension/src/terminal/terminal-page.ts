@@ -67,6 +67,7 @@ import type {
   ShellIntegrationStatus,
 } from '@tabterm/shared';
 import { distinctSizes, HISTORY_MS, isResizeStorm, recordChange } from './resize-storm.js';
+import { fillMenu, menuShell, placeAndArm, type ShellItem } from './menu-shell.js';
 import { shouldRedrawAfterAway } from './wake-redraw.js';
 import { buildStats } from '../launcher/stats-view.js';
 import { SessionStats } from '../launcher/session-stats.js';
@@ -1450,6 +1451,193 @@ function setCmdHeld(held: boolean): void {
  * placeholder inputs are all places where typing means something else, and each one is where
  * the user deliberately put the cursor.
  */
+/**
+ * A right click anywhere in TabTerm opens a TabTerm menu.
+ *
+ * Asked for directly: "i want right click anywhere in tabterm to just be tabterm related stuff,
+ * not the chrome right click". Chrome's menu knows nothing about any of this. On a page whose
+ * content is drawn on a canvas it offers Reload and Save As, neither of which means anything
+ * here, and on the start screen it offers to translate the page.
+ *
+ * What it offers depends on where the click landed, because a menu that offers the same six
+ * things everywhere is a list to read past rather than a set of things to do:
+ *
+ * - **A terminal** keeps its own menu, which is much richer: selection, highlights, markers, the
+ *   pane's own actions. Nothing here touches it.
+ * - **A text box** gets the three clipboard entries a text box should have, acting on that box.
+ * - **The start screen** gets paste and the ways out: a new tab, the menu, settings.
+ * - **The command menu** gets settings and a way to put it away.
+ * - **Anywhere else** gets the same small set, minus paste, which would have nowhere to go.
+ *
+ * Markers and highlights are deliberately absent outside a terminal. They act on a place in a
+ * screen of output, and there is no such place on the start screen.
+ */
+function installPageMenu(): void {
+  document.addEventListener('contextmenu', (e) => {
+    /**
+     * Anything that has already answered keeps its answer.
+     *
+     * The terminal and the pane chooser handle this themselves and call `preventDefault`. This
+     * runs in the bubble phase and after them, so a handled click arrives here already spoken
+     * for, and a second menu over the first would be worse than Chrome's.
+     */
+    if (e.defaultPrevented) return;
+    const target = e.target instanceof Element ? e.target : null;
+    if (!target) return;
+    // Inside a menu that is already open, a right click is how it is dismissed.
+    if (target.closest('.term-menu')) return;
+
+    const items = pageMenuItems(target);
+    if (items.length === 0) return;
+    e.preventDefault();
+    const menu = menuShell();
+    fillMenu(menu, items);
+    placeAndArm(menu, e.clientX, e.clientY);
+  });
+}
+
+/** The clipboard entries a text box should have, acting on the box that was clicked. */
+function textBoxItems(box: HTMLInputElement | HTMLTextAreaElement): ShellItem[] {
+  const selected = box.selectionStart !== box.selectionEnd;
+  const replaceSelection = (text: string): void => {
+    const start = box.selectionStart ?? box.value.length;
+    const end = box.selectionEnd ?? start;
+    box.value = box.value.slice(0, start) + text + box.value.slice(end);
+    const at = start + text.length;
+    box.setSelectionRange(at, at);
+    // Dispatched, because everything that watches this box watches for input rather than polling.
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    box.focus();
+  };
+  return [
+    {
+      label: 'Cut',
+      enabled: selected,
+      run: () => {
+        const start = box.selectionStart ?? 0;
+        const end = box.selectionEnd ?? 0;
+        void navigator.clipboard.writeText(box.value.slice(start, end)).catch(() => {});
+        replaceSelection('');
+      },
+    },
+    {
+      label: 'Copy',
+      enabled: selected,
+      run: () => {
+        const start = box.selectionStart ?? 0;
+        const end = box.selectionEnd ?? 0;
+        void navigator.clipboard.writeText(box.value.slice(start, end)).catch(() => {});
+      },
+    },
+    {
+      label: 'Paste',
+      run: () => {
+        void navigator.clipboard
+          .readText()
+          .then((text) => {
+            if (text) replaceSelection(text);
+          })
+          .catch(() => {
+            /* denied or empty */
+          });
+      },
+    },
+    {
+      label: 'Select all',
+      separated: true,
+      enabled: box.value !== '',
+      run: () => {
+        box.focus();
+        box.select();
+      },
+    },
+  ];
+}
+
+/** The ways out of wherever you are, which every one of these menus ends with. */
+function wayOutItems(separated: boolean): ShellItem[] {
+  return [
+    {
+      label: 'New terminal tab',
+      separated,
+      run: () => {
+        void chrome.tabs.create({ url: chrome.runtime.getURL('terminal.html'), active: true });
+      },
+    },
+    { label: 'Open menu', run: () => commandPanel?.open() },
+    { label: 'Settings', run: () => commandPanel?.openSettings() },
+  ];
+}
+
+function pageMenuItems(target: Element): ShellItem[] {
+  const box = target.closest('input, textarea');
+  if (box instanceof HTMLInputElement || box instanceof HTMLTextAreaElement) {
+    // A box for typing into is a box for typing into, wherever it happens to be.
+    return [...textBoxItems(box), ...wayOutItems(true)];
+  }
+
+  if (target.closest('.cmd-panel')) {
+    /**
+     * The command menu, which is already the place most of these lead to.
+     *
+     * Offering "Open menu" from inside the open menu would be a joke, so this is the one place
+     * that gets a way to put it away instead.
+     */
+    return [
+      { label: 'Settings', run: () => commandPanel?.openSettings() },
+      { label: 'Close menu', separated: true, run: () => commandPanel?.close() },
+    ];
+  }
+
+  const onStartScreen = target.closest('.launcher') !== null;
+  return [
+    /**
+     * Paste, which on the start screen means into whichever box is taking typing.
+     *
+     * One of the two is always focused, by design, so this has somewhere to go. Off the start
+     * screen there is no box and no terminal under the pointer, so it is left out rather than
+     * offered and doing nothing.
+     */
+    ...(onStartScreen
+      ? [
+          {
+            label: 'Paste',
+            run: () => {
+              void navigator.clipboard
+                .readText()
+                .then((text) => {
+                  if (!text) return;
+                  const focused = document.activeElement;
+                  if (
+                    focused instanceof HTMLInputElement ||
+                    focused instanceof HTMLTextAreaElement
+                  ) {
+                    const at = focused.selectionStart ?? focused.value.length;
+                    focused.value = focused.value.slice(0, at) + text + focused.value.slice(at);
+                    focused.dispatchEvent(new Event('input', { bubbles: true }));
+                    return;
+                  }
+                  const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
+                  pane?.controller.term.paste(text);
+                })
+                .catch(() => {
+                  /* denied or empty */
+                });
+            },
+          } satisfies ShellItem,
+        ]
+      : []),
+    ...wayOutItems(onStartScreen),
+    {
+      // "Session", not "tab": what closing it gets rid of is the terminal in it. The same
+      // wording the pane's own menu uses, for the same reason.
+      label: 'Close tab',
+      separated: true,
+      run: () => window.close(),
+    },
+  ];
+}
+
 function installAmbientFocus(): void {
   const isTextField = (node: EventTarget | null): boolean => {
     if (!(node instanceof HTMLElement)) return false;
@@ -3183,6 +3371,16 @@ function applyTheme(theme: string): void {
   for (const [name, value] of Object.entries(chosen.surface)) {
     document.documentElement.style.setProperty(name, value);
   }
+  /**
+   * The terminal's own colors, as variables, for the things that are pictures of a terminal.
+   *
+   * The miniature on a session card and the box a path is typed into were painted with the dark
+   * theme's colors written out by hand, so in light mode the page was mostly white with black
+   * rectangles on it. They are the same two colors the renderer uses, taken from the same table,
+   * so a miniature cannot disagree with the terminal it is a miniature of.
+   */
+  document.documentElement.style.setProperty('--term-bg', chosen.terminal.background);
+  document.documentElement.style.setProperty('--term-fg', chosen.terminal.foreground);
   for (const pane of panesHost?.all ?? []) pane.controller.applyTheme(chosen.terminal);
   void chrome.storage.local.set({ 'tabterm.theme': theme });
 }
@@ -4413,6 +4611,7 @@ async function start(): Promise<void> {
   // Asked once at startup, so the palette's hints describe the keys Chrome really has.
   refreshBoundShortcuts();
   installAmbientFocus();
+  installPageMenu();
   installRefitOnWake();
   // A reattached session gets the whole window from the start. Nothing about it is new, so
   // there is nothing to offer.

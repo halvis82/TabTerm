@@ -14,7 +14,7 @@
     --edge: #333;
     --text: #e8e8e8;
     --dim: #9aa1b8;
-    --accent: #7aa2f7;
+    --accent: var(--accent);
     --hover: #2b4d7a;
   }
   :root[data-theme='light'] {
@@ -80,7 +80,7 @@
       Menlo,
       monospace;
     color: #5f6579;
-    background: rgba(18, 19, 26, 0.82);
+    background: var(--panel);
     padding: 1px 6px;
     border-radius: 4px;
     pointer-events: none;
@@ -209,7 +209,7 @@
     padding: 22px 22px 18px;
     border-radius: 14px;
     border: 1px solid rgba(255, 138, 122, 0.28);
-    background: rgba(24, 26, 35, 0.92);
+    background: var(--panel);
     box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
   }
   .reset-title {
@@ -222,7 +222,7 @@
     margin: 0 0 10px;
     font-size: 13px;
     line-height: 1.5;
-    color: #cdd2dd;
+    color: var(--text);
   }
   .reset-warning {
     margin: 0 0 10px;
@@ -244,7 +244,7 @@
     align-items: flex-start;
     gap: 8px;
     margin-bottom: 16px;
-    color: #cdd2dd;
+    color: var(--text);
     font-size: 12.5px;
     cursor: pointer;
   }
@@ -254,14 +254,14 @@
     gap: 2px;
   }
   .reset-option small {
-    color: #7d8496;
+    color: var(--dim);
     font-size: 11px;
   }
   .reset-option input {
     margin-top: 2px;
     width: 15px;
     height: 15px;
-    accent-color: #3d6ba8;
+    accent-color: var(--accent);
   }
   .reset-buttons {
     display: flex;
@@ -279,10 +279,10 @@
   .reset-cancel {
     border: 1px solid rgba(90, 100, 130, 0.4);
     background: transparent;
-    color: #cdd2dd;
+    color: var(--text);
   }
   .reset-cancel:hover {
-    border-color: #3d6ba8;
+    border-color: var(--accent);
     color: var(--text);
   }
   /* The destructive one is never the default, and it looks like what it does. */
@@ -313,13 +313,13 @@
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: #7d8496;
+    color: var(--dim);
   }
   .sessions-count {
     padding: 1px 6px;
     border-radius: 999px;
     background: rgba(122, 162, 247, 0.14);
-    color: #9ec5ff;
+    color: var(--accent);
     font-size: 10px;
     letter-spacing: 0;
   }
@@ -351,8 +351,8 @@
     height: 100%;
     overflow: hidden;
     border-radius: 10px;
-    border: 1px solid rgba(90, 100, 130, 0.28);
-    background: rgba(24, 26, 35, 0.66);
+    border: 1px solid var(--edge);
+    background: var(--panel);
     cursor: pointer;
     /* Only the cheap properties, so a grid of these never costs a frame. Height is not among
        them on purpose: a card that animates its own size makes the whole list move when the
@@ -367,8 +367,8 @@
     /* The lift is what clipped the top border: the row it sits in has no room above it, so a
        card moving up went under the edge. The room is made below in `.session-grid`. */
     transform: translateY(-1px);
-    border-color: #3d6ba8;
-    background: rgba(30, 33, 45, 0.82);
+    border-color: var(--accent);
+    background: var(--hover);
     outline: none;
   }
 
@@ -384,7 +384,7 @@
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: #5b6070;
+    background: var(--dim);
   }
   /* Attached, unattached and busy are the distinctions the list exists to draw. */
   .session-card[data-state='attached'] .session-dot {
@@ -424,14 +424,21 @@
     flex: none;
     padding: 1px 6px;
     border-radius: 999px;
-    background: rgba(90, 100, 130, 0.18);
-    color: #7d8496;
+    background: var(--hover);
+    color: var(--dim);
     font-size: 9.5px;
     letter-spacing: 0.02em;
   }
   .session-card[data-state='attached'] .session-badge {
-    background: rgba(138, 180, 248, 0.14);
-    color: #9ec5ff;
+    /*
+     * The accent behind it, not in front of it.
+     *
+     * Accent-on-hover is two tints of the same hue and measured 4.3 to 1 in light and 3.4 in
+     * dark, which is under the line in both. This is the one badge that says a session is open
+     * somewhere, so it should be the most legible thing on the card, not the least.
+     */
+    background: var(--accent);
+    color: var(--bg);
   }
 
   /**
@@ -460,16 +467,18 @@
     height: 101px;
     padding: 6px 10px;
     overflow: hidden;
-    background: #0c0d12;
-    border-top: 1px solid rgba(90, 100, 130, 0.14);
-    border-bottom: 1px solid rgba(90, 100, 130, 0.14);
-    color: #9aa4bd;
+    /* The same two colors the renderer paints with, so a picture of a terminal looks like one
+       in every theme. Written out by hand before, which made light mode a white page covered in
+       black rectangles. */
+    background: var(--term-bg);
+    border-top: 1px solid var(--edge);
+    border-bottom: 1px solid var(--edge);
+    color: var(--term-fg);
     font-family: inherit;
     font-size: 6px;
     line-height: 1.42;
-    /* Faded at the top, so the miniature reads as a window onto something longer. */
-    mask-image: linear-gradient(to bottom, transparent, #000 18px);
-    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px);
+    /* No fade at the top. It read as a smear rather than as depth, and over a light page it read
+       as damage. The card's own edge already says where the miniature stops. */
   }
   /* Taller and readable here: this is the only thing left of the session, and it is being
      read rather than glanced at, so it does not take the card's miniature type size. */
@@ -489,11 +498,12 @@
   }
   /* The last line is the one that says what happened, so it reads as the live one. */
   .session-line:last-child {
-    color: #cdd2dd;
+    color: var(--text);
   }
   .session-screen.is-empty {
     justify-content: center;
-    color: #5b6070;
+    /* Quiet, not unreadable. Hardcoded, it measured 3 to 1 against the terminal behind it. */
+    color: var(--dim);
     font-style: italic;
     mask-image: none;
     -webkit-mask-image: none;
@@ -506,7 +516,7 @@
     gap: 8px;
     padding: 4px 10px 5px;
     font-size: 10px;
-    color: #7d8496;
+    color: var(--dim);
   }
   .session-what {
     flex: 1 1 auto;
@@ -560,7 +570,7 @@
     height: 26px;
     border-radius: 7px;
     border: 1px solid #2f3346;
-    background: rgba(26, 28, 38, 0.72);
+    background: var(--panel);
     color: #9aa0a6;
     font-size: 13px;
     line-height: 1;
@@ -569,7 +579,7 @@
   }
   #cmd-button:hover {
     color: var(--text);
-    border-color: #3d6ba8;
+    border-color: var(--accent);
   }
   /* Under the menu icon, and only there for a few seconds after a clear. */
   #clear-undo {
@@ -580,8 +590,8 @@
     padding: 4px 9px;
     border-radius: 7px;
     border: 1px solid #2f3346;
-    background: rgba(26, 28, 38, 0.85);
-    color: #9ec5ff;
+    background: var(--panel);
+    color: var(--accent);
     font: inherit;
     font-size: 11px;
     cursor: pointer;
@@ -589,7 +599,7 @@
   }
   #clear-undo:hover {
     color: var(--text);
-    border-color: #3d6ba8;
+    border-color: var(--accent);
   }
   /* Under the menu icon, next to where the undo for a clear appears, and the same shape. */
   /*
@@ -618,7 +628,7 @@
     align-items: stretch;
     border-radius: 7px;
     border: 1px solid #2f3346;
-    background: rgba(26, 28, 38, 0.85);
+    background: var(--panel);
     backdrop-filter: blur(6px);
     overflow: hidden;
   }
@@ -631,7 +641,7 @@
     padding: 4px 9px;
     border: 0;
     background: transparent;
-    color: #9ec5ff;
+    color: var(--accent);
     font: inherit;
     font-size: 11px;
     cursor: pointer;
@@ -640,7 +650,7 @@
     padding-left: 6px;
     padding-right: 8px;
     border-left: 1px solid #2f3346;
-    color: #6f758a;
+    color: var(--dim);
   }
   #undo-offer-do:hover {
     color: var(--text);
@@ -668,7 +678,12 @@
      * which is the same as not being translucent at all. The blur does the legibility work so
      * the fill can stay light.
      */
-    background: rgba(20, 23, 33, 0.55);
+    /*
+     * Translucent on purpose: this panel sits over a running terminal, and output behind it
+     * staying readable is the reason it is a panel rather than a page. Built from the theme's
+     * panel color so it is light in light mode, rather than the dark wash it used to hardcode.
+     */
+    background: color-mix(in srgb, var(--panel) 88%, transparent);
     backdrop-filter: blur(26px) saturate(155%);
     -webkit-backdrop-filter: blur(26px) saturate(155%);
     box-shadow:
@@ -717,14 +732,14 @@
     padding: 7px 10px;
     border-radius: 8px;
     border: 1px solid rgba(140, 155, 190, 0.22);
-    background: rgba(12, 14, 20, 0.45);
+    background: var(--panel);
     color: var(--text);
     font: inherit;
     font-size: 13px;
   }
   .cmd-search:focus {
     outline: none;
-    border-color: #3d6ba8;
+    border-color: var(--accent);
   }
 
   .cmd-body {
@@ -756,7 +771,7 @@
     font-size: 13px;
   }
   .cmd-row.is-action .cmd-row-label {
-    color: #9ec5ff;
+    color: var(--accent);
   }
   .cmd-row.failed .cmd-row-label {
     color: #e8908f;
@@ -767,7 +782,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     font-size: 11px;
-    color: #7d8496;
+    color: var(--dim);
   }
   /**
    * A label above a group of actions, which is not a row and does not behave like one.
@@ -781,7 +796,7 @@
     font-weight: 600;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: #6f758a;
+    color: var(--dim);
   }
   .cmd-heading:first-child {
     padding-top: 4px;
@@ -812,13 +827,13 @@
     padding: 0 5px;
     border: 0;
     background: transparent;
-    color: #6f758a;
+    color: var(--dim);
     font: inherit;
     font-size: 12px;
     cursor: pointer;
   }
   .cmd-row-edit:hover {
-    color: #9ec5ff;
+    color: var(--accent);
   }
   .cmd-row-remove:hover {
     color: #ff8a7a;
@@ -870,7 +885,7 @@
     padding: 1px 6px;
     border-radius: 999px;
     background: rgba(61, 107, 168, 0.3);
-    color: #9ec5ff;
+    color: var(--accent);
   }
 
   .cmd-footer {
@@ -881,7 +896,7 @@
     padding: 6px 10px;
     border-top: 1px solid rgba(140, 155, 190, 0.16);
     font-size: 11px;
-    color: #7d8496;
+    color: var(--dim);
   }
   .cmd-hints {
     overflow: hidden;
@@ -892,7 +907,7 @@
     flex: 0 0 auto;
     background: transparent;
     border: 0;
-    color: #7d8496;
+    color: var(--dim);
     font-size: 13px;
     cursor: pointer;
     padding: 2px 5px;
@@ -983,7 +998,7 @@
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: #7d8496;
+    color: var(--dim);
     margin-top: 2px;
   }
   .cmd-stat-list {
@@ -1008,7 +1023,7 @@
   /* Time and duration never truncate: reading a session back is usually about what was slow. */
   .cmd-stat-time {
     flex: 0 0 auto;
-    color: #7d8496;
+    color: var(--dim);
     font-variant-numeric: tabular-nums;
   }
   .cmd-stat-command {
@@ -1017,11 +1032,11 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: #d5d8e2;
+    color: var(--term-fg);
   }
   .cmd-stat-duration {
     flex: 0 0 auto;
-    color: #9ec5ff;
+    color: var(--accent);
     font-variant-numeric: tabular-nums;
   }
 
@@ -1040,14 +1055,14 @@
   .cmd-key-row kbd {
     flex: 0 0 78px;
     font-family: inherit;
-    color: #9ec5ff;
+    color: var(--accent);
   }
 
   .cmd-empty,
   .cmd-note {
     padding: 10px 8px;
     font-size: 12px;
-    color: #7d8496;
+    color: var(--dim);
   }
   .cmd-add {
     margin: 4px 2px;
@@ -1063,7 +1078,7 @@
   }
   .cmd-add:hover {
     color: var(--text);
-    border-color: #3d6ba8;
+    border-color: var(--accent);
   }
 
   .cmd-edit {
@@ -1084,7 +1099,7 @@
     padding: 6px 8px;
     border-radius: 6px;
     border: 1px solid rgba(90, 100, 130, 0.35);
-    background: rgba(16, 18, 22, 0.7);
+    background: var(--panel);
     color: var(--text);
     font: inherit;
     font-size: 13px;
@@ -1119,7 +1134,7 @@
     font-weight: 600;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: #6f758a;
+    color: var(--dim);
   }
   .set-field {
     display: flex;
@@ -1135,7 +1150,7 @@
   .set-desc {
     margin: 0;
     font-size: 12px;
-    color: #7d8496;
+    color: var(--dim);
     line-height: 1.45;
   }
   /* A text box in settings is drawn like the select beside it, so the panel reads as one thing. */
@@ -1144,7 +1159,7 @@
     padding: 7px 9px;
     border-radius: 7px;
     border: 1px solid rgba(90, 100, 130, 0.35);
-    background: rgba(16, 18, 22, 0.7);
+    background: var(--panel);
     color: var(--text);
     font: inherit;
     font-size: 13px;
@@ -1152,14 +1167,14 @@
   }
   .set-field .set-input:focus {
     outline: none;
-    border-color: #3d6ba8;
+    border-color: var(--accent);
   }
   .set-field select {
     margin-top: 2px;
     padding: 7px 9px;
     border-radius: 7px;
     border: 1px solid rgba(90, 100, 130, 0.35);
-    background: rgba(16, 18, 22, 0.7);
+    background: var(--panel);
     color: var(--text);
     font: inherit;
     font-size: 13px;
@@ -1184,7 +1199,7 @@
     margin-top: 1px;
     width: 16px;
     height: 16px;
-    accent-color: #3d6ba8;
+    accent-color: var(--accent);
     cursor: pointer;
   }
   /* Belongs to the switch above it, and says so by sitting under it. */
@@ -1218,8 +1233,8 @@
     font-variant-numeric: tabular-nums;
   }
   .cmd-button.set-key[data-recording='yes'] {
-    border-color: #7aa2f7;
-    color: #9ec5ff;
+    border-color: var(--accent);
+    color: var(--accent);
   }
   .set-key-problem {
     grid-column: 1 / -1;
@@ -1266,7 +1281,7 @@
   }
   .cmd-button.primary {
     background: var(--hover);
-    border-color: #3d6ba8;
+    border-color: var(--accent);
   }
 
   /* The minimized form. Small enough to forget about, obvious enough to find. */
@@ -1277,10 +1292,10 @@
     height: 34px;
     border-radius: 10px;
     border: 1px solid rgba(140, 155, 190, 0.28);
-    background: rgba(20, 23, 33, 0.55);
+    background: var(--panel);
     backdrop-filter: blur(20px) saturate(155%);
     -webkit-backdrop-filter: blur(20px) saturate(155%);
-    color: #9ec5ff;
+    color: var(--accent);
     font-size: 15px;
     cursor: pointer;
   }
@@ -1557,15 +1572,15 @@
     padding: 3px 8px;
     border-radius: 6px;
     border: 1px solid rgba(90, 100, 130, 0.32);
-    background: rgba(26, 28, 38, 0.55);
-    color: #9ec5ff;
+    background: var(--panel);
+    color: var(--accent);
     font: inherit;
     font-size: 11.5px;
     cursor: pointer;
     white-space: nowrap;
   }
   .pane-chooser-folder:hover {
-    border-color: #3d6ba8;
+    border-color: var(--accent);
     color: var(--text);
   }
 
@@ -1585,7 +1600,7 @@
     padding: 10px;
     border-radius: 10px;
     border: 1px solid rgba(90, 100, 130, 0.26);
-    background: rgba(20, 23, 33, 0.72);
+    background: var(--panel);
     backdrop-filter: blur(14px);
   }
   .pane-chooser-rows {
@@ -1612,7 +1627,7 @@
     border-radius: 6px;
     border: 1px solid transparent;
     background: rgba(255, 255, 255, 0.04);
-    color: #d5d8e2;
+    color: var(--term-fg);
     font: inherit;
     font-size: 12px;
     text-align: left;
@@ -1633,7 +1648,7 @@
   }
   .pane-chooser-session-cwd,
   .pane-chooser-hint {
-    color: #7d8398;
+    color: var(--dim);
     font-size: 11px;
   }
   .pane-chooser-heading {
@@ -1648,7 +1663,7 @@
     padding: 1px 6px;
     border-radius: 999px;
     background: rgba(122, 162, 247, 0.18);
-    color: #9ec5ff;
+    color: var(--accent);
     font-size: 10px;
   }
   .pane-chooser-accept {
@@ -1687,7 +1702,7 @@
     padding: 8px 12px;
     border: 1px solid var(--edge);
     border-radius: 8px;
-    background: rgba(22, 24, 29, 0.97);
+    background: var(--panel);
     font-size: 12px;
     z-index: 35;
   }
@@ -1698,7 +1713,7 @@
     align-content: center;
     justify-items: center;
     gap: 4px;
-    background: rgba(16, 18, 22, 0.97);
+    background: var(--panel);
     padding: 32px;
     z-index: 40;
   }
@@ -1749,7 +1764,7 @@
   }
   .staged-button.primary {
     background: var(--hover);
-    border-color: #3d6ba8;
+    border-color: var(--accent);
   }
   #recovery {
     position: absolute;
@@ -1763,7 +1778,7 @@
       14px/1.6 -apple-system,
       BlinkMacSystemFont,
       sans-serif;
-    color: #d5d8e2;
+    color: var(--term-fg);
     text-align: center;
     padding: 40px;
   }
@@ -1788,12 +1803,12 @@
     justify-content: center;
   }
   .recovery-key {
-    color: #6f758a;
+    color: var(--dim);
     min-width: 110px;
     text-align: right;
   }
   .recovery-value {
-    color: #d5d8e2;
+    color: var(--term-fg);
     text-align: left;
   }
   #recovery-actions {
@@ -1887,9 +1902,9 @@
     overflow-y: auto;
     padding-bottom: 6px;
     scrollbar-width: thin;
-    scrollbar-color: rgba(90, 100, 130, 0.45) transparent;
-    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent);
-    mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent);
+    scrollbar-color: var(--dim) transparent;
+    /* Not faded at the bottom. A list that dissolves into the page hides the row you are reading
+       and says nothing a scrollbar does not already say. */
   }
 
   .launcher-section {
@@ -1909,19 +1924,15 @@
     height: 30px;
     margin-bottom: 6px;
     border-radius: 6px;
-    background: linear-gradient(
-      90deg,
-      rgba(90, 100, 130, 0.1),
-      rgba(90, 100, 130, 0.16),
-      rgba(90, 100, 130, 0.1)
-    );
+    /* Flat. Scaffolding should read as absence, and a shimmer reads as something happening. */
+    background: var(--hover);
   }
   /* Quiet. A heading here is a label, not a banner. */
   .launcher-heading {
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #5f6672;
+    color: var(--dim);
     margin: 0 0 4px;
     font-weight: 600;
   }
@@ -1948,7 +1959,7 @@
   }
   /* A drop that carries a path, and one that does not. */
   .launcher-input.is-drop-target {
-    border-color: #7aa2f7;
+    border-color: var(--accent);
     background: rgba(61, 107, 168, 0.12);
   }
   .launcher-input.is-drop-refused {
@@ -1957,10 +1968,10 @@
   .launcher-input {
     width: 100%;
     box-sizing: border-box;
-    background: #12131a;
-    border: 1px solid #333849;
+    background: var(--term-bg);
+    border: 1px solid var(--edge);
     border-radius: 6px;
-    color: #d5d8e2;
+    color: var(--term-fg);
     padding: 7px 10px;
     font:
       13px/1.4 ui-monospace,
@@ -1970,7 +1981,7 @@
   }
   .launcher-input:focus {
     outline: none;
-    border-color: #4a5573;
+    border-color: var(--accent);
   }
   /**
    * A line about the folder in the box, which is usually saying nothing.
@@ -1989,7 +2000,7 @@
     gap: 8px;
     min-height: 18px;
     font-size: 11px;
-    color: #7d8398;
+    color: var(--dim);
   }
   .launcher-folder-state:empty {
     display: none;
@@ -2043,9 +2054,9 @@
   .launcher-chip {
     padding: 5px 11px;
     border-radius: 7px;
-    border: 1px solid rgba(90, 100, 130, 0.38);
-    background: rgba(26, 28, 38, 0.7);
-    color: #cdd2dd;
+    border: 1px solid var(--edge);
+    background: var(--panel);
+    color: var(--text);
     font: inherit;
     font-size: 12px;
     cursor: pointer;
@@ -2054,7 +2065,7 @@
       color 120ms ease;
   }
   .launcher-chip:hover {
-    border-color: #3d6ba8;
+    border-color: var(--accent);
     color: var(--text);
   }
   /**
@@ -2065,14 +2076,14 @@
    * looks chosen.
    */
   .launcher-chip.is-selected {
-    border-color: #7aa2f7;
+    border-color: var(--accent);
     box-shadow: 0 0 0 1px rgba(122, 162, 247, 0.55);
     color: var(--text);
     background: rgba(61, 107, 168, 0.18);
   }
   .launcher-chip:focus-visible {
     outline: none;
-    border-color: #7aa2f7;
+    border-color: var(--accent);
   }
   /* The shortcut, on the chip that uses it. */
   .launcher-chip kbd {
@@ -2080,13 +2091,13 @@
     padding: 0 4px;
     border-radius: 4px;
     background: rgba(90, 100, 130, 0.24);
-    color: #7d8496;
+    color: var(--dim);
     font: inherit;
     font-size: 10px;
   }
   .launcher-chip.is-selected kbd {
     background: rgba(122, 162, 247, 0.24);
-    color: #cdd2dd;
+    color: var(--text);
   }
 
   /* Browsing for a folder, since a native dialog cannot give an extension a path. */
@@ -2113,14 +2124,14 @@
     padding: 6px 10px;
     border-radius: 7px;
     border: 1px solid rgba(90, 100, 130, 0.38);
-    background: rgba(26, 28, 38, 0.7);
+    background: var(--panel);
     color: #9aa0a6;
     font: inherit;
     font-size: 12px;
     cursor: pointer;
   }
   .launcher-browse:hover {
-    border-color: #3d6ba8;
+    border-color: var(--accent);
     color: var(--text);
   }
   .launcher-browser {
@@ -2128,11 +2139,11 @@
     padding: 8px;
     border-radius: 9px;
     border: 1px solid rgba(90, 100, 130, 0.32);
-    background: rgba(20, 22, 30, 0.94);
+    background: var(--panel);
   }
   .launcher-browser-path {
     margin-bottom: 6px;
-    color: #9ec5ff;
+    color: var(--accent);
     font-size: 11.5px;
     word-break: break-all;
   }
@@ -2149,20 +2160,20 @@
     border-radius: 6px;
     border: 1px solid rgba(90, 100, 130, 0.3);
     background: transparent;
-    color: #cdd2dd;
+    color: var(--text);
     font: inherit;
     font-size: 11.5px;
     cursor: pointer;
   }
   .launcher-browser-item:hover {
-    border-color: #3d6ba8;
+    border-color: var(--accent);
     color: var(--text);
   }
   .launcher-browser-item.is-up {
-    color: #9ec5ff;
+    color: var(--accent);
   }
   .launcher-browser-empty {
-    color: #6f758a;
+    color: var(--dim);
     font-size: 11.5px;
     font-style: italic;
   }
@@ -2175,7 +2186,7 @@
     padding: 10px;
     border-radius: 9px;
     border: 1px solid rgba(90, 100, 130, 0.32);
-    background: rgba(20, 22, 30, 0.94);
+    background: var(--panel);
   }
   .launcher-template-command {
     font-size: 12px;
@@ -2199,8 +2210,8 @@
     opacity: 0.4;
   }
   .launcher-template.is-drop-target {
-    border-color: #7aa2f7;
-    box-shadow: -2px 0 0 0 #7aa2f7;
+    border-color: var(--accent);
+    box-shadow: -2px 0 0 0 var(--accent);
   }
   /* The `i`. A card that only appears on hover is a card nobody knows to look for. */
   .launcher-template-info {
@@ -2230,7 +2241,7 @@
     padding: 11px 12px 12px;
     border-radius: 10px;
     border: 1px solid rgba(90, 100, 130, 0.45);
-    background: rgba(18, 20, 27, 0.98);
+    background: var(--panel);
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
     display: flex;
     flex-direction: column;
@@ -2257,7 +2268,7 @@
     position: relative;
     height: 74px;
     border-radius: 6px;
-    background: rgba(10, 11, 15, 0.7);
+    background: var(--panel);
     /* One pixel of inset, so the rounded corner does not clip the outermost pane's border.
        `overflow: hidden` is what rounds it, and the panes are positioned to its very edge. */
     padding: 1px;
@@ -2271,7 +2282,7 @@
     border: 1px solid rgba(122, 162, 247, 0.4);
     background: rgba(61, 107, 168, 0.14);
     font-size: 9.5px;
-    color: #9ec5ff;
+    color: var(--accent);
     padding: 2px 3px;
     overflow: hidden;
     white-space: nowrap;
@@ -2279,7 +2290,7 @@
   }
   .template-card-shape {
     font-size: 10.5px;
-    color: #6f758a;
+    color: var(--dim);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
   .template-card-actions {
@@ -2289,19 +2300,19 @@
 
   .launcher-add-template {
     padding: 5px 10px;
-    color: #7d8496;
+    color: var(--dim);
     border-style: dashed;
   }
 
   .launcher-chip:hover {
-    background: #2f3547;
-    border-color: #4a5573;
+    background: var(--hover);
+    border-color: var(--accent);
   }
   .launcher-chip.agent:hover {
     background: #2d4459;
   }
   .launcher-note {
-    color: #6f758a;
+    color: var(--dim);
     font-size: 11px;
     margin-top: 6px;
   }
@@ -2467,15 +2478,15 @@
     font-size: 10.5px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: #7d8398;
+    color: var(--dim);
     border: 1px solid rgba(90, 100, 130, 0.28);
   }
   .launcher-row-action.is-expand:hover {
     color: var(--text);
-    border-color: #3d6ba8;
+    border-color: var(--accent);
   }
   .launcher-row-action.is-expand[aria-expanded='true'] {
-    color: #9ec5ff;
+    color: var(--accent);
     border-color: rgba(122, 162, 247, 0.45);
   }
   /**
@@ -2506,7 +2517,7 @@
     scrollbar-color: rgba(90, 100, 130, 0.4) transparent;
   }
   .launcher-transcript.is-waiting {
-    color: #5f6672;
+    color: var(--dim);
     font-style: italic;
   }
   /*
@@ -2535,10 +2546,10 @@
     font-size: 9.5px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: #5f6672;
+    color: var(--dim);
   }
   .launcher-turn.is-you .launcher-turn-who {
-    color: #7aa2f7;
+    color: var(--accent);
   }
   .launcher-turn-text {
     color: #b9becb;
@@ -2565,8 +2576,11 @@
   .launcher-chip.project {
     font-size: 11px;
     padding: 2px 8px;
-    background: #1d3557;
-    border-color: #2b4d7a;
+    /* A hardcoded navy before, which the theme's text colour then sat on at 1.3 to 1: legible in
+       neither mode, and invisible in light. A project is a chip like any other, marked by its
+       border rather than by a colour of its own. */
+    background: var(--panel);
+    border-color: var(--accent);
   }
   /* An unreviewed config is marked, never styled to look already approved. */
   .launcher-chip.project.unreviewed {
@@ -2575,7 +2589,7 @@
   }
   .launcher-chip.primary {
     background: var(--hover);
-    border-color: #3d6ba8;
+    border-color: var(--accent);
   }
   .launcher-project {
     border: 1px solid var(--edge);
@@ -2632,7 +2646,7 @@
     white-space: nowrap;
   }
   .launcher-dim {
-    color: #6f758a;
+    color: var(--dim);
     font-size: 11.5px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2648,7 +2662,7 @@
     border-radius: 4px;
   }
   .launcher-icon:hover {
-    color: #d5d8e2;
+    color: var(--term-fg);
     background: #262a38;
   }
   .launcher-icon.on {
@@ -2674,21 +2688,23 @@
   }
   .launcher-completion.is-more {
     border-style: dashed;
-    color: #6f758a;
+    color: var(--dim);
     cursor: default;
   }
   .launcher-completion {
     padding: 3px 8px;
     border-radius: 6px;
-    border: 1px solid rgba(90, 100, 130, 0.32);
-    background: rgba(26, 28, 38, 0.7);
-    color: #9ec5ff;
+    border: 1px solid var(--edge);
+    background: var(--panel);
+    /* A folder name is a name. The accent is for the one that is about to be used, not for
+       twenty of them at once, which reads as a wall of links. */
+    color: var(--text);
     font: inherit;
     font-size: 11.5px;
     cursor: pointer;
   }
   .launcher-completion:hover {
-    border-color: #3d6ba8;
+    border-color: var(--accent);
     color: var(--text);
   }
 
@@ -2699,13 +2715,10 @@
      only what is painted behind it. */
   .launcher-hint {
     flex: none;
-    color: #6f758a;
+    color: var(--dim);
     font-size: 11.5px;
-    border-top: 1px solid #262a38;
+    border-top: 1px solid var(--edge);
     padding: 8px 0 16px;
-    background-image: linear-gradient(to top, rgba(16, 18, 22, 0.92), transparent);
-    background-repeat: no-repeat;
-    background-size: 100% calc(100% - 12px);
   }
 
   .palette {
@@ -2723,7 +2736,7 @@
       13px/1.5 -apple-system,
       BlinkMacSystemFont,
       sans-serif;
-    color: #d5d8e2;
+    color: var(--term-fg);
   }
   .palette-input {
     width: 100%;
@@ -2731,7 +2744,7 @@
     background: #12131a;
     border: 0;
     border-bottom: 1px solid #2f3346;
-    color: #d5d8e2;
+    color: var(--term-fg);
     padding: 11px 14px;
     font:
       13px/1.4 -apple-system,
@@ -2830,7 +2843,7 @@
   }
   .pane-chooser-dismiss:hover {
     color: var(--text);
-    border-color: #3d6ba8;
+    border-color: var(--accent);
   }
 
   /**
@@ -2846,7 +2859,7 @@
     padding: 0 5px;
     border: 0;
     background: transparent;
-    color: #6f758a;
+    color: var(--dim);
     font: inherit;
     font-size: 12px;
     cursor: pointer;
@@ -2859,7 +2872,7 @@
     opacity: 1;
   }
   .palette-action-edit:hover {
-    color: #9ec5ff;
+    color: var(--accent);
   }
   .palette-action-remove:hover {
     color: #ff8a7a;
@@ -2872,7 +2885,7 @@
     font-weight: 600;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: #6f758a;
+    color: var(--dim);
   }
   .palette-heading:first-child {
     padding-top: 4px;
@@ -2888,7 +2901,7 @@
     font-size: 12px;
   }
   .palette-meta {
-    color: #6f758a;
+    color: var(--dim);
     font-size: 11px;
     white-space: nowrap;
   }
@@ -2903,7 +2916,7 @@
   }
   .palette-empty {
     padding: 18px 14px;
-    color: #6f758a;
+    color: var(--dim);
     font-size: 12px;
   }
   .palette-scopes {
@@ -2922,7 +2935,7 @@
   }
   .palette-scope.on {
     background: var(--hover);
-    border-color: #3d6ba8;
+    border-color: var(--accent);
     color: var(--text);
   }
   .palette-status {
@@ -2943,10 +2956,10 @@
   }
   .palette-action:hover {
     background: var(--hover);
-    border-color: #3d6ba8;
+    border-color: var(--accent);
   }
   .palette-row.is-action .palette-command {
-    color: #9ec5ff;
+    color: var(--accent);
   }
   .palette-fill {
     border-top: 1px solid #2a2d33;
@@ -3015,7 +3028,7 @@
   .palette-footer {
     border-top: 1px solid #2f3346;
     padding: 8px 14px;
-    color: #6f758a;
+    color: var(--dim);
     font-size: 11px;
   }
 </style>

@@ -393,6 +393,49 @@ Populated by the VT fidelity spike and updated whenever one is found.
 
 ---
 
+## A right click anywhere in TabTerm is TabTerm's
+
+Chrome's own menu knows nothing about any of this. Over a terminal drawn on a canvas it offers
+Reload and Save As; on the start screen it offers to translate the page. So every right click gets
+a menu of ours, and what it offers depends on where it landed, because a menu that offers the same
+six things everywhere is a list to read past rather than a set of things to do.
+
+| Where | What it offers |
+|---|---|
+| A terminal | Its own menu, unchanged: selection, clipboard, highlights, markers, the pane's actions |
+| A text box | Cut, copy, paste and select all, acting on that box |
+| The start screen | Paste, then a new tab, the menu, settings, and closing the tab |
+| The command menu | Settings, and a way to put it away rather than a way to open it |
+| Anywhere else | The same small set, without paste, which would have nowhere to go |
+
+Markers and highlights are deliberately absent outside a terminal: they act on a place in a screen
+of output, and there is no such place on a start screen.
+
+Anything that has already answered keeps its answer. The terminal and the pane chooser handle the
+gesture themselves, so the page-level handler runs after them and steps aside when the event is
+already spoken for. A second menu over the first would be worse than Chrome's.
+
+## Light mode is a theme, not a filter over a dark one
+
+Most of the start screen was painted with the dark theme's colors written out by hand, so light
+mode was a white page covered in near-black rectangles: the miniature on a session card, the box a
+path is typed into, and every folder chip were dark washes, several of them with gradients fading
+off the edges. Twenty-one of those washes were the same panel color at different alphas.
+
+They follow the theme now. The two colors that belong to the terminal rather than to the page,
+`--term-bg` and `--term-fg`, come from the same table the renderer paints with, so a picture of a
+terminal cannot disagree with the terminal it is a picture of.
+
+The fades are gone. A list that dissolves into the page hides the row being read and says nothing
+a scrollbar does not, and a miniature that fades at the top read as damage rather than as depth
+once the page behind it was light.
+
+Checked by measuring rather than by looking: no panel, card, box or chip is dark in light mode,
+nothing is light in dark mode, every piece of text stands at least 4.5 to 1 off what is behind it,
+and nothing fades the content it is showing. That found two real faults nobody had noticed: the
+badge saying a session is open somewhere sat at 4.3 to 1 in light and 3.4 in dark, and a project
+chip put the theme's text color on a hardcoded navy at 1.3 to 1.
+
 ## 8. Fonts and appearance
 
 The terminal emulator chooses the font, not the application running inside it. Configurable:

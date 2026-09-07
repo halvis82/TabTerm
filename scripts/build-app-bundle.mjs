@@ -66,24 +66,18 @@ writeFileSync(
 `,
 );
 
-cpSync(join(ROOT, 'daemon', 'dist'), join(CONTENTS, 'Resources', 'daemon'), { recursive: true });
-
-// node_modules travels with the bundle: node-pty is native and cannot be bundled, and its
-// spawn-helper must keep its executable bit or every PTY spawn fails with a bare
-// "posix_spawnp failed". That bug cost real time once already.
-const modules = join(ROOT, 'node_modules', 'node-pty');
-if (existsSync(modules)) {
-  cpSync(modules, join(CONTENTS, 'Resources', 'node_modules', 'node-pty'), { recursive: true });
-  const helpers = execFileSync(
-    '/usr/bin/find',
-    [join(CONTENTS, 'Resources', 'node_modules', 'node-pty'), '-name', 'spawn-helper'],
-    { encoding: 'utf8' },
-  )
-    .split('\n')
-    .filter(Boolean);
-  for (const helper of helpers) chmodSync(helper, 0o755);
-  console.log(`  spawn-helper: ${String(helpers.length)} made executable`);
-}
+/**
+ * Nothing of TabTerm's own is sealed inside the bundle, and that is the point.
+ *
+ * A bundle's privacy identity is its code signature, and `codesign --deep` seals everything under
+ * it. Copying the daemon and its modules in meant the identity changed every time a single line of
+ * TabTerm changed, so the approval was asked again on every update: the exact complaint the bundle
+ * exists to answer, at a slower rate.
+ *
+ * The daemon, the PTY host and `node_modules` are read from `~/.local/libexec/tabterm`, where the
+ * installer puts them and where the daemon already expects to find its host. What is inside here
+ * is the runtime and the Info.plist, so the signature changes only when the runtime does.
+ */
 
 /**
  * The runtime, copied in, because a shell script cannot carry a bundle's identity.
@@ -147,14 +141,14 @@ writeFileSync(
   `#!/bin/sh
 # Launcher for the TabTerm daemon. launchd starts this, never a Homebrew node directly, so the
 # privacy identity stays attached to ${BUNDLE_ID}.
-DIR="$(cd "$(dirname "$0")/../Resources" && pwd)"
-NODE="\${TABTERM_NODE:-$(command -v node)}"
-if [ -z "$NODE" ]; then
-  echo "TabTerm: no node on PATH. Set TABTERM_NODE to a Node 22+ binary." >&2
+DIR="$(cd "$(dirname "$0")" && pwd)"
+LIBEXEC="$HOME/.local/libexec/tabterm"
+if [ ! -f "$LIBEXEC/daemon.mjs" ]; then
+  echo "TabTerm: no daemon at $LIBEXEC. Run scripts/install.sh first." >&2
   exit 1
 fi
-export NODE_PATH="$DIR/node_modules"
-exec "$NODE" "$DIR/daemon/main.js" "$@"
+export NODE_PATH="$LIBEXEC/node_modules"
+exec "$DIR/node" "$LIBEXEC/daemon.mjs" "$@"
 `,
   { mode: 0o755 },
 );

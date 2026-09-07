@@ -47,6 +47,18 @@ describe.skipIf(!onMac)('the app bundle can hold a privacy identity', () => {
     expect(out).toContain('Identifier=com.tabterm.daemon');
   });
 
+  it.skipIf(!built)("seals nothing of TabTerm's own, so an update keeps the approval", () => {
+    /**
+     * `codesign --deep` seals everything under the bundle, so anything of ours inside it makes
+     * the identity change whenever that changes. With the daemon copied in, the privacy approval
+     * was asked again on every single update: the complaint the bundle exists to answer, at a
+     * slower rate. Measured: one line changed in the daemon moved the bundle's hash.
+     */
+    const resources = join(APP, 'Contents', 'Resources');
+    expect(existsSync(join(resources, 'daemon'))).toBe(false);
+    expect(existsSync(join(resources, 'node_modules'))).toBe(false);
+  });
+
   it.skipIf(!built)('and it actually runs, which the rpath rewrite can break', () => {
     // `install_name_tool` invalidates a signature and macOS kills an invalidly signed binary on
     // launch rather than refusing it with an error, so this is the only thing that proves it.
