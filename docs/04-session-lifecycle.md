@@ -391,6 +391,15 @@ the timeout itself, which was measured against the old value.
 This changes no rule about what may be ended. It only lets a decision that was already made
 finish, and every safety check still runs again at the moment the timer fires.
 
+**The invariant is checked over the whole input space, not at chosen points.** Every other test
+here names a situation somebody thought of, and the failures in this area have never been in the
+rules themselves: they were in a case nobody enumerated, a pane in no workspace, a report that
+arrived empty, a browser still waking up. `reap-exhaustive.test.ts` sweeps every combination of
+the policy's inputs, about fifty-five thousand of them, and asserts that a timer is never produced
+without one of four things: a pane the person closed, a tab the person closed, a closed pane
+inside its undo window, or a process that had already exited. It also checks the other direction,
+that pinned, persistent, attached and tab-open are absolute whatever else is true.
+
 **What may be written is what will be honored.** The background timeout is clamped by one
 constant at both ends. Accepting a value on the wire that startup would refuse means a setting a
 person chose is on disk, correct, and discarded on the next start in favour of the default, with a
