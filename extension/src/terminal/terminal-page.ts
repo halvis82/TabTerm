@@ -1813,6 +1813,49 @@ function pageMenuItems(target: Element): ShellItem[] {
   ];
 }
 
+/**
+ * Whatever will receive the next keystroke shows a cursor, at all times.
+ *
+ * Stated as an invariant rather than fixed where it was found, because it has now been reported
+ * three times about three different moments: after a refresh, after placing a marker, and after
+ * undoing a closed pane. Each time typing worked and the screen said it would not. "i need it to
+ * be consistently present whenever typing is an option somewhere."
+ *
+ * Two halves, and the second is the one that kept being missed. Routing a keystroke to the
+ * terminal when it arrives is not enough: by then the person has already typed into something
+ * that looked dead. The terminal has to hold the keyboard **before** anything is typed.
+ *
+ * What owns the keyboard, in order:
+ *
+ * 1. A real text field somebody put the cursor in. It draws its own caret and nothing takes it
+ * 2. The command menu or the palette while either is open. Both manage their own focus, and two
+ *    surfaces cannot both be active
+ * 3. Otherwise the focused pane's terminal, which is where typing goes anyway
+ */
+function keepCursorSomewhere(): void {
+  if (palette?.isOpen === true || commandPanel?.isOpen === true) return;
+  const active = document.activeElement;
+  if (isTypingField(active)) return;
+  /**
+   * Only when nothing holds it.
+   *
+   * A button somebody just pressed keeps focus until they move on, and taking it away mid-press
+   * would break every keyboard route through the interface.
+   */
+  if (active !== null && active !== document.body && active !== document.documentElement) return;
+  const paneId = splitView?.focused ?? panesHost?.all[0]?.paneId;
+  if (paneId) panesHost?.focus(paneId);
+}
+
+/** A place typing means something other than terminal input. xterm's own textarea is not one. */
+function isTypingField(node: EventTarget | null): boolean {
+  if (!(node instanceof HTMLElement)) return false;
+  if (node.isContentEditable) return true;
+  if (node.classList.contains('xterm-helper-textarea')) return false;
+  const tag = node.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+}
+
 function installAmbientFocus(): void {
   const isTextField = (node: EventTarget | null): boolean => {
     if (!(node instanceof HTMLElement)) return false;
@@ -1869,6 +1912,28 @@ function installAmbientFocus(): void {
     },
     true,
   );
+
+  /**
+   * And the keyboard is never left lying on the floor.
+   *
+   * An element that had focus and is then removed from the document takes the focus with it:
+   * `activeElement` becomes the body, no `blur` is reliably delivered, and the page is left in a
+   * state where typing works and nothing on screen says so. That is exactly what a redraw of the
+   * start screen does, and what putting a pane back does, and it is why this kept being reported
+   * about a different moment each time.
+   *
+   * Two ways of noticing, because neither is enough alone. `focusout` with nothing gaining focus
+   * covers what the browser tells us about; the timer covers what it does not, and costs one
+   * property read twice a second.
+   */
+  document.addEventListener('focusout', (e) => {
+    if (e.relatedTarget !== null) return;
+    setTimeout(keepCursorSomewhere, 0);
+  });
+  window.setInterval(keepCursorSomewhere, 500);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') keepCursorSomewhere();
+  });
 
   // Clicking a button does its job and hands the keyboard straight back, so the next thing you
   // type goes where it would have gone if you had never touched the mouse.
@@ -4769,6 +4834,8 @@ declare global {
       lookAtTab: () => void;
       /** What the line under the path box knows, for when it is blank and should not be. */
       folderStateDebug: () => Record<string, unknown>;
+      /** What holds the keyboard, and whether it is a thing that draws a cursor. */
+      keyboardHolder: () => { what: string; typeable: boolean; paneFocused: boolean };
       /** Make the start screen redraw itself, the way a change anywhere else in TabTerm does. */
       refreshStartScreen: () => void;
       attached: () => boolean;
@@ -5055,6 +5122,23 @@ function installTestHook(): void {
       (panesHost?.all ?? []).map((p) => ({ paneId: p.paneId, sessionId: p.sessionId })),
     lookAtTab: () => lookedAtTab(),
     folderStateDebug: () => launcher?.folderStateDebug() ?? {},
+    keyboardHolder: () => {
+      const active = document.activeElement;
+      const what =
+        active === null
+          ? 'nothing'
+          : active === document.body
+            ? 'body'
+            : active.className !== ''
+              ? active.className
+              : active.tagName;
+      return {
+        what,
+        // A terminal draws a solid cursor only while its own textarea holds the keyboard.
+        typeable: isTypingField(active) || what.includes('xterm-helper-textarea'),
+        paneFocused: (splitView?.focused ?? '') !== '',
+      };
+    },
     refreshStartScreen: () => client?.send({ t: 'list-launcher' }),
     dropConnection: () => client?.close(),
     loseConnection: () => client?.dropForTest(),
