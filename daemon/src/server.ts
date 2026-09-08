@@ -2145,6 +2145,7 @@ export class DaemonServer {
       sessionId: string;
       streamId: number;
       startedWithCommand?: boolean;
+      hasInput?: boolean;
     }[] = [];
     const toAttach: { sessionId: string; streamId: number }[] = [];
 
@@ -2157,6 +2158,8 @@ export class DaemonServer {
       // arrived mid-flight. Splitting one pane must not disturb its neighbors.
       // Whether anything was launched here, which the page cannot tell from the screen.
       const started = session.command !== undefined && session.command.length > 0;
+      // Typed into at any point, which the screen cannot show for a command never sent.
+      const typed = session.hasInput === true;
 
       const existing = client.streams.get(sessionId);
       if (existing !== undefined) {
@@ -2165,6 +2168,7 @@ export class DaemonServer {
           sessionId,
           streamId: existing,
           ...(started ? { startedWithCommand: true } : {}),
+          ...(typed ? { hasInput: true } : {}),
         });
         continue;
       }
@@ -2175,6 +2179,7 @@ export class DaemonServer {
         sessionId,
         streamId,
         ...(started ? { startedWithCommand: true } : {}),
+        ...(typed ? { hasInput: true } : {}),
       });
       toAttach.push({ sessionId, streamId });
     }

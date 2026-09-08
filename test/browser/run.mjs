@@ -106,14 +106,19 @@ const FIRST = [
  * host's pid across a run: unchanged.
  */
 /**
- * Suites that end the daemon or the PTY host, and so must not run beside anything.
+ * Suites that disturb state other suites are reading, and so must not run beside them.
  *
  * `nothing-left-alive` kills the host on purpose, which ends every session on the test daemon,
  * including the ones four other suites are in the middle of using. Adding it to the parallel pool
  * produced a shifting set of failures in other suites, which read exactly like load sensitivity
  * and was nothing of the kind.
+ *
+ * `back-to-the-start-screen` is milder and the same shape. It has to leave the start screen the
+ * way a person does, which runs a `cd`, and the daemon's command history is shared by every suite
+ * on it: two suites that assert on what the command panel lists saw an entry they had not made.
+ * Running it after them costs a few seconds and removes the whole class of question.
  */
-const LAST = ['survives-restart', 'resilience', 'nothing-left-alive'];
+const LAST = ['survives-restart', 'resilience', 'nothing-left-alive', 'back-to-the-start-screen'];
 
 /**
  * Nothing is skipped by default any more.

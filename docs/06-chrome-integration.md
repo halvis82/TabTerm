@@ -101,6 +101,13 @@ most **four** commands may carry a suggested key. All are rebindable at `chrome:
 
 Extension commands are routed by Chrome and are not subject to the page-level interception limits in §6.
 
+**Global scope is partly ours and mostly Chrome's.** `_execute_action` can never be global, which
+is the whole reason a plain `new-terminal` command exists beside it: the same action, behind a
+command that can be. The two non-action commands declare `"global": true`, which sets the default
+scope. Beyond that it is Chrome's decision, and the scope control in
+`chrome://extensions/shortcuts` is disabled whenever no key is bound, which accounts for most
+reports that a command "cannot" be global.
+
 New tabs open at `currentIndex + 1` and inherit the current tab's group when one exists.
 
 **A command also brings Chrome's window to the front.** `active: true` on a tab selects it within
@@ -363,6 +370,31 @@ With one exception, which the first version of this got wrong: **a tab opened on
 work by definition.** The panes are on their way and the only reason there are none yet is that
 the daemon has not answered. Reading that as an empty tab put the start screen over a session
 somebody was coming back to, which is the one thing a reattaching tab must never do.
+
+### The URL decides before the tab's own record of having launched does
+
+A tab remembers in `sessionStorage` that it has left the start screen, and that memory used to be
+asked first, in three places. It has to be asked somewhere: a tab reloading into work must not
+have the start screen appear over it a second later, which is what happens if the element is
+merely left undrawn, because the start screen renders whenever the daemon sends it something to
+list.
+
+But a tab is given a workspace the moment it creates its first session, and the URL is rewritten
+to say so. So the address the start screen itself had is the one with **no** workspace on it, and
+pressing Back after opening a session returns to exactly that address. The flag answered first,
+the start screen was dismissed from the first frame, a bare shell in home was made in its place,
+and the tab sat on the start screen's own URL with no way back to it.
+
+So the URL is asked first: **a tab with no workspace in its URL is a new tab, and a new tab shows
+the start screen.** The flag loses nothing by going second, because everything it protects is a
+tab with work in it, and a tab with work in it has a workspace in its URL.
+
+For a tab that does have one, refreshing still keeps its terminal unless the single pane in it is
+genuinely untouched: not started with a command, and never typed into. Both facts come from the
+daemon, because neither is on the screen. A half-typed command sits on the prompt line, so the tab
+still has exactly one line of content in it and looks identical to a prompt nobody has touched,
+and nothing was run so nothing in the output says otherwise. The daemon sees every keystroke and
+remembers, which is what makes the answer survive a reload and a tab being recreated.
 
 ### A redraw restores the box before it restores what is under it
 
@@ -787,6 +819,18 @@ itself and it runs for an hour, so `command-end` fires when it is quit rather th
 thinking. Turns are bounded by the hooks that report their ends, which is why
 `09-agent-integration.md` treats hook installation as part of the product rather than as a
 footnote in the installer.
+
+### The extension reports, the daemon decides
+
+Worth stating plainly because the division is easy to get backwards. The service worker sends two
+facts about tabs and nothing else: `tabs-open`, the workspaces that currently have a tab, and
+`tab-closed`, naming a tab a person closed. It holds no timer that ends anything and has no
+opinion about what should be kept.
+
+Every clock, every policy and every signal lives in the daemon, which is what makes a terminal's
+life independent of the browser: Chrome can be quit, crash, or be replaced, and the only effect is
+that its observations stop arriving. Absent observations are `unknown`, and `unknown` keeps
+everything. See `04-session-lifecycle.md`.
 
 ### Every one is logged
 

@@ -647,6 +647,13 @@ export interface WorkspacePane {
    * extension reload does to every tab.
    */
   startedWithCommand?: boolean;
+  /**
+   * Somebody has typed into this session, whether or not they pressed Enter.
+   *
+   * The page cannot tell from the screen: a half-typed command sits on the prompt line and
+   * leaves the line count at one, exactly like a prompt nobody has touched.
+   */
+  hasInput?: boolean;
 }
 
 /** A session in another tab that could be pulled into this workspace. */

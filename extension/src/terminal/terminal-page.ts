@@ -1407,7 +1407,20 @@ function decideStartScreen(): void {
 }
 
 function openStartScreen(): void {
-  if (!launcher || launcher.dismissed || hasLaunched()) return;
+  if (!launcher || launcher.dismissed) return;
+  /**
+   * The launched flag belongs to a tab **showing a workspace**, and this URL names none.
+   *
+   * A tab is given a workspace as soon as it creates its first session, and the URL is updated
+   * to say so, which means the address the start screen itself had is the one **without** a
+   * workspace on it. Pressing Back after opening a session returns to exactly that address, and
+   * the flag then answered for a page that is asking to be the start screen again: the tab drew
+   * a bare shell in home instead, on the start screen's own URL, with no way back to it.
+   *
+   * Scoping the flag this way costs nothing that it was protecting. Everything it exists for is
+   * a tab that has work in it, and a tab that has work in it has a workspace in its URL.
+   */
+  if (hasLaunched() && reattaching) return;
   launcher.show();
   root.classList.add('panel-open');
   refitAllPanes();
@@ -1525,7 +1538,22 @@ function thisTabIsUnused(): boolean {
    * it survives a reload, which is the whole point, and it is gone when the tab is, which is
    * also right: a new tab has not started anything.
    */
-  if (hasLaunched()) return false;
+  /**
+   * A tab that has already started something goes back to the start screen only when the one
+   * terminal left in it is genuinely untouched.
+   *
+   * The flag alone was too blunt. Opening a background session from the start screen and then
+   * pressing Back left the tab on the start screen's own URL showing a bare shell in home, with
+   * no way back to the screen it came from, because this tab had "launched" something an hour
+   * earlier and would never reconsider.
+   *
+   * What makes reconsidering safe is that the evidence is now the daemon's rather than the
+   * screen's. `startedWithCommand` rules out a pane something was launched into, including an
+   * agent that has printed nothing yet, and `hasInput` rules out one somebody has typed into
+   * even if they never pressed Enter. Those were the two cases the screen could not see, and
+   * they are the reason this flag existed.
+   */
+  if (hasLaunched() && !onlyPaneIsUntouched()) return false;
 
   const panes = panesHost?.all ?? [];
   /**
@@ -1575,8 +1603,30 @@ function thisTabIsUnused(): boolean {
    * The daemon knows, because it started the process, and now says so with the pane.
    */
   if (panesWithCommand.has(only.paneId)) return false;
+  // Typed into, so not untouched, however little is on the screen.
+  if (panesWithInput.has(only.paneId)) return false;
 
   return linesWithContent(only.controller.term) <= 1;
+}
+
+/**
+ * The one pane in this tab is a shell nobody has touched, sitting in the home directory.
+ *
+ * Deliberately narrower than `thisTabIsUnused`, because this is the test that is allowed to
+ * overrule a tab's own record of having launched something. Home matters: a shell opened in a
+ * project folder and not yet typed into is empty in the same way, but the folder is a choice
+ * somebody made and replacing it with the start screen throws that choice away. An unknown
+ * directory is not home, which keeps the answer no while the daemon has yet to say.
+ */
+function onlyPaneIsUntouched(): boolean {
+  const panes = panesHost?.all ?? [];
+  if (panes.length !== 1) return false;
+  const only = panes[0];
+  if (!only) return false;
+  if (panesWithCommand.has(only.paneId) || panesWithInput.has(only.paneId)) return false;
+  if (linesWithContent(only.controller.term) > 1) return false;
+  const where = sessionTitles.get(only.sessionId)?.cwd ?? currentCwd;
+  return where !== undefined && where !== '' && where === launcherHome;
 }
 
 /**
@@ -1587,6 +1637,19 @@ function thisTabIsUnused(): boolean {
  * held, and a stale entry could only ever make this more conservative.
  */
 const panesWithCommand = new Set<string>();
+
+/**
+ * Panes somebody has typed into, whether or not they pressed Enter.
+ *
+ * The screen cannot answer this. A half-typed command sits on the prompt line, so the tab still
+ * has one line of content on it and looks exactly like a shell nobody has touched. Nothing was
+ * run, so nothing in the output says otherwise either.
+ *
+ * The daemon sees every keystroke and remembers, which is what makes this survive a reload and
+ * the tab being recreated by an extension reload. Reported with the pane on attach, beside
+ * `startedWithCommand`, and never cleared: a session somebody has used stays used.
+ */
+const panesWithInput = new Set<string>();
 
 const LAUNCHED = 'tabterm.launched';
 
@@ -2642,25 +2705,36 @@ function buildLauncher(): void {
   palette.setActions(paletteActions());
 
   /**
-   * A tab that has already started something has no start screen, from the first frame.
-   *
-   * Not merely left undrawn: rendering unhides the element, and the start screen renders
-   * whenever the daemon sends it something to list, so a tab reloading into work would have it
-   * appear a second later regardless of what anything decided at startup. Dismissed here, once,
-   * which is also what takes down the keys it binds.
-   */
-  if (hasLaunched()) launcher.dismiss();
-  /**
    * A tab with no workspace is a new tab, and a new tab always shows the start screen.
    *
    * Known from the URL, before anything has been asked of the daemon, which is what makes this
    * safe: a tab reattaching to work has a workspace in its URL and never draws any of this, not
    * even for a moment. The alternative, guessing from what is on screen, is exactly the guess
    * that used to put the start screen over somebody's session.
+   *
+   * This is asked **before** the launched flag, and the order is the whole point. A tab is given
+   * a workspace the moment it creates its first session, and the URL is rewritten to say so, so
+   * the address the start screen itself had is the one with no workspace on it. Pressing Back
+   * after opening a session returns to exactly that address, and the flag answered first: the
+   * start screen was dismissed from the first frame, a bare shell in home was made in its place,
+   * and the tab sat on the start screen's own URL with no way back to it.
+   *
+   * The flag loses nothing by going second. Everything it protects is a tab with work in it, and
+   * a tab with work in it has a workspace in its URL.
    */
-  else if (!new URL(location.href).searchParams.get('workspace')) {
+  if (!new URL(location.href).searchParams.get('workspace')) {
     root.classList.add('panel-open');
     launcher.renderPlaceholder();
+  } else if (hasLaunched()) {
+    /**
+     * A tab that has already started something has no start screen, from the first frame.
+     *
+     * Not merely left undrawn: rendering unhides the element, and the start screen renders
+     * whenever the daemon sends it something to list, so a tab reloading into work would have
+     * it appear a second later regardless of what anything decided at startup. Dismissed here,
+     * once, which is also what takes down the keys it binds.
+     */
+    launcher.dismiss();
   }
 }
 
@@ -4176,6 +4250,9 @@ function onControl(msg: ServerMessage): void {
         panesHost?.bindStream(p.paneId, p.sessionId, p.streamId);
         // Something was launched in this pane, said by the daemon, which knows. See below.
         if (p.startedWithCommand === true) panesWithCommand.add(p.paneId);
+        // And whether anybody has typed into it, which the screen cannot show for a command
+        // that was never sent. See `panesWithInput`.
+        if (p.hasInput === true) panesWithInput.add(p.paneId);
       }
       applyLayout(msg.layout);
       attached = true;
@@ -4975,7 +5052,7 @@ declare global {
       maximizedPane: () => string | null;
       leaveFocusMode: () => void | Promise<void>;
       /** Which panes the daemon said something was launched into. */
-      paneFacts: () => { paneId: string; startedWithCommand: boolean }[];
+      paneFacts: () => { paneId: string; startedWithCommand: boolean; hasInput: boolean }[];
       /** Only what is on screen right now, which the strip makes a different question. */
       readViewport: (paneId?: string) => string;
       /** Draw text on a pane, for checks about what is shown rather than how it got there. */
@@ -5147,6 +5224,9 @@ function installTestHook(): void {
       (panesHost?.all ?? []).map((p) => ({
         paneId: p.paneId,
         startedWithCommand: panesWithCommand.has(p.paneId),
+        // The other half of what decides whether a tab may go back to the start screen, and the
+        // half nothing on the screen can show. See `panesWithInput`.
+        hasInput: panesWithInput.has(p.paneId),
       })),
     /**
      * A second view of one session, at a size of its choosing.
