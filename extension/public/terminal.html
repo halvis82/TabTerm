@@ -435,7 +435,18 @@
     padding: 1px 6px;
     border-radius: 999px;
     background: var(--hover);
-    color: var(--dim);
+    /*
+     * Full text, not the dim tint, because the wash behind it is not a background.
+     *
+     * `--hover` is a tinted panel rather than the page, and a dim foreground on it measured 3.3
+     * to 1 in dark and 3.6 in midnight, both under the line. It cleared in light only, which is
+     * why reading the rule off one theme was not enough. Full text measures 7.0, 8.6 and 12.4.
+     *
+     * It went unmeasured for a different reason worth recording: this badge only exists on a
+     * card for a session no tab is showing, and no test had ever produced one, so the suite that
+     * checks every piece of text on the page had never seen it.
+     */
+    color: var(--text);
     font-size: 9.5px;
     letter-spacing: 0.02em;
   }
@@ -797,7 +808,15 @@
     color: var(--accent);
   }
   .cmd-row.failed .cmd-row-label {
-    color: #e8908f;
+    /*
+     * The theme's danger colour, not a hand-written one.
+     *
+     * This was `#e8908f`, chosen against a dark panel where it measures 7.2 to 1, and left as a
+     * literal so it followed no theme. On the light panel it is 2.4 to 1: a row saying a command
+     * failed, in the one colour on the page nobody can read. The token is 6.5 in light and 7.5
+     * in dark, so following it is better in both.
+     */
+    color: var(--danger);
   }
   .cmd-row-meta {
     flex: 1 1 auto;
