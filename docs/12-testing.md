@@ -210,6 +210,28 @@ lets somebody work while a full run finishes.
 The debugging port used to be a fixed 9223, which was the last thing shared, and sharing it meant
 the second run drove the first run's browsers.
 
+## A run cleans up after itself, and after the last one
+
+Every run ends its daemon, its PTY host, and every session it made. That happens when a run
+reaches the end, and a run that is interrupted, timed out or killed reaches nothing.
+
+The cost is not a tidiness one. A leaked daemon holds a PTY host, and a PTY host holds shells,
+and those shells run forever: no tab, no timeout, nothing watching them. Four daemons and five
+hosts were found on one machine, the oldest three days old, which to whoever owns that machine
+looks exactly like terminals that refuse to close.
+
+Two defences, because neither is enough alone:
+
+- **On the way out**, `SIGINT`, `SIGTERM` and `SIGHUP` end this run's daemon. `SIGKILL` cannot be
+  caught, which is what the other half is for
+- **On the way in**, a run ends any `daemon/dist/main.js` or `daemon/dist/pty-host.js` process
+  that has been **orphaned**. Orphaned is the whole of the rule: a daemon belonging to a run still
+  going has that run as its parent, and one whose run was killed has been reparented to init. Two
+  runs can happen side by side, so "end every daemon you find" would have one killing the other
+
+Only the built files in this repository are ever matched. The installed daemon and host run from
+`~/.local/libexec`, so there is no path by which this reaches a terminal somebody is working in.
+
 ## The suite gets its own home directory
 
 Every test process runs with `HOME` pointing at a scratch directory made for the run. Not for

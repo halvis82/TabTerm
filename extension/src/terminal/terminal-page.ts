@@ -3191,6 +3191,28 @@ function paneTitle(paneId: string): string {
   return running === '' ? folder : `${folder} \u00b7 ${running}`;
 }
 
+/**
+ * Ask the daemon what every setting is, now.
+ *
+ * Each of these is answered once and then kept, so what the panel shows is whatever it last
+ * heard. That is right while one daemon runs and wrong the moment a different one does: a daemon
+ * that restarts with a value read from disk leaves the panel showing the value from before it,
+ * with nothing on screen to say the two disagree. A person who has just been told their choice
+ * did not stick has no reason to believe the picker at all.
+ *
+ * So the questions are asked again whenever the connection becomes ready, which is also what
+ * happens after a restart, and not only when launcher state arrives.
+ */
+function askForSettings(): void {
+  client?.send({ t: 'get-memory-mode' });
+  client?.send({ t: 'get-notify-policy' });
+  client?.send({ t: 'get-agent-hooks' });
+  client?.send({ t: 'get-agent-command' });
+  client?.send({ t: 'get-shell-integration' });
+  client?.send({ t: 'get-scrollback-budget' });
+  client?.send({ t: 'get-background-timeout' });
+}
+
 function paneLabel(paneId: string): { label: string; color?: string } {
   const walk = (node: LayoutNode): { label: string; color?: string } | null => {
     if (node.type === 'terminal') {
@@ -3944,6 +3966,7 @@ function statusFor(s: ConnectionStatus): void {
       // Anything the start screen asked about and never heard back on. A question travels on
       // this socket, so a socket that dropped took every one in flight with it.
       launcher?.connectionReady();
+      askForSettings();
       return;
     case 'retrying':
       setStatus('tabtermd is not responding. Retrying', 'error');
@@ -4257,13 +4280,7 @@ function onControl(msg: ServerMessage): void {
       // Asked for alongside launcher state, so the chips are there when the panel first draws.
       client?.send({ t: 'list-resumable', limit: 5 });
       client?.send({ t: 'list-servers' });
-      client?.send({ t: 'get-memory-mode' });
-      client?.send({ t: 'get-notify-policy' });
-      client?.send({ t: 'get-agent-hooks' });
-      client?.send({ t: 'get-agent-command' });
-      client?.send({ t: 'get-shell-integration' });
-      client?.send({ t: 'get-scrollback-budget' });
-      client?.send({ t: 'get-background-timeout' });
+      askForSettings();
       client?.send({ t: 'list-live-sessions' });
       // Templates live in extension storage rather than the daemon: they are about how somebody
       // likes to start work, not about anything the daemon owns.

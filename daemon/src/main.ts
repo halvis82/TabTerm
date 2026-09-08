@@ -119,6 +119,16 @@ async function main(): Promise<void> {
   } else if (typeof storedTimeout === 'number' && storedTimeout >= SHORTEST_OFFERED_TIMEOUT) {
     sessions.keepBackgroundSeconds = storedTimeout;
   }
+  /**
+   * Said out loud, because a setting that will not stay is reported about the picker and answered
+   * from the log, and until this existed the log had nothing to say about it. What was on disk,
+   * and what the daemon decided to run with, which are not always the same: a value below the
+   * shortest the panel offers is ignored in favour of the default, and silently.
+   */
+  info('background-timeout.loaded', {
+    stored: typeof storedTimeout === 'number' ? storedTimeout : JSON.stringify(storedTimeout),
+    using: String(sessions.keepBackgroundSeconds),
+  });
   const workspaces = new WorkspaceStore();
   const db = new Database();
   const launcher = new LauncherData(db);

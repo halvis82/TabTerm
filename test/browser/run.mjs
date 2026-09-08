@@ -683,6 +683,111 @@ function startBrowser(port) {
 
 const started = Date.now();
 
+/**
+ * Anything a previous run left behind, before this one starts.
+ *
+ * The cleanup at the end of a run is thorough and it only happens when the run reaches the end.
+ * A run that is interrupted, timed out, or killed leaves its daemon and its PTY host running,
+ * and they keep the shells they were holding alive forever: four daemons and five hosts were
+ * found on one machine, the oldest from three days earlier, still holding terminals nobody could
+ * see. That reads to whoever owns the machine as sessions that refuse to close.
+ *
+ * Matched on the temporary home in the process's own arguments and open files, so nothing a
+ * person is using can be caught by it: a suite daemon always has a `tabterm-suite-home` under it
+ * and the installed one never does.
+ *
+ * At the start rather than only at the end, because that is the half that survives being killed.
+ */
+function endStrandedRuns() {
+  let pids = [];
+  try {
+    /**
+     * Only the built files in this repository.
+     *
+     * The installed daemon and host run from `~/.local/libexec`, so a process running
+     * `daemon/dist/*.js` is a harness process by construction and there is no way for this to
+     * reach a terminal somebody is working in.
+     */
+    const found = execFileSync('pgrep', ['-f', 'daemon/dist/(main|pty-host)\\.js'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    pids = found.split('\n').filter(Boolean).map(Number);
+  } catch {
+    // pgrep exits non-zero when nothing matches, which is the ordinary case.
+    return;
+  }
+
+  /**
+   * Orphans only, which is what makes this safe while another run is going.
+   *
+   * A daemon belonging to a run that is still going has that run's `run.mjs` as its parent. One
+   * whose run was killed has been reparented to init, and it is never coming back. Two runs can
+   * now happen side by side, so "end every daemon you find" would have one run killing the
+   * other's.
+   */
+  const stranded = pids.filter((pid) => {
+    if (pid === process.pid) return false;
+    try {
+      const ppid = Number(
+        execFileSync('ps', ['-o', 'ppid=', '-p', String(pid)], {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }).trim(),
+      );
+      return ppid === 1;
+    } catch {
+      return false;
+    }
+  });
+
+  for (const pid of stranded) {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      /* gone between listing and killing, which is fine */
+    }
+  }
+  if (stranded.length > 0) {
+    console.log(`  ended ${String(stranded.length)} process(es) a previous run left behind`);
+  }
+}
+
+endStrandedRuns();
+
+/**
+ * And this run's own daemon goes when this run does, however it ends.
+ *
+ * The cleanup at the bottom of this file runs when the run reaches the bottom. Interrupting one,
+ * or letting a wrapper time it out, skipped all of it. `SIGKILL` cannot be caught and is what the
+ * sweep above is for; everything else can, and this is cheaper than waiting for the next run to
+ * notice.
+ *
+ * Synchronous on purpose. An exit handler that returns a promise runs nothing.
+ */
+let ownDaemon = null;
+const endOwnDaemon = () => {
+  const pid = ownDaemon?.pid;
+  ownDaemon = null;
+  if (!pid) return;
+  try {
+    process.kill(-pid, 'SIGKILL');
+  } catch {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      /* already gone */
+    }
+  }
+};
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(signal, () => {
+    endOwnDaemon();
+    process.exit(130);
+  });
+}
+process.on('exit', endOwnDaemon);
+
 if (process.env['TT_SKIP_BUILD'] !== '1') {
   execFileSync('npm', ['run', '--silent', 'build'], { cwd: ROOT, stdio: 'ignore' });
 }
@@ -709,6 +814,15 @@ const BASE_PORT =
   Number(process.env['TT_CDP_PORT'] ?? '') || 9300 + Math.floor(Math.random() * 300) * 10;
 const width = Math.max(1, Math.min(JOBS, parallel.length || 1));
 const ports = Array.from({ length: width }, (_, i) => BASE_PORT + i);
+/**
+ * Said, because a run that cannot reach its browsers fails with `fetch failed: bad port` and
+ * nothing at all about which port it meant.
+ */
+if (!Number.isInteger(BASE_PORT) || BASE_PORT < 1024 || BASE_PORT + width > 65535) {
+  console.error(`  refusing to start: ${String(BASE_PORT)} is not a usable debugging port`);
+  process.exit(1);
+}
+console.log(`  browsers on ${ports.join(', ')}`);
 
 /**
  * `ignore`, not `inherit`, and the reason cost half an hour.
@@ -735,6 +849,7 @@ for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
     process.exit(130);
   });
 }
+ownDaemon = daemon.child;
 process.env['TT_DAEMON_PORT'] = String(daemon.port);
 process.env['TT_DAEMON_TOKEN'] = daemon.token;
 // The two suites that kill things are told which installation is theirs. Without it they

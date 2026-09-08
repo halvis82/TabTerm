@@ -229,6 +229,23 @@ approval > waiting > failed > success > done > running > idle
 
 Waiting outranks failed deliberately: one of them can still be acted on.
 
+### The panel asks the daemon again whenever it reconnects
+
+Every setting the command menu shows is answered once, when launcher state arrives, and then
+kept. That is right while one daemon runs and wrong the moment a different one does: a daemon that
+restarts and comes back holding a value read from disk leaves the panel showing the value from
+before it, with nothing on screen to say the two disagree.
+
+That is worth more than it sounds. A person who has just been told, by the picker, that their
+choice did not stick has no reason to believe the picker about anything else either. The questions
+are asked again whenever the connection becomes ready, which is what a restart looks like from the
+page's side.
+
+The daemon also logs what it read from disk at startup and what it decided to run with, which are
+not always the same: a stored value below the shortest the panel offers is ignored in favour of
+the default. Until that line existed, a report about this setting could be answered only from the
+file and a guess.
+
 ### Whatever will receive the next keystroke shows a cursor
 
 An invariant, not a list of places. It was reported three times about three different moments,
