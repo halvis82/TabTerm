@@ -542,17 +542,22 @@ export class PtyHost {
           const outcome = await killPty(live.handle, id);
           if (outcome === 'gone') this.#sessions.delete(id);
           else warn('pty-host.kill-unconfirmed', { sessionId: id, pid: live.handle.pid });
+          /**
+           * Whether the output goes with it depends on who ended it, and on whether it ended.
+           *
+           * Somebody who closes a session meant to be rid of it, so leaving its output on disk
+           * would be a surprise in the wrong direction. A session ended by a timeout was not
+           * closed by anybody, and its tab may still be open, so its history is what that tab
+           * has left to show. See docs/07-terminal-fidelity.md.
+           *
+           * And only once the process is actually gone. This ran synchronously, outside this
+           * block, so the history was deleted before anyone knew whether the kill had worked: a
+           * failed attempt to end a terminal erased the record of a terminal that was still
+           * running, which is the one thing left to find it by.
+           */
+          if (outcome === 'gone' && msg['keepHistory'] !== true) this.#store.clear(id);
           answer(true, outcome === 'gone');
         })();
-        /**
-         * Whether the output goes with it depends on who ended it.
-         *
-         * Somebody who closes a session meant to be rid of it, so leaving its output on disk
-         * would be a surprise in the wrong direction. A session ended by a timeout was not
-         * closed by anybody, and its tab may still be open, so its history is what that tab has
-         * left to show. See docs/07-terminal-fidelity.md.
-         */
-        if (msg['keepHistory'] !== true) this.#store.clear(id);
         return;
       }
 
