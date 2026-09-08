@@ -40,8 +40,20 @@ r.ok(
  * from the daemon. Before this fix, the background timer started here.
  */
 await evaluate(client, `(() => { const t = window.__tabterm.transport(); return t; })()`);
+/**
+ * Waited for, not read straight away.
+ *
+ * The command was typed a moment ago and the shell answers when it answers. Reading the screen
+ * in the same breath asks what was there before it ran, which on a loaded machine is nothing at
+ * all, and the suite then reports a persistence failure that never happened.
+ */
+const hasOutput = await waitFor(
+  client,
+  `(window.__tabterm?.readScreen() ?? '').includes('KEEP-ME')`,
+  15000,
+);
 const before = String(await evaluate(client, 'window.__tabterm.readScreen()'));
-r.ok('the terminal has output in it to lose', before.includes('KEEP-ME'));
+r.ok('the terminal has output in it to lose', hasOutput, before.slice(-80).replace(/\n/g, ' | '));
 
 // A short timeout, so the wait is seconds rather than half an hour.
 await evaluate(client, 'window.__tabterm.setBackgroundTimeout(1)');

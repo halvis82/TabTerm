@@ -35,11 +35,17 @@ export class HostPtyBackend implements PtyBackend {
     this.#client.resize(sessionId, cols, rows);
   }
 
-  kill(sessionId: string, keepHistory = false): Promise<void> {
-    // Killing is still explicit and still happens: a session that expires, or that somebody
-    // closes, is ended. What changed is that stopping the daemon is no longer one of those.
-    this.#client.kill(sessionId, keepHistory);
-    return Promise.resolve();
+  /**
+   * End a session, and wait for the host to say it did.
+   *
+   * Killing is still explicit and still happens: a session that expires, or that somebody closes,
+   * is ended. What changed is that this no longer reports success for having put a frame on a
+   * socket. Throws when nothing answered, so the caller keeps its record of a process it cannot
+   * account for rather than forgetting one that may still be running.
+   */
+  async kill(sessionId: string, keepHistory = false): Promise<void> {
+    const acknowledged = await this.#client.killAndWait(sessionId, keepHistory);
+    if (!acknowledged) throw new Error(`the PTY host did not acknowledge ending ${sessionId}`);
   }
 
   onData(fn: (sessionId: string, data: Buffer) => void): void {

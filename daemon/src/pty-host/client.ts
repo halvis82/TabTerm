@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { connect, type Socket } from 'node:net';
 import { controlFrame, decodeFrames } from './framing.js';
@@ -244,6 +245,7 @@ export class PtyHostClient {
           // silently did nothing is the hardest kind of failure to find later.
           warn('pty-host.message-failed', { error: msg['message'], about: msg['about'] });
         }
+        if (t === 'killed') this.#onKilled(msg);
         if (t === 'exited') {
           for (const fn of this.#exitListeners) {
             fn(String(msg['sessionId']), Number(msg['exitCode']), msg['signal'] as number);
@@ -355,6 +357,12 @@ export class PtyHostClient {
    * Different host, or a host too old to say: nothing session-targeted goes at all. Those frames
    * name sessions this process has never heard of, and one of them can be a kill.
    */
+  /** A host saying it acted on a kill. See `killAndWait`. */
+  #onKilled(msg: Record<string, unknown>): void {
+    const requestId = typeof msg['requestId'] === 'string' ? msg['requestId'] : '';
+    this.#killWaits.get(requestId)?.();
+  }
+
   #identify(raw: unknown): void {
     const instance = typeof raw === 'string' && raw !== '' ? raw : null;
     const previous = this.#instance;
@@ -482,9 +490,43 @@ export class PtyHostClient {
     this.#send({ t: 'budget', bytes });
   }
 
-  kill(sessionId: string, keepHistory = false): void {
-    this.#send({ t: 'kill', sessionId, keepHistory });
+  /**
+   * Ask the host to end a session, and wait to be told it did.
+   *
+   * Resolves true when the host answered, whether or not it still had the session: either way
+   * the process is not running there any more, and the daemon can let go of its record. Resolves
+   * false when nothing answered, which means the daemon does **not** know what happened and must
+   * keep the record rather than quietly forgetting a process that may still be running with
+   * nothing able to see or reach it.
+   */
+  async killAndWait(sessionId: string, keepHistory = false, timeoutMs = 4000): Promise<boolean> {
+    const requestId = randomUUID();
+    const answered = new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        this.#killWaits.delete(requestId);
+        resolve(false);
+      }, timeoutMs);
+      this.#killWaits.set(requestId, () => {
+        clearTimeout(timer);
+        this.#killWaits.delete(requestId);
+        resolve(true);
+      });
+    });
+    /**
+     * Not queued when there is nowhere to send it.
+     *
+     * A kill held in the outbox is aimed at a host that may be gone by the time anything is
+     * flushed, and the caller is about to be told nothing happened, which is the truth.
+     */
+    if (!this.#socket || this.#socket.destroyed) {
+      this.#killWaits.delete(requestId);
+      return false;
+    }
+    this.#socket.write(controlFrame({ t: 'kill', sessionId, keepHistory, requestId }));
+    return answered;
   }
+
+  readonly #killWaits = new Map<string, () => void>();
 
   /** Hand over screen state, so the next daemon can restore it exactly rather than approximately. */
   stash(sessionId: string, seq: number, state: string): void {

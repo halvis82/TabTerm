@@ -414,9 +414,32 @@ export class PtyHost {
 
       case 'kill': {
         const live = this.#sessions.get(id);
-        if (!live) return;
+        /**
+         * Answered either way, including when there was nothing to kill.
+         *
+         * A destructive operation that is only a frame put on a socket is a guess about reality.
+         * The daemon lets go of its record of a session once this arrives, and without it that
+         * record was dropped the moment the frame was queued, which after a disconnect means a
+         * process still running that nothing can see or reach.
+         */
+        const requestId = typeof msg['requestId'] === 'string' ? msg['requestId'] : '';
+        const answer = (): void => {
+          if (requestId !== '') {
+            this.#send(socket, {
+              t: 'killed',
+              requestId,
+              sessionId: id,
+              existed: live !== undefined,
+            });
+          }
+        };
+        if (!live) {
+          answer();
+          return;
+        }
         this.#sessions.delete(id);
         void killPty(live.handle, id);
+        answer();
         /**
          * Whether the output goes with it depends on who ended it.
          *

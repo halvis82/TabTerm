@@ -97,6 +97,59 @@ order, and a second browser profile saying it does not have a workspace it never
 
 ---
 
+### Ending is confirmed, not assumed
+
+A destructive request that is only a frame put on a socket is a guess about what happened. The
+daemon asks the PTY host to end a session, the host answers whether it still had it, and only then
+does the daemon let go of its record.
+
+Without that, a kill issued while the host was disconnected dropped the record the moment the
+frame was queued: a process still running, with nothing able to see, reach or end it. Now an
+unconfirmed ending leaves the session where it is, logged, and visible in Running Now.
+
+### The PTY host identifies itself
+
+A socket is not an identity. The host generates an instance id when it starts and returns it in
+`hello`, and the daemon compares it on every reconnection.
+
+The same instance means the terminals are exactly where they were, whatever the socket did:
+nothing is ended, sessions are reconciled, and output produced during the gap is replayed. A
+different instance means the old host's sessions are genuinely beyond reach; those records are let
+go of with `forgetLostSession`, which signals nothing, because sending a kill would reach a process
+that never had them.
+
+Anything the daemon was holding to send is dropped rather than delivered to a host it has not
+identified. Writes, resizes and kills all name sessions, and a session id means nothing to a
+different process; at best the frame is ignored, at worst a kill lands on an id the new host
+happens to know. The outbox used to be flushed the moment a socket existed, before `hello` had
+even been sent.
+
+### The host resists ordinary signals
+
+The host owns the only handles to every running session, so exiting it makes all of them
+unreachable through TabTerm, which from the person's side is the same as having killed them.
+
+A plain `SIGTERM` is not a statement of intent. It is what a packaging script, a stray
+`killall node`, a `launchctl kickstart` aimed at the daemon, or a session manager tidying up
+sends without knowing what this process is. A host holding sessions logs why it is staying and
+carries on. An empty one stops, because there is nothing to lose.
+
+The deliberate way to stop it is Reset, which ends the sessions first and leaves it holding
+nothing. `TABTERM_HOST_FORCE_STOP=1` is the escape hatch for uninstalling.
+
+### No terminal the daemon would take with it
+
+`LocalPtyBackend` spawns terminals as children of the daemon, so every one of them dies when the
+daemon does, and the daemon is restarted by an ordinary update. It used to be the automatic answer
+whenever the durable host failed to start, with a warning in a log nobody reads.
+
+A product whose promise is that processes outlive the interface has to fail closed when the thing
+that keeps that promise is unavailable. With no host, no terminal is created: the daemon runs, the
+interface works, and it says what is wrong. `TABTERM_ALLOW_LOCAL_PTY=1` brings the old behavior
+back for development.
+
+---
+
 ## 3. Detach
 
 Detaching is triggered by:

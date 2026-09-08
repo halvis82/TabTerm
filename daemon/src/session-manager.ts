@@ -693,7 +693,24 @@ export class SessionManager {
       ...('closeEventId' in cause ? { closeEventId: cause.closeEventId } : {}),
       ...('closedAt' in cause ? { closedAt: new Date(cause.closedAt).toISOString() } : {}),
     });
-    await this.#pty.kill(session.id, cause.keepHistory === true);
+    /**
+     * The record is let go of only once the backend says the process is gone.
+     *
+     * A kill that was not acknowledged is a kill that may not have happened: the host could have
+     * been disconnected, or replaced. Forgetting the session then leaves a process running that
+     * nothing can see, reach, or end, which is a worse outcome than an entry in Running Now for
+     * something already dead.
+     */
+    try {
+      await this.#pty.kill(session.id, cause.keepHistory === true);
+    } catch (e: unknown) {
+      warn('session.terminate.unconfirmed', {
+        sessionId: session.id,
+        cause: cause.kind,
+        error: String(e),
+      });
+      return;
+    }
     this.#reap(session);
   }
 
