@@ -67,6 +67,26 @@ afterAll(async () => {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Wait for the list to settle on an answer about one session, rather than asking once.
+ *
+ * The emulator parses what is written to it on its own schedule, so a screen asserted on in the
+ * same tick as the write is a screen that may not have been drawn yet. Asking once made the check
+ * for a **cleared** session fail two runs in three: the clear had been written and not yet
+ * applied, so the card was still there, correctly, for another moment.
+ *
+ * Waiting cannot hide a real fault. A session that genuinely never leaves the list stays in it
+ * until the ceiling and the assertion after this still fails.
+ */
+async function untilListed(sessionId: string, present: boolean, ms = 4000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    const ids = (await listed()).map((s) => s.sessionId);
+    if (ids.includes(sessionId) === present) return;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
 async function listed(): Promise<readonly LiveSession[]> {
   const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
   const seen: ControlMessage[] = [];
@@ -117,6 +137,7 @@ describe('running now', () => {
     sessions.noteCommandStarted(used);
     used.vt.write(Buffer.from('$ echo hello\r\nhello\r\n$ ', 'utf8'));
 
+    await untilListed(used.id, true);
     expect((await listed()).map((s) => s.sessionId)).toContain(used.id);
   });
 
@@ -132,10 +153,12 @@ describe('running now', () => {
     const cleared = sessions.create({ cols: 80, rows: 24 });
     sessions.noteCommandStarted(cleared, 'clear');
     cleared.vt.write(Buffer.from('$ clear\r\nsome output\r\n$ ', 'utf8'));
+    await untilListed(cleared.id, true);
     expect((await listed()).map((s) => s.sessionId)).toContain(cleared.id);
 
     // And now the clear takes effect: the screen holds a prompt and nothing else.
     cleared.vt.write(Buffer.from('\u001b[2J\u001b[H$ ', 'utf8'));
+    await untilListed(cleared.id, false);
     expect((await listed()).map((s) => s.sessionId)).not.toContain(cleared.id);
   });
 

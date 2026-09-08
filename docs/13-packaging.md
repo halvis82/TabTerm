@@ -51,6 +51,13 @@ it would replace the running host and end every terminal on the machine.
 A machine where the bundle cannot be built still gets a working TabTerm. It gets the old prompts
 too, and the installer says so rather than leaving it to be discovered.
 
+**A build that fails does not throw away an identity that already works.** An install where the
+bundle cannot be rebuilt, but a working one is already in place, keeps it and says so. Falling
+back to the bare interpreter there silently undoes the thing the bundle exists for, and the only
+sign is one line in a long install: the symptom arrives days later as macOS asking for permission
+on every agent launch again. Observed from a transient failure, on a machine whose installed
+bundle was perfectly good.
+
 ## 1. The daemon must be an app bundle
 
 Not a convenience. A requirement, driven by macOS TCC (`10-limitations.md` tier 2.1).

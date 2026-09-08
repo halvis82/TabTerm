@@ -194,6 +194,21 @@ describe('the installer launches the daemon through the bundle', () => {
     expect(install).toMatch(/s\|__NODE__\|\$LAUNCH_NODE\|g/);
   });
 
+  it('keeps a working identity when it cannot rebuild one', () => {
+    /**
+     * A failed build is a reason to leave the identity alone, not a reason to throw it away.
+     *
+     * The fallback to the bare interpreter is right for a machine that has never had a bundle and
+     * wrong for one that has: it silently undoes the thing the bundle exists for, and the only
+     * sign is one line in a long install. The symptom arrives days later as macOS asking for
+     * permission on every agent launch. Observed from a transient failure on a machine whose
+     * installed bundle was perfectly good.
+     */
+    expect(install).toContain('keeping the one already installed');
+    // And the branch is guarded by actually running it, not by the directory existing.
+    expect(install).toMatch(/elif "\$APP\/Contents\/MacOS\/node" -e/);
+  });
+
   it('falls back rather than failing to install, and says what that costs', () => {
     // A machine where the bundle cannot be built still gets a working TabTerm. It gets the old
     // prompts too, and is told so rather than left to discover it.

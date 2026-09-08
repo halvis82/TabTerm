@@ -145,6 +145,16 @@ if TABTERM_NODE="$NODE" "$NODE" "$REPO/scripts/build-app-bundle.mjs" \
     echo "  WARNING: the bundled runtime does not run here, falling back to $NODE"
     echo "           privacy prompts will say \"node\" and may repeat"
   fi
+elif "$APP/Contents/MacOS/node" -e "require('node:sqlite')" >/dev/null 2>&1; then
+  # The build failed, and there is already a working bundle here from a previous install.
+  #
+  # Keep it. A failed build is a reason to leave the identity alone, not a reason to throw it
+  # away: falling back to the bare interpreter here silently undoes the thing the bundle exists
+  # for, and the only sign is one line in a long install. It happened, from a transient failure,
+  # and the symptom is macOS asking for permission on every agent launch again days later.
+  LAUNCH_NODE="$APP/Contents/MacOS/node"
+  echo "  WARNING: could not rebuild the app bundle, keeping the one already installed"
+  echo "           privacy identity is unchanged: com.tabterm.daemon"
 else
   LAUNCH_NODE="$NODE"
   echo "  WARNING: could not build the app bundle, falling back to $NODE"
