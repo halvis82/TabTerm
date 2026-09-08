@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { PROTOCOL_VERSION, VERSION, paneCount } from '@tabterm/shared';
 import { initAuth, verifyToken } from './auth.js';
 import { AgentBridge } from './agent-bridge.js';
-import { loadConfig, paths } from './config.js';
+import { loadConfig, paths, ignoredConfigFields } from './config.js';
 import { acquireLock } from './lockfile.js';
 import { debug, error, info, initLog, warn } from './log.js';
 import { isAFailureWorthSaying } from './notify-policy.js';
@@ -51,6 +51,9 @@ async function main(): Promise<void> {
   mkdirSync(paths.state, { recursive: true, mode: 0o700 });
   mkdirSync(paths.scrollback, { recursive: true, mode: 0o700 });
   initLog(config.logLevel);
+  // A hand edited config.json should not be able to destabilise anything, so a field that
+  // cannot be used is dropped and named rather than taken at face value. See `usableFields`.
+  for (const field of ignoredConfigFields) warn('config.field-ignored', { field });
 
   let releaseLock: () => void;
   try {

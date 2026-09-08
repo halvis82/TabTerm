@@ -102,6 +102,76 @@ export interface Config {
   archiveOutput: boolean;
 }
 
+/**
+ * Fields of `config.json` that were refused, in the order they were found.
+ *
+ * Reported by the daemon once logging exists. A person who mistypes a setting should be told
+ * which one rather than left wondering why it had no effect.
+ */
+export const ignoredConfigFields: string[] = [];
+
+/**
+ * The fields of a config file that can actually be used, with the rest left at their defaults.
+ *
+ * The file was spread whole into the running configuration, so anything in it became the truth:
+ * a port of `"7377"` as a string, a scrollback of `-1`, a reap interval of `NaN`, a chunk size of
+ * `1e12`. None of those is refused anywhere further down, and several of them reach the layer that
+ * keeps terminals alive. A hand-edited optional file should not be able to destabilise that.
+ *
+ * Validated per field rather than per file, and a bad field is warned about and dropped rather
+ * than taking the whole file with it. Somebody who mistypes one number should not silently lose
+ * the other nine settings they got right.
+ *
+ * `DEFAULTS` is the schema. Every field's default says what kind it is and what a sane magnitude
+ * looks like, which keeps this honest as fields are added: a new field is covered the moment it
+ * has a default, rather than the day somebody remembers to add it here.
+ */
+function usableFields(parsed: Partial<Config>, base: Config): Partial<Config> {
+  const good: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    const fallback = (base as unknown as Record<string, unknown>)[key];
+    if (fallback === undefined) continue; // Not a field this build knows about.
+
+    if (typeof fallback === 'number') {
+      // Finite, positive, and not absurd. A million times the shipped value is far past anything
+      // meant, and well short of the sizes that turn an allocation into a crash.
+      const ceiling = Math.max(Math.abs(fallback), 1) * 1_000_000;
+      if (typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= ceiling) {
+        good[key] = value;
+        continue;
+      }
+    } else if (typeof fallback === 'boolean') {
+      if (typeof value === 'boolean') {
+        good[key] = value;
+        continue;
+      }
+    } else if (typeof fallback === 'string') {
+      if (typeof value === 'string' && value.trim() !== '') {
+        good[key] = value;
+        continue;
+      }
+    } else if (Array.isArray(fallback)) {
+      if (Array.isArray(value) && value.every((v) => typeof v === 'string' && v !== '')) {
+        good[key] = value;
+        continue;
+      }
+    } else {
+      // A shape this function does not understand is left alone rather than guessed at.
+      good[key] = value;
+      continue;
+    }
+
+    /**
+     * Recorded, not logged from here.
+     *
+     * `log.ts` reads `paths` from this module, so importing it back would be a cycle, and this
+     * runs before logging has been set up in any case. The daemon reports these once it can.
+     */
+    ignoredConfigFields.push(key);
+  }
+  return good;
+}
+
 export const DEFAULTS: Config = {
   // `TABTERM_PORT` goes with `TABTERM_HOME`: a separate installation needs a separate port.
   port: Number(process.env['TABTERM_PORT'] ?? '') || 7377,
@@ -153,7 +223,7 @@ export async function loadConfig(): Promise<Config> {
     const base = isMemoryMode(parsed.memoryMode)
       ? applyMemoryMode(DEFAULTS, parsed.memoryMode)
       : DEFAULTS;
-    return { ...base, ...parsed };
+    return { ...base, ...usableFields(parsed, base) };
   } catch {
     return { ...DEFAULTS };
   }
