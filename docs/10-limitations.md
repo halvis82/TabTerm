@@ -246,6 +246,22 @@ A pinned Chrome tab renders **only the favicon**. Rich dynamic titles are invisi
 sessions most likely to be pinned. Combined with 1.1, a pinned background session communicates
 through one static 16 px icon.
 
+### 1.7b A queue for an absent host has to choose what to lose
+
+A daemon holds messages for a PTY host that is not currently there, bounded so that a host which
+never returns cannot become unbounded memory. What the bound throws away is the whole question.
+
+It threw away the oldest, which is close to the worst possible answer: the oldest message for a
+session is its `spawn`, so a burst of typing evicted the thing that creates the terminal those
+keystrokes are addressed to, and a burst of resizes evicted the keystrokes. Both losses were
+silent.
+
+It now coalesces first, because a resize, a stash and a budget are statements of a current value
+and only the last per session is true. Then it drops housekeeping for sessions with nothing at
+stake. Only then does it give up one session's input, taking that session's `spawn` with it, and
+it records which session so the terminal can be told. A write delivered to a session that was
+never created is not a smaller loss than a dropped write.
+
 ### 1.8 chrome.commands rejects Command+Alt, and caps suggested keys at four
 Measured on Chrome 150. `Command+Alt+<key>` is rejected by manifest validation in either modifier
 order, so the originally planned `Cmd+Option+T`, `Cmd+Option+C`, `Cmd+Option+P`, and `Cmd+Option+R`

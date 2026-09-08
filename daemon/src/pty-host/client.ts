@@ -64,6 +64,94 @@ export function readableSpawnError(raw: string): string {
   return text === '' ? 'TabTerm: the program could not be started.' : `TabTerm: ${text}`;
 }
 
+/**
+ * Make room in a queue for an absent host without losing anything a person did.
+ *
+ * Pure and exported because it is the part with the judgement in it: what a bound may throw away
+ * decides whether a terminal can silently swallow typing. It used to throw away the oldest, which
+ * is close to the worst possible answer, since the oldest message for a session is its `spawn`.
+ *
+ * Three passes, in order of how little each costs.
+ *
+ * 1. **Coalesce.** A resize, a stash and a budget are each a statement of a current value, so only
+ *    the last per session says anything true. A resize storm is what fills this queue in practice
+ *    and it compresses to nothing.
+ * 2. **Drop housekeeping** addressed to a session with no input and no spawn at stake.
+ * 3. **Give up one session's input, and name it.** Only if the queue is still over the bound. Its
+ *    `spawn` goes with it: a session created and handed a hole in its input is a terminal in a
+ *    state nobody asked for, and a write addressed to a session that was never created is not a
+ *    smaller loss than a dropped write.
+ */
+export function trimOutbox(
+  messages: readonly unknown[],
+  limit: number,
+): { kept: unknown[]; lostInputFor: string[] } {
+  const idOf = (m: unknown): string => {
+    const o = m as { sessionId?: unknown };
+    return typeof o.sessionId === 'string' ? o.sessionId : '';
+  };
+  const typeOf = (m: unknown): string => {
+    const o = m as { t?: unknown };
+    return typeof o.t === 'string' ? o.t : '';
+  };
+
+  let kept = [...messages];
+  if (kept.length <= limit) return { kept, lostInputFor: [] };
+
+  const lastAt = new Map<string, number>();
+  kept.forEach((m, i) => {
+    const t = typeOf(m);
+    if (t === 'resize' || t === 'stash' || t === 'budget') lastAt.set(`${t}:${idOf(m)}`, i);
+  });
+  kept = kept.filter((m, i) => {
+    const t = typeOf(m);
+    if (t !== 'resize' && t !== 'stash' && t !== 'budget') return true;
+    return lastAt.get(`${t}:${idOf(m)}`) === i;
+  });
+  if (kept.length <= limit) return { kept, lostInputFor: [] };
+
+  const atStake = new Set<string>();
+  for (const m of kept) {
+    const t = typeOf(m);
+    if (t === 'write' || t === 'inject' || t === 'spawn') atStake.add(idOf(m));
+  }
+  kept = kept.filter((m) => {
+    const t = typeOf(m);
+    if (t !== 'mark' && t !== 'clear') return true;
+    return atStake.has(idOf(m));
+  });
+  if (kept.length <= limit) return { kept, lostInputFor: [] };
+
+  const lostInputFor: string[] = [];
+  while (kept.length > limit) {
+    const held = new Map<string, number>();
+    for (const m of kept) {
+      const t = typeOf(m);
+      if (t === 'write' || t === 'inject') held.set(idOf(m), (held.get(idOf(m)) ?? 0) + 1);
+    }
+    let worst = '';
+    let most = 0;
+    for (const [id, n] of held) {
+      if (n > most) {
+        most = n;
+        worst = id;
+      }
+    }
+    if (worst === '') {
+      // Nothing left that is input, so the bound cannot be met without losing something that is
+      // not. Keep the newest, which is the closest thing to the current state of the world.
+      kept = kept.slice(-limit);
+      break;
+    }
+    lostInputFor.push(worst);
+    kept = kept.filter((m) => idOf(m) !== worst);
+  }
+  return { kept, lostInputFor };
+}
+
+/** How much may be held for a host that is not there. See `trimOutbox` for what gives way. */
+const OUTBOX_LIMIT = 500;
+
 export class PtyHostClient {
   #socket: Socket | null = null;
   #pending = new Uint8Array(0);
@@ -338,11 +426,34 @@ export class PtyHostClient {
    * receives anything, forever, with no error anywhere. That is a lost terminal, which is the
    * one outcome this product cannot have.
    *
-   * Bounded, because a host that never comes back must not turn into unbounded memory. The
-   * oldest go first: a stale `write` for a session that no longer exists is worth less than the
-   * `spawn` that would create a new one.
+   * Bounded, because a host that never comes back must not turn into unbounded memory. What the
+   * bound may throw away is the whole question, and it used to be "the oldest", which is close to
+   * the worst possible answer: the oldest message for a session is its `spawn`, so a burst of
+   * typing could evict the thing that creates the terminal those keystrokes are addressed to, and
+   * a burst of resizes could evict the keystrokes. Either way the loss was silent, and a terminal
+   * that accepts input and discards it is worse than one that refuses.
+   *
+   * So the bound is reached by throwing away what carries no information first, and never by
+   * throwing away input.
    */
   #outbox: unknown[] = [];
+
+  /**
+   * Ordered input was lost, and the sessions it was lost for.
+   *
+   * Set only when coalescing has already run and the queue is still over its bound, which means
+   * there is genuinely more typing held than may be kept. Nothing is quietly dropped on the
+   * strength of it: the caller is told, and the terminal is told, because a hole in a keystroke
+   * stream is not something a person can be left to discover.
+   */
+  #lostInputFor = new Set<string>();
+
+  /** Sessions whose input was dropped while disconnected, taken and cleared. */
+  takeLostInput(): string[] {
+    const ids = [...this.#lostInputFor];
+    this.#lostInputFor.clear();
+    return ids;
+  }
 
   /**
    * Send something that names a session, or hold it until there is a host to name it to.
@@ -356,7 +467,17 @@ export class PtyHostClient {
       return;
     }
     this.#outbox.push(message);
-    if (this.#outbox.length > 500) this.#outbox.shift();
+    if (this.#outbox.length > OUTBOX_LIMIT) this.#trimOutbox();
+  }
+
+  /** See `trimOutbox`, which holds the judgement about what a bound may throw away. */
+  #trimOutbox(): void {
+    const { kept, lostInputFor } = trimOutbox(this.#outbox, OUTBOX_LIMIT);
+    this.#outbox = kept;
+    for (const id of lostInputFor) {
+      this.#lostInputFor.add(id);
+      warn('pty-host.outbox-input-dropped', { sessionId: id });
+    }
   }
 
   /**
