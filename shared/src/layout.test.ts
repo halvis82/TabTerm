@@ -1,15 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import type { LayoutNode, SplitDirection } from './model.js';
+import type { PanePlace } from './layout.js';
 import {
+  LayoutError,
   MAX_PANE_LABEL,
   cleanLabelColor,
   cleanPaneLabel,
-  LayoutError,
   closePane,
   findPane,
   isValidLayout,
   paneCount,
   panes,
+  placeOf,
+  restorePane,
   setPaneSession,
   setRatio,
   splitPane,
@@ -290,5 +293,98 @@ describe('setPaneSession', () => {
 
   it('refuses a pane that is not there rather than doing nothing quietly', () => {
     expect(() => setPaneSession(terminalNode('a', 's1'), 'nope', 's2')).toThrow(LayoutError);
+  });
+});
+
+/**
+ * Undo has to put a pane back where it was, which means knowing where that was.
+ *
+ * Closing a pane collapses the split that held it, so every fact about its position goes with it.
+ * Undo then placed it beside whichever pane happened to be focused, which is usually somewhere
+ * else entirely: "when i close a session pane in a multi view and use the reopen button, it
+ * doesn't reopen in the same location. that should be completely unchanged."
+ */
+describe('putting a pane back where it was', () => {
+  const three = () => {
+    let root = terminalNode('a', 's-a');
+    root = splitPane(root, 'a', 'horizontal', 'b', 's-b', 0.3);
+    root = splitPane(root, 'b', 'vertical', 'c', 's-c', 0.7);
+    return root;
+  };
+
+  it('has nothing to say about a pane that is the only one', () => {
+    expect(placeOf(terminalNode('a', 's-a'), 'a')).toBeNull();
+  });
+
+  it('names the sibling, the side, the direction and the ratio', () => {
+    const place = placeOf(three(), 'a');
+    expect(place).toEqual({
+      siblingPaneIds: ['b', 'c'],
+      side: 'first',
+      direction: 'horizontal',
+      ratio: 0.3,
+    });
+  });
+
+  it('knows a pane on the second side is on the second side', () => {
+    expect(placeOf(three(), 'c')?.side).toBe('second');
+    expect(placeOf(three(), 'c')?.direction).toBe('vertical');
+  });
+
+  it('closing and restoring leaves the layout exactly as it was', () => {
+    // The whole of what was asked for, stated as an equality: the tree afterwards is the tree
+    // before, not merely a tree with the same panes in it.
+    for (const paneId of ['a', 'b', 'c']) {
+      const before = three();
+      const place = placeOf(before, paneId);
+      const sessionId = panes(before).find((p) => p.paneId === paneId)?.sessionId ?? '';
+      const closed = closePane(before, paneId);
+      expect(closed).not.toBeNull();
+      expect(place).not.toBeNull();
+      const back = restorePane(closed as LayoutNode, place as PanePlace, paneId, sessionId);
+      expect(back, `restoring ${paneId}`).toEqual(before);
+    }
+  });
+
+  it('keeps a subtree whole rather than reaching inside it', () => {
+    // `a` sat beside a split of `b` and `c`. Putting it back beside `b` alone would be a
+    // different shape with the same panes in it.
+    const before = three();
+    const place = placeOf(before, 'a') as PanePlace;
+    const closed = closePane(before, 'a') as LayoutNode;
+    const back = restorePane(closed, place, 'a', 's-a') as LayoutNode;
+    expect(back.type).toBe('split');
+    if (back.type === 'split') {
+      expect(back.children[0]).toEqual(terminalNode('a', 's-a'));
+      expect(paneCount(back.children[1])).toBe(2);
+    }
+  });
+
+  it('goes back beside whatever is left of its sibling', () => {
+    // Half the sibling can have been closed too while the offer was up. Beside what survives is
+    // the nearest thing to where it was, and it is what somebody undoing expects to see.
+    const before = three();
+    const place = placeOf(before, 'a') as PanePlace;
+    let closed = closePane(before, 'a') as LayoutNode;
+    closed = closePane(closed, 'b') as LayoutNode;
+    const back = restorePane(closed, place, 'a', 's-a') as LayoutNode;
+    expect(back).not.toBeNull();
+    expect(
+      panes(back)
+        .map((p) => p.paneId)
+        .sort(),
+    ).toEqual(['a', 'c']);
+    // On the side it was on, which is still known.
+    if (back.type === 'split') expect(back.children[0]).toEqual(terminalNode('a', 's-a'));
+  });
+
+  it('gives up when nothing of the sibling is left', () => {
+    // Then there is no "where it was" any more, and the caller places it the ordinary way.
+    const before = three();
+    const place = placeOf(before, 'b') as PanePlace;
+    // `b`'s sibling was `c` alone. Close both.
+    let closed = closePane(before, 'b') as LayoutNode;
+    closed = closePane(closed, 'c') as LayoutNode;
+    expect(restorePane(closed, place, 'b', 's-b')).toBeNull();
   });
 });

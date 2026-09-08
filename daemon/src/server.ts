@@ -5,22 +5,24 @@ import { isAbsolute, resolve as resolvePath } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
   AUTH_TIMEOUT_MS,
-  paneCount,
-  panes,
   CLOSE_POLICY_VIOLATION,
   PROTOCOL_VERSION,
+  ProtocolError,
   VERSION,
   ackFrame,
   controlFrame,
   decodeFrame,
   outputFrame,
-  ProtocolError,
+  paneCount,
+  panes,
+  placeOf,
   type ClientMessage,
   type LayoutNode,
   type ServerErrorCode,
   type ServerMessage,
 } from '@tabterm/shared';
 import { authDelayMs, recordFailure, recordSuccess, verifyToken } from './auth.js';
+import type { PanePlace } from '@tabterm/shared';
 import type { Config } from './config.js';
 import { FlowController } from './flow-control.js';
 import { debug, info, warn } from './log.js';
@@ -825,6 +827,14 @@ export class DaemonServer {
           .sessionIds(workspace)
           .find((id) => this.#workspaces.paneFor(workspace, id) === msg.paneId);
         const wasOnlyPane = paneCount(workspace.layout) <= 1;
+        /**
+         * Where it was, read before it is closed, because closing collapses the split it was in.
+         *
+         * Undo used to put a pane back beside whichever one happened to be focused, which is
+         * usually not where it came from: "it doesn't reopen in the same location. that should be
+         * completely unchanged."
+         */
+        const place = placeOf(workspace.layout, msg.paneId);
         this.#workspaces.closePane(msg.workspaceId, msg.paneId);
         if (sessionId) {
           const session = this.#sessions.get(sessionId);
@@ -850,6 +860,8 @@ export class DaemonServer {
               // What the pane was showing, so the offer can name it rather than say "a pane".
               title: session.titleFields.cwd ?? '',
               at: Date.now(),
+              paneId: msg.paneId,
+              ...(place ? { place } : {}),
             });
             this.#pruneClosedPanes();
             // The policy decides what happens to it now, which is the undo window and then an end.
@@ -907,9 +919,21 @@ export class DaemonServer {
           this.#closedPanes.delete(msg.sessionId);
           return;
         }
-        const target = msg.targetPaneId ?? panes(workspace.layout)[0]?.paneId;
-        if (!target) return;
-        this.#workspaces.mergeInto(msg.workspaceId, target, msg.sessionId, 'horizontal');
+        /**
+         * Back where it was, if where it was still exists.
+         *
+         * The sibling it shared a split with can have been closed too while the offer was up, and
+         * an undo that cannot be exact is still worth doing: it falls back to the ordinary
+         * placement rather than refusing.
+         */
+        const putBack = record.place
+          ? this.#workspaces.restore(msg.workspaceId, record.place, record.paneId, msg.sessionId)
+          : false;
+        if (!putBack) {
+          const target = msg.targetPaneId ?? panes(workspace.layout)[0]?.paneId;
+          if (!target) return;
+          this.#workspaces.mergeInto(msg.workspaceId, target, msg.sessionId, 'horizontal');
+        }
         this.#closedPanes.delete(msg.sessionId);
         this.#sessions.rescheduleReaps();
         /**
@@ -2537,7 +2561,18 @@ export class DaemonServer {
    * to nothing, which is a state every other rule reads as "end this": see the `closed-pane`
    * rule in `cleanup.ts`, which is what holds it for exactly the window and no longer.
    */
-  readonly #closedPanes = new Map<string, { workspaceId: string; title: string; at: number }>();
+  readonly #closedPanes = new Map<
+    string,
+    {
+      workspaceId: string;
+      title: string;
+      at: number;
+      /** The pane's own id, so undo puts back the pane rather than a new one beside it. */
+      paneId: string;
+      /** Where it sat, when it sat anywhere. A lone pane has no place to record. */
+      place?: PanePlace;
+    }
+  >();
 
   /**
    * What "launch an agent" runs, which a person can change.

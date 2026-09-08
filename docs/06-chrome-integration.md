@@ -229,6 +229,53 @@ approval > waiting > failed > success > done > running > idle
 
 Waiting outranks failed deliberately: one of them can still be acted on.
 
+### Whatever will receive the next keystroke shows a cursor
+
+An invariant, not a list of places. It was reported three times about three different moments,
+each fixed where it was found: after a refresh, after placing a marker, after undoing a closed
+pane. Every time, typing worked and the screen said it would not.
+
+Routing a keystroke to the terminal when it arrives is not enough. By then the person has already
+typed into something that looked dead, which is the whole complaint. The terminal has to hold the
+keyboard **before** anything is typed.
+
+What owns it, in order:
+
+1. A real text field somebody put the cursor in. It draws its own caret and nothing takes it
+2. The command menu or the palette while either is open. Both manage their own focus
+3. Otherwise the focused pane's terminal, which is where typing goes anyway
+
+The hole underneath all three reports is the same: **an element that had focus and is then
+removed from the document takes the focus with it.** `activeElement` becomes the body, no `blur`
+is reliably delivered, and the page is left in a state where typing works and nothing says so.
+Redrawing the start screen does that. So does putting a pane back. Removing the check that
+restores it puts the keyboard on `body` at four separate moments in one short session.
+
+Two ways of noticing, because neither is enough alone. A `focusout` with nothing gaining focus
+covers what the browser reports; a half-second timer covers what it does not, and costs one
+property read.
+
+### Undo puts a pane back where it was
+
+Closing a pane collapses the split that held it: the parent is replaced by the surviving sibling,
+and every fact about where the closed one was goes with it. Undo had nothing to work from and
+placed the pane beside whichever one happened to be focused, which is usually somewhere else.
+
+The position is recorded before the pane is closed, described by its **sibling** rather than by a
+path from the root: a path is only valid against the tree it was taken from, and the tree changes
+while the offer is up. A sibling is a set of pane ids, and a pane id still means the same pane
+after anything else has moved.
+
+The set matters. A sibling can be a whole subtree, and naming one pane inside it is not enough to
+find that subtree again: "the node whose first pane is this one" matches the root as readily as
+the subtree, and restoring then wrapped the entire layout instead of half of it, which is the
+right panes in the wrong shape. The smallest node holding every surviving sibling is the sibling,
+however the rest has moved.
+
+Half the sibling can have been closed too while the offer was up. The pane goes back beside what
+survives, which is the nearest thing to where it was. Only when none of it survives does undo fall
+back to placing it the ordinary way.
+
 ### A bar on each pane, only when there is more than one
 
 A tab holding several terminals gives each one a thin strip across the top: what that pane is, a

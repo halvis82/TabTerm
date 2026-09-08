@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { LayoutNode, SplitDirection, Workspace } from '@tabterm/shared';
+import type { LayoutNode, PanePlace, SplitDirection, Workspace } from '@tabterm/shared';
 import {
   cleanLabelColor,
   cleanPaneLabel,
@@ -7,6 +7,7 @@ import {
   findPane,
   insertPane,
   panes,
+  restorePane,
   setPaneSession,
   setRatio,
   splitPane,
@@ -156,6 +157,26 @@ export class WorkspaceStore {
     workspace.layout = next;
     workspace.updatedAt = Date.now();
     return workspace;
+  }
+
+  /**
+   * Put a pane back exactly where it was, and say whether that was possible.
+   *
+   * False when the sibling it sat beside has gone as well, which is the caller's cue to place it
+   * the ordinary way. An undo that cannot be exact is still worth doing.
+   */
+  restore(workspaceId: string, place: PanePlace, paneId: string, sessionId: string): boolean {
+    const workspace = this.#require(workspaceId);
+    const next = restorePane(workspace.layout, place, paneId, sessionId);
+    if (next === null) return false;
+    workspace.layout = next;
+    workspace.updatedAt = Date.now();
+    info('workspace.pane.restored', {
+      workspaceId,
+      paneId,
+      beside: place.siblingPaneIds.join(','),
+    });
+    return true;
   }
 
   setRatio(workspaceId: string, paneId: string, ratio: number): Workspace {

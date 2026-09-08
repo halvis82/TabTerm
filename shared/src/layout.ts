@@ -102,6 +102,128 @@ export function setPaneSession(root: LayoutNode, paneId: string, sessionId: stri
   return walk(root);
 }
 
+/**
+ * Where a pane sits, in terms that survive it being removed.
+ *
+ * Closing a pane collapses the split that held it: the parent is replaced by the surviving
+ * sibling, and every fact about where the closed one was is gone with it. Undo then had nothing
+ * to work from and put the pane back beside whichever one happened to be focused, which is
+ * usually not where it came from.
+ *
+ * Described by its **sibling** rather than by a path from the root, because a path is only valid
+ * against the tree it was taken from and the tree changes while the offer is up. A sibling is a
+ * pane id, and a pane id still means the same pane after anything else has moved.
+ */
+export interface PanePlace {
+  /**
+   * Every pane that was on the other side of the split, not just one of them.
+   *
+   * A sibling can be a whole subtree, and naming one pane inside it is not enough to find that
+   * subtree again: "the node whose first pane is this one" matched the root as readily as the
+   * subtree, so restoring wrapped the entire layout instead of half of it. The set says exactly
+   * how much of the tree was the sibling, and the smallest node holding all of it is that
+   * subtree however the rest has moved.
+   */
+  siblingPaneIds: string[];
+  /** Which half of that split it was: `first` is left or top. */
+  side: 'first' | 'second';
+  direction: SplitDirection;
+  ratio: number;
+}
+
+/** Where a pane sits right now, or null when it is the only one. */
+export function placeOf(root: LayoutNode, paneId: string): PanePlace | null {
+  const walk = (node: LayoutNode): PanePlace | null => {
+    if (node.type === 'terminal') return null;
+    for (const side of ['first', 'second'] as const) {
+      const mine = side === 'first' ? node.children[0] : node.children[1];
+      const other = side === 'first' ? node.children[1] : node.children[0];
+      if (mine.type !== 'terminal' || mine.paneId !== paneId) continue;
+      /**
+       * The sibling is a pane, or the first pane inside whatever the sibling is.
+       *
+       * A sibling can be a whole subtree. Naming one pane inside it is enough to find the split
+       * again later, because putting the restored pane back beside that pane rebuilds the same
+       * shape from the outside: the subtree stays whole and gains a parent on the right side.
+       */
+      const siblingPaneIds = panes(other).map((p) => p.paneId);
+      if (siblingPaneIds.length === 0) return null;
+      return { siblingPaneIds, side, direction: node.direction, ratio: node.ratio };
+    }
+    return walk(node.children[0]) ?? walk(node.children[1]);
+  };
+  return walk(root);
+}
+
+/**
+ * Put a pane back where it was, on the side it was on.
+ *
+ * `splitPane` cannot do this: it always puts the new pane second, which is right for a split
+ * somebody asked for and wrong for an undo, where being on the left is part of what is being
+ * restored.
+ *
+ * Falls back to `null` when the sibling has gone as well, which is the caller's cue to place it
+ * the ordinary way rather than to fail. An undo that cannot be exact is still worth doing.
+ */
+export function restorePane(
+  root: LayoutNode,
+  place: PanePlace,
+  paneId: string,
+  sessionId: string,
+): LayoutNode | null {
+  /**
+   * What is left of the sibling. Some of it may have been closed while the offer was up.
+   *
+   * The pane goes back beside whatever survives, which is the nearest thing to where it was, and
+   * beside nothing at all is the caller's cue to place it the ordinary way instead.
+   */
+  const here = new Set(panes(root).map((p) => p.paneId));
+  const survivors = place.siblingPaneIds.filter((id) => here.has(id));
+  if (survivors.length === 0) return null;
+
+  /**
+   * The smallest node holding every surviving sibling, which is the sibling itself.
+   *
+   * Smallest, because a bigger one is also true of every ancestor up to the root: matching on
+   * "contains the sibling" without this wrapped the whole layout, which put a three pane tab back
+   * as the wrong shape with the right panes in it.
+   */
+  const holdsAll = (node: LayoutNode): boolean => {
+    const ids = new Set(panes(node).map((p) => p.paneId));
+    return survivors.every((id) => ids.has(id));
+  };
+  const smallest = (node: LayoutNode): LayoutNode => {
+    if (node.type === 'terminal') return node;
+    for (const child of node.children) if (holdsAll(child)) return smallest(child);
+    return node;
+  };
+  if (!holdsAll(root)) return null;
+  const sibling = smallest(root);
+
+  const restored = terminalNode(paneId, sessionId);
+  const wrapped: LayoutNode = {
+    type: 'split',
+    direction: place.direction,
+    ratio: clampRatio(place.ratio),
+    children: place.side === 'first' ? [restored, sibling] : [sibling, restored],
+  };
+
+  // The sibling may be the whole layout, in which case the wrap is the new root.
+  if (sibling === root) return wrapped;
+
+  const rebuild = (node: LayoutNode): LayoutNode => {
+    if (node.type === 'terminal') return node;
+    return {
+      ...node,
+      children: [
+        node.children[0] === sibling ? wrapped : rebuild(node.children[0]),
+        node.children[1] === sibling ? wrapped : rebuild(node.children[1]),
+      ],
+    };
+  };
+  return rebuild(root);
+}
+
 /** Insert an existing session as a new pane beside a target. This is what merge does. */
 export function insertPane(
   root: LayoutNode,

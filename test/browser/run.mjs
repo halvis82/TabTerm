@@ -201,6 +201,8 @@ const COVERS = [
   ['daemon/src/launcher-data', ['command-panel', 'folder-picker', 'palette', 'menu-aftermath']],
   ['extension/src/launcher/panel-view', ['command-panel', 'panel-focus', 'panel-in-view']],
   ['extension/src/layout/split-view', ['pane-bar', 'layout', 'workspace', 'multi-pane-sweep']],
+  ['shared/src/layout', ['always-typeable', 'layout', 'workspace', 'undo-close', 'pane-close']],
+  ['daemon/src/workspace-store', ['always-typeable', 'layout', 'workspace', 'undo-close']],
   ['daemon/src/attention-notices', ['agent-favicon', 'notifications']],
   ['daemon/src/file-slice', ['resume-and-tabs']],
   ['extension/src/terminal/themes', ['light-mode', 'light-panels']],
