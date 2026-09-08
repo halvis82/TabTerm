@@ -103,6 +103,15 @@ Extension commands are routed by Chrome and are not subject to the page-level in
 
 New tabs open at `currentIndex + 1` and inherit the current tab's group when one exists.
 
+**A command also brings Chrome's window to the front.** `active: true` on a tab selects it within
+its window and does nothing to the window itself, which is invisible while Chrome is the focused
+application and wrong the moment it is not. A shortcut set to global fires from another app
+entirely, so the terminal opened behind whatever the person was looking at and had to be gone and
+found. The paths that focus an existing tab always did this; the two that create one did not,
+which is why it only ever showed up on the shortcuts. Raising the window is best effort: the
+window can be gone by the time it runs, and failing to raise one is not a reason to fail the thing
+that opened it.
+
 ### Stable URL
 
 ```
@@ -778,6 +787,13 @@ itself and it runs for an hour, so `command-end` fires when it is quit rather th
 thinking. Turns are bounded by the hooks that report their ends, which is why
 `09-agent-integration.md` treats hook installation as part of the product rather than as a
 footnote in the installer.
+
+### Every one is logged
+
+`notify.sent`, with priority, title and body. One line per interruption, which is by definition
+rare. Nothing recorded what had actually been raised, so a report of an unwanted notification
+could only be answered by reading the code and guessing which of the seven it was, and that guess
+was wrong once. A log turns the next report into a lookup.
 
 ### Suppression
 

@@ -136,6 +136,27 @@ export async function groupByProject(tabId: number, projectName: string): Promis
  * A tab inside a group is the exception. There, the end of the strip is outside the group, and
  * being torn out of a group is a bigger surprise than not being last.
  */
+/**
+ * Bring the window holding a tab to the front of the desktop.
+ *
+ * `active: true` on a tab makes it the selected tab **of its window**, and nothing more. When the
+ * key that opened it was a global shortcut, Chrome was in the background, so the terminal opened
+ * behind whatever the person was looking at and they had to go and find it. The two paths that
+ * focus an existing tab already did this; the two that create one did not, which is why it only
+ * ever went wrong on the shortcuts.
+ *
+ * Best effort. A window can be gone by the time this runs, and failing to raise a window is never
+ * a reason to fail the thing that opened it.
+ */
+async function bringToFront(windowId: number | undefined): Promise<void> {
+  if (windowId === undefined || windowId === chrome.windows.WINDOW_ID_NONE) return;
+  try {
+    await chrome.windows.update(windowId, { focused: true, drawAttention: true });
+  } catch {
+    /* The window went away. The tab still exists and is still selected. */
+  }
+}
+
 async function openTerminal(): Promise<void> {
   const [current] = await chrome.tabs.query({ active: true, currentWindow: true });
   const grouped = current?.groupId !== undefined && current.groupId !== -1;
@@ -145,6 +166,7 @@ async function openTerminal(): Promise<void> {
     active: true,
   });
   if (created.id !== undefined) await placeInGroup(created.id, current?.groupId);
+  await bringToFront(created.windowId);
 }
 
 interface NotifyMessage {
@@ -934,6 +956,7 @@ async function launchAgentTab(): Promise<void> {
     active: true,
   });
   if (created.id !== undefined) await placeInGroup(created.id, current?.groupId);
+  await bringToFront(created.windowId);
 }
 
 /**
