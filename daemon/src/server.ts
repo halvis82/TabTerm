@@ -783,6 +783,68 @@ export class DaemonServer {
     }
   }
 
+  /**
+   * Reset Everything, which has to be honest about what it achieved.
+   *
+   * Its own method because it must wait for the answers, and the message handler is synchronous
+   * on purpose: everything else it does is immediate, and making it async to accommodate one
+   * case would change the ordering of every other.
+   */
+  async #resetEverything(client: Client, msg: { restartDaemon?: boolean }): Promise<void> {
+    /**
+     * The button for when everything has gone wrong.
+     *
+     * Ends every session, drops every byte of history, and optionally replaces the daemon
+     * itself. Nothing here is recoverable, which is why the interface confirms first and why
+     * the reply says what actually happened rather than "ok".
+     */
+    /**
+     * Counted from what came back, not from what was asked for.
+     *
+     * This used to take the length of the list, fire the terminations without waiting, and
+     * report that number as the number ended. So a host that had gone away produced a Reset
+     * that said it had ended everything while every process was still running, which is the
+     * one situation where somebody most needs to be told the truth.
+     *
+     * History is dropped after the answers arrive, for the same reason: erasing the record of
+     * a terminal that is still running takes away the only way back to it.
+     */
+    const sessions = this.#sessions.all;
+    const requested = sessions.length;
+    const outcomes = await Promise.all(
+      sessions.map((session) => this.#sessions.terminate(session, { kind: 'user-reset' })),
+    );
+    const ended = outcomes.filter((o) => o.outcome === 'gone').length;
+    const unconfirmed = outcomes.filter((o) => o.outcome === 'unconfirmed');
+    const removed = this.#resetHistory?.() ?? 0;
+    if (unconfirmed.length > 0) {
+      warn('reset.incomplete', {
+        requested,
+        ended,
+        unconfirmed: unconfirmed.length,
+        sessionIds: unconfirmed.map((o) => o.sessionId),
+      });
+    }
+    info('reset', { requested, sessionsEnded: ended, historyFilesRemoved: removed });
+    send(
+      client.socket,
+      controlFrame({
+        t: 'reset-done',
+        sessionsEnded: ended,
+        ...(unconfirmed.length > 0 ? { unconfirmed: unconfirmed.length } : {}),
+        historyFilesRemoved: removed,
+        // Not restarted while anything is still running: replacing the daemon cannot end a
+        // process it failed to end, and it would take away the record of it as well.
+        restarting: msg.restartDaemon === true && unconfirmed.length === 0,
+      }),
+    );
+    if (msg.restartDaemon === true && unconfirmed.length === 0) {
+      // Exiting non-zero is what asks launchd to replace this process, since the LaunchAgent
+      // is KeepAlive{SuccessfulExit:false}. Delayed so the reply reaches the page first.
+      setTimeout(() => this.#restart?.(), 400);
+    }
+    return;
+  }
   #onControl(client: Client, msg: ClientMessage): void {
     /* eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check --
        Deliberately partial: unimplemented control messages fall through to the default arm
@@ -1131,10 +1193,20 @@ export class DaemonServer {
          * What Chrome actually has open, which is the only trustworthy answer to "is anybody
          * still using this?".
          *
-         * Accepted from any client. The extension's control connection is the one that sends
-         * it, and a report that arrives from anywhere else can only ever say that more tabs
-         * exist, which is the safe direction.
+         * From the control connection and nowhere else. This was accepted from anybody on the
+         * reasoning that a report can only ever say more tabs exist, which is the safe direction,
+         * and that reasoning stopped being true: a reporter that has been reporting for a while
+         * is believed about **absence** too, so a list that omits a workspace is now part of what
+         * can put it on a clock. One terminal page saying what tabs exist would be a page
+         * manufacturing browser-wide state it cannot see.
+         *
+         * The offscreen document is the only thing that has the whole picture, and it is the only
+         * thing that connects as `control`.
          */
+        if (client.role !== 'control') {
+          warn('tabs-open.refused', { clientId: client.id, role: client.role });
+          return;
+        }
         this.#sessions.reportOpenWorkspaces(client.id, msg.workspaceIds);
         /**
          * A workspace that is open again is not a workspace anybody closed.
@@ -1154,7 +1226,15 @@ export class DaemonServer {
          * Taken at face value here because the extension is the only thing that can tell the
          * difference, and it has already made it: an individual tab removal, not a window or a
          * browser closing, with no other tab still showing the same workspace.
+         *
+         * From the control connection and nowhere else, for the same reason with more force. This
+         * is the single message that creates authorization to end somebody's terminal, and a
+         * terminal page is not in a position to know that a tab was closed, let alone which one.
          */
+        if (client.role !== 'control') {
+          warn('tab-closed.refused', { clientId: client.id, role: client.role });
+          return;
+        }
         this.#sessions.recordTabClosed(msg.workspaceId, msg.eventId);
         return;
       }
@@ -1905,34 +1985,8 @@ export class DaemonServer {
       }
 
       case 'reset-everything': {
-        /**
-         * The button for when everything has gone wrong.
-         *
-         * Ends every session, drops every byte of history, and optionally replaces the daemon
-         * itself. Nothing here is recoverable, which is why the interface confirms first and why
-         * the reply says what actually happened rather than "ok".
-         */
-        const sessions = this.#sessions.all;
-        const ended = sessions.length;
-        for (const session of sessions) {
-          void this.#sessions.terminate(session, { kind: 'user-reset' });
-        }
-        const removed = this.#resetHistory?.() ?? 0;
-        info('reset', { sessionsEnded: ended, historyFilesRemoved: removed });
-        send(
-          client.socket,
-          controlFrame({
-            t: 'reset-done',
-            sessionsEnded: ended,
-            historyFilesRemoved: removed,
-            restarting: msg.restartDaemon,
-          }),
-        );
-        if (msg.restartDaemon) {
-          // Exiting non-zero is what asks launchd to replace this process, since the LaunchAgent
-          // is KeepAlive{SuccessfulExit:false}. Delayed so the reply reaches the page first.
-          setTimeout(() => this.#restart?.(), 400);
-        }
+        // Waited for, not fired and forgotten. See `#resetEverything`.
+        void this.#resetEverything(client, msg);
         return;
       }
 

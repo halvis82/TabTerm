@@ -220,6 +220,22 @@ export const SETTLED_AFTER_MS = 30_000;
  * one of them names an act: a person pressed something, or a person closed something and the
  * grace period they were given ran out. If no member fits, the answer is not to end the session.
  */
+/**
+ * What ending a session actually achieved, as opposed to what was asked for.
+ *
+ * `gone` means the backend confirmed the process is no longer there. `unconfirmed` means the
+ * request was made and nothing came back to say it worked, which is not the same as failure and
+ * is certainly not success: the session keeps its record, because a process nothing can see,
+ * reach or end is a worse outcome than an entry in a list.
+ *
+ * Returned rather than logged because callers act on it. Reset in particular used to count what
+ * it had asked for and report that as what it had done.
+ */
+export interface TerminationOutcome {
+  sessionId: string;
+  outcome: 'gone' | 'unconfirmed';
+}
+
 export type TerminationCause =
   /** A person chose Kill session. */
   | { kind: 'user-kill'; keepHistory?: boolean }
@@ -790,7 +806,7 @@ export class SessionManager {
    * `forgetLostSession`, which signals nothing. A transport that dropped, a host that was
    * replaced, a daemon shutting down: none of them come here.
    */
-  async terminate(session: Session, cause: TerminationCause): Promise<void> {
+  async terminate(session: Session, cause: TerminationCause): Promise<TerminationOutcome> {
     if (cause.kind === 'user-kill') session.endedByRequest = true;
     // Before the signal, because the exit it causes can arrive before this call returns.
     session.endedBy = cause.kind;
@@ -823,9 +839,10 @@ export class SessionManager {
         cause: cause.kind,
         error: String(e),
       });
-      return;
+      return { sessionId: session.id, outcome: 'unconfirmed' };
     }
     this.#reap(session);
+    return { sessionId: session.id, outcome: 'gone' };
   }
 
   /**

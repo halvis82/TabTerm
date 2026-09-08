@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { SessionManager } from './session-manager.js';
 import { WorkspaceStore } from './workspace-store.js';
@@ -454,5 +457,36 @@ describe('the daemon asking again on its own clock', () => {
     await sleep(WELL_PAST_EVERY_TIMER);
     expect(backend.kills).toEqual([]);
     expect(sessions.get(ctx.sessionId)).toBeTruthy();
+  });
+});
+
+/**
+ * A terminal page cannot manufacture browser-wide state.
+ *
+ * `tab-closed` is the single message that creates authorization to end somebody's terminal, and
+ * `tabs-open` is now believed about absence as well as presence, so a list that omits a workspace
+ * is part of what can put it on a clock. Neither is something a page rendering one terminal is in
+ * a position to know. Only the offscreen document has the whole picture, and it is the only thing
+ * that connects as `control`.
+ *
+ * Checked at the handler, because that is where the role is known.
+ */
+describe('which connection may shape the tab lifecycle', () => {
+  it('refuses both lifecycle messages from a data connection', () => {
+    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'server.ts'), 'utf8');
+    for (const message of ['tabs-open', 'tab-closed']) {
+      const handler =
+        new RegExp(`case '${message}': \\{[\\s\\S]*?\\n      \\}`).exec(source)?.[0] ?? '';
+      expect(handler).not.toBe('');
+      // The guard, and that it comes before anything that records or reports.
+      expect(handler).toContain("client.role !== 'control'");
+      const guardAt = handler.indexOf("client.role !== 'control'");
+      const actAt = Math.min(
+        ...[handler.indexOf('recordTabClosed'), handler.indexOf('reportOpenWorkspaces')].filter(
+          (i) => i >= 0,
+        ),
+      );
+      expect(guardAt).toBeLessThan(actAt);
+    }
   });
 });

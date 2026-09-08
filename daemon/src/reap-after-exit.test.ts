@@ -373,3 +373,34 @@ describe('what counts as a terminal nobody has used', () => {
     expect(used({}).afterSeconds).toBe(30);
   });
 });
+
+/**
+ * Ending a session says what it achieved, not what it asked for.
+ *
+ * Reset Everything used to take the length of the session list, fire the terminations without
+ * waiting, and report that number as the number ended. A host that had gone away therefore
+ * produced a Reset that claimed to have ended everything while every process was still running,
+ * which is the one situation where somebody most needs the truth. The outcome is now returned.
+ */
+describe('what ending a session reports', () => {
+  it('says gone when the backend confirmed it', async () => {
+    const id = aDetachedSession('view-1');
+    const session = sessions.get(id);
+    expect(session).toBeDefined();
+    const outcome = await sessions.terminate(session as never, { kind: 'user-kill' });
+    expect(outcome).toEqual({ sessionId: id, outcome: 'gone' });
+    expect(sessions.get(id)).toBeUndefined();
+  });
+
+  it('and unconfirmed when it did not, keeping the record either way', async () => {
+    // A host that has gone away rejects. The session keeps its record on purpose: a process
+    // nothing can see, reach or end is a worse outcome than an entry in a list.
+    const id = aDetachedSession('view-2');
+    const session = sessions.get(id);
+    backend.kill = () => Promise.reject(new Error('the PTY host did not acknowledge'));
+
+    const outcome = await sessions.terminate(session as never, { kind: 'user-kill' });
+    expect(outcome).toEqual({ sessionId: id, outcome: 'unconfirmed' });
+    expect(sessions.get(id)).toBeDefined();
+  });
+});
