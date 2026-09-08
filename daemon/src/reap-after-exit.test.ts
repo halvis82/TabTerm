@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULTS, type Config } from './config.js';
 import { initLog } from './log.js';
 import type { PtyBackend, PtySpawnRequest } from './pty-backend.js';
+import { DEFAULT_NOTIFY_POLICY, isAFailureWorthSaying } from './notify-policy.js';
 import { SessionManager } from './session-manager.js';
 import { WorkspaceStore } from './workspace-store.js';
 
@@ -42,6 +43,10 @@ class ExitableBackend implements PtyBackend {
   resize(): void {}
   kill(sessionId: string): Promise<void> {
     this.kills.push(sessionId);
+    // A real host signals the process and the process then exits, non-zero, because that is what
+    // a shell does when it is hung up on. Reporting it here is what makes this faithful: the
+    // whole defect lived in the gap between the kill and the exit it causes.
+    this.#onExit(sessionId, 1);
     return Promise.resolve();
   }
   onData(): void {}
@@ -61,6 +66,8 @@ const config: Config = {
 let backend: ExitableBackend;
 let sessions: SessionManager;
 let workspaces: WorkspaceStore;
+/** Every session handed to the exit handler, which is what decides whether to notify. */
+let exited: { id: string; exitCode?: number; endedBy?: string }[] = [];
 
 /** A used session in a workspace with nobody attached, which is what the loops are about. */
 function aDetachedSession(clientId: string): string {
@@ -75,7 +82,21 @@ function aDetachedSession(clientId: string): string {
 beforeEach(() => {
   initLog('error');
   backend = new ExitableBackend();
-  sessions = new SessionManager(config, { onExit: () => {}, onStateChange: () => {} }, backend);
+  exited = [];
+  sessions = new SessionManager(
+    config,
+    {
+      onExit: (s) => {
+        exited.push({
+          id: s.id,
+          ...(s.exitCode === undefined ? {} : { exitCode: s.exitCode }),
+          ...(s.endedBy === undefined ? {} : { endedBy: s.endedBy }),
+        });
+      },
+      onStateChange: () => {},
+    },
+    backend,
+  );
   workspaces = new WorkspaceStore();
   sessions.isInWorkspace = (id) => workspaces.findBySession(id) !== undefined;
   sessions.setWorkspaceLookup((id) => workspaces.findBySession(id)?.id);
@@ -141,5 +162,48 @@ describe('a session whose process has already ended', () => {
     backend.end(id);
     sessions.forgetReporter('view-1');
     expect(backend.kills).toEqual([]);
+  });
+});
+
+/**
+ * The link between deciding to end a session and deciding whether that is worth a notification.
+ *
+ * `isAFailureWorthSaying` is tested on its own, and it is only as good as the field it reads. If
+ * `endedBy` were not set by the time the exit handler runs, the pure function would be perfectly
+ * correct and the user would still be told their process had failed, which is the bug as it
+ * actually appeared. This is the seam, so this is where it is checked.
+ */
+describe('what the exit handler is told about a session it did not expect to end', () => {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it('carries the cause when TabTerm reaped it, so nothing is reported as a failure', async () => {
+    const id = aDetachedSession('view-1');
+    const workspace = workspaces.findBySession(id);
+    if (workspace) sessions.recordTabClosed(workspace.id, 'close-0');
+    sessions.reportOpenWorkspaces('view-1', []);
+    sessions.forgetReporter('view-1');
+
+    await sleep(300);
+
+    const record = exited.find((e) => e.id === id);
+    expect(record).toBeDefined();
+    // Non-zero, exactly as the user saw it, and with the reason it happened attached.
+    expect(record?.exitCode).toBe(1);
+    // Closing the tab, so the cause names the tab. What matters is that a cause is there at all.
+    expect(record?.endedBy).toBe('expired-after-tab-close');
+    expect(isAFailureWorthSaying(record ?? {}, DEFAULT_NOTIFY_POLICY)).toBe(false);
+  });
+
+  it('and carries no cause when the process died on its own, which still reports', async () => {
+    // The case the notification exists for, and the one that must survive the fix: a hidden tab
+    // whose build failed, found much later otherwise.
+    const id = aDetachedSession('view-2');
+    backend.end(id, 1);
+    await sleep(50);
+
+    const record = exited.find((e) => e.id === id);
+    expect(record?.exitCode).toBe(1);
+    expect(record?.endedBy).toBeUndefined();
+    expect(isAFailureWorthSaying(record ?? {}, DEFAULT_NOTIFY_POLICY)).toBe(true);
   });
 });
