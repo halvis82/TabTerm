@@ -15,6 +15,7 @@ import { AgentBridge } from './agent-bridge.js';
 import { loadConfig, paths } from './config.js';
 import { acquireLock } from './lockfile.js';
 import { debug, error, info, initLog, warn } from './log.js';
+import { isAFailureWorthSaying } from './notify-policy.js';
 import { DaemonServer } from './server.js';
 import { SessionManager, type SessionEvents } from './session-manager.js';
 import { WorkspaceStore } from './workspace-store.js';
@@ -205,9 +206,21 @@ async function main(): Promise<void> {
   sessions.undoWindowLeft = (sessionId) => server.undoWindowLeft(sessionId);
 
   events.onExit = (s) => {
-    // A pane whose process failed is worth surfacing: the tab may be hidden, and a silent
-    // failure is one the user finds much later. A clean exit is not worth interrupting for.
-    if ((s.exitCode ?? 0) !== 0) {
+    /**
+     * A pane whose process failed is worth surfacing: the tab may be hidden, and a silent
+     * failure is one the user finds much later. A clean exit is not worth interrupting for.
+     *
+     * Two things are not failures, and both were being reported as one.
+     *
+     * A session TabTerm ended itself exits non-zero because that is what a shell does when it is
+     * sent a hangup. Every "Process failed" notification on this machine in a day was TabTerm
+     * reaping an unused session and then telling the user their process had failed. Nothing
+     * failed, and nothing of theirs was even involved.
+     *
+     * And somebody who has turned notifications off has turned this off too. It went out
+     * regardless of the policy, which is how a setting stops being believed.
+     */
+    if (isAFailureWorthSaying(s, server.notifyPolicy)) {
       const where = workspaces.findBySession(s.id);
       server.notify(
         'important',

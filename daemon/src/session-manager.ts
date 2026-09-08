@@ -10,7 +10,7 @@ import { decideReap, describeReap, reapInputFor, type TabDisposition } from './c
 import { plainText } from './plain-text.js';
 import { expandHome } from './complete-path.js';
 import { listeningPorts } from './server-detect.js';
-import { assertTransition } from './session-state.js';
+import { assertTransition, TERMINAL_STATES } from './session-state.js';
 import { VtState } from './vt-state.js';
 
 /**
@@ -53,6 +53,16 @@ export interface Session {
   agentState?: AgentState;
   /** Somebody asked for this to end, rather than the process ending on its own. */
   endedByRequest?: boolean;
+  /**
+   * Why TabTerm ended this session, set the moment it decides to.
+   *
+   * Present means the exit that follows is one TabTerm caused. A shell that is sent a hangup
+   * exits non-zero, which is indistinguishable from a command failing if all you have is the
+   * code, and it was reported to the user as "Process failed" for a session TabTerm had itself
+   * decided to reap. Absent means the process ended on its own, which is the only case where a
+   * non-zero code says anything about the user's work.
+   */
+  endedBy?: TerminationCause['kind'];
   /**
    * Somebody closed the pane this session was in.
    *
@@ -717,6 +727,8 @@ export class SessionManager {
    */
   async terminate(session: Session, cause: TerminationCause): Promise<void> {
     if (cause.kind === 'user-kill') session.endedByRequest = true;
+    // Before the signal, because the exit it causes can arrive before this call returns.
+    session.endedBy = cause.kind;
     /**
      * Written down before anything is signalled, and with the authorization in it.
      *
@@ -1047,6 +1059,17 @@ export class SessionManager {
   readonly #lastReapReason = new Map<string, string>();
 
   #scheduleReap(session: Session): void {
+    /**
+     * A session whose process is already gone has nothing left to schedule.
+     *
+     * `exited` may only become `reaped`, so asking for `expiring` threw. That mattered more than
+     * a stray warning: this runs in a loop over every session from `forgetReporter` and from the
+     * sweep, and the throw came out of a socket close handler, so one exited session stopped the
+     * loop and every session after it kept whatever timer it already had. Twenty nine of these in
+     * one day on a real machine.
+     */
+    if (TERMINAL_STATES.includes(session.state)) return;
+
     // Any previous timer is void: this is a fresh decision, and leaving the old one running
     // would end a session whose tab has since come back.
     if (session.reapTimer) {

@@ -96,3 +96,24 @@ export function decide(
     body: failed ? `Exit ${String(event.exitCode)} after ${took}${place}` : `Took ${took}${place}`,
   };
 }
+
+/**
+ * Whether a process that ended is a failure worth interrupting somebody for.
+ *
+ * Separate and pure because it is the part with an opinion in it, and because getting it wrong is
+ * invisible from the code: it was inline in the exit handler, untested, and told the user their
+ * process had failed every time TabTerm reaped an unused session. Every one of the twelve of
+ * these raised on a real machine in a day was TabTerm reporting its own housekeeping.
+ */
+export function isAFailureWorthSaying(
+  ended: { exitCode?: number; endedBy?: string },
+  policy: NotifyPolicy,
+): boolean {
+  // Somebody who turned notifications off turned this one off too. It went out regardless, which
+  // is how a setting stops being believed.
+  if (!policy.enabled) return false;
+  // A shell sent a hangup exits non-zero. That says something about how TabTerm ended it and
+  // nothing at all about the user's work, which is the only thing this notification is for.
+  if (ended.endedBy !== undefined) return false;
+  return (ended.exitCode ?? 0) !== 0;
+}

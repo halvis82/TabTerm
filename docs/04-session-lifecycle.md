@@ -372,8 +372,17 @@ The session was left in `expiring` with nothing to move it, neither reaped nor k
 laptop waking, where every overdue timer fires at once, before Chrome has said which tabs it has,
 and then the tabs come back.
 
+**A session whose process is already gone is not scheduled at all.** `exited` may only become
+`reaped`, so asking for `expiring` threw, which sounds like a stray warning and is not: the two
+callers that reschedule reaping loop over every session at once, and the throw escaped from a
+socket close handler, so a single exited session stopped the loop and every session after it kept
+whatever timer it already had. Twenty nine of these in one day on a real machine. The guard is in
+`#scheduleReap`, which is the one place all three callers pass through.
+
 Reap escalation: `SIGHUP` → wait → `SIGTERM` → wait → `SIGKILL`. A process group is signalled, not
-just the leader, so orphaned children do not survive.
+just the leader, so orphaned children do not survive. Note what the first of those does to an exit
+code: a hung-up shell exits non-zero, which is why a reaped session must never be reported as a
+process that failed. See `06-chrome-integration.md` §7.
 
 ---
 

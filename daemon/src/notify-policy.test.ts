@@ -3,6 +3,7 @@ import {
   clampPolicy,
   decide,
   DEFAULT_NOTIFY_POLICY,
+  isAFailureWorthSaying,
   humanDuration,
   MAX_THRESHOLD_MS,
   MIN_THRESHOLD_MS,
@@ -90,5 +91,48 @@ describe('durations', () => {
     expect(humanDuration(45_000)).toBe('45s');
     expect(humanDuration(120_000)).toBe('2m');
     expect(humanDuration(95_000)).toBe('1m 35s');
+  });
+});
+
+/**
+ * The notification he was actually getting, for work he had not started.
+ *
+ * "i keep getting these tabterm chrome notifications saying process failed with exit code 1. is
+ * that you running something?" It was not. It was TabTerm reaping its own unused sessions, twelve
+ * times in one day, and calling each one a failed process.
+ */
+describe('a process that ended, and whether that is worth saying', () => {
+  const on = { ...DEFAULT_NOTIFY_POLICY };
+
+  it('says nothing about a session TabTerm ended itself', () => {
+    // The reaper sends a hangup and the shell exits 1. Nothing failed, and nothing of the
+    // user's was involved. Every cause counts, not just the one the user asked for.
+    for (const endedBy of [
+      'expired-after-pane-close',
+      'expired-after-tab-close',
+      'user-kill',
+      'user-closed-pane',
+      'user-replaced-pane',
+      'user-reset',
+    ]) {
+      expect(isAFailureWorthSaying({ exitCode: 1, endedBy }, on)).toBe(false);
+    }
+  });
+
+  it('still says it when a process failed on its own', () => {
+    // The case the notification exists for: a hidden tab whose build died, found much later.
+    expect(isAFailureWorthSaying({ exitCode: 1 }, on)).toBe(true);
+    expect(isAFailureWorthSaying({ exitCode: 127 }, on)).toBe(true);
+  });
+
+  it('says nothing about a clean exit', () => {
+    expect(isAFailureWorthSaying({ exitCode: 0 }, on)).toBe(false);
+    expect(isAFailureWorthSaying({}, on)).toBe(false);
+  });
+
+  it('and nothing at all when notifications are off', () => {
+    // This one went out regardless of the policy, which is how a setting stops being believed.
+    const off = { ...DEFAULT_NOTIFY_POLICY, enabled: false };
+    expect(isAFailureWorthSaying({ exitCode: 1 }, off)).toBe(false);
   });
 });
