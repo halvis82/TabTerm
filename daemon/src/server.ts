@@ -526,13 +526,22 @@ export class DaemonServer {
     target?: { workspaceId?: string; paneId?: string },
   ): void {
     /**
-     * Every notification that leaves the daemon, in the log.
+     * Every notification that leaves the daemon, by kind, and never by content.
      *
-     * Nothing recorded what was actually raised, so a report of an unwanted notification could
-     * only be answered by reading the code and guessing which one it was. That guess was wrong
-     * once already. This is one line per interruption, which is by definition a rare event.
+     * Nothing recorded what was raised, so a report of an unwanted notification could only be
+     * answered by reading the code and guessing which of them it was, and that guess was wrong
+     * once already. What is needed to answer it is which kind fired and where, not what it said.
+     *
+     * The body is the part that carries a person's world: a directory, the name of a command, the
+     * first words an agent was asked. The title carries the command too, after its colon. So the
+     * category is kept and the rest is not, because a diagnostic log that quietly accumulates
+     * command lines is a different product from the one described in the privacy documentation.
      */
-    info('notify.sent', { priority, title, body });
+    info('notify.sent', {
+      priority,
+      kind: title.split(':')[0]?.trim() ?? 'notice',
+      ...(target?.workspaceId === undefined ? {} : { workspaceId: target.workspaceId }),
+    });
     this.broadcast({ t: 'notify', priority, title, body, ...(target ? { target } : {}) });
   }
 
