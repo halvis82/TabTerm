@@ -837,6 +837,19 @@ function showResetConfirmation(sessions: readonly LiveSession[]): void {
  */
 let flashing = new Set<string>();
 
+/**
+ * Sessions this tab asked to kill, against how many panes it had when it asked.
+ *
+ * Kept per tab rather than asked of the daemon: whether an ending was deliberate is a fact about
+ * this tab's own action, and a second tab watching the same session did not ask for anything.
+ *
+ * The count is taken at the moment of asking rather than read when the exit arrives, because
+ * those are not the same number. The daemon removes the killed pane and sends a new layout, and
+ * that layout can be applied before the exit is announced: a tab with two panes then looks like a
+ * tab with one at exactly the moment it is being asked whether it had only one.
+ */
+const killedHere = new Map<string, number>();
+
 function refreshFlashing(): void {
   void flashingSessions().then((set) => (flashing = set));
 }
@@ -1481,6 +1494,20 @@ function thisTabIsUnused(): boolean {
    * the only reason there are none yet is that the daemon has not answered. Reading that as an
    * empty tab put the start screen over a session somebody was coming back to, which is the one
    * thing a reattaching tab must never do.
+   */
+  /**
+   * No panes at all is nothing here, **unless this tab is attaching to a workspace**.
+   *
+   * Zero panes used to fall through the same door as two and answer "in use", so a tab whose
+   * ceiling fired before any pane existed dismissed the start screen and gave the whole page to
+   * an empty terminal.
+   *
+   * A tab opened on a workspace has work by definition when it has no panes yet: the panes are on
+   * their way and the only reason there are none is that the daemon has not answered.
+   *
+   * The workspace in the URL cannot be used more widely than this, which was tried and was
+   * wrong: a tab that creates its first session is given a workspace too, so every start screen
+   * has one in its URL within a moment of opening.
    */
   if (panes.length === 0) {
     return new URL(location.href).searchParams.get('workspace') === null;
@@ -3425,7 +3452,16 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
       danger: true,
       enabled: session !== '',
       run: () => {
-        if (session) client?.send({ t: 'kill-session', sessionId: session });
+        if (!session) return;
+        /**
+         * Remembered, so the tab can go when the last thing in it does.
+         *
+         * Killing the only session in a tab left the tab sitting there with a dead terminal in
+         * it. `Close session` beside this one has always closed the tab in that case, and there
+         * is no reading of Kill under which somebody wants less to happen than that.
+         */
+        killedHere.set(session, panesHost?.all.length ?? 1);
+        client?.send({ t: 'kill-session', sessionId: session });
       },
     },
   ];
@@ -4708,6 +4744,19 @@ function onControl(msg: ServerMessage): void {
     case 'session-exited': {
       // A pane whose process ended is removed by the daemon, which sends a new layout.
       setFavicon(msg.exitCode === 0 ? 'idle' : 'failed');
+      /**
+       * And a tab whose last session was killed on purpose closes with it.
+       *
+       * Only for a session this tab asked to end. A process that exited on its own leaves the tab
+       * up, because its output is usually the reason somebody ran it, and a tab that vanishes the
+       * moment a build finishes takes the result with it.
+       */
+      const panesWhenAsked = killedHere.get(msg.sessionId);
+      killedHere.delete(msg.sessionId);
+      if (panesWhenAsked !== undefined && panesWhenAsked <= 1) {
+        attached = false;
+        window.close();
+      }
       return;
     }
 

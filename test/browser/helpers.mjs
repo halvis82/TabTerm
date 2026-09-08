@@ -21,17 +21,36 @@ const opened = [];
 /** End every session these tests started, and close their tabs. */
 export async function finish() {
   for (const { client } of opened) {
-    try {
-      await evaluate(client, `window.__tabterm?.endSessions?.()`);
-    } catch {
-      // A tab that already went away has nothing left to clean up.
-    }
+    /**
+     * Bounded as well as caught.
+     *
+     * A page that has gone does not answer and does not fail either: the request simply never
+     * settles, `catch` never runs, and the suite ends on an unsettled promise with an exit code
+     * that says nothing about the checks it passed. Suites that close their own tab are now an
+     * ordinary thing rather than a special case.
+     */
+    await Promise.race([
+      evaluate(client, `window.__tabterm?.endSessions?.()`).catch(() => undefined),
+      new Promise((r) => setTimeout(r, 3000)),
+    ]);
   }
   await sleep(300);
   // And close the pages. Ending the sessions was not enough: a run of two dozen suites left
   // dozens of live pages open, and the suites that ran last failed on timing that was fine when
   // they ran alone.
-  for (const { tab } of opened) await closeTab(tab.id);
+  for (const { tab } of opened) {
+    /**
+     * Bounded, and forgiving.
+     *
+     * A tab that closed itself neither needs closing nor answers a request to close: the call
+     * hangs rather than failing, and a suite whose subject is the tab going away then ends with
+     * an unsettled promise and an exit code that looks nothing like the checks it passed.
+     */
+    await Promise.race([
+      closeTab(tab.id).catch(() => undefined),
+      new Promise((r) => setTimeout(r, 2000)),
+    ]);
+  }
   opened.length = 0;
   await sleep(300);
 }

@@ -97,6 +97,20 @@ order, and a second browser profile saying it does not have a workspace it never
 
 ---
 
+### Killing the last session in a tab closes the tab
+
+`Close session` on the only pane in a tab has always closed the tab. `Kill session` did not: it
+ended the terminal and left the tab sitting there with a dead one in it.
+
+The tab decides this itself, from the number of panes it had **when the kill was asked for**
+rather than when the exit arrives. Those are different numbers: the daemon removes the killed pane
+and sends a new layout, and that layout can be applied before the exit is announced, so a tab with
+two panes looks like a tab with one at exactly the moment it is asked whether it had only one.
+
+Only for a session this tab asked to end. A process that exits on its own leaves the tab up: its
+output is usually the reason somebody ran it, and a tab that vanishes when a build finishes takes
+the result with it.
+
 ### Ending is confirmed, not assumed
 
 A destructive request that is only a frame put on a socket is a guess about what happened. The
