@@ -249,3 +249,29 @@ describe('reconciling records never signals anything', () => {
     expect(sessions.get(ctx.sessionId), 'and the record is let go of').toBeUndefined();
   });
 });
+
+/**
+ * With no durable host, a terminal is refused rather than half-made.
+ *
+ * `NoPtyBackend` creates no process, which is safe. What was not safe was building a session and
+ * a workspace around it anyway: a pane showing nothing, a row in Running Now for a pid that does
+ * not exist, and a person with no idea why.
+ */
+describe('when there is no durable PTY host', () => {
+  it('refuses to create a session at all', async () => {
+    const { NoPtyBackend } = await import('./pty-backend.js');
+    const { NoDurableHostError } = await import('./session-manager.js');
+    const refusing = new SessionManager(
+      config,
+      { onExit: () => {}, onStateChange: () => {} },
+      new NoPtyBackend(),
+    );
+    expect(refusing.canCreate).toBe(false);
+    expect(() => refusing.create({ cwd: '/tmp', cols: 80, rows: 24 })).toThrow(NoDurableHostError);
+    expect(refusing.all, 'and nothing is left behind by the attempt').toEqual([]);
+  });
+
+  it('says it can create when a backend really owns processes', () => {
+    expect(sessions.canCreate).toBe(true);
+  });
+});

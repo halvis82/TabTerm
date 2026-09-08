@@ -102,7 +102,7 @@ export class PtyHostClient {
         const socket = await this.#tryConnect();
         if (socket) {
           this.#attach(socket);
-          const hello = await this.#request({ t: 'hello' }, 'hello-ok');
+          const hello = await this.#request({ t: 'hello' }, 'hello-ok', 4000, true);
           if (hello) {
             /**
              * An older host is reported, never replaced.
@@ -183,6 +183,7 @@ export class PtyHostClient {
 
   #attach(socket: Socket): void {
     this.#socket = socket;
+    this.#state = 'handshaking';
     this.#pending = new Uint8Array(0);
     /**
      * Nothing held is sent yet, because we do not know who is on the other end.
@@ -261,6 +262,7 @@ export class PtyHostClient {
 
     socket.on('close', () => {
       this.#socket = null;
+      this.#state = 'disconnected';
       warn('pty-host.disconnected', {});
       /**
        * Get it back.
@@ -320,13 +322,31 @@ export class PtyHostClient {
    */
   #outbox: unknown[] = [];
 
+  /**
+   * Send something that names a session, or hold it until there is a host to name it to.
+   *
+   * Held while handshaking as well as while disconnected. Those are the same situation from this
+   * method's point of view: there is a socket in one of them, and in neither is it known whose.
+   */
   #send(message: unknown): void {
-    if (this.#socket && !this.#socket.destroyed) {
+    if (this.#state === 'ready' && this.#socket && !this.#socket.destroyed) {
       this.#socket.write(controlFrame(message));
       return;
     }
     this.#outbox.push(message);
     if (this.#outbox.length > 500) this.#outbox.shift();
+  }
+
+  /**
+   * The handshake itself, which is the one thing that may be written to an unidentified host.
+   *
+   * It names no session and asks for nothing to be done. It is how the host is identified at all,
+   * so holding it would leave the connection permanently in the state that holds everything.
+   */
+  #sendHandshake(message: unknown): boolean {
+    if (!this.#socket || this.#socket.destroyed) return false;
+    this.#socket.write(controlFrame(message));
+    return true;
   }
 
   /**
@@ -336,6 +356,19 @@ export class PtyHostClient {
    * the whole question a reconnect raises is whether the terminals we were holding are still
    * there, and only the host can answer that.
    */
+  /**
+   * What this connection is good for right now.
+   *
+   * A socket is not a transport for anything that names a session. Between connecting and being
+   * told which host answered there is a window, short but real, in which a spawn, a write, a
+   * resize or a kill would go to a process nobody has identified: after a host has been replaced
+   * that is a different host with different sessions, and one of those messages can be a kill.
+   *
+   * `handshaking` exists to make that window unusable rather than merely unlikely. Only the
+   * handshake itself may be written in it.
+   */
+  #state: 'disconnected' | 'handshaking' | 'ready' = 'disconnected';
+
   #instance: string | null = null;
 
   /** True when the last connection reached a different host process than the one before it. */
@@ -360,7 +393,13 @@ export class PtyHostClient {
   /** A host saying it acted on a kill. See `killAndWait`. */
   #onKilled(msg: Record<string, unknown>): void {
     const requestId = typeof msg['requestId'] === 'string' ? msg['requestId'] : '';
-    this.#killWaits.get(requestId)?.();
+    /**
+     * `gone` is the answer, and its absence is not a yes.
+     *
+     * A host too old to say carries no `gone` at all. Treating a missing field as success is the
+     * same mistake as treating a queued frame as one, so only an explicit `true` confirms.
+     */
+    this.#killWaits.get(requestId)?.(msg['gone'] === true);
   }
 
   #identify(raw: unknown): void {
@@ -370,18 +409,28 @@ export class PtyHostClient {
     this.#instance = instance;
 
     if (instance === null) {
+      /**
+       * A host too old to say who it is.
+       *
+       * The connection is still used, because refusing it would strand every terminal that host
+       * is holding, which is the outcome all of this exists to prevent. What is not used is
+       * anything that was queued for a host we can no longer prove this is.
+       */
       warn('pty-host.no-instance', {
         note: 'host too old to identify itself; nothing held will be sent to it',
       });
       this.#dropOutbox('unidentified-host');
+      this.#state = 'ready';
       return;
     }
     if (this.#instanceChanged) {
       warn('pty-host.replaced', { was: previous, now: instance });
       this.#dropOutbox('host-replaced');
+      this.#state = 'ready';
       return;
     }
     if (previous === null) info('pty-host.instance', { instance });
+    this.#state = 'ready';
     this.#flush();
   }
 
@@ -411,6 +460,8 @@ export class PtyHostClient {
     message: unknown,
     expect: string,
     timeoutMs = 4000,
+    /** Handshake traffic, which may go to a host that has not identified itself yet. */
+    duringHandshake = false,
   ): Promise<Record<string, unknown> | null> {
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
@@ -421,6 +472,14 @@ export class PtyHostClient {
         clearTimeout(timer);
         resolve(msg);
       });
+      if (duringHandshake) {
+        if (!this.#sendHandshake(message)) {
+          clearTimeout(timer);
+          this.#waiting.delete(expect);
+          resolve(null);
+        }
+        return;
+      }
       this.#send(message);
     });
   }
@@ -493,11 +552,14 @@ export class PtyHostClient {
   /**
    * Ask the host to end a session, and wait to be told it did.
    *
-   * Resolves true when the host answered, whether or not it still had the session: either way
-   * the process is not running there any more, and the daemon can let go of its record. Resolves
-   * false when nothing answered, which means the daemon does **not** know what happened and must
-   * keep the record rather than quietly forgetting a process that may still be running with
-   * nothing able to see or reach it.
+   * Resolves true only when the host says the process is **gone**: it ran the escalation to
+   * SIGKILL and then checked the pid. A host that had no such session answers gone as well, which
+   * is truthful, since nothing is running there either way.
+   *
+   * Resolves false when nothing answered, when the answer was that the process survived, and when
+   * there was no identified host to ask. All of them mean the daemon does not know that the
+   * process has ended, and it must keep the record rather than quietly forgetting something that
+   * may still be running with nothing able to see or reach it.
    */
   async killAndWait(sessionId: string, keepHistory = false, timeoutMs = 4000): Promise<boolean> {
     const requestId = randomUUID();
@@ -506,10 +568,10 @@ export class PtyHostClient {
         this.#killWaits.delete(requestId);
         resolve(false);
       }, timeoutMs);
-      this.#killWaits.set(requestId, () => {
+      this.#killWaits.set(requestId, (gone: boolean) => {
         clearTimeout(timer);
         this.#killWaits.delete(requestId);
-        resolve(true);
+        resolve(gone);
       });
     });
     /**
@@ -518,7 +580,15 @@ export class PtyHostClient {
      * A kill held in the outbox is aimed at a host that may be gone by the time anything is
      * flushed, and the caller is about to be told nothing happened, which is the truth.
      */
-    if (!this.#socket || this.#socket.destroyed) {
+    /**
+     * Only to a host that has said who it is.
+     *
+     * A kill held for later is a kill aimed at a process that may be gone by the time anything is
+     * flushed, and a kill written during the handshake is a kill aimed at a host nobody has
+     * identified. Both answer false, which the caller reads as "this did not happen" and which is
+     * the truth.
+     */
+    if (this.#state !== 'ready' || !this.#socket || this.#socket.destroyed) {
       this.#killWaits.delete(requestId);
       return false;
     }
@@ -526,7 +596,7 @@ export class PtyHostClient {
     return answered;
   }
 
-  readonly #killWaits = new Map<string, () => void>();
+  readonly #killWaits = new Map<string, (gone: boolean) => void>();
 
   /** Hand over screen state, so the next daemon can restore it exactly rather than approximately. */
   stash(sessionId: string, seq: number, state: string): void {

@@ -57,6 +57,7 @@ import type { PluginHost } from './plugin-api.js';
 import type { ProjectIndex } from './project-index.js';
 import type { WorkspaceStore } from './workspace-store.js';
 import { DEFAULT_KEEP_BACKGROUND_SECONDS, usedLines } from './session-manager.js';
+import { NoDurableHostError } from './session-manager.js';
 import type { Session, SessionManager } from './session-manager.js';
 import type { LayoutShape, LiveSession, ResumableAgentSession, ShapeNode } from '@tabterm/shared';
 import { checkShape } from '@tabterm/shared';
@@ -613,6 +614,19 @@ export class DaemonServer {
         if (e instanceof ProtocolError) {
           warn('protocol.error', { code: e.code });
           socket.close(CLOSE_POLICY_VIOLATION, e.code);
+        } else if (e instanceof NoDurableHostError) {
+          /**
+           * A refusal with a name, rather than "internal error".
+           *
+           * Every route to a new terminal ends in one `create`, so this is caught in one place
+           * and the interface can say the true thing: the terminal service is not available, and
+           * nothing was created rather than something that could not last.
+           */
+          sendError(
+            socket,
+            'pty-host-unavailable',
+            'the terminal service could not be started, so no terminal was created',
+          );
         } else {
           warn('client.error', { error: String(e) });
           sendError(socket, 'internal', 'internal error');
@@ -718,6 +732,13 @@ export class DaemonServer {
         return; // Already authenticated. Idempotent, ignore.
 
       case 'create-session': {
+        /**
+         * Refused outright when there is no durable host, rather than half-served.
+         *
+         * Building a session and a workspace around a process that was never started leaves a
+         * pane showing nothing, a row in Running Now for a pid that does not exist, and a person
+         * with no idea why. The error names the cause and the interface can say it.
+         */
         const session = this.#sessions.create({
           cols: msg.cols,
           rows: msg.rows,

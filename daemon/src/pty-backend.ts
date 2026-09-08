@@ -84,6 +84,9 @@ export interface PtyBackend {
  * shows the error the daemon logged.
  */
 export class NoPtyBackend implements PtyBackend {
+  /** True, so callers can refuse a request rather than build a session around nothing. */
+  readonly unavailable = true;
+
   spawn(): void {
     error('pty.refused', {
       detail: 'no durable PTY host, so no terminal was created rather than one that cannot last',

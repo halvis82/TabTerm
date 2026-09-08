@@ -201,11 +201,30 @@ export type TerminationCause =
   /** A pane a person closed, whose grace period has run out, in no workspace any more. */
   | { kind: 'expired-after-pane-close'; keepHistory?: boolean };
 
+/** Thrown when a terminal is asked for and there is nothing durable to own it. */
+export class NoDurableHostError extends Error {
+  constructor() {
+    super('the durable PTY host is unavailable, so no terminal was created');
+    this.name = 'NoDurableHostError';
+  }
+}
+
 export class SessionManager {
   readonly #sessions = new Map<string, Session>();
   readonly #config: Config;
   readonly #events: SessionEvents;
   readonly #pty: PtyBackend;
+
+  /**
+   * Whether a terminal can be created at all right now.
+   *
+   * False when there is no durable PTY host. Asked before a session is built rather than
+   * discovered afterwards, so a request that cannot be served is refused instead of answered with
+   * a session and a workspace wrapped around a process that was never started.
+   */
+  get canCreate(): boolean {
+    return (this.#pty as { unavailable?: boolean }).unavailable !== true;
+  }
   /**
    * How long a session is kept after **its tab has been closed**. One hour.
    *
@@ -315,6 +334,15 @@ export class SessionManager {
   }
 
   create(opts: { cwd?: string; command?: readonly string[]; cols: number; rows: number }): Session {
+    /**
+     * Refused when there is no durable PTY host, before anything is built.
+     *
+     * Nine call sites reach this method, and guarding each one is nine chances to miss the next.
+     * The refusal belongs where the decision is: a session that cannot own a process is not a
+     * session, and returning one leaves a pane showing nothing and a row in Running Now for a pid
+     * that does not exist.
+     */
+    if (!this.canCreate) throw new NoDurableHostError();
     const id = randomUUID();
     /**
      * A tilde is expanded here, once, for every way a session can be created.
@@ -923,9 +951,14 @@ export class SessionManager {
   /**
    * Somebody closed the tab holding this workspace, and the extension is sure of it.
    *
-   * Sure means: an individual tab removal, not a window or a browser closing, with no other tab
-   * still showing the same workspace, reported by an extension incarnation that was still alive
-   * afterwards to say so.
+   * Sure means all of these, checked in the extension because it is the only party that can see
+   * them: an individual tab removal rather than a window or a browser closing; a workspace known
+   * from a mapping written while the tab was alive; no other tab still showing that workspace;
+   * and, after a short wait, the same extension incarnation still running and the workspace still
+   * unshown. The wait is what a teardown cannot survive.
+   *
+   * The daemon takes this at face value and does not second-guess it. It cannot: nothing on this
+   * side can distinguish a person closing a tab from a browser taking its windows down.
    */
   recordTabClosed(workspaceId: string, eventId: string): void {
     this.#closedWorkspaces.set(workspaceId, { at: Date.now(), eventId });

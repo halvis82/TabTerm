@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { warn } from '../log.js';
 import { createServer, type Server, type Socket } from 'node:net';
 import { chmodSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -423,23 +424,34 @@ export class PtyHost {
          * process still running that nothing can see or reach.
          */
         const requestId = typeof msg['requestId'] === 'string' ? msg['requestId'] : '';
-        const answer = (): void => {
+        const answer = (existed: boolean, gone: boolean): void => {
           if (requestId !== '') {
-            this.#send(socket, {
-              t: 'killed',
-              requestId,
-              sessionId: id,
-              existed: live !== undefined,
-            });
+            this.#send(socket, { t: 'killed', requestId, sessionId: id, existed, gone });
           }
         };
         if (!live) {
-          answer();
+          // Nothing here to end, which is a truthful confirmation that nothing is running.
+          answer(false, true);
           return;
         }
-        this.#sessions.delete(id);
-        void killPty(live.handle, id);
-        answer();
+        /**
+         * Answered when the process is gone, not when the signalling starts.
+         *
+         * The escalation runs to SIGKILL and then asks whether the pid is still there, and that
+         * answer is the one the daemon needs: it discards its record of a session on the strength
+         * of this reply, and a reply meaning "termination was begun" lets it forget a process that
+         * is still running. Nothing could then see, reach or end that process.
+         *
+         * The session leaves the map only once the answer is `gone`. The ordinary `onExit` path
+         * may get there first, which is harmless: deleting twice does nothing, and the exit is
+         * announced by whichever notices, once.
+         */
+        void (async () => {
+          const outcome = await killPty(live.handle, id);
+          if (outcome === 'gone') this.#sessions.delete(id);
+          else warn('pty-host.kill-unconfirmed', { sessionId: id, pid: live.handle.pid });
+          answer(true, outcome === 'gone');
+        })();
         /**
          * Whether the output goes with it depends on who ended it.
          *

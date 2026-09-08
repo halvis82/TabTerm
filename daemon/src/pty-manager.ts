@@ -116,10 +116,23 @@ function filteredEnv(): Record<string, string> {
  * Escalate rather than SIGKILL immediately, so a shell gets a chance to run its exit hooks.
  * The process GROUP is signalled, not just the leader, or orphaned children survive.
  */
-export async function killPty(handle: PtyHandle, sessionId: string): Promise<void> {
-  const stages: NodeJS.Signals[] = ['SIGHUP', 'SIGTERM', 'SIGKILL'];
-  for (const sig of stages) {
-    if (!isAlive(handle.pid)) return;
+/**
+ * Whether the process is actually gone when this returns.
+ *
+ * Said rather than assumed. A caller that discards its record of a session on the strength of
+ * "termination was started" is a caller that can lose track of a process which is still running,
+ * and a process nothing can see is worse than one that lingers in a list.
+ */
+export type KillOutcome = 'gone' | 'survived';
+
+export async function killPty(handle: PtyHandle, sessionId: string): Promise<KillOutcome> {
+  const stages: [signal: NodeJS.Signals, patience: number][] = [
+    ['SIGHUP', 800],
+    ['SIGTERM', 800],
+    ['SIGKILL', 200],
+  ];
+  for (const [sig, patience] of stages) {
+    if (!isAlive(handle.pid)) return 'gone';
     try {
       process.kill(-handle.pid, sig);
     } catch {
@@ -129,9 +142,28 @@ export async function killPty(handle: PtyHandle, sessionId: string): Promise<voi
         /* already gone */
       }
     }
-    await new Promise((r) => setTimeout(r, sig === 'SIGKILL' ? 200 : 800));
+    /**
+     * Waited **until it is gone**, rather than for a fixed length of time.
+     *
+     * The patience is a ceiling for a process that ignores a signal, not a price every process
+     * pays. Sleeping it out unconditionally made an ordinary kill take most of a second before
+     * the daemon could say the session had ended, which showed up as a tab reaching its recovery
+     * page before the record of what had been in it existed.
+     *
+     * A shell dies on the first signal in a few milliseconds. This notices that in a few
+     * milliseconds.
+     */
+    const deadline = Date.now() + patience;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 25));
+      if (!isAlive(handle.pid)) return 'gone';
+    }
   }
-  if (isAlive(handle.pid)) warn('pty.kill.survived', { sessionId, pid: handle.pid });
+  if (isAlive(handle.pid)) {
+    warn('pty.kill.survived', { sessionId, pid: handle.pid });
+    return 'survived';
+  }
+  return 'gone';
 }
 
 function isAlive(pid: number): boolean {

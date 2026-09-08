@@ -111,15 +111,36 @@ Only for a session this tab asked to end. A process that exits on its own leaves
 output is usually the reason somebody ran it, and a tab that vanishes when a build finishes takes
 the result with it.
 
-### Ending is confirmed, not assumed
+### Ending is confirmed, and confirmation means gone
 
 A destructive request that is only a frame put on a socket is a guess about what happened. The
-daemon asks the PTY host to end a session, the host answers whether it still had it, and only then
-does the daemon let go of its record.
+daemon asks the PTY host to end a session and waits to be told what became of it.
 
-Without that, a kill issued while the host was disconnected dropped the record the moment the
-frame was queued: a process still running, with nothing able to see, reach or end it. Now an
-unconfirmed ending leaves the session where it is, logged, and visible in Running Now.
+**The answer means the process is gone, not that ending it was begun.** The host runs the
+escalation, `SIGHUP` then `SIGTERM` then `SIGKILL`, and then asks whether the pid is still there.
+Only `gone` lets the daemon discard its record. A reply meaning "termination started" would let it
+forget a process that is still running, and a process nothing can see, reach or end is worse than
+one lingering in a list.
+
+Each step waits **until the process is gone** rather than for a fixed length of time; the patience
+is a ceiling for something ignoring a signal, not a price every kill pays. An ordinary shell dies
+on the first signal in a few milliseconds.
+
+A host too old to answer, a host that says the process survived, a host that never replies, and no
+identified host at all are all treated the same: not confirmed. The session stays where it is,
+logged, and visible in Running Now.
+
+### Nothing that names a session reaches an unidentified host
+
+Holding the outbox until `hello` was not enough. A socket existing was enough for any **new**
+message to be written straight to it, so a spawn, a write, a resize or a kill issued during the
+handshake went to whichever process answered. After a host has been replaced that is a different
+process holding different sessions.
+
+The connection has three states now: disconnected, handshaking, ready. Only the handshake itself
+may be written while handshaking, because it names no session and is what identifies the host at
+all. Everything else is held. A kill is not even held: it answers "not confirmed" straight away,
+since a queued kill is aimed at a process that may be gone by the time anything is flushed.
 
 ### The PTY host identifies itself
 
@@ -162,6 +183,11 @@ that keeps that promise is unavailable. With no host, no terminal is created: th
 interface works, and it says what is wrong. `TABTERM_ALLOW_LOCAL_PTY=1` brings the old behavior
 back for development.
 
+**Refused, not half-served.** `create` throws, in the one method every route to a new terminal
+goes through, and the socket answers `pty-host-unavailable`. Building a session and a workspace
+around a process that was never started would leave a pane showing nothing, a row in Running Now
+for a pid that does not exist, and a person with no idea why.
+
 ---
 
 ## 3. Detach
@@ -191,6 +217,20 @@ no clock at all. The two questions are separate:
 The second never arrives by inference. It arrives as a `tab-closed` message from the extension,
 which is the only party that can see the difference between a person closing a tab and a browser
 taking its windows down.
+
+**And it is sent in two stages.** The extension checks that Chrome called this an individual tab
+removal rather than a window closing, that it knows which workspace the tab held, and that no
+other tab still shows it. Then it waits a moment and checks again: the same extension lifetime
+still running, and the workspace still unshown.
+
+That wait is the point. Chrome's API makes no promise that an extension being reloaded, updated or
+shut down never produces an `onRemoved` looking exactly like somebody closing a tab, and relying on
+it not doing so is relying on an observation rather than on a contract. If the extension is being
+replaced or the browser is going away, the lifetime is gone before the wait ends and the candidate
+dies with it. The lifetime is a value in `chrome.storage.session`, which survives the worker being
+stopped and started and does not survive a reload.
+
+Losing a genuine close this way costs a terminal that lingers until somebody ends it by hand.
 
 A pane merged into a workspace is **not** a detach in the reap sense. It is still attached, just to
 a different workspace. See §6.

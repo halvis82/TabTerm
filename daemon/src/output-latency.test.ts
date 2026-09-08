@@ -61,21 +61,36 @@ describe('what a byte waits for inside the daemon', () => {
     // Warm: the first call through any path is not the one worth measuring.
     backend.deliverForTest(session.id, chunk);
 
-    let worst = 0;
+    /**
+     * The median, and a generous ceiling on it.
+     *
+     * The worst of twenty is a measurement of the machine: this file runs beside a hundred
+     * others, and one collection pause between two `performance.now()` calls fails an absolute
+     * threshold while the daemon is doing exactly what it should. The median moves only when the
+     * work itself moves, which is what this is here to notice.
+     *
+     * The share of total work is not a useful measure here either, and finding out why was worth
+     * more than the number: the handoff is **all** of the synchronous work. The bookkeeping is
+     * not slower than the handoff, it is not on this path at all, having been moved to a later
+     * tick. So what is left to pin is that handing a byte on stays cheap in itself.
+     */
+    const waits: number[] = [];
     for (let i = 0; i < 20; i++) {
       handedOn = 0;
       const started = performance.now();
       backend.deliverForTest(session.id, chunk);
-      worst = Math.max(worst, handedOn === 0 ? Infinity : handedOn - started);
+      if (handedOn === 0) throw new Error('output was never handed on synchronously');
+      waits.push(handedOn - started);
     }
+    waits.sort((a, b) => a - b);
+    const median = waits[Math.floor(waits.length / 2)] ?? Infinity;
+    const worst = waits[waits.length - 1] ?? Infinity;
 
     // eslint-disable-next-line no-console
-    console.log(`    a full redraw waits ${worst.toFixed(2)} ms inside the daemon`);
-    /**
-     * A budget, not a target. Anything on this path is felt directly, so it is here to notice
-     * work being added to it rather than to pin a number down.
-     */
-    expect(worst).toBeLessThan(2);
+    console.log(
+      `    a full redraw waits ${median.toFixed(2)} ms inside the daemon, worst ${worst.toFixed(2)}`,
+    );
+    expect(median).toBeLessThan(2);
     void sessions.terminate(session, { kind: 'user-kill' });
   });
 });

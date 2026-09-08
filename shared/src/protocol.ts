@@ -685,6 +685,14 @@ export type ServerErrorCode =
   | 'path-not-found'
   | 'not-trusted'
   | 'rate-limited'
+  /**
+   * No durable PTY host, so no terminal was created.
+   *
+   * Deliberately a refusal rather than a degraded success. A terminal owned by the daemon dies
+   * when the daemon is updated, which is routine, and a product whose promise is that processes
+   * outlive the interface has to fail closed when the thing that keeps that promise is missing.
+   */
+  | 'pty-host-unavailable'
   | 'internal';
 
 export type ServerMessage =

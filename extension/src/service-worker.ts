@@ -327,8 +327,52 @@ async function tabWasRemoved(
     return;
   }
 
+  /**
+   * A candidate, not a conclusion. Confirmed after a short wait, by the same incarnation.
+   *
+   * The three checks above are about what Chrome told us at one instant. What they cannot rule
+   * out is that the instant belonged to a teardown: Chrome's API makes no promise that an
+   * extension being reloaded, updated or shut down never produces an `onRemoved` looking exactly
+   * like somebody closing a tab. Relying on it not doing so is relying on an observation rather
+   * than on a contract, and this is the one place where being wrong destroys work.
+   *
+   * So the authorization is deferred and then re-checked. If the extension is being replaced, or
+   * the browser is going away, this incarnation is gone before the wait ends and the candidate
+   * dies with it: nothing is sent, and nothing destructive was ever authorized.
+   *
+   * Losing a genuine close this way costs a terminal that lingers until somebody ends it by hand.
+   */
+  const mine = await incarnation();
+  if (mine === '') return;
+
+  await new Promise((r) => setTimeout(r, CLOSE_CONFIRM_MS));
+
+  // Still the same lifetime? A reload, an update or a browser restart clears session storage.
+  if ((await incarnation()) !== mine) return;
+
+  // Still nobody showing it? It can have been reopened during the wait, which settles it.
+  try {
+    const base = chrome.runtime.getURL('terminal.html');
+    const now = await chrome.tabs.query({ url: `${base}*` });
+    const back = now.some(
+      (t) => new URL(t.url ?? '').searchParams.get('workspace') === workspaceId,
+    );
+    if (back) return;
+  } catch {
+    return;
+  }
+
   await sendTabClosed(workspaceId, crypto.randomUUID());
 }
+
+/**
+ * How long a close candidate waits before it is allowed to authorize anything.
+ *
+ * Long enough that a teardown in progress has finished taking this worker with it, short enough
+ * that closing a tab and immediately expecting the timeout to have started is not surprising. The
+ * timeout it authorizes is measured in minutes, so a second here costs nothing.
+ */
+const CLOSE_CONFIRM_MS = 1500;
 
 /** Tell the daemon, through the same document that forwards everything else. */
 async function sendTabClosed(workspaceId: string, eventId: string): Promise<void> {
@@ -497,6 +541,34 @@ chrome.runtime.onInstalled.addListener(() => {
  * somebody had closed a moment earlier, every thirty seconds, forever.
  */
 const AWAKE_KEY = 'tabterm.workerAwake';
+
+/**
+ * Which extension lifetime this is, for as long as it lasts.
+ *
+ * `chrome.storage.session` is cleared when the browser restarts and when the extension is
+ * reloaded or updated, and it survives this worker being stopped and started, which is exactly
+ * the distinction needed here: a worker waking up is the same incarnation, a reloaded extension
+ * is not.
+ *
+ * It exists so that closing a tab cannot authorize anything across a teardown. See
+ * `tabWasRemoved`.
+ */
+const INCARNATION_KEY = 'tabterm.incarnation';
+
+async function incarnation(): Promise<string> {
+  try {
+    const held = await chrome.storage.session.get(INCARNATION_KEY);
+    const existing: unknown = held[INCARNATION_KEY];
+    if (typeof existing === 'string' && existing !== '') return existing;
+    const fresh = crypto.randomUUID();
+    await chrome.storage.session.set({ [INCARNATION_KEY]: fresh });
+    return fresh;
+  } catch {
+    // Without session storage there is no way to tell a teardown from a wake, so nothing here
+    // may authorize a close. An empty answer is what `tabWasRemoved` refuses to act on.
+    return '';
+  }
+}
 
 async function reopenIfTheExtensionJustStarted(): Promise<void> {
   try {

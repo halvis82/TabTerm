@@ -27,6 +27,16 @@ const SENTENCES: Record<ServerErrorCode, string> = {
   'undo-too-late': 'That one cannot be brought back.',
   'not-trusted': 'That project has not been approved, so nothing from it was run.',
   'rate-limited': 'Too many attempts at once. Wait a moment and try again.',
+  /**
+   * Says what happened and what was not done, because the second half is the reassuring part.
+   *
+   * TabTerm declines to open a terminal it cannot keep: one owned by the background service dies
+   * when that service is updated, and an update is routine. Nothing was created, so nothing was
+   * lost.
+   */
+  'pty-host-unavailable':
+    'The terminal service could not be started, so no terminal was opened. Nothing was lost. ' +
+    'Try again, or run the installer.',
   internal: 'Something went wrong in the background service.',
 };
 
