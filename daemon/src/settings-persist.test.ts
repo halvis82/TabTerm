@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { paths } from './config.js';
+import { clampTimeout } from './server.js';
 import { readUserSettings, updateUserSetting } from './user-settings.js';
 
 /**
@@ -29,6 +30,32 @@ describe('the background timeout on disk', () => {
   it('reads back a chosen number', () => {
     put('{"keepBackgroundSeconds":1800}');
     expect(readUserSettings()['keepBackgroundSeconds']).toBe(1800);
+  });
+
+  /**
+   * Whatever the daemon agrees to store, it is still running with after a restart.
+   *
+   * This is the property somebody means by "the setting does not stay", and nothing checked it.
+   * The two ends used different rules: anything from sixty seconds up was accepted and written,
+   * and anything under five minutes was thrown away on the next start in favour of the default.
+   * A value in between round-tripped through the file perfectly and still did not survive.
+   */
+  it('round-trips every value the daemon will accept', () => {
+    for (const asked of [1, 30, 60, 299, 300, 900, 1800, 3600, 99 * 3600, null]) {
+      const stored = clampTimeout(asked);
+      updateUserSetting('keepBackgroundSeconds', stored);
+      const read = readUserSettings()['keepBackgroundSeconds'];
+      expect(read).toBe(stored);
+      // And what the daemon does with it at startup is that same value, not a default.
+      expect(clampTimeout(read as number | null)).toBe(stored);
+    }
+  });
+
+  it('never stores a number the next startup would refuse', () => {
+    // The floor that clamps a write is the floor that admits a read. One constant, both ends.
+    for (const asked of [1, 5, 59, 60, 120, 299]) {
+      expect(clampTimeout(asked)).toBe(5 * 60);
+    }
   });
 
   it('reads back an explicit keep forever, which is a real choice', () => {

@@ -189,10 +189,23 @@ function historyTail(sessionId: string, lines = 12): string[] {
   }
 }
 
+/**
+ * The shortest a background timeout may be, which is the shortest the settings panel offers.
+ *
+ * The floor here was sixty seconds while the daemon refused anything under five minutes when it
+ * read the value back at startup. So a value between the two could be accepted, written to disk,
+ * and then silently discarded on the next start in favour of the default. One machine had sixty
+ * seconds stored that way and showed "1 minutes" in a picker whose shortest option is five.
+ *
+ * Writing and reading now use the same rule, which is the only way a stored setting can be
+ * trusted: whatever the daemon agrees to is what it will still be running with tomorrow.
+ */
+export const SHORTEST_TIMEOUT_SECONDS = 5 * 60;
+
 export function clampTimeout(seconds: number | null): number | null {
   if (seconds === null) return null;
   if (!Number.isFinite(seconds) || seconds <= 0) return null;
-  return Math.min(24 * 60 * 60, Math.max(60, Math.floor(seconds)));
+  return Math.min(24 * 60 * 60, Math.max(SHORTEST_TIMEOUT_SECONDS, Math.floor(seconds)));
 }
 
 /**
@@ -2146,6 +2159,7 @@ export class DaemonServer {
       streamId: number;
       startedWithCommand?: boolean;
       hasInput?: boolean;
+      atHome?: boolean;
     }[] = [];
     const toAttach: { sessionId: string; streamId: number }[] = [];
 
@@ -2160,6 +2174,15 @@ export class DaemonServer {
       const started = session.command !== undefined && session.command.length > 0;
       // Typed into at any point, which the screen cannot show for a command never sent.
       const typed = session.hasInput === true;
+      /**
+       * In the home directory, answered here because the page cannot answer it in time.
+       *
+       * The page has both halves eventually, the session's directory and where home is, and had
+       * neither at the moment the question is asked: measured as two empty strings. A comparison
+       * of two things that have not arrived is not a conservative answer, it is a wrong one, and
+       * it made the rule it guards unreachable. The daemon has both from the start.
+       */
+      const atHome = session.cwd === homedir();
 
       const existing = client.streams.get(sessionId);
       if (existing !== undefined) {
@@ -2169,6 +2192,7 @@ export class DaemonServer {
           streamId: existing,
           ...(started ? { startedWithCommand: true } : {}),
           ...(typed ? { hasInput: true } : {}),
+          ...(atHome ? { atHome: true } : {}),
         });
         continue;
       }
@@ -2180,6 +2204,7 @@ export class DaemonServer {
         streamId,
         ...(started ? { startedWithCommand: true } : {}),
         ...(typed ? { hasInput: true } : {}),
+        ...(atHome ? { atHome: true } : {}),
       });
       toAttach.push({ sessionId, streamId });
     }

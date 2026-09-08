@@ -14,7 +14,13 @@ describe('the background timeout', () => {
   });
 
   it('refuses a timeout shorter than switching tabs takes', () => {
-    expect(clampTimeout(5)).toBe(60);
+    /**
+     * The floor is the shortest the settings panel offers, and it has to be, because the daemon
+     * refuses anything shorter when it reads the value back at startup. A lower floor here let a
+     * value be accepted, written to disk, and then silently discarded on the next start.
+     */
+    expect(clampTimeout(5)).toBe(5 * 60);
+    expect(clampTimeout(60)).toBe(5 * 60);
   });
 
   it('caps at a day, since longer is what forever is for', () => {

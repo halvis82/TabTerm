@@ -16,7 +16,7 @@ import { loadConfig, paths } from './config.js';
 import { acquireLock } from './lockfile.js';
 import { debug, error, info, initLog, warn } from './log.js';
 import { isAFailureWorthSaying } from './notify-policy.js';
-import { DaemonServer } from './server.js';
+import { clampTimeout, DaemonServer } from './server.js';
 import { SessionManager, type SessionEvents } from './session-manager.js';
 import { WorkspaceStore } from './workspace-store.js';
 import { Database } from './database.js';
@@ -37,7 +37,6 @@ import { HostPtyBackend } from './pty-host/backend.js';
 import { HOST_LOCK, HOST_POINTER, HOST_SOCKET } from './pty-host/paths.js';
 
 /** The shortest the settings panel will offer. Anything under it was never chosen by a person. */
-const SHORTEST_OFFERED_TIMEOUT = 5 * 60;
 import { decideReconnect } from './host-reconnect.js';
 import { planAdoption, prunePanes } from './adopt.js';
 import { readUserSettings } from './user-settings.js';
@@ -150,8 +149,16 @@ async function main(): Promise<void> {
   const storedTimeout = readUserSettings()['keepBackgroundSeconds'];
   if (storedTimeout === null) {
     sessions.keepBackgroundSeconds = null;
-  } else if (typeof storedTimeout === 'number' && storedTimeout >= SHORTEST_OFFERED_TIMEOUT) {
-    sessions.keepBackgroundSeconds = storedTimeout;
+  } else if (typeof storedTimeout === 'number') {
+    /**
+     * Clamped, not discarded, and by the same rule that let it be stored.
+     *
+     * Reading with a stricter rule than writing is how a setting stops being a setting: a value
+     * the daemon accepted and wrote down was thrown away on the next start in favour of the
+     * default, and the only trace was one log line. A file written by an older build can still
+     * hold an out-of-range number, so it is brought into range rather than believed or ignored.
+     */
+    sessions.keepBackgroundSeconds = clampTimeout(storedTimeout);
   }
   /**
    * Said out loud, because a setting that will not stay is reported about the picker and answered

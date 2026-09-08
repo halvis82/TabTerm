@@ -244,6 +244,45 @@ describe('a reap already scheduled', () => {
     expect(sessions.get(id)).toBeUndefined();
   });
 
+  it('and shortening the setting applies to a session already on a clock', async () => {
+    /**
+     * The deadline is kept across re-decisions, so it has to be dropped when the thing it was
+     * measured against changes. Somebody who has just shortened the timeout means the sessions
+     * they are looking at, not only the ones that detach next.
+     */
+    sessions.keepBackgroundSeconds = 3600;
+    const id = aDetachedSession('view-3');
+    const workspace = workspaces.findBySession(id);
+    if (workspace) sessions.recordTabClosed(workspace.id, 'close-2');
+    sessions.settledAfterMs = 0;
+    sessions.reportOpenWorkspaces('view-3', []);
+    expect(sessions.get(id)?.state).toBe('expiring');
+
+    sessions.keepBackgroundSeconds = 1;
+    sessions.rescheduleReaps();
+    await sleep(1400);
+
+    expect(sessions.get(id)).toBeUndefined();
+  });
+
+  it('and lengthening it does not end one early on the old deadline', async () => {
+    // The other direction, which a kept deadline could get wrong: the clock must be the one in
+    // force now, counted from the change, not whatever was already ticking.
+    sessions.keepBackgroundSeconds = 1;
+    const id = aDetachedSession('view-4');
+    const workspace = workspaces.findBySession(id);
+    if (workspace) sessions.recordTabClosed(workspace.id, 'close-3');
+    sessions.settledAfterMs = 0;
+    sessions.reportOpenWorkspaces('view-4', []);
+
+    sessions.keepBackgroundSeconds = 3600;
+    sessions.rescheduleReaps();
+    await sleep(1400);
+
+    expect(sessions.get(id)).toBeDefined();
+    expect(backend.kills).toEqual([]);
+  });
+
   it('and a tab coming back still cancels it outright', async () => {
     // The safety property the restart was there to provide. Keeping a deadline must not make a
     // session survivable only by luck: a workspace reported open again is kept, with no timer.

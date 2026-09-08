@@ -391,6 +391,11 @@ the timeout itself, which was measured against the old value.
 This changes no rule about what may be ended. It only lets a decision that was already made
 finish, and every safety check still runs again at the moment the timer fires.
 
+**What may be written is what will be honored.** The background timeout is clamped by one
+constant at both ends. Accepting a value on the wire that startup would refuse means a setting a
+person chose is on disk, correct, and discarded on the next start in favour of the default, with a
+log line as the only trace. The floor is the shortest the settings panel offers.
+
 **A session whose process is already gone is not scheduled at all.** `exited` may only become
 `reaped`, so asking for `expiring` threw, which sounds like a stray warning and is not: the two
 callers that reschedule reaping loop over every session at once, and the throw escaped from a
