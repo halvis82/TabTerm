@@ -118,7 +118,19 @@ const FIRST = [
  * on it: two suites that assert on what the command panel lists saw an entry they had not made.
  * Running it after them costs a few seconds and removes the whole class of question.
  */
-const LAST = ['survives-restart', 'resilience', 'nothing-left-alive', 'back-to-the-start-screen'];
+const LAST = [
+  'survives-restart',
+  'resilience',
+  'nothing-left-alive',
+  // These three leave the start screen the way a person does, which runs a `cd`, and two of them
+  // also close panes and tabs. The command history and the session list are shared by every suite
+  // on the daemon, and suites that read either saw entries they had not made.
+  'back-to-the-start-screen',
+  'back-from-a-running-session',
+  'every-card-opens',
+  // Leaves a background session behind for its own list, which other suites also read.
+  'card-menu-and-paste',
+];
 
 /**
  * Nothing is skipped by default any more.
