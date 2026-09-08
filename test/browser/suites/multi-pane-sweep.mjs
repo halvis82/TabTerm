@@ -324,7 +324,25 @@ const pressEntry = async (label) => {
     8000,
   );
   if (undoUp) {
-    await realClick(client, '#clear-undo');
+    /**
+     * Click it, and make sure the click landed before judging what it did.
+     *
+     * This failed once in about six full runs, always under load, and the two things it could
+     * mean are not the same: the product failed to restore the pane, or the pointer missed a
+     * button that is redrawn on a timer and can move out from under it. The offer hiding is proof
+     * the click was received, so a click that is not received is retried, and one that is
+     * received is judged on the product's behaviour with no retry at all.
+     */
+    let landed = false;
+    for (let attempt = 0; attempt < 2 && !landed; attempt += 1) {
+      await realClick(client, '#clear-undo');
+      landed = await waitFor(
+        client,
+        `document.getElementById('clear-undo')?.hidden !== false`,
+        4000,
+      );
+    }
+    r.ok('the undo offer takes the click', landed);
     const restored = await waitFor(
       client,
       `(window.__tabterm.readScreen(${JSON.stringify(all[1].id)}) ?? '').includes('SWEEP-CLEAR-ME')`,

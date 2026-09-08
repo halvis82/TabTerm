@@ -29,8 +29,15 @@ import { WorkspaceStore } from './workspace-store.js';
  * has printed a prompt and nothing more is not one of those, so the rule is that a session
  * earns its place by running something, and keeps it for as long as it lives.
  */
-const PORT = 7994;
-const config: Config = { ...DEFAULTS, port: PORT };
+/**
+ * Any free port, not a chosen one.
+ *
+ * Two test files had picked the same fixed number, and the pair failed whenever vitest happened
+ * to run them together: the second bound nothing and its setup timed out. That looked exactly
+ * like load sensitivity and was a duplicated constant. `listen()` reports what it actually bound.
+ */
+let PORT = 0;
+const config: Config = { ...DEFAULTS, port: 0 };
 
 let server: DaemonServer;
 let sessions: SessionManager;
@@ -54,7 +61,7 @@ beforeAll(async () => {
     new OutputArchive(new Database(':memory:')),
     new PluginHost(),
   );
-  await server.listen();
+  PORT = await server.listen();
   authToken = token;
 });
 

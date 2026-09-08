@@ -33,8 +33,9 @@ import { WorkspaceStore } from './workspace-store.js';
  * what a machine restart looks like from the daemon's point of view. The old workspaces are
  * gone from memory, and the only thing left is what was written down.
  */
-const PORT = 7994;
-const config: Config = { ...DEFAULTS, port: PORT };
+/** Any free port. See the note in live-sessions.test.ts: this file and that one shared 7994. */
+let PORT = 0;
+const config: Config = { ...DEFAULTS, port: 0 };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // One database, two daemons. This is the whole point of the test.
@@ -103,7 +104,7 @@ async function startDaemon(): Promise<Daemon> {
     new OutputArchive(db),
     new PluginHost(),
   );
-  await server.listen();
+  PORT = await server.listen();
   return { server, sessions, workspaces };
 }
 
