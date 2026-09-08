@@ -389,12 +389,24 @@ So the URL is asked first: **a tab with no workspace in its URL is a new tab, an
 the start screen.** The flag loses nothing by going second, because everything it protects is a
 tab with work in it, and a tab with work in it has a workspace in its URL.
 
-For a tab that does have one, refreshing still keeps its terminal unless the single pane in it is
-genuinely untouched: not started with a command, and never typed into. Both facts come from the
-daemon, because neither is on the screen. A half-typed command sits on the prompt line, so the tab
-still has exactly one line of content in it and looks identical to a prompt nobody has touched,
-and nothing was run so nothing in the output says otherwise. The daemon sees every keystroke and
-remembers, which is what makes the answer survive a reload and a tab being recreated.
+A tab that does have a workspace in its URL is not decided at startup at all. It is left undrawn
+until its screen arrives, and then answered on what is actually in it. Deciding earlier meant
+deciding on the flag alone and permanently, and that is the case that was reported twice: a start
+screen creates a shell the moment it opens and is given a workspace for it, so the URL it has by
+the time anything is clicked already names one, and pressing Back after opening a session from
+Running Now returns to **that** address rather than to a bare one. Nothing flashes in the meantime,
+because the panel is created hidden and only `show()` reveals it; rendering fills it in without
+unhiding it.
+
+Such a tab keeps its terminal unless the single pane in it is genuinely untouched: not started
+with a command, never typed into, and sitting in the home directory. **All three facts come from
+the daemon**, and the third is the one that says why. The page has the session's directory and the
+location of home only after the decision that needs them has been made, so comparing them in the
+page compared two empty strings, which is not a conservative answer but a wrong one, and it made
+the rule unreachable. The first two are not on the screen at all: a half-typed command sits on the
+prompt line, so the tab still has exactly one line of content and looks identical to a prompt
+nobody has touched, and nothing was run so the output says nothing either. The daemon sees every
+keystroke and remembers, which makes the answer survive a reload and a tab being recreated.
 
 ### A redraw restores the box before it restores what is under it
 

@@ -43,10 +43,12 @@
       "description": "Open a TabTerm terminal"
     },
     "new-terminal": {
-      "description": "Open a TabTerm terminal (alternate key)"
+      "description": "Open a TabTerm terminal (alternate key)",
+      "global": true
     },
     "launch-agent": {
-      "description": "Launch an agent in a new tab"
+      "description": "Launch an agent in a new tab",
+      "global": true
     }
   }
 }

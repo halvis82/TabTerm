@@ -1383,6 +1383,10 @@ function decideStartScreen(): void {
       panes: panesHost?.all.length ?? 0,
       lines: only ? linesWithContent(only.controller.term) : -1,
       withCommand: only ? panesWithCommand.has(only.paneId) : false,
+      // The two the launched flag is overruled by, and the pair that decides the second of them.
+      withInput: only ? panesWithInput.has(only.paneId) : false,
+      atHome: only ? panesAtHome.has(only.paneId) : false,
+      untouched: onlyPaneIsUntouched(),
       unused: thisTabIsUnused(),
     };
   }
@@ -1420,7 +1424,14 @@ function openStartScreen(): void {
    * Scoping the flag this way costs nothing that it was protecting. Everything it exists for is
    * a tab that has work in it, and a tab that has work in it has a workspace in its URL.
    */
-  if (hasLaunched() && reattaching) return;
+  /**
+   * No veto here any more. The two callers already answer it.
+   *
+   * A tab with no workspace is a new tab and shows this whatever it did before. A reattaching tab
+   * reaches here only through `decideStartScreen`, which has looked at what is actually in the
+   * tab, including the two facts the daemon supplies that the screen cannot show. Refusing again
+   * on the flag alone is what kept a tab holding one untouched shell from ever coming back.
+   */
   launcher.show();
   root.classList.add('panel-open');
   refitAllPanes();
@@ -1625,8 +1636,7 @@ function onlyPaneIsUntouched(): boolean {
   if (!only) return false;
   if (panesWithCommand.has(only.paneId) || panesWithInput.has(only.paneId)) return false;
   if (linesWithContent(only.controller.term) > 1) return false;
-  const where = sessionTitles.get(only.sessionId)?.cwd ?? currentCwd;
-  return where !== undefined && where !== '' && where === launcherHome;
+  return panesAtHome.has(only.paneId);
 }
 
 /**
@@ -1650,6 +1660,16 @@ const panesWithCommand = new Set<string>();
  * `startedWithCommand`, and never cleared: a session somebody has used stays used.
  */
 const panesWithInput = new Set<string>();
+
+/**
+ * Panes whose terminal is sitting in the home directory.
+ *
+ * From the daemon for the same reason as the others: the page has the session's directory and the
+ * location of home only after the decision that needs them has been made. Comparing two values
+ * that have not arrived yet is not a conservative answer, it is a wrong one, and it made the rule
+ * this guards unreachable. Measured as two empty strings at the moment of the decision.
+ */
+const panesAtHome = new Set<string>();
 
 const LAUNCHED = 'tabterm.launched';
 
@@ -2725,17 +2745,20 @@ function buildLauncher(): void {
   if (!new URL(location.href).searchParams.get('workspace')) {
     root.classList.add('panel-open');
     launcher.renderPlaceholder();
-  } else if (hasLaunched()) {
-    /**
-     * A tab that has already started something has no start screen, from the first frame.
-     *
-     * Not merely left undrawn: rendering unhides the element, and the start screen renders
-     * whenever the daemon sends it something to list, so a tab reloading into work would have
-     * it appear a second later regardless of what anything decided at startup. Dismissed here,
-     * once, which is also what takes down the keys it binds.
-     */
-    launcher.dismiss();
   }
+  /**
+   * And a reattaching tab is left undecided rather than dismissed here.
+   *
+   * Dismissing on the flag alone answered the question before there was anything to answer it
+   * with, and permanently: a tab reattaching to a workspace holding one untouched shell could
+   * never come back to the start screen, which is what pressing Back after opening a session
+   * from Running Now does.
+   *
+   * Nothing flashes in the meantime. The element is created hidden and the only thing that
+   * unhides it is `show()`, which only `openStartScreen` calls, which only `decideStartScreen`
+   * reaches for a reattaching tab. Rendering fills it in without revealing it. `decideStartScreen`
+   * still dismisses, once, for a tab that turns out to have work in it.
+   */
 }
 
 const quote = quotePath;
@@ -4253,6 +4276,8 @@ function onControl(msg: ServerMessage): void {
         // And whether anybody has typed into it, which the screen cannot show for a command
         // that was never sent. See `panesWithInput`.
         if (p.hasInput === true) panesWithInput.add(p.paneId);
+        // Whether it is sitting in home, which the page cannot work out in time. See below.
+        if (p.atHome === true) panesAtHome.add(p.paneId);
       }
       applyLayout(msg.layout);
       attached = true;

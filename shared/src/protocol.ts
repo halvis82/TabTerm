@@ -654,6 +654,13 @@ export interface WorkspacePane {
    * leaves the line count at one, exactly like a prompt nobody has touched.
    */
   hasInput?: boolean;
+  /**
+   * This pane's terminal is sitting in the home directory.
+   *
+   * Answered by the daemon because the page cannot answer it in time: it has the session's
+   * directory and the location of home only after the decision that needs them has been made.
+   */
+  atHome?: boolean;
 }
 
 /** A session in another tab that could be pulled into this workspace. */
