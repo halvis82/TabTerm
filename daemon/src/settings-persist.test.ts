@@ -1,5 +1,6 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { paths } from './config.js';
 import { clampTimeout } from './server.js';
@@ -56,6 +57,51 @@ describe('the background timeout on disk', () => {
     for (const asked of [1, 5, 59, 60, 120, 299]) {
       expect(clampTimeout(asked)).toBe(5 * 60);
     }
+  });
+
+  it('is never left half written, whatever happens during the write', () => {
+    /**
+     * `writeFileSync` truncates and then fills, so a crash in between leaves a file that exists
+     * and is not JSON. The reader answers that with `{}`, which means every default: the chosen
+     * timeout silently becomes the built-in one.
+     *
+     * A rename within a directory is atomic, so the file is only ever the old whole thing or the
+     * new whole thing. What is checked here is that no partial file is left behind and that a
+     * write which cannot complete leaves the previous settings intact and readable.
+     */
+    updateUserSetting('keepBackgroundSeconds', 1800);
+    expect(readUserSettings()['keepBackgroundSeconds']).toBe(1800);
+
+    // A value that cannot be serialised: JSON.stringify throws on a circular structure, which
+    // stands in for any failure partway through producing the bytes.
+    const circular: Record<string, unknown> = {};
+    circular['self'] = circular;
+    updateUserSetting('agentCommand', circular);
+
+    // The previous settings are still there, whole, and still say what was chosen.
+    expect(readUserSettings()['keepBackgroundSeconds']).toBe(1800);
+    expect(readFileSync(file, 'utf8').trim().endsWith('}')).toBe(true);
+    // And no temporary file is left lying beside it.
+    expect(readdirSync(paths.state).filter((n) => n.startsWith('settings.json.'))).toEqual([]);
+  });
+
+  it('and writes through a temporary file rather than over the real one', () => {
+    /**
+     * Checked at the source, because the window this closes cannot be opened from a test: the
+     * failure it guards is a crash **between** truncating the file and filling it, and a test
+     * that can survive to make an assertion did not crash.
+     *
+     * The behaviour above proves the settings survive a write that cannot produce its bytes. This
+     * proves the mechanism that makes the rest of the window safe, which is the same reason
+     * `app-bundle.test.ts` reads the installer rather than only its results.
+     */
+    const source = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), 'user-settings.ts'),
+      'utf8',
+    );
+    expect(source).toMatch(/renameSync\(temporary, FILE\)/);
+    // And the temporary is beside it, since a rename across filesystems is a copy.
+    expect(source).toMatch(/const temporary = `\$\{FILE\}/);
   });
 
   it('reads back an explicit keep forever, which is a real choice', () => {

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { paths } from './config.js';
 import { warn } from './log.js';
@@ -28,12 +28,34 @@ export function readUserSettings(): Record<string, unknown> {
   }
 }
 
+/**
+ * Written whole, or not at all.
+ *
+ * `writeFileSync` truncates first and then fills, so a crash or a full disk in between leaves a
+ * file that exists and is not JSON. The reader answers an unparseable file with `{}`, which here
+ * means every default: a person's chosen background timeout silently becomes the built-in one,
+ * and the only trace is a log line about a parse failure.
+ *
+ * A temporary file in the same directory, then a rename. A rename within a directory is atomic,
+ * so a reader sees either the previous complete settings or the new complete settings and never
+ * anything in between. Same directory because a rename across filesystems is a copy, which has
+ * the problem back again.
+ */
 export function writeUserSettings(next: Record<string, unknown>): void {
+  const temporary = `${FILE}.${String(process.pid)}.tmp`;
   try {
     mkdirSync(paths.state, { recursive: true, mode: 0o700 });
-    writeFileSync(FILE, JSON.stringify(next, null, 2) + '\n', { mode: 0o600 });
+    writeFileSync(temporary, JSON.stringify(next, null, 2) + '\n', { mode: 0o600 });
+    renameSync(temporary, FILE);
   } catch (e: unknown) {
     warn('settings.write-failed', { error: String(e) });
+    // The old file is still whole, which is the point. Leaving a half written temporary behind
+    // would just be litter that the next write overwrites anyway.
+    try {
+      rmSync(temporary, { force: true });
+    } catch {
+      /* nothing useful to say about failing to tidy up after a failure */
+    }
   }
 }
 
