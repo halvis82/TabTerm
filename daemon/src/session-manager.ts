@@ -6,7 +6,7 @@ import type { Config } from './config.js';
 import { debug, info, warn } from './log.js';
 import type { PtyBackend } from './pty-backend.js';
 import { OscScanner } from './osc.js';
-import { decideReap, describeReap, reapInputFor } from './cleanup.js';
+import { decideReap, describeReap, reapInputFor, type TabDisposition } from './cleanup.js';
 import { plainText } from './plain-text.js';
 import { expandHome } from './complete-path.js';
 import { listeningPorts } from './server-detect.js';
@@ -53,6 +53,13 @@ export interface Session {
   agentState?: AgentState;
   /** Somebody asked for this to end, rather than the process ending on its own. */
   endedByRequest?: boolean;
+  /**
+   * Somebody closed the pane this session was in.
+   *
+   * The authorization for ending a session that is no longer in any workspace. Set when a person
+   * closes a pane, and never by anything that merely rearranges or loses a layout.
+   */
+  paneClosedByUser?: boolean;
   /**
    * This session has emitted command marks, so the integration really is sourced.
    *
@@ -161,6 +168,38 @@ export function usedLines(screen: string): number {
 
 /** One hour. Exported so restoring settings uses this number rather than its own copy. */
 export const DEFAULT_KEEP_BACKGROUND_SECONDS = 60 * 60;
+
+/**
+ * Why TabTerm is allowed to end somebody's process.
+ *
+ * There is no member of this union that means "something went wrong" or "I could not tell". Every
+ * one of them names an act: a person pressed something, or a person closed something and the
+ * grace period they were given ran out. If no member fits, the answer is not to end the session.
+ */
+export type TerminationCause =
+  /** A person chose Kill session. */
+  | { kind: 'user-kill'; keepHistory?: boolean }
+  /** A person closed a pane, and it held nothing worth offering an undo for. */
+  | { kind: 'user-closed-pane'; keepHistory?: boolean }
+  /** A person merged a session into a pane, displacing the shell that was in it. */
+  | { kind: 'user-replaced-pane'; keepHistory?: boolean }
+  /** A person confirmed Reset TabTerm, which ends everything on purpose. */
+  | { kind: 'user-reset'; keepHistory?: boolean }
+  /**
+   * A tab a person closed, whose background timeout has run out.
+   *
+   * Carries the evidence itself so the log can say which closing authorized this, and when it
+   * was observed, rather than only that a timer fired.
+   */
+  | {
+      kind: 'expired-after-tab-close';
+      workspaceId: string;
+      closeEventId: string;
+      closedAt: number;
+      keepHistory?: boolean;
+    }
+  /** A pane a person closed, whose grace period has run out, in no workspace any more. */
+  | { kind: 'expired-after-pane-close'; keepHistory?: boolean };
 
 export class SessionManager {
   readonly #sessions = new Map<string, Session>();
@@ -626,9 +665,52 @@ export class SessionManager {
    * a kill: somebody chose `Kill session` on that pane, and leaving the pane sitting there
    * holding a dead terminal is the opposite of what they asked for.
    */
-  async kill(session: Session, keepHistory = false, byRequest = false): Promise<void> {
-    if (byRequest) session.endedByRequest = true;
-    await this.#pty.kill(session.id, keepHistory);
+  /**
+   * End a live terminal, naming what authorizes it.
+   *
+   * Every path that can send a signal to somebody's process goes through here, and the cause is
+   * required rather than optional so that no caller can reach it without saying why it is allowed
+   * to. That is the point of the type: `terminate(session)` does not compile, and a reader
+   * searching for the ways this product can end a process finds them by their cause rather than
+   * by guessing which `kill` is which.
+   *
+   * Reconciling records is **not** this. A session the backend no longer has is
+   * `forgetLostSession`, which signals nothing. A transport that dropped, a host that was
+   * replaced, a daemon shutting down: none of them come here.
+   */
+  async terminate(session: Session, cause: TerminationCause): Promise<void> {
+    if (cause.kind === 'user-kill') session.endedByRequest = true;
+    /**
+     * Written down before anything is signalled, and with the authorization in it.
+     *
+     * A session that disappears without one of these lines is a defect, and this is what makes
+     * that statement checkable.
+     */
+    info('session.terminating', {
+      sessionId: session.id,
+      cause: cause.kind,
+      ...('workspaceId' in cause ? { workspaceId: cause.workspaceId } : {}),
+      ...('closeEventId' in cause ? { closeEventId: cause.closeEventId } : {}),
+      ...('closedAt' in cause ? { closedAt: new Date(cause.closedAt).toISOString() } : {}),
+    });
+    await this.#pty.kill(session.id, cause.keepHistory === true);
+    this.#reap(session);
+  }
+
+  /**
+   * The backend no longer has this session. Let go of it, and signal nothing.
+   *
+   * Not `kill`. Killing is a destructive operation aimed at a live process, and this is the
+   * opposite situation: the process is already beyond reach, and the only thing left to do is
+   * stop claiming to own it. Using `kill` here sends a termination request for a session that
+   * does not exist, to whichever host happens to be connected now, which after a host has been
+   * replaced is a process that never had it.
+   *
+   * The distinction is the whole point. A daemon reconciling its records must not be able to
+   * reach the code path that ends somebody's work.
+   */
+  forgetLostSession(session: Session, why: string): void {
+    info('session.backend-lost', { sessionId: session.id, why });
     this.#reap(session);
   }
 
@@ -784,15 +866,67 @@ export class SessionManager {
    * carries a workspace in its URL, so a session outside one cannot be in a tab and is left to
    * the ordinary rules for an unattached shell.
    */
-  #hasOpenTab(sessionId: string): boolean | null {
-    if (this.#openWorkspaces.size === 0) return null;
-    if (this.#workspaceOf === undefined) return null;
+  /**
+   * What is known about the tab this session's workspace lives in.
+   *
+   * Two sources, and they are not symmetric. A report that names a workspace **proves** a tab is
+   * open, and that is protective. Nothing proves a tab was closed except an explicit statement
+   * that somebody closed it, which the extension sends and which lands in `#closedWorkspaces`.
+   *
+   * Absence from a report proves nothing at all. It used to return `false` here and `false` was
+   * read as authorization to start ending the session, so closing Chrome, closing a window,
+   * reloading the extension, a teardown race, or a second profile that never had the workspace
+   * were all indistinguishable from somebody deliberately closing a terminal.
+   */
+  #tabDisposition(sessionId: string): TabDisposition {
+    if (this.#workspaceOf === undefined) return 'unknown';
     const workspaceId = this.#workspaceOf(sessionId);
-    if (workspaceId === undefined) return false;
+    if (workspaceId === undefined) return 'unknown';
+    /**
+     * Open beats closed, always.
+     *
+     * A tab that says it is open now settles it, whatever was recorded earlier: reopening a
+     * workspace inside the window is exactly the case the timer exists to be cancelled by.
+     */
     for (const reported of this.#openWorkspaces.values()) {
-      if (reported.has(workspaceId)) return true;
+      if (reported.has(workspaceId)) return 'open';
     }
-    return false;
+    return this.#closedWorkspaces.has(workspaceId) ? 'closed' : 'unknown';
+  }
+
+  /**
+   * Workspaces somebody deliberately closed the tab of, and when.
+   *
+   * The only thing in this class that can authorize an automatic ending. Written from an explicit
+   * message and from nothing else: never from a socket closing, never from a report that failed
+   * to mention something, never from a reporter going away.
+   */
+  readonly #closedWorkspaces = new Map<string, { at: number; eventId: string }>();
+
+  /**
+   * Somebody closed the tab holding this workspace, and the extension is sure of it.
+   *
+   * Sure means: an individual tab removal, not a window or a browser closing, with no other tab
+   * still showing the same workspace, reported by an extension incarnation that was still alive
+   * afterwards to say so.
+   */
+  recordTabClosed(workspaceId: string, eventId: string): void {
+    this.#closedWorkspaces.set(workspaceId, { at: Date.now(), eventId });
+    info('workspace.tab-closed', { workspaceId, eventId });
+    this.rescheduleReaps();
+  }
+
+  /** A workspace open again, so whatever was recorded about closing it is no longer true. */
+  forgetTabClosed(workspaceId: string): void {
+    if (this.#closedWorkspaces.delete(workspaceId)) {
+      info('workspace.tab-reopened', { workspaceId });
+      this.rescheduleReaps();
+    }
+  }
+
+  /** What authorized an automatic ending, for the log that records it. */
+  closeEvidence(workspaceId: string): { at: number; eventId: string } | undefined {
+    return this.#closedWorkspaces.get(workspaceId);
   }
 
   /** Set by the server, which owns the workspace store. */
@@ -818,9 +952,10 @@ export class SessionManager {
         inWorkspace: this.#inWorkspace(session.id),
         sharesWorkspace: this.#sharesWorkspace(session.id),
         closedPaneSecondsLeft: this.undoWindowLeft?.(session.id) ?? null,
+        paneClosedByUser: session.paneClosedByUser === true,
         listeningPort: session.listeningPort,
         keepBackgroundSeconds: this.keepBackgroundSeconds,
-        hasOpenTab: this.#hasOpenTab(session.id),
+        tabDisposition: this.#tabDisposition(session.id),
       }),
       this.#config,
     );
@@ -861,9 +996,10 @@ export class SessionManager {
           inWorkspace: this.#inWorkspace(session.id),
           sharesWorkspace: this.#sharesWorkspace(session.id),
           closedPaneSecondsLeft: this.undoWindowLeft?.(session.id) ?? null,
+          paneClosedByUser: session.paneClosedByUser === true,
           listeningPort: session.listeningPort,
           keepBackgroundSeconds: this.keepBackgroundSeconds,
-          hasOpenTab: this.#hasOpenTab(session.id),
+          tabDisposition: this.#tabDisposition(session.id),
         }),
         this.#config,
       );
@@ -878,7 +1014,25 @@ export class SessionManager {
         return;
       }
       info('session.reaping', { sessionId: session.id, reason: now.reason });
-      void this.kill(session, true);
+      /**
+       * The evidence, read again now rather than trusted from when the timer was set.
+       *
+       * A timer means "look again", so the authorization is fetched at the moment of use and
+       * carried into the record of what was done. If it has gone, so has the permission.
+       */
+      const workspaceId = this.#workspaceOf?.(session.id);
+      const evidence = workspaceId === undefined ? undefined : this.closeEvidence(workspaceId);
+      if (workspaceId !== undefined && evidence !== undefined) {
+        void this.terminate(session, {
+          kind: 'expired-after-tab-close',
+          workspaceId,
+          closeEventId: evidence.eventId,
+          closedAt: evidence.at,
+          keepHistory: true,
+        });
+        return;
+      }
+      void this.terminate(session, { kind: 'expired-after-pane-close', keepHistory: true });
     }, decision.afterSeconds * 1000);
     // Unref'd: a session waiting to be reaped must not be the reason the process stays alive.
     // The wait is minutes long, so without this a daemon told to stop would sit there until a
@@ -893,7 +1047,7 @@ export class SessionManager {
      * days, for a browser that stopped existing, and marking every unreported session as
      * expiring the moment Chrome closes would say something untrue about all of them.
      */
-    if (decision.reason !== 'abandoned') this.#transition(session, 'expiring');
+    this.#transition(session, 'expiring');
     debug('session.reap.scheduled', { sessionId: session.id, policy: describeReap(decision) });
   }
 

@@ -135,7 +135,12 @@ async function requestCredentials(): Promise<void> {
 // The worker may also push credentials unprompted, right after creating this document.
 chrome.runtime.onMessage.addListener(
   (
-    msg: { t?: string; workspaceIds?: readonly string[] } & Credentials,
+    msg: {
+      t?: string;
+      workspaceIds?: readonly string[];
+      workspaceId?: string;
+      eventId?: string;
+    } & Credentials,
     _sender,
     sendResponse: (reply: { sent: boolean }) => void,
   ) => {
@@ -161,6 +166,28 @@ chrome.runtime.onMessage.addListener(
        */
       const connected = client?.connected === true;
       if (connected) client?.send({ t: 'tabs-open', workspaceIds: msg.workspaceIds });
+      sendResponse({ sent: connected });
+      return false;
+    }
+
+    if (
+      msg.t === 'tabterm:tab-closed' &&
+      typeof msg.workspaceId === 'string' &&
+      typeof msg.eventId === 'string'
+    ) {
+      /**
+       * Forwarded only while connected, and never held for later.
+       *
+       * This message authorizes the daemon to end a terminal on a timer, and a queued one is a
+       * message whose reason for existing may have stopped being true by the time it arrives:
+       * the workspace could have been reopened, or the browser could be quitting, and neither
+       * is visible from here once the moment has passed. A close that does not reach the daemon
+       * costs a shell that outlives its usefulness, which is the affordable direction.
+       */
+      const connected = client?.connected === true;
+      if (connected) {
+        client?.send({ t: 'tab-closed', workspaceId: msg.workspaceId, eventId: msg.eventId });
+      }
       sendResponse({ sent: connected });
       return false;
     }

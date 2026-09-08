@@ -76,6 +76,6 @@ describe('what a byte waits for inside the daemon', () => {
      * work being added to it rather than to pin a number down.
      */
     expect(worst).toBeLessThan(2);
-    void sessions.kill(session);
+    void sessions.terminate(session, { kind: 'user-kill' });
   });
 });

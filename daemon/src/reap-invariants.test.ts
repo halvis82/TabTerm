@@ -16,31 +16,33 @@ function everyInput(): ReapInput[] {
   for (const pinned of [false, true])
     for (const persistent of [false, true])
       for (const attachedClients of [0, 1])
-        for (const hasOpenTab of [true, false, null])
-          for (const inWorkspace of [false, true])
-            for (const sharesWorkspace of [false, true])
-              for (const neverUsed of [false, true])
-                for (const exited of [false, true])
-                  for (const listeningPort of [undefined, 3000])
-                    for (const hasExplicitCommand of [false, true])
-                      for (const closedPaneSecondsLeft of [null, 30])
-                        for (const keepBackgroundSeconds of [null, 600])
-                          for (const detachedForSeconds of [0, 60 * 60 * 24 * 30])
-                            out.push({
-                              pinned,
-                              persistent,
-                              attachedClients,
-                              hasOpenTab,
-                              inWorkspace,
-                              sharesWorkspace,
-                              neverUsed,
-                              exited,
-                              listeningPort,
-                              hasExplicitCommand,
-                              closedPaneSecondsLeft,
-                              keepBackgroundSeconds,
-                              detachedForSeconds,
-                            });
+        for (const tabDisposition of ['open', 'closed', 'unknown'] as const)
+          for (const paneClosedByUser of [false, true])
+            for (const inWorkspace of [false, true])
+              for (const sharesWorkspace of [false, true])
+                for (const neverUsed of [false, true])
+                  for (const exited of [false, true])
+                    for (const listeningPort of [undefined, 3000])
+                      for (const hasExplicitCommand of [false, true])
+                        for (const closedPaneSecondsLeft of [null, 30])
+                          for (const keepBackgroundSeconds of [null, 600])
+                            for (const detachedForSeconds of [0, 60 * 60 * 24 * 30])
+                              out.push({
+                                pinned,
+                                persistent,
+                                attachedClients,
+                                tabDisposition,
+                                paneClosedByUser,
+                                inWorkspace,
+                                sharesWorkspace,
+                                neverUsed,
+                                exited,
+                                listeningPort,
+                                hasExplicitCommand,
+                                closedPaneSecondsLeft,
+                                keepBackgroundSeconds,
+                                detachedForSeconds,
+                              });
   return out;
 }
 
@@ -69,9 +71,47 @@ describe('across every arrangement of facts, a session ends only when it should'
      * the one case where a countdown against an open tab is correct.
      */
     const wrong = ALL.filter(
-      (i) => i.hasOpenTab === true && i.attachedClients === 0 && noUndoWindow(i) && ends(i),
+      (i) => i.tabDisposition === 'open' && i.attachedClients === 0 && noUndoWindow(i) && ends(i),
     );
     expect(wrong).toEqual([]);
+  });
+
+  it('never ends anything without positive evidence that somebody closed its tab', () => {
+    /**
+     * The invariant this product is built around, over every arrangement of every other fact.
+     *
+     * Only `closed` can authorize an automatic ending, and `closed` is only ever produced by an
+     * explicit statement that somebody closed that specific tab. Everything else in the world
+     * that could make a workspace stop being reported is `unknown`: closing Chrome, closing a
+     * window, a crash, a reload of the extension, a discarded tab, a machine that slept, a
+     * socket that dropped, a daemon that restarted, a second profile that never had it, a report
+     * that arrived late or empty.
+     *
+     * Three things authorize an ending, and all three are acts or facts rather than inferences:
+     * somebody closed the tab, somebody closed the pane, or the process has already exited and
+     * there is nothing left to signal. `closedPaneSecondsLeft` is exempt for the same reason as
+     * the second: it is the undo window for a pane a person closed.
+     */
+    const authorized = (i: ReapInput): boolean =>
+      i.tabDisposition === 'closed' || i.paneClosedByUser || i.exited;
+    const wrong = ALL.filter((i) => !authorized(i) && noUndoWindow(i) && ends(i));
+    expect(wrong.map((i) => JSON.stringify(i))).toEqual([]);
+  });
+
+  it('never ends anything merely because a long time has passed', () => {
+    // A month detached, and nothing else true. Time is not consent, and a laptop shut in a drawer
+    // is not somebody finishing with a terminal.
+    const month = 60 * 60 * 24 * 30;
+    const wrong = ALL.filter(
+      (i) =>
+        i.tabDisposition === 'unknown' &&
+        !i.paneClosedByUser &&
+        !i.exited &&
+        i.detachedForSeconds === month &&
+        noUndoWindow(i) &&
+        ends(i),
+    );
+    expect(wrong.map((i) => JSON.stringify(i))).toEqual([]);
   });
 
   it('never ends a pinned or persistent session, whatever else is true', () => {
@@ -89,7 +129,7 @@ describe('across every arrangement of facts, a session ends only when it should'
         i.attachedClients === 0 &&
         noUndoWindow(i) &&
         !i.exited &&
-        i.hasOpenTab !== false &&
+        i.tabDisposition !== 'closed' &&
         ends(i),
     );
     expect(wrong).toEqual([]);
@@ -126,7 +166,9 @@ describe('across every arrangement of facts, a session ends only when it should'
      */
     const soon = 60 * 60; // An hour. Nothing here should be scheduled inside one.
     const wrong = ALL.filter((i) => {
-      if (i.hasOpenTab !== null || i.attachedClients > 0) return false;
+      if (i.tabDisposition !== 'unknown' || i.attachedClients > 0) return false;
+      // A pane the person closed is an authorization of its own, and not what this is about.
+      if (i.paneClosedByUser || i.exited) return false;
       if (
         (i.closedPaneSecondsLeft !== null && i.closedPaneSecondsLeft !== undefined) ||
         i.pinned ||
@@ -140,14 +182,22 @@ describe('across every arrangement of facts, a session ends only when it should'
     expect(wrong).toEqual([]);
   });
 
-  it('and schedules the horizon from when it was last detached, not from now', () => {
-    // A restart happens on every update, and treating a session as new each time would reset a
-    // clock that is supposed to run out after a week of nobody claiming it.
+  it('has no horizon left to schedule, which is the point', () => {
+    /**
+     * There used to be one: nobody has claimed this session for a week, so end it. It was
+     * scheduled from when the session was last detached rather than from now, so a daemon restart
+     * could not reset it.
+     *
+     * It is gone. A week of silence is still silence, and silence is not somebody closing a
+     * terminal. What replaced it is nothing at all: a session nobody can account for is kept, and
+     * shows up in Running Now for a person to end if they want it ended.
+     */
     const base: ReapInput = {
       pinned: false,
       persistent: false,
       attachedClients: 0,
-      hasOpenTab: null,
+      tabDisposition: 'unknown',
+      paneClosedByUser: false,
       inWorkspace: false,
       sharesWorkspace: false,
       neverUsed: false,
@@ -158,12 +208,12 @@ describe('across every arrangement of facts, a session ends only when it should'
       keepBackgroundSeconds: null,
       detachedForSeconds: 0,
     };
-    const horizon = config.abandonUnclaimedSeconds ?? 0;
-    expect(decideReap(base, config).afterSeconds).toBe(horizon);
-    const old = decideReap({ ...base, detachedForSeconds: horizon - 100 }, config);
-    expect(old.afterSeconds).toBe(100);
-    const overdue = decideReap({ ...base, detachedForSeconds: horizon + 5000 }, config);
-    expect(overdue.afterSeconds).toBe(0);
+    for (const detachedForSeconds of [0, 60, 7 * 24 * 60 * 60, 10 ** 9]) {
+      expect(decideReap({ ...base, detachedForSeconds }, config)).toEqual({
+        afterSeconds: null,
+        reason: 'no-close-evidence',
+      });
+    }
   });
 
   it('gives every decision a reason, and every ending a delay that is not negative', () => {

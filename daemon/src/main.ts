@@ -29,7 +29,7 @@ import { CommandTracker } from './command-tracker.js';
 import { ProjectTrust } from './project-trust.js';
 import { TurnTracker } from './agent-turns.js';
 import { AttentionNotices } from './attention-notices.js';
-import { LocalPtyBackend } from './pty-backend.js';
+import { LocalPtyBackend, NoPtyBackend } from './pty-backend.js';
 import { PtyHostClient } from './pty-host/client.js';
 import { HostPtyBackend } from './pty-host/backend.js';
 import { HOST_LOCK, HOST_POINTER, HOST_SOCKET } from './pty-host/paths.js';
@@ -101,8 +101,40 @@ async function main(): Promise<void> {
     // A pointer that could not be written is a debugging inconvenience, not a reason to stop.
   }
   const usingHost = await hostClient.connect();
-  const ptyBackend = usingHost ? new HostPtyBackend(hostClient) : new LocalPtyBackend();
-  if (!usingHost) warn('pty-host.falling-back', { detail: 'PTYs will not survive a restart' });
+  /**
+   * No durable host means no terminals, unless somebody has asked for that in so many words.
+   *
+   * The fallback used to be silent, on the reasoning that TabTerm without restart persistence
+   * beats no TabTerm. For this product that reasoning is wrong. `LocalPtyBackend` spawns
+   * terminals as children of the daemon, so every one of them dies when the daemon does, and the
+   * daemon is restarted by an ordinary update. A person who opened a terminal during a window
+   * where the host had not come up would lose it to a routine upgrade, with nothing anywhere
+   * having said so.
+   *
+   * A terminal product whose whole promise is that processes outlive the interface has to fail
+   * closed when the thing that keeps that promise is unavailable. The daemon still starts, still
+   * serves the interface, and still says what is wrong; it declines to hand anybody a terminal it
+   * cannot keep.
+   *
+   * `TABTERM_ALLOW_LOCAL_PTY=1` brings the old behavior back for development, loudly.
+   */
+  const allowLocal = process.env['TABTERM_ALLOW_LOCAL_PTY'] === '1';
+  if (!usingHost && !allowLocal) {
+    error('pty-host.unavailable', {
+      detail:
+        'the durable PTY host could not be started, so no terminal can be created: one made now ' +
+        'would be owned by this process and would end with it',
+    });
+  } else if (!usingHost) {
+    warn('pty-host.local-fallback', {
+      detail: 'TABTERM_ALLOW_LOCAL_PTY is set. PTYs are children of this daemon and die with it',
+    });
+  }
+  const ptyBackend = usingHost
+    ? new HostPtyBackend(hostClient)
+    : allowLocal
+      ? new LocalPtyBackend()
+      : new NoPtyBackend();
 
   const sessions = new SessionManager(config, events, ptyBackend);
   /**
@@ -543,6 +575,19 @@ async function main(): Promise<void> {
           hostClient.setBudget(server.scrollbackBytes);
           return;
         }
+        /**
+         * The same host, or a different one, said by the host rather than guessed from a socket.
+         *
+         * A reconnection to the same process proves the terminals are exactly where they were,
+         * whatever the socket did. Logged either way, because "my session vanished" is answered
+         * from this line.
+         */
+        info('pty-host.reconnect-identity', {
+          replaced: hostClient.hostReplaced,
+          instance: hostClient.hostInstance ?? 'unknown',
+          held: sessions.all.length,
+          onHost: live.length,
+        });
         const verdict = decideReconnect(
           sessions.all.map((s) => s.id),
           live.map((s) => s.sessionId),
@@ -556,9 +601,17 @@ async function main(): Promise<void> {
         } else {
           info('pty-host.reconnected-intact', { kept: verdict.kept.length });
         }
+        /**
+         * Records for sessions the host does not have. Let go, and signal nothing.
+         *
+         * These were ended by something outside this daemon: the host died, or the process did.
+         * Sending a kill for them reaches whichever host is connected **now**, which after a
+         * replacement is a process that never had them. Reconciling records must not be able to
+         * reach the code that ends somebody's work.
+         */
         for (const id of verdict.lost) {
           const session = sessions.get(id);
-          if (session) void sessions.kill(session, true);
+          if (session) sessions.forgetLostSession(session, 'not-on-host-after-reconnect');
         }
         hostClient.setBudget(server.scrollbackBytes);
         /**

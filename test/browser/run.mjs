@@ -203,6 +203,9 @@ const COVERS = [
   ['extension/src/layout/split-view', ['pane-bar', 'layout', 'workspace', 'multi-pane-sweep']],
   ['shared/src/layout', ['always-typeable', 'layout', 'workspace', 'undo-close', 'pane-close']],
   ['daemon/src/workspace-store', ['always-typeable', 'layout', 'workspace', 'undo-close']],
+  ['daemon/src/pty-backend', ['terminal', 'survives-restart', 'resilience', 'sessions']],
+  ['daemon/src/cleanup', ['sessions', 'tab-persistence']],
+  ['extension/src/offscreen/', ['sessions', 'tab-persistence', 'resilience']],
   ['daemon/src/attention-notices', ['agent-favicon', 'notifications']],
   ['daemon/src/file-slice', ['resume-and-tabs']],
   ['extension/src/terminal/themes', ['light-mode', 'light-panels']],
@@ -557,6 +560,10 @@ function startTestDaemon() {
         // A suite that drives an agent's hooks is asking what the daemon does, not asking to
         // interrupt whoever is running the tests. See `QUIET` in daemon/src/server.ts.
         TABTERM_NO_NOTIFICATIONS: '1',
+        // A host holding sessions refuses an ordinary SIGTERM, because exiting would make every
+        // one of them unreachable. A test host holds nothing anybody wants and must stop when
+        // its run does.
+        TABTERM_HOST_FORCE_STOP: '1',
       },
       stdio: ['ignore', log, log],
       detached: true,

@@ -46,14 +46,14 @@ describe('the size an attach is allowed to claim', () => {
     const session = sessions.create({ cols: 100, rows: 30 });
     sessions.attach(session, client('measured', 90, 25));
     expect(`${String(session.vt.cols)}x${String(session.vt.rows)}`).toBe('90x25');
-    void sessions.kill(session);
+    void sessions.terminate(session, { kind: 'user-kill' });
   });
 
   it('ignores a guess for a terminal that already has a size', () => {
     const session = sessions.create({ cols: 195, rows: 44 });
     sessions.attach(session, client('reopened-tab', 212, 47, true));
     expect(`${String(session.vt.cols)}x${String(session.vt.rows)}`).toBe('195x44');
-    void sessions.kill(session);
+    void sessions.terminate(session, { kind: 'user-kill' });
   });
 
   it('and the guess it ignored does not linger as a claim on the size', () => {
@@ -64,7 +64,7 @@ describe('the size an attach is allowed to claim', () => {
     expect(`${String(session.vt.cols)}x${String(session.vt.rows)}`).toBe('195x44');
     sessions.resize(session, 'reopened-tab', 190, 40);
     expect(`${String(session.vt.cols)}x${String(session.vt.rows)}`).toBe('190x40');
-    void sessions.kill(session);
+    void sessions.terminate(session, { kind: 'user-kill' });
   });
 
   it('takes the smaller of two views once both have measured', () => {
@@ -74,7 +74,7 @@ describe('the size an attach is allowed to claim', () => {
     sessions.attach(session, client('wide', 195, 44));
     sessions.attach(session, client('narrow', 100, 30));
     expect(`${String(session.vt.cols)}x${String(session.vt.rows)}`).toBe('100x30');
-    void sessions.kill(session);
+    void sessions.terminate(session, { kind: 'user-kill' });
   });
 
   it('lets a placeholder through when there is nothing better and nothing to spoil', () => {
@@ -82,6 +82,6 @@ describe('the size an attach is allowed to claim', () => {
     // it has until somebody measures.
     const session = sessions.create({ cols: 80, rows: 24 });
     expect(`${String(session.vt.cols)}x${String(session.vt.rows)}`).toBe('80x24');
-    void sessions.kill(session);
+    void sessions.terminate(session, { kind: 'user-kill' });
   });
 });

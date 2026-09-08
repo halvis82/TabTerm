@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { createServer, type Server, type Socket } from 'node:net';
 import { chmodSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -24,6 +25,18 @@ import { ScrollbackStore } from './scrollback-store.js';
  */
 
 export const HOST_PROTOCOL = 1;
+
+/**
+ * Who this host is, for as long as this process lives.
+ *
+ * A socket is not an identity. A daemon that loses its connection and gets another one has proved
+ * only that it has a connection, and the two questions it actually needs answered are different:
+ * is this the same host that was holding my terminals, or a new one that never had them?
+ *
+ * Answering that from "the socket came back" is how a recoverable interruption becomes a reason
+ * to end every session in it. The instance is generated once, at startup, and never changes.
+ */
+export const HOST_INSTANCE = randomUUID();
 
 interface Live {
   id: string;
@@ -228,7 +241,12 @@ export class PtyHost {
 
     switch (t) {
       case 'hello':
-        this.#send(socket, { t: 'hello-ok', protocol: HOST_PROTOCOL, pid: process.pid });
+        this.#send(socket, {
+          t: 'hello-ok',
+          protocol: HOST_PROTOCOL,
+          pid: process.pid,
+          instance: HOST_INSTANCE,
+        });
         return;
 
       case 'list':

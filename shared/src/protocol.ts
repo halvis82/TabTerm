@@ -390,6 +390,24 @@ export type ClientMessage =
       t: 'tabs-open';
       workspaceIds: readonly string[];
     }
+  | {
+      /**
+       * Somebody deliberately closed the tab holding this workspace.
+       *
+       * The **only** thing that can authorize TabTerm to end a terminal on a timer. Everything
+       * else the daemon can observe, a socket closing, a report that does not mention a
+       * workspace, a reporter that goes away, is a gap in what is known, and a gap keeps the
+       * terminal.
+       *
+       * The extension sends it only when all of these hold: an individual tab was removed,
+       * Chrome said it was not part of a window closing, and no other tab still shows the same
+       * workspace. See `docs/04-session-lifecycle.md`.
+       */
+      t: 'tab-closed';
+      workspaceId: string;
+      /** Names this closing, so the ending it authorizes can be traced back to it in the log. */
+      eventId: string;
+    }
   | { t: 'list-mergeable'; workspaceId: string }
   | {
       /** Name a pane, or clear the name by sending an empty label. */

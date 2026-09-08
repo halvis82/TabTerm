@@ -65,6 +65,38 @@ columns the shell does not know exist.
 
 ---
 
+## 2.9 The invariant everything else here serves
+
+**TabTerm never ends a live terminal without positive evidence of a deliberate act that
+authorizes it.**
+
+Absence is not intent. Disconnect is not intent. Shutdown is not intent. Failure is not intent.
+Timeout alone is not intent. When uncertain, the process is preserved.
+
+There are exactly six things that authorize TabTerm to signal somebody's process, and every one of
+them is named in the type that the code requires at the moment of termination:
+
+| Cause | What authorizes it |
+|---|---|
+| `user-kill` | A person chose Kill session |
+| `user-closed-pane` | A person closed a pane that held nothing worth offering an undo for |
+| `user-replaced-pane` | A person merged a session into a pane, displacing what was in it |
+| `user-reset` | A person confirmed Reset TabTerm |
+| `expired-after-tab-close` | A person closed that specific tab, and the background timeout they chose has run out. Carries the closing that authorized it |
+| `expired-after-pane-close` | A person closed that pane, and its grace period has run out |
+
+A process that exits on its own does not come through here at all: TabTerm did not end it.
+Reconciling records does not either. A session the PTY host no longer has is let go of with
+`forgetLostSession`, which signals nothing, because the process is already beyond reach and
+sending a kill would reach whichever host is connected now.
+
+**What is deliberately not on that list:** a closed socket, a browser quitting, a window closing,
+a crash, a machine sleeping, an extension reloading, a tab being discarded, a daemon restarting, a
+PTY host reconnecting, a reporter disappearing, a report that arrived empty or late or out of
+order, and a second browser profile saying it does not have a workspace it never had.
+
+---
+
 ## 3. Detach
 
 Detaching is triggered by:
@@ -77,8 +109,21 @@ Detaching is triggered by:
 | Explicit detach action | `detach` control message |
 | Pane merged into another workspace | `merge-session`, recorded distinctly |
 
-The daemon cannot distinguish a tab close from a tab discard. Both are simply "the connection went
-away." This is fine, because the response is identical: mark detached, start the policy clock.
+**Detaching is not a step towards being ended.** It says somebody stopped looking. A backgrounded
+tab, a discarded tab, a sleeping machine, a dropped socket, a quitting browser and a restarting
+daemon all produce it, and none of them is anybody saying they are finished with a terminal.
+
+The daemon genuinely cannot tell those apart, and that is exactly why a closed connection starts
+no clock at all. The two questions are separate:
+
+| | |
+|---|---|
+| A socket closed | transport and view state: `detached` |
+| Somebody closed a specific tab | possible authorization to expire, and only then |
+
+The second never arrives by inference. It arrives as a `tab-closed` message from the extension,
+which is the only party that can see the difference between a person closing a tab and a browser
+taking its windows down.
 
 A pane merged into a workspace is **not** a detach in the reap sense. It is still attached, just to
 a different workspace. See §6.
@@ -198,97 +243,27 @@ just the leader, so orphaned children do not survive.
 
 ---
 
-### The abandonment horizon
+### There is no abandonment horizon any more
 
-"Nobody has said" keeps a terminal, and it has to: a closed Chrome, a crashed Chrome and an
-extension that has not reported yet are indistinguishable from the daemon, and all of them come
-back. What it must not do is keep one **forever**.
+There used to be one: nobody has reported this workspace for a week, so end it. It was there for a
+real problem. On 2026-09-02 enough unclaimed sessions accumulated to exhaust `kern.tty.ptmx_max`
+and stop every terminal on the machine, in every application, including ones that share no code
+with this project.
 
-A browser that stopped existing never reports again. Its sessions are then held by three rules
-each of which is right on its own: a terminal outlives the things around it, "nobody told me"
-means keep, and a killed browser cannot tell anybody anything. On 2026-09-02 enough of those
-accumulated to exhaust `kern.tty.ptmx_max` and stop every terminal on the machine, in every
-application, including ones that share no code with this project.
+It is gone, because it was a timer with no authorization behind it. A week of silence is still
+silence: a laptop shut in a drawer, a browser not started yet, an extension being replaced, a
+report that arrived without this workspace in it. None of them is anybody closing a terminal, and
+a rule that ends processes after a week of not knowing is a rule that ends processes on a guess.
 
-So an unclaimed session is let go after **seven days undetached**. Long enough that a closed
-laptop, a holiday and a browser crash all cost nothing; short enough that abandoned work does not
-accumulate without limit.
+**The intentional trade.** TabTerm would rather leak an abandoned session than risk ending an
+active one. Those two mistakes are not comparable: the first costs a shell that outlives its
+usefulness, which appears in Running Now with its folder and its last screen and can be ended by
+hand in one click. The second costs somebody's work, and nothing brings it back.
 
-What makes ending one acceptable is that it loses nothing anybody can point at. The scrollback is
-on disk, and the tab's recovery page still shows the last screen, the folder, and the last command
-(§8). Only a process nobody has watched for a week ends.
+The pressure the horizon existed to relieve is answered where it belongs: sessions that nobody can
+account for are **visible** rather than **destroyed**.
 
-It does not apply to a pinned session, a persistent one, or one holding a listening socket, and a
-session on this horizon is **not** marked `expiring`: that word means "going soon unless something
-changes", and a week away is not that.
-
-The clock is the time since anything was attached, and it survives a daemon restart. An adopted
-session is dated from when the PTY host started it rather than from when this daemon noticed it,
-because a restart happens on every update, and a clock that resets then would never run out. That
-is safe because a tab that is genuinely watching reconnects within seconds of the daemon coming
-back, which sets the clock forward honestly.
-
----
-
-### A host with nothing left to hold leaves
-
-The PTY host exists to outlive its daemon, which is why it cannot be ended along with one. That
-is right while it holds terminals and pointless when it holds none: a host with no sessions and
-no daemon connected is protecting nothing.
-
-So it leaves, two minutes after both become true. The delay is the point: a daemon being replaced
-disconnects and reconnects within seconds, and a host that left in that gap would take every
-terminal on the machine with it.
-
-Only the standalone host does this. One embedded in another process, which is every test and the
-local backend, must never end the process it is part of, so the behavior is passed in rather than
-assumed.
-
-This was found from the other end. An interrupted test run left a host behind every time, because
-the runner finds what it is responsible for by looking under its own temporary home and the
-host's socket had moved out of it. 133 of them were counted on one machine, holding 797 MB. The
-runner kills its own host by pid now, and this is the guard for every other way one is orphaned.
-
----
-
-### A pane somebody closed is held for five minutes
-
-Closing a pane used to end its shell on the spot. That makes the gesture unrecoverable, which
-makes it something to be careful with, which is the wrong feeling for a button in the corner of a
-pane. The shell is kept for five minutes instead, in no workspace and attached to nothing, and
-`reopen-pane` puts it back where it was.
-
-That state is one every other rule reads as "end this", correctly, which is why the wait is a rule
-of its own and sits above them all. It is the only rule with a deadline that was set deliberately
-by a person rather than inferred from what a session looks like.
-
-Not for the last pane in a workspace: closing that is closing the tab, the workspace goes with it,
-and there is nothing left to put a pane back into. Not for a shell that has already exited, which
-holds nothing to bring back. The reopen is refused, rather than half done, when the session has
-ended or has since been opened somewhere else: an undo that produces a different terminal from the
-one that was closed is worse than an undo that says it cannot.
-
----
-
-### A shell's own marks are not output
-
-zsh prints a lone inverse `%` when a command's output did not end in a newline, so the last of it
-is not overwritten by the prompt. It is a normal shell doing a normal thing, and it means an
-untouched terminal can show two lines rather than one.
-
-Two decisions count lines to answer "has this been used at all": whether a tab still shows its
-start screen, and whether a session the daemon adopted has ever run anything. Both ignore that
-marker now. It was counting, so a refresh took the start screen away and left somebody looking at
-a terminal holding a percent sign, and an adopted shell that had only ever drawn a prompt was
-protected from the rule that clears untouched panes.
-
-The rule is deliberately narrow: a line of exactly one character, being `%`, `$` or `#`. Widening
-it to "starts with %" would hide the first line of anything about percentages, which is a far
-worse failure than showing one stray character.
-
----
-
-### A tab that was never used
+### A pane nobody used
 
 A tab opened and closed without anything being run in it, and which never left the directory it
 opened in, is ended a few seconds after its tab closes rather than being kept for the background
@@ -480,8 +455,21 @@ pane is closed.
 
 ## 10. Chrome quitting
 
-Chrome exiting closes every connection. Every session becomes detached. Because workspaces are
-pinned by default, nothing is reaped.
+Chrome exiting closes every connection. Every session becomes detached, and nothing is reaped.
+
+**Not because workspaces happen to be pinned by default.** That was the old answer and it was a
+weak one: it made safety depend on a setting somebody could change, and on a default that a
+different rule might one day override. The reason is stronger and does not depend on configuration
+at all.
+
+A browser quitting produces no close evidence. Chrome tells the extension that its tabs are going
+away with `isWindowClosing` set, which the extension declines to treat as anybody closing a
+terminal; and a browser that is gone reports nothing at all, which is a gap in what is known
+rather than a statement about anything. With no evidence, the reap policy answers
+`no-close-evidence` and schedules nothing, whatever else is true of the session.
+
+The same reasoning covers closing a window, quitting with Command+Q, a crash, and the machine
+going to sleep. None of them can produce the one message that authorizes an expiry.
 
 On Chrome restart, either Chrome's own session restore reopens the tabs (which then reattach
 normally), or the launcher lists every running session so they can be reopened deliberately. Both

@@ -184,6 +184,18 @@ async function makeSession(clientId: string, used = true): Promise<{ c: C; sessi
   return { c, sessionId: created.sessionId };
 }
 
+/**
+ * Somebody closed the tab this session's workspace lives in.
+ *
+ * The only thing that authorizes an automatic ending. Tests used to produce this by sending an
+ * empty `tabs-open` report, which is a different statement entirely and one that a browser makes
+ * while starting, while quitting, and from a profile that never had the workspace.
+ */
+function closeItsTab(sessionId: string, eventId = 'test-close'): void {
+  const workspaceId = workspaces.findBySession(sessionId)?.id;
+  if (workspaceId) sessions.recordTabClosed(workspaceId, eventId);
+}
+
 describe('durability', () => {
   it('keeps a workspace pane alive well past the idle grace period', async () => {
     /**
@@ -219,7 +231,7 @@ describe('durability', () => {
     );
     const session = watched.create({ cols: 80, rows: 24 });
     await sleep(400);
-    await watched.kill(session);
+    await watched.terminate(session, { kind: 'user-kill' });
     expect(exited, 'a reaped session must announce its exit').toBe(1);
     await watched.shutdown();
   });
@@ -236,7 +248,7 @@ describe('durability', () => {
      * replaced. The daemon acts on what the extension reports about tabs, so a test that wants
      * a reap has to report one.
      */
-    sessions.reportOpenWorkspaces('a-browser', []);
+    closeItsTab(sessionId);
     await sleep(PAST_GRACE);
 
     const session = sessions.get(sessionId);
@@ -253,19 +265,42 @@ describe('durability', () => {
     expect(session?.state).toBe('detached');
   });
 
-  it('reaps a session that is not in a workspace once its grace period passes', async () => {
+  it('reaps a shell whose pane somebody closed, once its grace period passes', async () => {
+    /**
+     * Outside a workspace, the authorization is the pane close rather than the tab close.
+     *
+     * The two are different acts and they are recorded separately. A session stops being in a
+     * workspace for reasons that are not acts at all, and the rules that apply out here decide
+     * **how long** to wait rather than whether waiting is allowed.
+     */
     const { c, sessionId } = await makeSession('dur-3');
-    sessions.reportOpenWorkspaces('a-browser', []);
-    // Outside a workspace the idle-shell rule applies, which is faster than the never-used one.
-    // Remove it from its workspace so the protection no longer applies.
+    const ws = workspaces.findBySession(sessionId);
+    if (ws) {
+      const pane = workspaces.paneFor(ws, sessionId);
+      if (pane) workspaces.closePane(ws.id, pane);
+    }
+    const session = sessions.get(sessionId);
+    if (session) session.paneClosedByUser = true;
+    c.close();
+    await until(() => sessions.get(sessionId) === undefined);
+    expect(sessions.get(sessionId), 'a closed pane is authorization enough').toBeUndefined();
+  });
+
+  it('keeps a shell that left its workspace with nobody having closed anything', async () => {
+    /**
+     * The same shape without the act. A workspace can stop containing a session for reasons that
+     * are not somebody finishing with it, and the rules out here must not treat their own
+     * existence as permission.
+     */
+    const { c, sessionId } = await makeSession('dur-3b');
     const ws = workspaces.findBySession(sessionId);
     if (ws) {
       const pane = workspaces.paneFor(ws, sessionId);
       if (pane) workspaces.closePane(ws.id, pane);
     }
     c.close();
-    await until(() => sessions.get(sessionId) === undefined);
-    expect(sessions.get(sessionId), 'an unprotected idle shell should be reaped').toBeUndefined();
+    await sleep(PAST_GRACE * 4);
+    expect(sessions.get(sessionId), 'nobody closed anything, so it stays').toBeTruthy();
   });
 
   it('a pinned session is never reaped even outside a workspace', async () => {
@@ -597,8 +632,8 @@ describe('a pane nobody used', () => {
     sessions.keepBackgroundSeconds = null;
     const { c, sessionId } = await makeSession('dur-unused', false);
     c.close();
-    // The tab is genuinely gone, which is what the never-used rule is about.
-    sessions.reportOpenWorkspaces('a-browser', []);
+    // The tab is genuinely gone, said explicitly, which is what the never-used rule is about.
+    closeItsTab(sessionId, 'test-close-unused');
     await sleep(PAST_GRACE);
     // Scheduled rather than gone: the delay is what makes an accidental close recoverable.
     expect(sessions.get(sessionId)?.state).toBe('expiring');
@@ -629,7 +664,21 @@ describe('two browsers reporting their tabs', () => {
     sessions.keepBackgroundSeconds = null;
   });
 
-  it('stops trusting a browser that has gone', async () => {
+  it('keeps a session when the browser that had it open quits', async () => {
+    /**
+     * The inversion the review asked for, and it is the right way round.
+     *
+     * This used to assert that a session disappears once the browser that reported it open goes
+     * away. That reads "the reporter is gone" as "the user finished", and those are not the same
+     * statement at all: quitting Chrome, a crash, a machine going to sleep and an extension being
+     * replaced all take the reporter with them, and none of them is anybody closing a terminal.
+     *
+     * A second browser saying it does not have the workspace means nothing about the first one's
+     * intent. It never had it.
+     *
+     * The cost of this being wrong the other way is a shell that outlives its usefulness, which
+     * shows up in Running Now. The cost of the old behavior was somebody's work.
+     */
     const { c, sessionId } = await makeSession('dur-gone-browser');
     const ws = workspaces.findBySession(sessionId)?.id ?? '';
     c.close();
@@ -637,8 +686,29 @@ describe('two browsers reporting their tabs', () => {
 
     sessions.reportOpenWorkspaces('browser-a', [ws]);
     sessions.reportOpenWorkspaces('browser-b', []);
-    // Chrome A quits. Its last report is not evidence about the world any more.
+    // Chrome A quits: its connection goes, and with it every claim it was making.
     sessions.forgetReporter('browser-a');
+    await sleep(PAST_GRACE * 3);
+
+    expect(
+      sessions.get(sessionId),
+      'a browser quitting is not somebody closing a terminal',
+    ).toBeTruthy();
+    expect(sessions.get(sessionId)?.state).not.toBe('expiring');
+    sessions.keepBackgroundSeconds = null;
+  });
+
+  it('ends it only once somebody closes that tab, whoever is still reporting', async () => {
+    const { c, sessionId } = await makeSession('dur-closed-for-real');
+    const ws = workspaces.findBySession(sessionId)?.id ?? '';
+    c.close();
+    sessions.keepBackgroundSeconds = GRACE_SECONDS;
+
+    sessions.reportOpenWorkspaces('browser-a', [ws]);
+    sessions.reportOpenWorkspaces('browser-b', []);
+    sessions.forgetReporter('browser-a');
+    // Now the tab is actually closed, said by the extension that watched it happen.
+    sessions.recordTabClosed(ws, 'test-close-for-real');
     await until(() => sessions.get(sessionId) === undefined);
 
     expect(sessions.get(sessionId)).toBeUndefined();

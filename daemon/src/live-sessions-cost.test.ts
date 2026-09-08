@@ -67,6 +67,6 @@ describe('what it costs to build the running list', () => {
 
     // Generous. This is here to catch it becoming expensive, not to pin a number.
     expect(best).toBeLessThan(60);
-    for (const s of made) void sessions.kill(s);
+    for (const s of made) void sessions.terminate(s, { kind: 'user-kill' });
   });
 });

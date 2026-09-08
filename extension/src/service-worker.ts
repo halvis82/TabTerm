@@ -191,6 +191,27 @@ async function closeWorkspaceTab(workspaceId: string, asking?: number): Promise<
 const OPEN_TABS_KEY = 'tabterm.openWorkspaces';
 
 /**
+ * Which workspace each terminal tab holds, kept where a sleeping worker cannot lose it.
+ *
+ * A removed tab cannot be queried: by the time `onRemoved` fires there is nothing to ask about
+ * its URL, so the only way to know which workspace went with it is to have written it down
+ * beforehand. In storage rather than in a variable, because this worker is stopped and restarted
+ * constantly and a variable is empty every time it comes back.
+ */
+const TAB_MAP_KEY = 'tabterm.tabWorkspaces';
+
+/** Read the tab-to-workspace map, which is a plain object so it survives storage. */
+async function tabMap(): Promise<Record<string, string>> {
+  try {
+    const stored = await chrome.storage.local.get(TAB_MAP_KEY);
+    const raw: unknown = stored[TAB_MAP_KEY];
+    return typeof raw === 'object' && raw !== null ? (raw as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Nothing may overwrite the remembered set until startup has decided what to reopen.
  *
  * The record is at its most precious in the first moment of a worker's life, because that is
@@ -222,6 +243,18 @@ async function reportOpenTabs(): Promise<void> {
       .filter((id): id is string => id !== null && id !== '');
     // Kept as well as sent, so the tabs can be put back after a reload. See `reopenAfterReload`.
     await chrome.storage.local.set({ [OPEN_TABS_KEY]: workspaceIds });
+    /**
+     * And which tab holds which workspace, for when one of them is removed.
+     *
+     * Rebuilt from what is open rather than edited, so a tab that went while this worker was
+     * asleep leaves nothing behind to be mistaken for a live one later.
+     */
+    const map: Record<string, string> = {};
+    for (const tab of tabs) {
+      const id = new URL(tab.url ?? '').searchParams.get('workspace');
+      if (tab.id !== undefined && id !== null && id !== '') map[String(tab.id)] = id;
+    }
+    await chrome.storage.local.set({ [TAB_MAP_KEY]: map });
     await sendTabsOpen([...new Set([...workspaceIds, ...claimedWhileStarting])]);
   } catch {
     /**
@@ -243,6 +276,78 @@ async function reportOpenTabs(): Promise<void> {
  * was two minutes later, which is four times longer than the fastest rule that ends a terminal:
  * a report system whose retry is slower than the thing it protects against.
  */
+/**
+ * A tab has gone. Decide whether that was somebody closing a terminal, and say so only if it was.
+ *
+ * This is the single place in the product where a destructive authorization is created, so it is
+ * deliberately narrow. Everything it refuses to conclude costs at most a shell that outlives its
+ * usefulness, and shows up in Running Now for a person to end. Everything it wrongly concludes
+ * costs somebody's work.
+ *
+ * Three things all have to hold:
+ *
+ * 1. **Chrome says this was not a window closing.** `isWindowClosing` is true for every tab in a
+ *    window that is going away, which is also what quitting Chrome looks like. Neither is anybody
+ *    deciding they are finished with a terminal
+ * 2. **The workspace is known**, from the map written while the tab was alive. A tab whose
+ *    workspace was never recorded says nothing about any workspace
+ * 3. **No other tab still shows it.** Two tabs can hold the same workspace, and closing one of
+ *    them leaves the terminal plainly in use in the other
+ *
+ * What this cannot distinguish, and therefore treats as a close, is a person closing a tab and a
+ * script closing one. Both are somebody acting on that specific tab. What it must never see is a
+ * teardown: an extension being reloaded or replaced does not fire `onRemoved` for its pages at
+ * all, and a browser quitting fires them with `isWindowClosing`.
+ */
+async function tabWasRemoved(
+  tabId: number,
+  removeInfo: { isWindowClosing: boolean },
+): Promise<void> {
+  if (removeInfo.isWindowClosing) return;
+
+  const map = await tabMap();
+  const workspaceId = map[String(tabId)];
+  if (workspaceId === undefined || workspaceId === '') return;
+
+  /**
+   * Asked of Chrome rather than of the map, because the map is only as fresh as the last report.
+   *
+   * A duplicate tab opened since then would not be in it, and concluding "closed" while the
+   * workspace is visibly open in another tab is the exact mistake this function exists to avoid.
+   */
+  try {
+    const base = chrome.runtime.getURL('terminal.html');
+    const remaining = await chrome.tabs.query({ url: `${base}*` });
+    const stillShown = remaining.some(
+      (t) => t.id !== tabId && new URL(t.url ?? '').searchParams.get('workspace') === workspaceId,
+    );
+    if (stillShown) return;
+  } catch {
+    // Unable to check, so unable to conclude. Keeping the terminal is the safe answer.
+    return;
+  }
+
+  await sendTabClosed(workspaceId, crypto.randomUUID());
+}
+
+/** Tell the daemon, through the same document that forwards everything else. */
+async function sendTabClosed(workspaceId: string, eventId: string): Promise<void> {
+  await ensureOffscreen().catch(() => undefined);
+  for (const wait of [0, 250, 750]) {
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    try {
+      const reply: unknown = await chrome.runtime.sendMessage({
+        t: 'tabterm:tab-closed',
+        workspaceId,
+        eventId,
+      });
+      if (reply !== undefined) return;
+    } catch {
+      /* the document is not there yet, or is going away. Try again, then give up quietly. */
+    }
+  }
+}
+
 async function sendTabsOpen(workspaceIds: readonly string[]): Promise<void> {
   // The document that forwards it may not exist yet, and asking for it is what creates it.
   await ensureOffscreen().catch(() => undefined);
@@ -353,7 +458,9 @@ async function reopenAfterReload(): Promise<void> {
 /** How long a workspace nobody could put a tab back for is still claimed as open. */
 const CLAIM_GRACE_MS = 120_000;
 
-chrome.tabs.onRemoved.addListener(() => void reportOpenTabs());
+chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+  void tabWasRemoved(tabId, removeInfo).finally(() => void reportOpenTabs());
+});
 chrome.tabs.onCreated.addListener(() => void reportOpenTabs());
 chrome.tabs.onUpdated.addListener((_id, changed) => {
   // Only when the URL changed: a title or a favicon says nothing about which workspaces exist.

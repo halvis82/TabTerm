@@ -50,7 +50,7 @@ describe('one terminal, one size, one authority', () => {
     sessions.attach(s, view('wide', 200, 40));
     sessions.attach(s, view('tall', 120, 50));
     expect(sizeOf(s)).toBe('120x40');
-    void sessions.kill(s);
+    void sessions.terminate(s, { kind: 'user-kill' });
   });
 
   it('says nothing when told the same thing again', () => {
@@ -66,7 +66,7 @@ describe('one terminal, one size, one authority', () => {
     for (let i = 0; i < 20; i++) sessions.resize(s, 'a', 90, 25);
     expect(applied.length).toBe(after);
     expect(sizeOf(s)).toBe('90x25');
-    void sessions.kill(s);
+    void sessions.terminate(s, { kind: 'user-kill' });
   });
 
   it('settles in one step however the views arrive', () => {
@@ -88,7 +88,7 @@ describe('one terminal, one size, one authority', () => {
       expect(sizeOf(s)).toBe('80x30');
       // Every announcement was a real change: none of them restated the size.
       expect(new Set(applied).size).toBe(applied.length);
-      void sessions.kill(s);
+      void sessions.terminate(s, { kind: 'user-kill' });
     }
   });
 
@@ -99,7 +99,7 @@ describe('one terminal, one size, one authority', () => {
     expect(sizeOf(s)).toBe('80x24');
     sessions.detach(s, 'narrow');
     expect(sizeOf(s)).toBe('200x60');
-    void sessions.kill(s);
+    void sessions.terminate(s, { kind: 'user-kill' });
   });
 
   it('keeps the last size when the final view leaves, rather than reverting to a default', () => {
@@ -110,7 +110,7 @@ describe('one terminal, one size, one authority', () => {
     expect(sizeOf(s)).toBe('137x41');
     sessions.detach(s, 'only');
     expect(sizeOf(s)).toBe('137x41');
-    void sessions.kill(s);
+    void sessions.terminate(s, { kind: 'user-kill' });
   });
 
   it('is not moved by a view that admits it is guessing', () => {
@@ -119,7 +119,7 @@ describe('one terminal, one size, one authority', () => {
     sessions.attach(s, view('reopened', 212, 47, true));
     expect(sizeOf(s)).toBe('195x44');
     expect(applied).toEqual([]);
-    void sessions.kill(s);
+    void sessions.terminate(s, { kind: 'user-kill' });
   });
 
   it('never lands anywhere but the minimum, over every arrangement of three views', () => {
@@ -154,7 +154,7 @@ describe('one terminal, one size, one authority', () => {
         sessions.resize(s, `v${String(i)}`, cols, rows);
       }
       expect(applied.length).toBe(settled);
-      void sessions.kill(s);
+      void sessions.terminate(s, { kind: 'user-kill' });
     }
   });
 
@@ -166,6 +166,6 @@ describe('one terminal, one size, one authority', () => {
     sessions.resize(s, 'honest', Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
     expect(s.vt.cols).toBeLessThan(10_000);
     expect(s.vt.rows).toBeLessThan(10_000);
-    void sessions.kill(s);
+    void sessions.terminate(s, { kind: 'user-kill' });
   });
 });

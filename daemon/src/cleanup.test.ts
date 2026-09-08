@@ -5,7 +5,8 @@ import { decideReap, describeReap, type ReapInput } from './cleanup.js';
 const config: Config = { ...DEFAULTS };
 
 /**
- * `hasOpenTab: false` in the base, deliberately.
+ * `tabDisposition: 'closed'` in the base, deliberately: these cases are about what happens
+ * once there is real evidence somebody closed the tab.
  *
  * Every timer in this policy only starts once the tab is known to be gone, so a fixture that
  * left this unknown would test nothing but the "we cannot tell, so keep it" rule.
@@ -14,7 +15,8 @@ const base: ReapInput = {
   pinned: false,
   persistent: false,
   attachedClients: 0,
-  hasOpenTab: false,
+  tabDisposition: 'closed',
+  paneClosedByUser: true,
   inWorkspace: false,
   sharesWorkspace: false,
   exited: false,
@@ -258,12 +260,14 @@ describe('a tab that still exists', () => {
    * somebody is looking right now. It was never evidence that the tab had been closed.
    */
   it('is never reaped, whatever else is true of it', () => {
-    expect(decide({ hasOpenTab: true, inWorkspace: true, keepBackgroundSeconds: 60 })).toEqual({
+    expect(
+      decide({ tabDisposition: 'open', inWorkspace: true, keepBackgroundSeconds: 60 }),
+    ).toEqual({
       afterSeconds: null,
       reason: 'tab-open',
     });
     // Not even the never-used rule, which is otherwise the most eager one there is.
-    expect(decide({ hasOpenTab: true, inWorkspace: true, neverUsed: true })).toEqual({
+    expect(decide({ tabDisposition: 'open', inWorkspace: true, neverUsed: true })).toEqual({
       afterSeconds: null,
       reason: 'tab-open',
     });
@@ -271,76 +275,83 @@ describe('a tab that still exists', () => {
 
   it('is kept when nobody could tell us either way', () => {
     /**
-     * Chrome closed, crashed, or not yet reported. All of them are a gap in what we know, and
-     * the only safe reading of "I do not know" is to keep the terminal.
+     * Chrome closed, crashed, or not yet reported. All of them are a gap in what we know, and the
+     * only safe reading of "I do not know" is to keep the terminal, with no clock at all.
      *
-     * Kept, not kept forever. The clock it gets is the abandonment horizon, which is a week
-     * rather than the background timeout, so the sixty seconds asked for here is ignored: this
-     * tab has not been reported closed, so the rule about closed tabs does not apply to it.
+     * The background timeout asked for here is ignored on purpose: that rule is about tabs
+     * somebody closed, and nothing here says anybody closed anything.
      */
-    const decision = decide({ hasOpenTab: null, inWorkspace: true, keepBackgroundSeconds: 60 });
-    expect(decision.reason).toBe('abandoned');
-    expect(decision.afterSeconds).toBe(config.abandonUnclaimedSeconds);
-    expect(decision.afterSeconds).toBeGreaterThan(24 * 60 * 60);
-  });
-
-  /**
-   * A browser that stopped existing weeks ago.
-   *
-   * This is the hole that filled the machine's supply of pseudo-terminals on 2026-09-02 and
-   * stopped every terminal in every application. Three correct rules combined to make these
-   * sessions immortal: a terminal outlives the things around it, "nobody told me" means keep,
-   * and a killed browser never reports again. See AGENTS/BACKLOG.md WP-27.
-   */
-  it('does not keep an unclaimed session forever', () => {
-    const week = config.abandonUnclaimedSeconds ?? 0;
-    // Most of the way there, and still keeping it.
-    expect(decide({ hasOpenTab: null, detachedForSeconds: week / 2 }).afterSeconds).toBeGreaterThan(
-      0,
-    );
-    // Past the horizon, and it goes now rather than at some point after.
-    expect(decide({ hasOpenTab: null, detachedForSeconds: week + 1 })).toEqual({
-      afterSeconds: 0,
-      reason: 'abandoned',
-    });
-  });
-
-  it('never applies the horizon to something somebody is plainly using', () => {
-    const week = (config.abandonUnclaimedSeconds ?? 0) + 1;
-    // A listening port outlives it. Killing somebody's server is the most annoying thing this
-    // product can do, and a week of a closed browser is not enough certainty to do it.
-    expect(decide({ hasOpenTab: null, detachedForSeconds: week, listeningPort: 3000 })).toEqual({
-      afterSeconds: null,
-      reason: 'no-report',
-    });
-    // Pinned and persistent are decided before any of this is reached.
     expect(
-      decide({ hasOpenTab: null, detachedForSeconds: week, pinned: true }).afterSeconds,
-    ).toBeNull();
-    expect(
-      decide({ hasOpenTab: null, detachedForSeconds: week, persistent: true }).afterSeconds,
-    ).toBeNull();
-    // And so is a tab that is open, however long the socket has been gone: a discarded tab and a
-    // slept machine both look like this, and neither means somebody is finished.
-    expect(decide({ hasOpenTab: true, detachedForSeconds: week }).afterSeconds).toBeNull();
+      decide({
+        tabDisposition: 'unknown',
+        paneClosedByUser: false,
+        inWorkspace: true,
+        keepBackgroundSeconds: 60,
+      }),
+    ).toEqual({ afterSeconds: null, reason: 'no-close-evidence' });
   });
 
-  it('keeps everything forever when the horizon is turned off', () => {
-    const forever: Config = { ...config, abandonUnclaimedSeconds: null };
-    expect(decideReap({ ...base, hasOpenTab: null, detachedForSeconds: 10 ** 9 }, forever)).toEqual(
-      { afterSeconds: null, reason: 'no-report' },
-    );
+  it('keeps a session nobody has reported on, for as long as that lasts', () => {
+    /**
+     * The invariant, at the one place it used not to hold.
+     *
+     * There was a horizon here: nobody has reported this workspace for a week, so end it. That
+     * is a timer with no authorization behind it. A laptop shut in a drawer for a week is not
+     * somebody closing a terminal, and neither is a browser that has not started yet, an
+     * extension being replaced, or a report that arrived without this workspace in it.
+     *
+     * The cost of being wrong the other way is a shell that outlives its usefulness, which shows
+     * up in Running Now and can be ended by hand. The cost of being wrong this way is somebody's
+     * work.
+     */
+    const week = 7 * 24 * 60 * 60;
+    for (const detachedForSeconds of [0, week / 2, week + 1, 10 ** 9]) {
+      expect(
+        decide({ tabDisposition: 'unknown', paneClosedByUser: false, detachedForSeconds }),
+      ).toEqual({
+        afterSeconds: null,
+        reason: 'no-close-evidence',
+      });
+    }
+  });
+
+  it('keeps it whatever else is true, because not knowing is the whole answer', () => {
+    const week = 7 * 24 * 60 * 60 + 1;
+    for (const extra of [
+      { listeningPort: 3000 },
+      { inWorkspace: true },
+      { inWorkspace: true, keepBackgroundSeconds: 60 },
+      { neverUsed: true },
+      { exited: false },
+    ]) {
+      expect(
+        decide({
+          tabDisposition: 'unknown',
+          paneClosedByUser: false,
+          detachedForSeconds: week,
+          ...extra,
+        }).afterSeconds,
+        JSON.stringify(extra),
+      ).toBeNull();
+    }
+    // And a tab that is open, however long the socket has been gone: a discarded tab and a slept
+    // machine both look like this, and neither means somebody is finished.
+    expect(decide({ tabDisposition: 'open', detachedForSeconds: week }).afterSeconds).toBeNull();
   });
 
   it('starts its clock only once the tab is actually gone', () => {
-    expect(decide({ hasOpenTab: false, inWorkspace: true, keepBackgroundSeconds: 1800 })).toEqual({
+    expect(
+      decide({ tabDisposition: 'closed', inWorkspace: true, keepBackgroundSeconds: 1800 }),
+    ).toEqual({
       afterSeconds: 1800,
       reason: 'tab-closed',
     });
   });
 
   it('still lets an explicit choice to keep everything win', () => {
-    expect(decide({ hasOpenTab: false, inWorkspace: true, keepBackgroundSeconds: null })).toEqual({
+    expect(
+      decide({ tabDisposition: 'closed', inWorkspace: true, keepBackgroundSeconds: null }),
+    ).toEqual({
       afterSeconds: null,
       reason: 'in-a-workspace',
     });

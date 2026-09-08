@@ -855,6 +855,15 @@ export class DaemonServer {
              */
             this.#sessions.detach(session, client.id);
             this.#unbind(client, sessionId);
+            /**
+             * A person closed this pane, which is what authorizes ending it later.
+             *
+             * Recorded on the session because the workspace it was in may not exist by then: a
+             * workspace whose last pane closes is dropped, and the rules that apply afterwards
+             * are the ones for a session in no workspace at all. Without this they applied with
+             * nothing behind them.
+             */
+            session.paneClosedByUser = true;
             this.#closedPanes.set(sessionId, {
               workspaceId: msg.workspaceId,
               // What the pane was showing, so the offer can name it rather than say "a pane".
@@ -873,7 +882,7 @@ export class DaemonServer {
               title: session.titleFields.cwd ?? '',
               undoSeconds: Math.round(UNDO_WINDOW_MS / 1000),
             });
-          } else if (session) void this.#sessions.kill(session);
+          } else if (session) void this.#sessions.terminate(session, { kind: 'user-closed-pane' });
         }
         this.#broadcastLayout(msg.workspaceId);
         return;
@@ -1046,6 +1055,26 @@ export class DaemonServer {
          * exist, which is the safe direction.
          */
         this.#sessions.reportOpenWorkspaces(client.id, msg.workspaceIds);
+        /**
+         * A workspace that is open again is not a workspace anybody closed.
+         *
+         * Reopening one inside the window is the case the timer exists to be cancelled by, and
+         * the evidence has to be withdrawn rather than merely outranked: it would otherwise sit
+         * there authorizing an ending the next time the tab went quiet for any reason at all.
+         */
+        for (const workspaceId of msg.workspaceIds) this.#sessions.forgetTabClosed(workspaceId);
+        return;
+      }
+
+      case 'tab-closed': {
+        /**
+         * The one message that can authorize ending a terminal on a timer.
+         *
+         * Taken at face value here because the extension is the only thing that can tell the
+         * difference, and it has already made it: an individual tab removal, not a window or a
+         * browser closing, with no other tab still showing the same workspace.
+         */
+        this.#sessions.recordTabClosed(msg.workspaceId, msg.eventId);
         return;
       }
 
@@ -1091,7 +1120,7 @@ export class DaemonServer {
           // running where nothing can reach it.
           if (displaced) {
             const old = this.#sessions.get(displaced);
-            if (old) void this.#sessions.kill(old);
+            if (old) void this.#sessions.terminate(old, { kind: 'user-replaced-pane' });
           }
 
           // Whoever was rendering the source workspace needs to hear about it. If the merge
@@ -1217,7 +1246,7 @@ export class DaemonServer {
       case 'kill-session': {
         const session = this.#sessions.get(msg.sessionId);
         // By request: the pane goes with it, whatever it was running. See `kill`.
-        if (session) void this.#sessions.kill(session, false, true);
+        if (session) void this.#sessions.terminate(session, { kind: 'user-kill' });
         return;
       }
 
@@ -1797,7 +1826,9 @@ export class DaemonServer {
          */
         const sessions = this.#sessions.all;
         const ended = sessions.length;
-        for (const session of sessions) void this.#sessions.kill(session);
+        for (const session of sessions) {
+          void this.#sessions.terminate(session, { kind: 'user-reset' });
+        }
         const removed = this.#resetHistory?.() ?? 0;
         info('reset', { sessionsEnded: ended, historyFilesRemoved: removed });
         send(

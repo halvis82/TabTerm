@@ -125,6 +125,7 @@ export class PtyHostClient {
               });
             }
             info('pty-host.connected', { pid: hello['pid'], protocol: speaks });
+            this.#identify(hello['instance']);
             return true;
           }
         }
@@ -182,8 +183,16 @@ export class PtyHostClient {
   #attach(socket: Socket): void {
     this.#socket = socket;
     this.#pending = new Uint8Array(0);
-    // Anything asked for while there was nowhere to send it goes now, before anything new.
-    this.#flush();
+    /**
+     * Nothing held is sent yet, because we do not know who is on the other end.
+     *
+     * The outbox can hold writes, resizes and kills aimed at sessions in the host we were talking
+     * to. Flushing them the moment a socket exists sends them to whatever answered, which after a
+     * host has been replaced is a different process with different sessions: at best the frames
+     * are ignored, at worst a kill lands on an id the new host happens to know.
+     *
+     * `hello` decides. See `#identify`.
+     */
 
     socket.on('data', (chunk: Buffer) => {
       const merged = new Uint8Array(this.#pending.length + chunk.length);
@@ -316,6 +325,69 @@ export class PtyHostClient {
     }
     this.#outbox.push(message);
     if (this.#outbox.length > 500) this.#outbox.shift();
+  }
+
+  /**
+   * Which host process we are talking to, once it has said.
+   *
+   * `null` until the first `hello` of this daemon's life. Compared on every reconnect, because
+   * the whole question a reconnect raises is whether the terminals we were holding are still
+   * there, and only the host can answer that.
+   */
+  #instance: string | null = null;
+
+  /** True when the last connection reached a different host process than the one before it. */
+  #instanceChanged = false;
+
+  get hostInstance(): string | null {
+    return this.#instance;
+  }
+
+  /** Whether the host we are now connected to is a different process than the one before. */
+  get hostReplaced(): boolean {
+    return this.#instanceChanged;
+  }
+
+  /**
+   * Take the identity from a `hello-ok`, and decide what the outbox is still worth.
+   *
+   * Same host: everything held is still addressed to sessions that still exist, so it goes.
+   * Different host, or a host too old to say: nothing session-targeted goes at all. Those frames
+   * name sessions this process has never heard of, and one of them can be a kill.
+   */
+  #identify(raw: unknown): void {
+    const instance = typeof raw === 'string' && raw !== '' ? raw : null;
+    const previous = this.#instance;
+    this.#instanceChanged = previous !== null && instance !== previous;
+    this.#instance = instance;
+
+    if (instance === null) {
+      warn('pty-host.no-instance', {
+        note: 'host too old to identify itself; nothing held will be sent to it',
+      });
+      this.#dropOutbox('unidentified-host');
+      return;
+    }
+    if (this.#instanceChanged) {
+      warn('pty-host.replaced', { was: previous, now: instance });
+      this.#dropOutbox('host-replaced');
+      return;
+    }
+    if (previous === null) info('pty-host.instance', { instance });
+    this.#flush();
+  }
+
+  /**
+   * Throw away what was held, saying how much and why.
+   *
+   * Dropping is the safe direction here and it is not free: a write somebody typed is lost. It is
+   * lost either way once the process it was aimed at is gone, and sending it to a stranger is the
+   * version that can do damage.
+   */
+  #dropOutbox(reason: string): void {
+    if (this.#outbox.length === 0) return;
+    warn('pty-host.outbox-dropped', { messages: this.#outbox.length, reason });
+    this.#outbox = [];
   }
 
   /** Everything that was held, in the order it was asked for. */

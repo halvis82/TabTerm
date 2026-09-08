@@ -16,8 +16,7 @@ export type ReapReason =
   | 'persistent'
   | 'still-attached'
   | 'tab-open'
-  | 'no-report'
-  | 'abandoned'
+  | 'no-close-evidence'
   | 'in-a-workspace'
   | 'closed-pane'
   | 'server-listening'
@@ -31,6 +30,15 @@ export interface ReapDecision {
   afterSeconds: number | null;
   reason: ReapReason;
 }
+
+/**
+ * What is known about the tab a workspace lives in.
+ *
+ * `closed` is the only one that can authorize an automatic ending, and it is only ever produced
+ * by explicit evidence that somebody closed that specific tab. Everything else is `unknown`, and
+ * unknown keeps the terminal.
+ */
+export type TabDisposition = 'open' | 'closed' | 'unknown';
 
 export interface ReapInput {
   pinned: boolean;
@@ -47,7 +55,15 @@ export interface ReapInput {
    * and `attachedClients` fell to zero. A connection is evidence that somebody is looking right
    * now; it is not evidence that the tab is gone.
    */
-  hasOpenTab: boolean | null;
+  tabDisposition: TabDisposition;
+  /**
+   * Whether somebody deliberately closed this session's pane.
+   *
+   * The authorization for everything that happens to a session outside a workspace. A pane that
+   * was closed and whose undo window has run out is a person saying they are finished with it; a
+   * session that is simply not in a workspace any more is not.
+   */
+  paneClosedByUser: boolean;
   /** Workspaces are pinned by default, so a pane in one is never reaped. See ADR-0012. */
   inWorkspace: boolean;
   /** Whether other panes share its workspace, which makes it part of an arrangement. */
@@ -115,66 +131,29 @@ export function decideReap(input: ReapInput, config: Config): ReapDecision {
    * memory all look identical from here: no socket. None of them means the person is done with
    * that terminal, and ending one is the single worst thing this product can do.
    */
-  if (input.hasOpenTab === true) return { afterSeconds: null, reason: 'tab-open' };
+  if (input.tabDisposition === 'open') return { afterSeconds: null, reason: 'tab-open' };
 
   /**
-   * Nobody could tell us, so we do not act.
+   * A session that is still a pane in a workspace lives or dies by that workspace's tab.
    *
-   * Chrome is closed, or crashed, or the extension has not reported yet. Every one of those is
-   * a gap in what we know rather than evidence that a tab was closed, and the only safe reading
-   * of "I do not know" is to keep the terminal. Chrome comes back and says what it has.
-   */
-  if (input.hasOpenTab === null) {
-    /**
-     * Unless nobody has been able to speak for it in a very long time.
-     *
-     * "I do not know" keeps a terminal, and it has to, because a closed Chrome and a crashed one
-     * are indistinguishable from here and both come back. What it must not do is keep one
-     * forever: a browser that stopped existing weeks ago leaves sessions nothing will ever
-     * claim, and on 2026-09-02 enough of those accumulated to exhaust the machine's supply of
-     * pseudo-terminals and stop every terminal in every application.
-     *
-     * Ending one here is acceptable precisely because it loses nothing anybody can point at.
-     * The scrollback is on disk, the recovery page still shows the last screen and the folder,
-     * and the only thing that ends is a process that has had nobody watching it for a week.
-     *
-     * A listening port still wins, because killing somebody's server is the most annoying thing
-     * this product could do and a week is not enough certainty to do it.
-     */
-    const horizon = config.abandonUnclaimedSeconds;
-    if (horizon !== null && input.listeningPort === undefined) {
-      const remaining = horizon - input.detachedForSeconds;
-      return { afterSeconds: Math.max(0, remaining), reason: 'abandoned' };
-    }
-    return { afterSeconds: null, reason: 'no-report' };
-  }
-
-  /**
-   * A pane in a workspace, with no tab showing it.
-   *
-   * This used to be kept forever, from ADR-0012, so that closing a tab could never destroy
-   * work. That was right when a daemon restart cleaned house anyway. Sessions now survive
-   * restarts, crashes and updates, so "forever" became literal and they accumulated into the
-   * hundreds. It is a setting instead, and keeping them forever is still available by choosing
-   * it rather than by default.
+   * Only `closed` gets it onto a clock, and `closed` is only ever produced by an explicit
+   * statement that somebody closed that specific tab. Everything else in the world that stops a
+   * workspace being reported, Chrome quitting, a window closing, a crash, an extension being
+   * replaced, a discarded tab, a machine asleep, a socket dropping, a daemon restarting, a
+   * second profile that never had it, a report that arrived late or empty, arrives here as
+   * `unknown` and is kept.
    */
   if (input.inWorkspace) {
+    if (input.tabDisposition !== 'closed') {
+      return { afterSeconds: null, reason: 'no-close-evidence' };
+    }
     /**
      * A pane that was opened and closed without being used holds nothing.
      *
-     * Inside the workspace branch rather than before it, so it can only ever make a pane go
-     * sooner than the background timeout and never delay one that some other rule would have
-     * ended faster. Not immediate: a few seconds means closing a tab by accident is still
-     * recoverable by reopening it, and nothing accumulates.
-     */
-    /**
-     * Never for a pane that shares its workspace, because then it is part of an arrangement.
-     *
-     * An extension reload closes every tab, and a pane in a template that has printed nothing
-     * but a prompt is untouched by this rule's definition while being exactly the thing somebody
-     * spent the morning arranging. Five of them went that way in one second, correctly by the
-     * letter of the rule and wrongly by any other measure. A single pane opened and closed still
-     * holds nothing, which is the case the rule was written for and the case it keeps.
+     * Never for a pane that shares its workspace, because then it is part of an arrangement: an
+     * extension reload closes every tab, and a pane in a template that has printed nothing but a
+     * prompt is untouched by this rule's definition while being exactly the thing somebody spent
+     * the morning arranging.
      */
     if (
       input.neverUsed &&
@@ -184,19 +163,30 @@ export function decideReap(input: ReapInput, config: Config): ReapDecision {
     ) {
       return { afterSeconds: NEVER_USED_SECONDS, reason: 'never-used' };
     }
-    /**
-     * The tab has actually been closed, which is the only case that starts a clock.
-     *
-     * Half an hour by default: long enough that closing a tab by mistake costs nothing, short
-     * enough that a day of work does not leave fifty shells behind.
-     */
     return input.keepBackgroundSeconds === null
       ? { afterSeconds: null, reason: 'in-a-workspace' }
       : { afterSeconds: input.keepBackgroundSeconds, reason: 'tab-closed' };
   }
 
   // A process that already ended holds nothing worth keeping, so its metadata goes quickly.
+  // Nothing is signalled here: the process is gone, and this is the record of it being tidied.
   if (input.exited) return { afterSeconds: 5, reason: 'process-exited' };
+
+  /**
+   * Outside a workspace, and nobody closed anything. Keep it.
+   *
+   * Everything below this line ends a live process on a timer, and the branch is reached by two
+   * very different routes. One is a pane somebody deliberately closed, whose undo window has run
+   * out; that is an explicit act and it authorizes what follows. The other is a session that
+   * stopped being in a workspace for some other reason, and for that there is no act at all.
+   *
+   * The rules below, an idle shell, a long-lived program, a default, are about **how long** to
+   * wait once ending is authorized. They were never a grant of authorization, and reaching them
+   * without one is how a session with nothing said about it could be ended on a clock.
+   */
+  if (!input.paneClosedByUser) {
+    return { afterSeconds: null, reason: 'no-close-evidence' };
+  }
 
   // Killing a running server because a tab closed would be the most annoying possible
   // behavior, so it is protected and the user is warned instead.
@@ -229,14 +219,18 @@ export function reapInputFor(
     closedPaneSecondsLeft?: number | null;
     listeningPort?: number | undefined;
     keepBackgroundSeconds?: number | null;
-    hasOpenTab?: boolean | null;
+    tabDisposition?: TabDisposition;
+    paneClosedByUser?: boolean;
   },
 ): ReapInput {
   return {
     pinned: session.pinned,
     persistent: session.persistent ?? false,
     attachedClients: session.clients.size,
-    hasOpenTab: opts.hasOpenTab ?? null,
+    /** Anything not said is not known, and not known keeps the terminal. */
+    tabDisposition: opts.tabDisposition ?? 'unknown',
+    /** Not said is not done, and not done keeps the terminal. */
+    paneClosedByUser: opts.paneClosedByUser ?? false,
     inWorkspace: opts.inWorkspace,
     sharesWorkspace: opts.sharesWorkspace ?? false,
     closedPaneSecondsLeft: opts.closedPaneSecondsLeft ?? null,

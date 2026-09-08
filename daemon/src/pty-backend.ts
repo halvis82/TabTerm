@@ -1,3 +1,4 @@
+import { error } from './log.js';
 import { killPty, spawnPty, type PtyHandle } from './pty-manager.js';
 
 /**
@@ -68,6 +69,39 @@ export interface PtyBackend {
     }[]
   >;
   close(): void;
+}
+
+/**
+ * A backend that owns nothing and creates nothing.
+ *
+ * Used when the durable PTY host cannot be established. The daemon still runs, still serves the
+ * interface, and still says what is wrong; what it will not do is hand somebody a terminal it
+ * cannot keep. A terminal spawned as a child of this process dies when this process is updated,
+ * and an update is routine.
+ *
+ * Every method is a no-op rather than a throw, so nothing downstream has to learn a new failure
+ * shape: a session that was never spawned simply produces no output and no pid, and the interface
+ * shows the error the daemon logged.
+ */
+export class NoPtyBackend implements PtyBackend {
+  spawn(): void {
+    error('pty.refused', {
+      detail: 'no durable PTY host, so no terminal was created rather than one that cannot last',
+    });
+  }
+  onSpawned(): void {}
+  write(): void {}
+  inject(): void {}
+  resize(): void {}
+  kill(): Promise<void> {
+    return Promise.resolve();
+  }
+  onData(): void {}
+  onExit(): void {}
+  adoptable(): Promise<never[]> {
+    return Promise.resolve([]);
+  }
+  close(): void {}
 }
 
 export class LocalPtyBackend implements PtyBackend {

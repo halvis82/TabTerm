@@ -43,6 +43,9 @@ beforeAll(async () => {
   // As `main.ts` does it: the policy has to be able to map a session to the workspace a tab
   // would carry in its URL, or it can never tell whether a tab is open.
   sessions.setWorkspaceLookup((id) => workspaces.findBySession(id)?.id);
+  // Wired the same way `main.ts` wires it. Without this the manager believes no session is a pane
+  // in anything, and the rules that apply to a workspace's tab never run at all.
+  sessions.isInWorkspace = (id) => workspaces.findBySession(id) !== undefined;
   server = new DaemonServer(
     config,
     sessions,
@@ -213,8 +216,26 @@ describe('daemon, end to end over the real protocol', () => {
      */
     expect(session?.state).toBe('detached');
 
-    // Say the tab is gone, and it moves onto a clock like anything else.
+    /**
+     * An empty report is not a closed tab, and does not start anything.
+     *
+     * A browser that has just started, one that is quitting, one whose extension is being
+     * replaced, and a second profile that never had this workspace all send exactly this.
+     */
     sessions.reportOpenWorkspaces('a-browser', []);
+    await sleep(200);
+    expect(
+      sessions.get(created.sessionId)?.state,
+      'an empty report must not put anything on a clock',
+    ).toBe('detached');
+
+    // Somebody closing that specific tab does, and only that.
+    const workspaceId = workspaces.findBySession(created.sessionId)?.id ?? '';
+    expect(workspaceId, 'the session must be in a workspace for this to mean anything').not.toBe(
+      '',
+    );
+    sessions.keepBackgroundSeconds = 1800;
+    sessions.recordTabClosed(workspaceId, 'test-close-1');
     await sleep(200);
     expect(sessions.get(created.sessionId)?.state).toBe('expiring');
 

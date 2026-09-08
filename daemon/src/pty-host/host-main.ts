@@ -1,5 +1,5 @@
 import { existsSync, openSync, closeSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
-import { error, info, initLog } from '../log.js';
+import { error, info, initLog, warn } from '../log.js';
 import { PtyHost } from './host.js';
 import { HOST_LOCK, HOST_SOCKET } from './paths.js';
 import { paths } from '../config.js';
@@ -86,7 +86,31 @@ async function main(): Promise<void> {
     process.exit(0);
   };
 
-  process.on('SIGTERM', () => void stop('SIGTERM'));
+  /**
+   * A plain SIGTERM does not stop a host that is holding somebody's terminals.
+   *
+   * This process owns the only handles to every running session, so exiting it makes all of them
+   * unreachable through TabTerm forever, which from the person's side is indistinguishable from
+   * having killed them. A signal is not a statement of intent: it is what a packaging script, a
+   * stray `killall node`, a `launchctl kickstart` aimed at the daemon, or a session manager
+   * cleaning up sends without knowing what this is.
+   *
+   * An empty host stops on request, because there is nothing to lose. A host with sessions says
+   * why it is staying and carries on. The deliberate way to end it is Reset, which ends the
+   * sessions first and leaves this with nothing to hold; `TABTERM_HOST_FORCE_STOP=1` is the
+   * escape hatch for uninstalling.
+   */
+  process.on('SIGTERM', () => {
+    const holding = host.sessionCount;
+    if (holding > 0 && process.env['TABTERM_HOST_FORCE_STOP'] !== '1') {
+      warn('pty-host.refusing-sigterm', {
+        sessions: holding,
+        note: 'exiting would make every one of them unreachable; use Reset, or TABTERM_HOST_FORCE_STOP=1',
+      });
+      return;
+    }
+    void stop('SIGTERM');
+  });
 
   process.on('uncaughtException', (e) => {
     // Staying up matters more here than anywhere else in the product: this process holds the
