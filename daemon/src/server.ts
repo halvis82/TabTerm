@@ -500,6 +500,14 @@ export class DaemonServer {
     body: string,
     target?: { workspaceId?: string; paneId?: string },
   ): void {
+    /**
+     * Every notification that leaves the daemon, in the log.
+     *
+     * Nothing recorded what was actually raised, so a report of an unwanted notification could
+     * only be answered by reading the code and guessing which one it was. That guess was wrong
+     * once already. This is one line per interruption, which is by definition a rare event.
+     */
+    info('notify.sent', { priority, title, body });
     this.broadcast({ t: 'notify', priority, title, body, ...(target ? { target } : {}) });
   }
 

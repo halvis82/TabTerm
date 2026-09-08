@@ -248,11 +248,30 @@ describe('durability', () => {
      * replaced. The daemon acts on what the extension reports about tabs, so a test that wants
      * a reap has to report one.
      */
-    closeItsTab(sessionId);
-    await sleep(PAST_GRACE);
+    /**
+     * The pid, because the question this test exists to answer is whether the real process is
+     * actually ended, and the assertion used to be `state !== 'detached'`. That passes for a
+     * session that merely moved to `expiring` and was never signalled at all, which is the exact
+     * failure a person means when they say the timeout does not work.
+     */
+    const pid = sessions.get(sessionId)?.pid;
+    expect(pid).toBeGreaterThan(0);
 
-    const session = sessions.get(sessionId);
-    expect(session === undefined || session.state !== 'detached').toBe(true);
+    closeItsTab(sessionId);
+    /**
+     * Past the background timeout, not past the idle grace period.
+     *
+     * `PAST_GRACE` is 700ms and the timeout under test is a second, so the old wait ended while
+     * the session was still `expiring`. With the old assertion that read as a pass, which is how
+     * a test meant to prove a process is ended came to prove only that it had been scheduled.
+     */
+    await sleep(1000 + PAST_GRACE);
+
+    expect(sessions.get(sessionId)).toBeUndefined();
+    // Signal 0 tests for existence. ESRCH is the process being gone, which is the point.
+    expect(() => {
+      process.kill(pid as number, 0);
+    }).toThrow(/ESRCH/);
     sessions.keepBackgroundSeconds = null;
   });
 
