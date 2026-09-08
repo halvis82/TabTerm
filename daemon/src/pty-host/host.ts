@@ -61,6 +61,16 @@ interface Live {
    * outlives the daemon and dies with the terminals it holds.
    */
   hasInput?: boolean;
+  /**
+   * A person closed the pane this session was in.
+   *
+   * The one thing that authorizes ending a session that is in no workspace, and kept here for
+   * the same reason as `hasInput`: it has to outlive the daemon. Closing a pane leaves the
+   * session alive and out of every layout, so after a restart there was nothing left saying why
+   * it was allowed to go, and it was kept forever instead. Reported as a session in Running Now
+   * that could be neither opened nor got rid of.
+   */
+  paneClosedByUser?: boolean;
   /** VT state the daemon handed over before it stopped, with the seq it was accurate at. */
   stash?: { seq: number; state: string };
   exited?: { exitCode: number; signal?: number };
@@ -299,6 +309,7 @@ export class PtyHost {
             seq: s.seq,
             alive: s.exited === undefined,
             ...(s.hasInput === true ? { hasInput: true } : {}),
+            ...(s.paneClosedByUser === true ? { paneClosedByUser: true } : {}),
             ...(s.stash ? { stash: s.stash } : {}),
           })),
         });
@@ -380,6 +391,18 @@ export class PtyHost {
           if (msg['data'].length > 0) live.hasInput = true;
           live.handle.pty.write(msg['data']);
         }
+        return;
+      }
+
+      /**
+       * A fact about a session that has to outlive the daemon, written down here.
+       *
+       * The daemon owns the decision and this process owns the durability, which is the same
+       * division as the scrollback: it is kept where it lasts as long as the session does.
+       */
+      case 'mark': {
+        const live = this.#sessions.get(id);
+        if (live && msg['paneClosedByUser'] === true) live.paneClosedByUser = true;
         return;
       }
 

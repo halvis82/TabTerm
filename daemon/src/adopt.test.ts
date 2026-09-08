@@ -100,6 +100,17 @@ describe('what an adoption plan carries about use', () => {
     expect(plan.sessions[0]?.hasInput).toBe(true);
   });
 
+  it('carries the authorization to end it, which nothing else remembers', () => {
+    // Closing a pane is the only thing that authorizes ending a session in no workspace, and a
+    // session in no workspace is exactly what closing a pane produces.
+    const plan = planAdoption(
+      [{ sessionId: 't3', pid: 203, cwd: '/tmp', seq: 1, paneClosedByUser: true }],
+      db,
+      '/bin/zsh',
+    );
+    expect(plan.sessions[0]?.paneClosedByUser).toBe(true);
+  });
+
   it('and says nothing when nobody has', () => {
     const plan = planAdoption([{ sessionId: 't2', pid: 202, cwd: '/tmp', seq: 1 }], db, '/bin/zsh');
     expect(plan.sessions[0]?.hasInput).toBeUndefined();

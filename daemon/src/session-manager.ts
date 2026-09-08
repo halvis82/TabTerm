@@ -520,6 +520,8 @@ export class SessionManager {
     startedAt?: number;
     /** Somebody typed into it, remembered by the host across this daemon's restart. */
     hasInput?: boolean;
+    /** A person closed its pane, remembered by the host across this daemon's restart. */
+    paneClosedByUser?: boolean;
   }): Session {
     const vt = new VtState(info_.cols, info_.rows, this.#config.scrollbackLines);
     /**
@@ -551,6 +553,8 @@ export class SessionManager {
       // Carried over from the host, which kept it across this daemon's restart. Without it a
       // terminal somebody had typed into looked untouched again after every update.
       ...(info_.hasInput === true ? { hasInput: true } : {}),
+      // The authorization to end it, which the daemon cannot remember on its own.
+      ...(info_.paneClosedByUser === true ? { paneClosedByUser: true } : {}),
       titleFields: { cwd: info_.cwd },
       seq: 0,
       vt,
@@ -806,6 +810,20 @@ export class SessionManager {
       return;
     }
     this.#reap(session);
+  }
+
+  /**
+   * A person closed the pane this session was in.
+   *
+   * Written down twice on purpose. Here, because every rule that runs while this daemon lives
+   * reads it from the session; and in the backend, because this daemon will be replaced on the
+   * next update and the authorization has to outlive it. Without the second, a session whose
+   * pane was closed came back after a restart with nothing saying why it was allowed to go, so
+   * it was kept forever, in no workspace and unreachable from any tab.
+   */
+  notePaneClosedByUser(session: Session): void {
+    session.paneClosedByUser = true;
+    this.#pty.markPaneClosed?.(session.id);
   }
 
   /**

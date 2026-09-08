@@ -67,6 +67,7 @@ import type {
   ShellIntegrationStatus,
 } from '@tabterm/shared';
 import { distinctSizes, HISTORY_MS, isResizeStorm, recordChange } from './resize-storm.js';
+import { shortPath } from '../launcher/sessions-view.js';
 import { fillMenu, menuShell, placeAndArm, type ShellItem } from './menu-shell.js';
 import { shouldRedrawAfterAway } from './wake-redraw.js';
 import { buildStats } from '../launcher/stats-view.js';
@@ -1777,6 +1778,7 @@ function installPageMenu(): void {
     // Inside a menu that is already open, a right click is how it is dismissed.
     if (target.closest('.term-menu')) return;
 
+    lastMenuAt = { x: e.clientX, y: e.clientY };
     const items = pageMenuItems(target);
     if (items.length === 0) return;
     e.preventDefault();
@@ -1927,6 +1929,169 @@ function folderItems(path: string): ShellItem[] {
   ];
 }
 
+/**
+ * Go to a session from the list, wherever it is.
+ *
+ * A named function because two surfaces reach it: the card itself, and the entry in the
+ * menu a right click on that card opens. Two copies of this would drift, and the rules in
+ * it are the ones that decide whether a tab is taken over or left alone.
+ */
+function openLiveSession(session: LiveSession): void {
+  /**
+   * Go to the session, wherever it is.
+   *
+   * A session already shown in a tab is focused rather than attached again, because two
+   * views of one terminal is something people create by accident and never on purpose.
+   *
+   * The tab doing the clicking is deliberately left alone when the session lives elsewhere.
+   * Dismissing its start screen would reveal its own empty terminal at the same moment
+   * focus moves away, so coming back to it later looks exactly like the click opened a
+   * second copy. It did not; this tab simply stopped showing the list.
+   */
+  /**
+   * A session in no workspace is taken into this tab, rather than being unclickable.
+   *
+   * This returned, and a card that does nothing when you press it is worse than one that is
+   * not there. Reported as: "there should never be a case where i can't open a session that
+   * is displayed in running now".
+   *
+   * A session gets into this state legitimately. Close one pane of a split and the session
+   * stays alive in its undo window but leaves the layout; close the tab, and the workspace
+   * goes too. It is still running, still listed, and belongs to nothing. The same is true of
+   * any session adopted after a restart whose workspace is no longer in the database.
+   *
+   * `merge-into` is the existing way to put a live session into a pane, and it already
+   * handles a source that is in no workspace, so this borrows it whole rather than growing a
+   * second way to do the same thing.
+   */
+  if (!session.workspaceId) {
+    const here = panesHost?.all ?? [];
+    const target = splitView?.focused ?? here[0]?.paneId ?? '';
+    if (!workspaceId || target === '') return;
+    /**
+     * Replacing what is here, but only when there is nothing here to lose.
+     *
+     * `replace` ends the session in the target pane, so it is right for the untouched shell a
+     * start screen sits on and catastrophic for a pane somebody is working in. A tab with
+     * work in it gets the session **beside** what it has instead: the card still does
+     * something, and nothing of theirs is destroyed either way.
+     */
+    const spareTab = thisTabIsUnused();
+    rememberLaunched();
+    client?.send({
+      t: 'merge-into',
+      workspaceId,
+      targetPaneId: target,
+      sessionId: session.sessionId,
+      direction: 'horizontal',
+      replace: spareTab,
+    });
+    launcher?.dismiss();
+    return;
+  }
+
+  /**
+   * Taken over here when this tab has nothing in it. Never opened beside it.
+   *
+   * This has been reported twice. A session running in the background was handed to the
+   * service worker, which opens the workspace in a **new** tab, leaving the tab that was
+   * clicked in sitting on a bare shell in the home directory. Two tabs for one action, and
+   * the one you were looking at is the useless one.
+   *
+   * Navigating is what takes it over. The reattach path already knows how to restore a
+   * workspace into a tab, so this borrows it whole rather than growing a second way to do
+   * the same thing. The shell this tab was holding is untouched and never used, so the
+   * policy that clears untouched panes away takes it in its own time.
+   */
+  const spare = thisTabIsUnused();
+  if (!session.attached && spare) {
+    location.href = chrome.runtime.getURL(`terminal.html?workspace=${session.workspaceId}`);
+    return;
+  }
+
+  /**
+   * Already open somewhere, so that tab is brought forward and **this one goes**.
+   *
+   * Leaving it was the previous behavior, on the reasoning that dismissing its start screen
+   * would reveal its own empty terminal at the moment focus moved away, which reads as a
+   * second copy of the session. Closing it answers that better: there is no tab left to be
+   * confused by. Only ever a tab nobody has used.
+   */
+  void chrome.runtime.sendMessage({
+    t: 'tabterm:focus-workspace',
+    workspaceId: session.workspaceId,
+    attachHere: !session.attached,
+  });
+  if (!session.attached) launcher?.dismiss();
+  if (spare) {
+    // After the focus message, so the tab being switched to is already in front.
+    setTimeout(() => window.close(), 120);
+  }
+}
+/** Where the last menu was opened, so a confirmation can take its place rather than move. */
+let lastMenuAt = { x: 0, y: 0 };
+
+/**
+ * A confirmation, in the same place the menu was, with the safe answer first.
+ *
+ * Not `window.confirm`: it steals the whole window, it cannot say what is about to be ended, and
+ * a tab that is showing a terminal should not be blocked while somebody reads it.
+ */
+function confirmInMenu(question: string, doIt: string, run: () => void): void {
+  const menu = menuShell();
+  fillMenu(menu, [
+    { label: question, enabled: false, run: () => {} },
+    { label: 'Cancel', separated: true, run: () => {} },
+    { label: doIt, danger: true, run },
+  ]);
+  placeAndArm(menu, lastMenuAt.x, lastMenuAt.y);
+}
+
+/** The session a right click landed on, when it landed on a card in Running Now. */
+function sessionUnder(target: Element): LiveSession | undefined {
+  const card = target.closest('.session-card');
+  if (!(card instanceof HTMLElement)) return undefined;
+  const id = card.dataset['sessionId'];
+  return id === undefined ? undefined : liveElsewhere.find((s) => s.sessionId === id);
+}
+
+/**
+ * What a card in Running Now offers.
+ *
+ * The two things a person wants from a session they can see: go to it, or end it. Killing one
+ * that a tab is showing asks first, because that tab may be somebody else's window with work in
+ * it and the card gives no sign of what is on its screen. Killing one running in the background
+ * does not: it is what the card is for, nothing is displaced, and a confirmation on every one of
+ * them is how a confirmation stops being read.
+ */
+function sessionItems(session: LiveSession): ShellItem[] {
+  const kill = (): void => {
+    client?.send({ t: 'kill-session', sessionId: session.sessionId });
+    if (session.workspaceId) {
+      void chrome.runtime.sendMessage({
+        t: 'tabterm:close-workspace-tab',
+        workspaceId: session.workspaceId,
+      });
+    }
+    setTimeout(() => client?.send({ t: 'list-live-sessions' }), 400);
+  };
+  const where = session.cwd === '' ? 'this session' : shortPath(session.cwd, launcherHome);
+  return [
+    { label: 'Open session', run: () => openLiveSession(session) },
+    {
+      label: 'Kill session',
+      danger: true,
+      run: () => {
+        if (!session.attached) {
+          kill();
+          return;
+        }
+        confirmInMenu(`A tab is showing ${where}`, 'Kill it anyway', kill);
+      },
+    },
+  ];
+}
+
 /** The folder a right click landed on, from whatever names one. */
 function folderUnder(target: Element): string {
   const chip = target.closest('.launcher-completion');
@@ -1967,8 +2132,17 @@ function pageMenuItems(target: Element): ShellItem[] {
     ];
   }
 
+  /**
+   * A card in Running Now answers for the session on it, before the folder it sits in.
+   *
+   * Both are true of the same click and both are useful, so they are added rather than chosen
+   * between: what to do with the terminal first, then what to do with its directory.
+   */
+  const session = sessionUnder(target);
+
   const onStartScreen = target.closest('.launcher') !== null;
   return [
+    ...(session ? sessionItems(session) : []),
     /**
      * What a named folder offers, in front of what the surface it sits on offers.
      *
@@ -1977,15 +2151,23 @@ function pageMenuItems(target: Element): ShellItem[] {
      * else is true, and taking them away would make the menu depend on exactly where inside a row
      * the pointer landed.
      */
-    ...folderItems(folder),
+    ...folderItems(folder).map((item, i) =>
+      i === 0 && session ? { ...item, separated: true } : item,
+    ),
     /**
-     * Paste, which on the start screen means into whichever box is taking typing.
+     * Paste, offered exactly when there is somewhere for it to go.
      *
-     * One of the two is always focused, by design, so this has somewhere to go. Off the start
-     * screen there is no box and no terminal under the pointer, so it is left out rather than
-     * offered and doing nothing.
+     * It used to be offered only inside the start screen's own panel, which is wrong in both
+     * directions at once. The strip of terminal along the bottom is outside that panel, so a
+     * right click on the one surface a person would paste into did not offer it. And inside the
+     * panel it went to the focused pane, which is nothing while the panel holds the keyboard, so
+     * the entry was drawn and did nothing at all.
+     *
+     * `paneForPaste` answers the second, and the condition is now that answer rather than a
+     * guess about where the pointer is: if there is a box or a terminal to receive it, it is
+     * offered, and otherwise it is left out rather than shown doing nothing.
      */
-    ...(onStartScreen
+    ...(onStartScreen || paneForPaste() !== undefined
       ? [
           {
             label: 'Paste',
@@ -2004,8 +2186,16 @@ function pageMenuItems(target: Element): ShellItem[] {
                     focused.dispatchEvent(new Event('input', { bubbles: true }));
                     return;
                   }
-                  const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
-                  pane?.controller.term.paste(text);
+                  /**
+                   * Otherwise the terminal, which on the start screen is the strip at the bottom.
+                   *
+                   * Written to the session rather than pasted into the emulator: `term.paste`
+                   * puts the text on a screen the shell knows nothing about, so it looked like
+                   * it had worked and vanished on the next redraw. This is the same path typing
+                   * takes.
+                   */
+                  const pane = paneForPaste();
+                  if (pane) sendToFocusedPane(text);
                 })
                 .catch(() => {
                   /* denied or empty */
@@ -2517,56 +2707,7 @@ function buildLauncher(): void {
     },
     onCompletePath: (partial) => client?.send({ t: 'complete-path', partial }),
     onOpenSession: (session) => {
-      /**
-       * Go to the session, wherever it is.
-       *
-       * A session already shown in a tab is focused rather than attached again, because two
-       * views of one terminal is something people create by accident and never on purpose.
-       *
-       * The tab doing the clicking is deliberately left alone when the session lives elsewhere.
-       * Dismissing its start screen would reveal its own empty terminal at the same moment
-       * focus moves away, so coming back to it later looks exactly like the click opened a
-       * second copy. It did not; this tab simply stopped showing the list.
-       */
-      if (!session.workspaceId) return;
-
-      /**
-       * Taken over here when this tab has nothing in it. Never opened beside it.
-       *
-       * This has been reported twice. A session running in the background was handed to the
-       * service worker, which opens the workspace in a **new** tab, leaving the tab that was
-       * clicked in sitting on a bare shell in the home directory. Two tabs for one action, and
-       * the one you were looking at is the useless one.
-       *
-       * Navigating is what takes it over. The reattach path already knows how to restore a
-       * workspace into a tab, so this borrows it whole rather than growing a second way to do
-       * the same thing. The shell this tab was holding is untouched and never used, so the
-       * policy that clears untouched panes away takes it in its own time.
-       */
-      const spare = thisTabIsUnused();
-      if (!session.attached && spare) {
-        location.href = chrome.runtime.getURL(`terminal.html?workspace=${session.workspaceId}`);
-        return;
-      }
-
-      /**
-       * Already open somewhere, so that tab is brought forward and **this one goes**.
-       *
-       * Leaving it was the previous behavior, on the reasoning that dismissing its start screen
-       * would reveal its own empty terminal at the moment focus moved away, which reads as a
-       * second copy of the session. Closing it answers that better: there is no tab left to be
-       * confused by. Only ever a tab nobody has used.
-       */
-      void chrome.runtime.sendMessage({
-        t: 'tabterm:focus-workspace',
-        workspaceId: session.workspaceId,
-        attachHere: !session.attached,
-      });
-      if (!session.attached) launcher?.dismiss();
-      if (spare) {
-        // After the focus message, so the tab being switched to is already in front.
-        setTimeout(() => window.close(), 120);
-      }
+      openLiveSession(session);
     },
     onCloseSession: (session) => {
       client?.send({ t: 'kill-session', sessionId: session.sessionId });
@@ -2814,9 +2955,26 @@ function focusedSessionId(): string | undefined {
   return pane?.sessionId;
 }
 
+/**
+ * The pane a paste or a staged command should go to.
+ *
+ * The focused one, and otherwise the only one there is. Nothing focuses a pane while the start
+ * screen is up, because the panel has the keyboard, so asking only for the focused pane answered
+ * "none" in exactly the state where the terminal strip along the bottom is the obvious target.
+ * Pasting there did nothing at all, silently, which is how it was reported.
+ *
+ * Only when there is exactly one. With two panes and none focused there is no obvious answer, and
+ * guessing would put somebody's clipboard into the wrong terminal.
+ */
+function paneForPaste(): ReturnType<PaneHost['get']> {
+  const focused = splitView?.focused;
+  if (focused) return panesHost?.get(focused);
+  const all = panesHost?.all ?? [];
+  return all.length === 1 ? all[0] : undefined;
+}
+
 function sendToFocusedPane(text: string): void {
-  const paneId = splitView?.focused;
-  const pane = paneId ? panesHost?.get(paneId) : undefined;
+  const pane = paneForPaste();
   if (!pane) return;
   client?.write(pane.streamId, new TextEncoder().encode(text));
   // Same rule as typing: pasting a command leaves the panel up, running one takes it away.
@@ -3487,6 +3645,14 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
 
   return [
     {
+      /**
+       * No Paste here. The terminal builds its own clipboard entries and already has one, and a
+       * second row saying the same word is not a second way to reach it. See `xterm-controller`.
+       *
+       * What was actually missing is the menu shown over the strip of terminal along the bottom
+       * of the start screen, which is the **page** menu rather than this one, and gated Paste on
+       * being inside the panel. That is fixed where that gate is.
+       */
       // A session, not a pane. The pane is the box; the name belongs to the terminal in it.
       label: named.label === '' ? 'Name session' : 'Rename session',
       // A group of its own: naming a terminal and marking a place in it are the same kind of
@@ -5077,7 +5243,14 @@ declare global {
       maximizedPane: () => string | null;
       leaveFocusMode: () => void | Promise<void>;
       /** Which panes the daemon said something was launched into. */
-      paneFacts: () => { paneId: string; startedWithCommand: boolean; hasInput: boolean }[];
+      /** Paste, without a clipboard: the bug was never in reading it. See `paneForPaste`. */
+      pasteForTest: (text: string) => void;
+      paneFacts: () => {
+        paneId: string;
+        sessionId: string;
+        startedWithCommand: boolean;
+        hasInput: boolean;
+      }[];
       /** Only what is on screen right now, which the strip makes a different question. */
       readViewport: (paneId?: string) => string;
       /** Draw text on a pane, for checks about what is shown rather than how it got there. */
@@ -5245,9 +5418,12 @@ function installTestHook(): void {
     maximizedPane: () => splitView?.maximized ?? null,
     leaveFocusMode: () => splitView?.exitFocusMode(),
     /** Which panes the daemon said something was launched into. */
+    pasteForTest: (text) => sendToFocusedPane(text),
     paneFacts: () =>
       (panesHost?.all ?? []).map((p) => ({
         paneId: p.paneId,
+        // Which terminal is in it, so a test can follow one session across tabs.
+        sessionId: p.sessionId,
         startedWithCommand: panesWithCommand.has(p.paneId),
         // The other half of what decides whether a tab may go back to the start screen, and the
         // half nothing on the screen can show. See `panesWithInput`.

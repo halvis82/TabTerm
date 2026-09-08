@@ -66,6 +66,7 @@ export class HostPtyBackend implements PtyBackend {
       cols?: number;
       rows?: number;
       hasInput?: boolean;
+      paneClosedByUser?: boolean;
     }[]
   > {
     const sessions = await this.#client.list();
@@ -83,7 +84,13 @@ export class HostPtyBackend implements PtyBackend {
           : {}),
         // Whether anybody has typed into it, which only the host has kept across the restart.
         ...(s.hasInput === true ? { hasInput: true } : {}),
+        ...(s.paneClosedByUser === true ? { paneClosedByUser: true } : {}),
       }));
+  }
+
+  /** See `PtyHostClient.markPaneClosed`. The host keeps it; this daemon may not be here later. */
+  markPaneClosed(sessionId: string): void {
+    this.#client.markPaneClosed(sessionId);
   }
 
   /** Ask for everything after a sequence number, so a restarted daemon can rebuild a screen. */

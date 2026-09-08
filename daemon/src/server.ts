@@ -348,12 +348,24 @@ export class DaemonServer {
   }
 
   /** Loopback only. Never 0.0.0.0, never ::. See docs/05-security.md. */
+  /**
+   * Start listening, and report the port actually bound.
+   *
+   * It used to report the port it was **asked** for, which is the same number every time except
+   * in the one case where the difference matters: port 0 means "any free one", and the answer was
+   * 0, which is not a port anything can connect to. Tests therefore had to name fixed ports, two
+   * of them picked the same one, and the pair failed whenever vitest happened to run those files
+   * together. That read as load sensitivity and was a duplicated constant.
+   */
   listen(): Promise<number> {
     return new Promise((resolve, reject) => {
       this.#http.once('error', reject);
       this.#http.listen(this.#config.port, '127.0.0.1', () => {
-        info('server.listening', { port: this.#config.port });
-        resolve(this.#config.port);
+        const bound = this.#http.address();
+        const port = typeof bound === 'object' && bound !== null ? bound.port : this.#config.port;
+        this.#config.port = port;
+        info('server.listening', { port });
+        resolve(port);
       });
     });
   }
@@ -923,7 +935,7 @@ export class DaemonServer {
              * are the ones for a session in no workspace at all. Without this they applied with
              * nothing behind them.
              */
-            session.paneClosedByUser = true;
+            this.#sessions.notePaneClosedByUser(session);
             this.#closedPanes.set(sessionId, {
               workspaceId: msg.workspaceId,
               // What the pane was showing, so the offer can name it rather than say "a pane".

@@ -70,3 +70,41 @@ describe('a terminal somebody has typed into', () => {
     await client.killAndWait(id, false, 3000);
   });
 });
+
+/**
+ * And the other fact that has to outlive the daemon: a person closed this session's pane.
+ *
+ * It is the only thing that authorizes ending a session that is in no workspace, and closing a
+ * pane is exactly what puts a session there: it stays alive in its undo window and leaves the
+ * layout, and if the tab is then closed the workspace goes too. A restart lost the flag, so the
+ * session came back with nothing saying why it was allowed to go, and was kept forever. Reported
+ * as a session in Running Now that could be neither opened nor got rid of.
+ */
+describe('a session whose pane a person closed', () => {
+  it('is remembered as such, and the daemon can be replaced in between', async () => {
+    const id = 'closed-1';
+    client.spawn({ sessionId: id, shell: '/bin/zsh', cwd: dir, cols: 80, rows: 24, env: {} });
+    await sleep(900);
+
+    expect((await listed(id))?.paneClosedByUser).toBeUndefined();
+
+    client.markPaneClosed(id);
+    await sleep(300);
+
+    expect((await listed(id))?.paneClosedByUser).toBe(true);
+    await client.killAndWait(id, false, 3000);
+  });
+
+  it('and the two facts are independent of each other', async () => {
+    // Typing into a terminal is not closing its pane, and closing a pane is not typing.
+    const id = 'closed-2';
+    client.spawn({ sessionId: id, shell: '/bin/zsh', cwd: dir, cols: 80, rows: 24, env: {} });
+    await sleep(900);
+    client.markPaneClosed(id);
+    await sleep(300);
+    const seen = await listed(id);
+    expect(seen?.paneClosedByUser).toBe(true);
+    expect(seen?.hasInput).toBeUndefined();
+    await client.killAndWait(id, false, 3000);
+  });
+});

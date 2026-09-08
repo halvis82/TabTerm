@@ -400,6 +400,19 @@ without one of four things: a pane the person closed, a tab the person closed, a
 inside its undo window, or a process that had already exited. It also checks the other direction,
 that pinned, persistent, attached and tab-open are absolute whatever else is true.
 
+**A session in no workspace is still openable.** Closing one pane of a split takes a session out
+of the layout and keeps it alive for its undo window; closing the tab then drops the workspace. It
+is running, listed in Running Now, and belongs to nothing. Pressing its card used to do nothing at
+all, because the handler began by returning when there was no workspace to go to. It is now taken
+into the tab that asked, replacing that tab's untouched shell or splitting beside its work, so a
+card that is shown can always be opened and nothing of anybody's is destroyed either way.
+
+**And still reapable.** `paneClosedByUser` is the only thing that authorizes ending a session in no
+workspace, and it is kept in the PTY host rather than the daemon, for the same reason as
+`hasInput`: the host outlives the daemon and dies with the terminals. Held in the daemon it was
+lost on every restart, and a session whose pane had been closed came back with nothing saying why
+it was allowed to go. Kept forever, in no workspace, reachable from no tab.
+
 **What may be written is what will be honored.** The background timeout is clamped by one
 constant at both ends. Accepting a value on the wire that startup would refuse means a setting a
 person chose is on disk, correct, and discarded on the next start in favour of the default, with a

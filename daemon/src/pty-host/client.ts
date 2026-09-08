@@ -28,6 +28,8 @@ export interface HostSessionInfo {
   alive: boolean;
   /** Somebody typed into it. Kept by the host, so it lasts as long as the session does. */
   hasInput?: boolean;
+  /** A person closed its pane. Kept by the host for the same reason. */
+  paneClosedByUser?: boolean;
   stash?: { seq: number; state: string };
 }
 
@@ -552,6 +554,17 @@ export class PtyHostClient {
 
   resize(sessionId: string, cols: number, rows: number): void {
     this.#send({ t: 'resize', sessionId, cols, rows });
+  }
+
+  /**
+   * Tell the host a person closed this session's pane.
+   *
+   * The daemon decides it; the host keeps it, because it has to outlive the daemon. It is the
+   * only thing that authorizes ending a session that is in no workspace, and a restart used to
+   * lose it, which left the session alive and unreapable for good.
+   */
+  markPaneClosed(sessionId: string): void {
+    this.#send({ t: 'mark', sessionId, paneClosedByUser: true });
   }
 
   /** Everything kept on disk for a session, including one whose process has ended. */

@@ -68,8 +68,17 @@ export interface PtyBackend {
       rows?: number;
       /** Somebody typed into it, which the host remembers and the daemon cannot. */
       hasInput?: boolean;
+      /** A person closed its pane, remembered for the same reason. */
+      paneClosedByUser?: boolean;
     }[]
   >;
+  /**
+   * Record a fact about a session where it lasts as long as the session does.
+   *
+   * Optional, because a backend that owns no processes has nothing to remember and no restart to
+   * survive. The daemon owns the decision; whoever owns the process owns the durability.
+   */
+  markPaneClosed?(sessionId: string): void;
   close(): void;
 }
 

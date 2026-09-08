@@ -39,6 +39,7 @@ export interface AdoptableSession {
   cols?: number;
   rows?: number;
   hasInput?: boolean;
+  paneClosedByUser?: boolean;
 }
 
 export interface AdoptionPlan {
@@ -55,6 +56,8 @@ export interface AdoptionPlan {
     rows?: number;
     /** Somebody typed into it, which only the host remembers across a daemon restart. */
     hasInput?: boolean;
+    /** A person closed its pane, which only the host remembers across a daemon restart. */
+    paneClosedByUser?: boolean;
   }[];
   workspaces: { id: string; layout: LayoutNode }[];
 }
@@ -107,6 +110,7 @@ export function planAdoption(
       // This is rebuilt field by field rather than spread, so anything not named here is
       // dropped. That is how the size used to be lost.
       ...(session.hasInput === true ? { hasInput: true } : {}),
+      ...(session.paneClosedByUser === true ? { paneClosedByUser: true } : {}),
     });
     if (row?.workspace_id) wanted.add(row.workspace_id);
   }
