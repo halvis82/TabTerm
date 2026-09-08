@@ -105,3 +105,31 @@ describe('scrollback on disk', () => {
     expect(new TextDecoder().decode(store.read('mode-check'))).toContain('second');
   });
 });
+
+/**
+ * A host runs for months, so tidying only at startup is tidying never.
+ *
+ * Found on a real machine: 1051 files and 83 MB under a host three days old, the oldest three
+ * weeks old and nothing coming to remove it. The prune works; it was only ever asked once.
+ */
+describe('pruning while the host runs', () => {
+  it('removes what is past its age, whenever it is asked', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tt-prune-'));
+    const store = new ScrollbackStore({ directory: dir, budgetBytes: 1024 });
+    store.append('old-one', Buffer.from('a'.repeat(64)));
+    store.append('new-one', Buffer.from('b'.repeat(64)));
+    // Aged past the horizon by asking about a later "now" rather than by touching the clock.
+    const month = 31 * 24 * 60 * 60 * 1000;
+    expect(store.prune(Date.now() + month)).toBe(2);
+    expect(store.prune(Date.now() + month), 'and nothing is left to remove').toBe(0);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('leaves alone anything younger than the horizon', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tt-prune-keep-'));
+    const store = new ScrollbackStore({ directory: dir, budgetBytes: 1024 });
+    store.append('fresh', Buffer.from('c'.repeat(64)));
+    expect(store.prune(Date.now())).toBe(0);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});

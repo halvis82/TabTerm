@@ -55,6 +55,73 @@ await waitFor(client, `document.querySelector('.launcher')?.hidden === true`, 10
 await cursorSomewhere('once the start screen has gone');
 
 /**
+ * A redraw of the start screen does not take the keyboard out of the box being typed into.
+ *
+ * The start screen follows what the rest of TabTerm is doing, so it redraws whenever a session
+ * starts anywhere, and a redraw replaces the path box with a new element. The keyboard is on the
+ * old one for an instant, and an instant is enough for "put the keyboard somewhere" to decide the
+ * somewhere is the terminal. What is typed next then goes to a shell.
+ *
+ * In a tab whose start screen is actually up, which is the only state where the box exists to be
+ * typed into. The first attempt at this check used a tab that had already been used, where the
+ * box is present in the DOM and hidden, and it proved nothing except that focusing a hidden thing
+ * does not work.
+ */
+{
+  const fresh = await openTerminal();
+  await waitFor(fresh.client, "document.querySelector('.launcher-input')");
+  await sleep(800);
+  r.ok(
+    'a fresh tab has its start screen up, which is what this needs',
+    (await evaluate(fresh.client, `document.querySelector('.launcher')?.hidden === false`)) ===
+      true,
+  );
+
+  await evaluate(fresh.client, `document.querySelector('.launcher-input')?.focus()`);
+  await sleep(150);
+  const took = String(
+    await evaluate(
+      fresh.client,
+      `document.activeElement?.className || document.activeElement?.tagName`,
+    ),
+  );
+  r.ok('the path box can take the keyboard at all', took.includes('launcher-input'), took);
+
+  for (let i = 0; i < 6; i++) {
+    await evaluate(fresh.client, 'window.__tabterm.refreshStartScreen()');
+    await sleep(120);
+  }
+  const after = String(
+    await evaluate(
+      fresh.client,
+      `document.activeElement?.className || document.activeElement?.tagName`,
+    ),
+  );
+  r.ok('and keeps it through a redraw', after.includes('launcher-input'), after);
+
+  for (const ch of '/tmp') {
+    await fresh.client.send('Input.dispatchKeyEvent', {
+      type: 'char',
+      text: ch,
+      unmodifiedText: ch,
+    });
+    await sleep(20);
+  }
+  await sleep(400);
+  r.ok(
+    'so what is typed next goes into it',
+    String(
+      await evaluate(fresh.client, `document.querySelector('.launcher-input')?.value ?? ''`),
+    ) === '/tmp',
+    String(await evaluate(fresh.client, `document.querySelector('.launcher-input')?.value ?? ''`)),
+  );
+  r.ok(
+    'and none of it reached the shell',
+    !String(await evaluate(fresh.client, `window.__tabterm.readScreen() ?? ''`)).includes('/tmp'),
+  );
+}
+
+/**
  * The keyboard is not taken from a text field somebody is using.
  *
  * The other half of the rule, and the half that makes it safe: nothing draws a cursor that would

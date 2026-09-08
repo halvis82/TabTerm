@@ -27,6 +27,9 @@ import { ScrollbackStore } from './scrollback-store.js';
 
 export const HOST_PROTOCOL = 1;
 
+/** How often a running host tidies scrollback it no longer needs. See the constructor. */
+const PRUNE_EVERY_MS = 24 * 60 * 60 * 1000;
+
 /**
  * Who this host is, for as long as this process lives.
  *
@@ -132,7 +135,22 @@ export class PtyHost {
       budgetBytes: this.#ringBytes,
     });
     this.#store.prune();
+    /**
+     * And again while it runs, because this process is meant to run for months.
+     *
+     * Pruning only at startup means never pruning: the host survives daemon updates, browser
+     * restarts and everything else by design, so the one moment it tidies up is the one moment it
+     * has nothing to tidy. Found with 1051 files and 83 MB under a host that had been running for
+     * three days, with the oldest file three weeks old and nothing coming to remove it.
+     *
+     * Daily, and unref'd: a timer for housekeeping must never be the reason this process stays
+     * alive, and must never be the reason it is busy either.
+     */
+    this.#pruneTimer = setInterval(() => this.#store.prune(), PRUNE_EVERY_MS);
+    this.#pruneTimer.unref();
   }
+
+  #pruneTimer: NodeJS.Timeout | undefined;
 
   listen(): Promise<void> {
     mkdirSync(dirname(this.#socketPath), { recursive: true, mode: 0o700 });
@@ -368,7 +386,26 @@ export class PtyHost {
             socket.write(outputFrame({ sessionId: id, seq: chunk.seq, data: chunk.data }));
           }
         }
-        this.#send(socket, { t: 'replayed', sessionId: id, seq: live.seq });
+        /**
+         * And the earliest byte this ring can still serve, so a gap can be seen.
+         *
+         * The ring is dropped from the front when it grows past its budget. A daemon that was
+         * away long enough for a busy session to overflow it asks for bytes that are no longer
+         * here, and gets what is left with no sign that anything is missing: the screen it
+         * rebuilds is then wrong in a way nothing can detect, which for a terminal whose promise
+         * is the exact screen is the worst kind of wrong.
+         *
+         * A chunk's `seq` is the byte count **after** it, so the first byte it carries is
+         * `seq - length`, and the oldest chunk's is the earliest this can answer for.
+         */
+        const oldest = live.ring[0];
+        const servableFrom = oldest ? oldest.seq - oldest.data.length : live.seq;
+        this.#send(socket, {
+          t: 'replayed',
+          sessionId: id,
+          seq: live.seq,
+          servableFrom,
+        });
         return;
       }
 
@@ -532,6 +569,7 @@ export class PtyHost {
    * socket, not ending anybody's work.
    */
   async close(): Promise<void> {
+    if (this.#pruneTimer) clearInterval(this.#pruneTimer);
     for (const c of this.#clients) c.destroy();
     this.#clients.clear();
     await new Promise<void>((resolve) => this.#server.close(() => resolve()));

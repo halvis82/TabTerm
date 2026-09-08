@@ -625,7 +625,31 @@ async function main(): Promise<void> {
         for (const session of sessions.all) {
           if (!stillThere.has(session.id)) continue;
           try {
-            await (ptyBackend as HostPtyBackend).replay(session.id, session.vt.seq);
+            const { missingBytes } = await (ptyBackend as HostPtyBackend).replay(
+              session.id,
+              session.vt.seq,
+            );
+            /**
+             * Output that happened while we were away and is no longer anywhere we can reach.
+             *
+             * The host keeps a bounded ring, and a session busy enough during a long enough gap
+             * overflows it. What arrives then is the recent part, applied on top of a screen that
+             * ends somewhere earlier: the result is not a shortened screen, it is a wrong one,
+             * and nothing about it looks wrong.
+             *
+             * Said in the terminal rather than only in a log, because the person reading that
+             * screen is the one who needs to know a piece of it is missing. It is printed rather
+             * than typed, like every other notice this product puts in a session.
+             */
+            if (missingBytes > 0) {
+              warn('pty-host.replay-gap', { sessionId: session.id, missingBytes });
+              const kb = Math.max(1, Math.round(missingBytes / 1024));
+              ptyBackend.inject(
+                session.id,
+                `\r\n\u001b[33m[TabTerm: about ${String(kb)} KB of output was lost while the ` +
+                  `terminal service was reconnecting. The session itself is intact.]\u001b[0m\r\n`,
+              );
+            }
           } catch {
             /* best effort: a screen with a gap beats no session at all */
           }

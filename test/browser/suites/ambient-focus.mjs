@@ -82,7 +82,20 @@ r.ok(
   (await evaluate(second.client, `document.querySelector('.launcher-input')?.value`)) === '/tmp',
   String(await evaluate(second.client, `document.querySelector('.launcher-input')?.value`)),
 );
-r.ok('and nothing leaked into the terminal', !(await readScreen(second.client)).includes('/tmp'));
+r.ok(
+  'and nothing leaked into the terminal',
+  !(await readScreen(second.client)).includes('/tmp'),
+  String(
+    await evaluate(
+      second.client,
+      `JSON.stringify({
+         active: document.activeElement?.className || document.activeElement?.tagName,
+         boxValue: document.querySelector('.launcher-input')?.value ?? null,
+         launcherShown: document.querySelector('.launcher')?.hidden === false,
+       })`,
+    ),
+  ),
+);
 
 await finish();
 r.done();

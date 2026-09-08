@@ -850,6 +850,16 @@ let flashing = new Set<string>();
  */
 const killedHere = new Map<string, number>();
 
+/**
+ * Sessions this tab has been told are over.
+ *
+ * Kept because a pane outlives its session: the pane element and its terminal are still there,
+ * showing the last screen, and only the layout that arrives afterwards removes it. For the last
+ * session in a tab no such layout arrives, so this is the only record that the thing behind that
+ * pane is gone.
+ */
+const endedSessions = new Set<string>();
+
 function refreshFlashing(): void {
   void flashingSessions().then((set) => (flashing = set));
 }
@@ -4756,6 +4766,38 @@ function onControl(msg: ServerMessage): void {
       if (panesWhenAsked !== undefined && panesWhenAsked <= 1) {
         attached = false;
         window.close();
+        return;
+      }
+
+      /**
+       * And a tab with nothing left alive in it says so, rather than showing a dead terminal.
+       *
+       * A pane whose session ends is removed by the daemon, which sends a new layout. The last
+       * one is different: its workspace is dropped with it, so there is no layout left to send
+       * and nothing arrived to change the page at all. The tab sat there with the final screen
+       * frozen in it, no message, no way forward, and typing went nowhere.
+       *
+       * That is reachable by typing `exit`, by a process crashing, and by the PTY host dying
+       * underneath the tab. All three used to look identical to a hung terminal.
+       */
+      endedSessions.add(msg.sessionId);
+      /**
+       * A pane that ran a command is not dead weight, and covering it would be the same mistake
+       * this whole branch exists to avoid.
+       *
+       * The daemon keeps such a pane on purpose when its process ends: the output is the reason
+       * it existed, and a tab that replaces it with a recovery page throws away exactly what
+       * somebody was waiting for. So a tab still holding one is a tab with something to read,
+       * and it is left alone.
+       */
+      const worthKeeping = (panesHost?.all ?? []).filter(
+        (p) => !endedSessions.has(p.sessionId) || panesWithCommand.has(p.paneId),
+      );
+      if (worthKeeping.length === 0 && attached) {
+        attached = false;
+        showRecovery(
+          msg.exitCode === 0 ? 'This terminal has ended.' : 'This terminal ended unexpectedly.',
+        );
       }
       return;
     }

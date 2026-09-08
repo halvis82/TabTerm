@@ -604,8 +604,18 @@ export class PtyHostClient {
   }
 
   /** Ask for everything after a sequence number. Output arrives through the data listeners. */
-  async replay(sessionId: string, fromSeq: number): Promise<void> {
-    await this.#request({ t: 'replay', sessionId, fromSeq }, 'replayed');
+  /**
+   * Ask for everything after a point, and say whether the host still had all of it.
+   *
+   * Returns the number of bytes that were asked for and could not be supplied. Zero is the
+   * ordinary answer. Anything else means the host's ring had already dropped them, and whatever
+   * screen is rebuilt from what arrived is missing a piece in the middle.
+   */
+  async replay(sessionId: string, fromSeq: number): Promise<{ missingBytes: number }> {
+    const reply = await this.#request({ t: 'replay', sessionId, fromSeq }, 'replayed');
+    const servableFrom = Number(reply?.['servableFrom']);
+    if (!Number.isFinite(servableFrom)) return { missingBytes: 0 };
+    return { missingBytes: Math.max(0, servableFrom - fromSeq) };
   }
 
   close(): void {

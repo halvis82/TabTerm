@@ -105,7 +105,15 @@ const FIRST = [
  * rather than assembled by matching on a process name. Confirmed by watching the installed
  * host's pid across a run: unchanged.
  */
-const LAST = ['survives-restart', 'resilience'];
+/**
+ * Suites that end the daemon or the PTY host, and so must not run beside anything.
+ *
+ * `nothing-left-alive` kills the host on purpose, which ends every session on the test daemon,
+ * including the ones four other suites are in the middle of using. Adding it to the parallel pool
+ * produced a shifting set of failures in other suites, which read exactly like load sensitivity
+ * and was nothing of the kind.
+ */
+const LAST = ['survives-restart', 'resilience', 'nothing-left-alive'];
 
 /**
  * Nothing is skipped by default any more.

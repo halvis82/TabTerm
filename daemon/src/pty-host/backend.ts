@@ -84,7 +84,8 @@ export class HostPtyBackend implements PtyBackend {
   }
 
   /** Ask for everything after a sequence number, so a restarted daemon can rebuild a screen. */
-  replay(sessionId: string, fromSeq: number): Promise<void> {
+  /** See `PtyHostClient.replay`. Reports how much of what was asked for could not be supplied. */
+  replay(sessionId: string, fromSeq: number): Promise<{ missingBytes: number }> {
     return this.#client.replay(sessionId, fromSeq);
   }
 

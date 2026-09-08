@@ -1374,14 +1374,23 @@ export class Launcher {
       opened?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
 
-    if (typed && this.#dirInput) {
-      this.#dirInput.value = typed;
-      if (hadFocus) {
-        this.#dirInput.focus();
-        // Put back after the focus, because focusing a box moves the caret to the end of it.
-        if (selection && selection.start !== null && selection.end !== null) {
-          this.#dirInput.setSelectionRange(selection.start, selection.end);
-        }
+    /**
+     * The text, and then the keyboard, and the keyboard whether or not there was any text.
+     *
+     * These were one condition: put the typed path back **and** put the cursor back, only when
+     * something had been typed. An empty box that had the keyboard therefore lost it on every
+     * redraw, and the start screen redraws whenever anything happens anywhere in TabTerm.
+     *
+     * What made that expensive rather than merely untidy is what happens next. A page with the
+     * keyboard nowhere gives it to the terminal, by design, so the characters typed after a
+     * redraw went to a shell instead of into the box: not lost, run.
+     */
+    if (typed && this.#dirInput) this.#dirInput.value = typed;
+    if (hadFocus && this.#dirInput) {
+      this.#dirInput.focus();
+      // Put back after the focus, because focusing a box moves the caret to the end of it.
+      if (selection && selection.start !== null && selection.end !== null) {
+        this.#dirInput.setSelectionRange(selection.start, selection.end);
       }
     }
 
