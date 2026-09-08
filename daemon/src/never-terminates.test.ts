@@ -62,6 +62,24 @@ const config: Config = {
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Wait for a kill that is expected, rather than sleeping a fixed time and hoping.
+ *
+ * The assertions that a session is **kept** are safe with a flat sleep: waiting longer only makes
+ * them stronger. The three that require a session to be ended are the opposite, and one of them
+ * failed on a loaded machine with an empty kill list, because a fifty millisecond policy checked
+ * four hundred milliseconds later had simply not been reached yet. A safety suite that passes
+ * only on an idle machine is not evidence of anything, and it fails in the direction that looks
+ * like the product is being careful, which is the hardest kind of flake to notice.
+ */
+async function untilKilled(sessionId: string, ms = 5000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (backend.kills.some((k) => k.sessionId === sessionId)) return;
+    await sleep(10);
+  }
+}
 /** Comfortably past every policy above, several times over. */
 const WELL_PAST_EVERY_TIMER = 400;
 
@@ -204,7 +222,7 @@ describe('a browser that has settled and does not have the workspace', () => {
     sessions.settledAfterMs = 10;
     const ctx = aWorkingSession();
     sessions.reportOpenWorkspaces('chrome', []);
-    await sleep(WELL_PAST_EVERY_TIMER);
+    await untilKilled(ctx.sessionId);
     expect(backend.kills.map((k) => k.sessionId)).toEqual([ctx.sessionId]);
   });
 
@@ -263,7 +281,7 @@ describe('a tab somebody actually closed', () => {
   it('ends the session, which is the whole point of the timer', async () => {
     const ctx = aWorkingSession();
     sessions.recordTabClosed(ctx.workspaceId, 'close-1');
-    await sleep(WELL_PAST_EVERY_TIMER);
+    await untilKilled(ctx.sessionId);
     expect(backend.kills.map((k) => k.sessionId)).toEqual([ctx.sessionId]);
   });
 
@@ -298,7 +316,7 @@ describe('a tab somebody actually closed', () => {
     const evidence = sessions.closeEvidence(ctx.workspaceId);
     expect(evidence?.eventId).toBe('close-4');
     expect(evidence?.at).toBeGreaterThan(0);
-    await sleep(WELL_PAST_EVERY_TIMER);
+    await untilKilled(ctx.sessionId);
     expect(backend.kills).toHaveLength(1);
   });
 
