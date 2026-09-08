@@ -27,6 +27,23 @@ signature and macOS kills an invalidly signed binary on launch rather than refus
 error, so the copy is re-signed and then actually run once as a smoke test. That run is the only
 thing that proves the rpath was right.
 
+That copy is then kept, rather than made again on the next install. The decision is attached to
+**this binary's signature**, so copying in whatever node the machine happens to have would move
+the signature whenever the machine's node moved, and throw the decision away: the person is asked
+for access again after an unrelated `brew upgrade`, with nothing on screen to explain why. The
+bundle keeps the runtime it was built with, which is also the more predictable answer for a daemon
+expected to run for months.
+
+It is replaced when there is no working one there, or when it can no longer do what the daemon
+needs, which is checked by running it rather than by reading a version. `--refresh-runtime` asks
+for today's node on purpose, for the case where the kept one has to go.
+
+Two details decide whether any of that works. The build deletes the bundle before it starts, so
+the runtime worth keeping is moved aside first; read afterwards, there is nothing there. And
+`dist/` is a build directory that a clean wipes and a fresh clone never had, so the identity that
+matters belongs to the **installed** bundle: the installer passes it with `--adopt-runtime`, and a
+build from an empty `dist/` still lands on the same bytes.
+
 Everything else stays where it was. The daemon file, the PTY host and `node_modules` are still
 read from `~/.local/libexec/tabterm`, because the daemon finds the host beside itself and moving
 it would replace the running host and end every terminal on the machine.

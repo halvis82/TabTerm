@@ -123,8 +123,15 @@ echo "  daemon staged at $LIBEXEC"
 # Everything else stays where it was. The daemon file, the PTY host and node_modules are still
 # read from $LIBEXEC, because the daemon finds the host beside itself and moving it would replace
 # the running host and end every terminal on the machine.
+#
+# The bundle keeps the runtime it was built with rather than taking today's, because the privacy
+# decision is attached to that binary's signature: recopying node on every install would throw the
+# decision away after an unrelated "brew upgrade", and the person would be asked again with
+# nothing on screen to explain why. The already installed bundle is handed over for that reason.
+# It is the copy macOS remembers, and dist/ is a build directory that a clean wipes.
 APP="$LIBEXEC/TabTerm.app"
-if TABTERM_NODE="$NODE" "$NODE" "$REPO/scripts/build-app-bundle.mjs" >/dev/null 2>&1 &&
+if TABTERM_NODE="$NODE" "$NODE" "$REPO/scripts/build-app-bundle.mjs" \
+     --adopt-runtime "$APP/Contents/MacOS/node" >/dev/null 2>&1 &&
    [ -x "$REPO/dist/TabTerm.app/Contents/MacOS/node" ]; then
   rm -rf "$APP"
   cp -R "$REPO/dist/TabTerm.app" "$APP"

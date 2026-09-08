@@ -14,22 +14,36 @@
 // it did rather than leaving it ambiguous.
 import { execFileSync } from 'node:child_process';
 import { chmodSync, cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const APP = join(ROOT, 'dist', 'TabTerm.app');
-const CONTENTS = join(APP, 'Contents');
-const BUNDLE_ID = 'com.tabterm.daemon';
 
 const args = process.argv.slice(2);
-const signIndex = args.indexOf('--sign');
-const identity = signIndex >= 0 ? args[signIndex + 1] : null;
+const flag = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
+
+const identity = flag('--sign') ?? null;
+/** Somewhere other than `dist/`, so a test can build one without disturbing the real bundle. */
+const APP = resolve(flag('--out') ?? join(ROOT, 'dist', 'TabTerm.app'));
+const CONTENTS = join(APP, 'Contents');
+const BUNDLE_ID = 'com.tabterm.daemon';
 
 if (!existsSync(join(ROOT, 'daemon', 'dist', 'main.js'))) {
   console.error('daemon/dist/main.js is missing. Run `npm run build:daemon` first.');
   process.exit(1);
 }
+
+/**
+ * The runtime already in this bundle, moved aside before the bundle is wiped.
+ *
+ * The rebuild starts by deleting the bundle, which destroys the very thing worth keeping. Reading
+ * it afterwards found nothing, so a plain rebuild took a fresh runtime every time while reporting
+ * that it had kept one.
+ */
+const rescued = join(tmpdir(), `tabterm-runtime-${String(process.pid)}`);
+const priorNode = join(CONTENTS, 'MacOS', 'node');
+if (existsSync(priorNode)) cpSync(priorNode, rescued);
 
 rmSync(APP, { recursive: true, force: true });
 mkdirSync(join(CONTENTS, 'MacOS'), { recursive: true });
@@ -99,8 +113,64 @@ const nodeBinary =
   execFileSync('/usr/bin/which', ['node'], { encoding: 'utf8' }).trim();
 const realNode = execFileSync('/usr/bin/readlink', ['-f', nodeBinary], { encoding: 'utf8' }).trim();
 const bundledNode = join(CONTENTS, 'MacOS', 'node');
-cpSync(realNode, bundledNode);
-chmodSync(bundledNode, 0o755);
+
+/**
+ * A runtime already in the bundle is kept, rather than replaced with today's.
+ *
+ * The bundle exists to give macOS something durable to attach a privacy decision to, and what
+ * that decision is attached to is the **signature of this binary**. Copying a fresh runtime in on
+ * every install changes the binary whenever the machine's Node has moved, which changes the
+ * signature, which throws the decision away: the person is asked again, for no reason they can
+ * see, after an unrelated `brew upgrade`.
+ *
+ * So it is copied once and then left alone. The bundle keeps running the runtime it was built
+ * with, which is also the more predictable answer for a daemon that is expected to run for
+ * months. It is replaced only when there is no working one there, or when it can no longer do
+ * what the daemon needs. `--refresh-runtime` asks for today's regardless.
+ *
+ * Note that `TABTERM_NODE` does not force the question. The installer sets it on every run to
+ * name the interpreter it found, which is a default and not a request, and treating it as one
+ * silently undid all of the above.
+ */
+function runtimeIsUsable(path) {
+  if (!existsSync(path)) return false;
+  try {
+    // Runs, and has the one thing the daemon cannot start without. See check-node.mjs.
+    execFileSync(path, ['-e', "import('node:sqlite').then(() => process.exit(0))"], {
+      stdio: 'pipe',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Where a runtime worth keeping may already be.
+ *
+ * `dist/` holds the one this build made last time, but `dist/` is a build directory: it is wiped
+ * by a clean, and it is absent entirely on a fresh clone. The identity macOS actually remembers
+ * belongs to the **installed** bundle, so the installer passes that one here with
+ * `--adopt-runtime`, and a rebuild from an empty `dist/` still lands on the same bytes.
+ */
+const adoptFrom = flag('--adopt-runtime');
+
+let keptFrom;
+if (!args.includes('--refresh-runtime')) {
+  for (const candidate of [existsSync(rescued) ? rescued : undefined, adoptFrom]) {
+    if (candidate === undefined || !runtimeIsUsable(candidate)) continue;
+    cpSync(candidate, bundledNode);
+    chmodSync(bundledNode, 0o755);
+    keptFrom = candidate === rescued ? 'this bundle' : candidate;
+    break;
+  }
+}
+rmSync(rescued, { force: true });
+const keptExisting = keptFrom !== undefined;
+if (!keptExisting) {
+  cpSync(realNode, bundledNode);
+  chmodSync(bundledNode, 0o755);
+}
 /**
  * Both the stable path and the real one.
  *
@@ -109,26 +179,32 @@ chmodSync(bundledNode, 0o755);
  * resolved path is added as well, in case node came from somewhere with no such symlink.
  */
 const libDirs = [...new Set([nodeBinary, realNode].map((p) => join(dirname(dirname(p)), 'lib')))];
-try {
-  for (const lib of libDirs) {
-    execFileSync('/usr/bin/install_name_tool', ['-add_rpath', lib, bundledNode], { stdio: 'pipe' });
-  }
-  /**
-   * Signed here as well as with the bundle later, because it cannot run until it is.
-   *
-   * `install_name_tool` invalidates a signature, and macOS kills an invalidly signed binary on
-   * launch rather than refusing it with an error. The smoke test below is the only thing that
-   * proves the rpaths were right, and it cannot run before this.
-   */
-  execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', bundledNode], { stdio: 'pipe' });
-  execFileSync(bundledNode, ['-e', 'process.exit(0)'], { stdio: 'pipe' });
-  console.log(`  runtime: ${realNode} copied in, libraries from ${libDirs.join(' and ')}`);
-} catch (e) {
-  console.error(`  the copied node does not run: ${String(e)}`);
-  console.error('  the bundle exists to give macOS a stable identity, and cannot do that with a');
-  console.error('  runtime it cannot start. Set TABTERM_NODE to a node that runs from a copy.');
-  process.exit(1);
+if (keptExisting) {
+  console.log(`  runtime: kept the existing one from ${keptFrom}, so its identity does not move`);
 }
+if (!keptExisting)
+  try {
+    for (const lib of libDirs) {
+      execFileSync('/usr/bin/install_name_tool', ['-add_rpath', lib, bundledNode], {
+        stdio: 'pipe',
+      });
+    }
+    /**
+     * Signed here as well as with the bundle later, because it cannot run until it is.
+     *
+     * `install_name_tool` invalidates a signature, and macOS kills an invalidly signed binary on
+     * launch rather than refusing it with an error. The smoke test below is the only thing that
+     * proves the rpaths were right, and it cannot run before this.
+     */
+    execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', bundledNode], { stdio: 'pipe' });
+    execFileSync(bundledNode, ['-e', 'process.exit(0)'], { stdio: 'pipe' });
+    console.log(`  runtime: ${realNode} copied in, libraries from ${libDirs.join(' and ')}`);
+  } catch (e) {
+    console.error(`  the copied node does not run: ${String(e)}`);
+    console.error('  the bundle exists to give macOS a stable identity, and cannot do that with a');
+    console.error('  runtime it cannot start. Set TABTERM_NODE to a node that runs from a copy.');
+    process.exit(1);
+  }
 
 /**
  * And the same launcher as before, for running the daemon by hand.
