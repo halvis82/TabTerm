@@ -6,7 +6,7 @@
 // entry did nothing at all: it wrote to the focused pane, and nothing focuses a pane while the
 // panel has the keyboard, so the one state where it is offered is the one state where it had no
 // target. The strip along the bottom did not offer Paste at all.
-import { openTerminal, evaluate, sleep, finish, waitFor, type } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, finish, waitFor, type, realClick } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -62,18 +62,41 @@ r.ok('the terminal itself offers Paste', onPane.includes('Paste'), onPane.join('
 await evaluate(here.client, "document.querySelector('.term-menu')?.remove()");
 
 /**
- * And Paste reaches the shell rather than nothing.
+ * And Paste reaches the shell, driven the whole way: a real clipboard, the real menu entry, and a
+ * real click on it.
  *
- * Driven through the same entry the menu runs, because the clipboard cannot be written from a
- * page the harness does not control and the bug was never in reading it.
+ * The first version of this called the paste path directly and passed while the menu entry did
+ * nothing at all, which is worse than no test. What it skipped is where the bug was: xterm keeps
+ * a hidden textarea to receive keystrokes, it is what `document.activeElement` reports whenever a
+ * terminal has the keyboard, and it is an `HTMLTextAreaElement`, so "is a text box focused"
+ * answered yes and the clipboard went into a box nobody can see.
  */
-await evaluate(here.client, `window.__tabterm.pasteForTest('PASTED-INTO-THE-SHELL')`);
+await evaluate(here.client, `navigator.clipboard.writeText('PASTE-ME-FOR-REAL')`);
+await evaluate(
+  here.client,
+  `(() => {
+     const el = document.querySelector('.sessions') ?? document.querySelector('.launcher');
+     const b = el.getBoundingClientRect();
+     el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true,
+       clientX: Math.round(b.left + 40), clientY: Math.round(b.top + 10) }));
+   })()`,
+);
+await sleep(700);
+await realClick(here.client, '.term-menu-item', 'Paste');
+
 const landed = await waitFor(
   here.client,
-  `(window.__tabterm.readViewport() ?? '').includes('PASTED-INTO-THE-SHELL')`,
+  `(window.__tabterm.readViewport() ?? '').includes('PASTE-ME-FOR-REAL')`,
   8000,
 );
-r.ok('and pasting on the start screen reaches the terminal', landed);
+r.ok('pressing Paste in the menu reaches the shell', landed);
+
+// And it went to the shell rather than into the hidden box, which is a different failure that
+// looks identical from the outside: nothing visible happens either way.
+const hidden = String(
+  await evaluate(here.client, `document.querySelector('.xterm-helper-textarea')?.value ?? ''`),
+);
+r.ok("and not into the terminal's hidden helper textarea", !hidden.includes('PASTE-ME'), hidden);
 
 await finish();
 r.done();

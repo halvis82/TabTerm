@@ -2092,6 +2092,23 @@ function sessionItems(session: LiveSession): ShellItem[] {
   ];
 }
 
+/**
+ * A box a person can actually type into, or nothing.
+ *
+ * xterm keeps a hidden `textarea` to receive keystrokes, and it is what `document.activeElement`
+ * reports whenever a terminal has the keyboard, which on the start screen is always. It is an
+ * `HTMLTextAreaElement`, so every check of the form "is a text box focused" said yes and put the
+ * clipboard into it, where it is invisible and does nothing at all. That is the whole of "I press
+ * paste and nothing happens": the text went somewhere, into a box nobody can see, every time.
+ *
+ * It is the terminal, not a field, and the caller wants the terminal's own path for it.
+ */
+function typableBox(el: unknown): HTMLInputElement | HTMLTextAreaElement | null {
+  if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) return null;
+  if (el.classList.contains('xterm-helper-textarea')) return null;
+  return el.closest('.xterm') === null ? el : null;
+}
+
 /** The folder a right click landed on, from whatever names one. */
 function folderUnder(target: Element): string {
   const chip = target.closest('.launcher-completion');
@@ -2113,8 +2130,10 @@ function pageMenuItems(target: Element): ShellItem[] {
    */
   const folder = folderUnder(target);
 
-  const box = target.closest('input, textarea');
-  if (box instanceof HTMLInputElement || box instanceof HTMLTextAreaElement) {
+  // Not xterm's hidden helper: a right click on a terminal is a right click on a terminal, and
+  // offering Cut and Select all for a box nobody can see is worse than offering nothing.
+  const box = typableBox(target.closest('input, textarea'));
+  if (box) {
     // A box for typing into is a box for typing into, wherever it happens to be.
     return [...textBoxItems(box), ...wayOutItems(true)];
   }
@@ -2176,11 +2195,8 @@ function pageMenuItems(target: Element): ShellItem[] {
                 .readText()
                 .then((text) => {
                   if (!text) return;
-                  const focused = document.activeElement;
-                  if (
-                    focused instanceof HTMLInputElement ||
-                    focused instanceof HTMLTextAreaElement
-                  ) {
+                  const focused = typableBox(document.activeElement);
+                  if (focused) {
                     const at = focused.selectionStart ?? focused.value.length;
                     focused.value = focused.value.slice(0, at) + text + focused.value.slice(at);
                     focused.dispatchEvent(new Event('input', { bubbles: true }));

@@ -840,6 +840,20 @@ thinking. Turns are bounded by the hooks that report their ends, which is why
 `09-agent-integration.md` treats hook installation as part of the product rather than as a
 footnote in the installer.
 
+### xterm's hidden textarea is the terminal, not a text box
+
+Worth stating because it wears a convincing disguise. xterm keeps a `textarea` off screen to
+receive keystrokes, and it is what `document.activeElement` reports whenever a terminal has the
+keyboard, which on the start screen is always. It is a real `HTMLTextAreaElement`, so every check
+of the form "is a text box focused" said yes, and Paste put the clipboard into it: the text landed
+every time, in a box nobody can see, and the report was that pressing Paste did nothing.
+
+The same disguise reached the menu itself, where `closest('input, textarea')` matched it and a
+right click on a terminal was answered with Cut, Copy and Select all for that invisible box.
+
+One rule now: an element inside `.xterm`, or carrying `xterm-helper-textarea`, is the terminal.
+Everything that wants a field asks for one through it.
+
 ### The extension reports, the daemon decides
 
 Worth stating plainly because the division is easy to get backwards. The service worker sends two
