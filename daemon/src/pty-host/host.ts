@@ -265,6 +265,16 @@ export class PtyHost {
           protocol: HOST_PROTOCOL,
           pid: process.pid,
           instance: HOST_INSTANCE,
+          /**
+           * Which binary is running this host, so a daemon can tell whether it is the one it
+           * would start itself.
+           *
+           * macOS attaches a privacy decision to the executable that asks for it, and this
+           * process is the one that spawns everybody's shells, so it is the one macOS asks about.
+           * A host started before an update runs the old binary for as long as it lives, which is
+           * by design: it is never restarted, because restarting it ends every terminal it holds.
+           */
+          execPath: process.execPath,
         });
         return;
 

@@ -180,6 +180,30 @@ else
   warn "agent hooks helper not built. Run: npm run build"
 fi
 
+# --- the PTY host's identity ----------------------------------------------
+# macOS attaches a privacy decision to the executable that asks for it, and the host is the
+# process that spawns every shell, so it is the one macOS asks about. The host outlives updates on
+# purpose, which means one started before this build keeps the old binary until it is restarted,
+# and restarting it ends every terminal it holds. Worth saying plainly, because the symptom is a
+# permission prompt naming "node" that an update was supposed to have stopped.
+host_line=$(ps -eo pid=,command= | grep "[l]ibexec/tabterm/pty-host" | head -1)
+if [ -n "$host_line" ]; then
+  host_exec=$(echo "$host_line" | awk '{print $2}')
+  bundled="$HOME/.local/libexec/tabterm/TabTerm.app/Contents/MacOS/node"
+  if [ "$host_exec" = "$bundled" ]; then
+    ok "the PTY host runs under TabTerm's own binary, so privacy decisions stick to it"
+  else
+    host_pid=$(echo "$host_line" | awk '{print $1}')
+    warn "the PTY host is running an older binary than this build:
+        $host_exec
+        Permission prompts will name that binary rather than TabTerm. The host is never
+        restarted automatically because doing so ends every terminal it holds. When you are
+        ready to lose them: kill $host_pid"
+  fi
+else
+  ok "no PTY host is running, so the next one started will be this build's"
+fi
+
 # --- macOS privacy --------------------------------------------------------
 # An ungranted folder HANGS rather than failing, so probe with a timeout.
 probe_tcc() {

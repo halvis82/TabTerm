@@ -232,6 +232,25 @@ then has a durable identity to attach grants to.
 Retrofitting this later forces every user to re-grant everything. It is on the critical path for
 that reason, not for functionality.
 
+### The host is the process macOS asks about, and it outlives the update
+
+The daemon does not spawn shells. The **PTY host** does, and TCC attributes a request to the
+process responsible for it, so the host's binary is the identity every prompt names.
+
+The host is deliberately never restarted: doing so ends every terminal it holds, which is the one
+thing this product exists not to do. So a host started before an update goes on running the old
+binary for as long as it lives, which can be weeks. A person who updates specifically to stop the
+prompt saying "node" keeps seeing it say "node", and nothing about the update was wrong.
+
+A new host is correct without any special handling, because the daemon starts it with its own
+executable, and the daemon is the bundle. Only the running one is stale.
+
+Since the state is invisible and the symptom is confusing, it is **said** rather than silently
+endured. The host reports its executable when it introduces itself, the daemon logs
+`pty-host.older-binary` naming both, and `npm run doctor` prints a sentence with the pid to end
+when somebody is ready to lose those sessions. Ending it is the person's decision, never the
+installer's.
+
 ---
 
 ## 7. History privacy

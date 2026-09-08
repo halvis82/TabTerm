@@ -126,6 +126,24 @@ export class PtyHostClient {
               });
             }
             info('pty-host.connected', { pid: hello['pid'], protocol: speaks });
+            /**
+             * A host running a different binary than the one this daemon would start.
+             *
+             * Not an error and not fixed here: the host outlives updates on purpose, because
+             * restarting it ends every terminal it holds. But it is worth saying, because the
+             * consequence is invisible and confusing. macOS attaches privacy decisions to the
+             * executable that asks, and this process is the one that spawns everybody's shells,
+             * so a host still running the pre-update binary is why a permission prompt keeps
+             * naming `node` after an update that was supposed to stop that.
+             */
+            const hostExec = typeof hello['execPath'] === 'string' ? hello['execPath'] : '';
+            if (hostExec !== '' && hostExec !== process.execPath) {
+              warn('pty-host.older-binary', {
+                host: hostExec,
+                daemon: process.execPath,
+                note: 'the host predates this build and keeps its own identity until it is restarted, which ends its sessions',
+              });
+            }
             this.#identify(hello['instance']);
             return true;
           }
