@@ -75,3 +75,33 @@ describe('what an adoption plan carries about size', () => {
     expect(plan.sessions[0]?.rows).toBeUndefined();
   });
 });
+
+/**
+ * And so does whether anybody had typed into it.
+ *
+ * The fact decides whether a tab may go back to the start screen, and it cannot be read from the
+ * screen: a half-typed command sits on the prompt line and leaves the line count at one, exactly
+ * like a prompt nobody has touched. The daemon knows it while it runs and forgets it on every
+ * restart, which happens on every update. The host outlives the daemon and dies with the
+ * terminals, so a fact kept there lasts exactly as long as the thing it is about.
+ *
+ * This plan is rebuilt field by field rather than spread, so anything not named is dropped. That
+ * is how the size was lost before it was noticed.
+ */
+describe('what an adoption plan carries about use', () => {
+  const db = new Database(':memory:');
+
+  it('carries that somebody had typed into it', () => {
+    const plan = planAdoption(
+      [{ sessionId: 't1', pid: 201, cwd: '/tmp', seq: 1, hasInput: true }],
+      db,
+      '/bin/zsh',
+    );
+    expect(plan.sessions[0]?.hasInput).toBe(true);
+  });
+
+  it('and says nothing when nobody has', () => {
+    const plan = planAdoption([{ sessionId: 't2', pid: 202, cwd: '/tmp', seq: 1 }], db, '/bin/zsh');
+    expect(plan.sessions[0]?.hasInput).toBeUndefined();
+  });
+});

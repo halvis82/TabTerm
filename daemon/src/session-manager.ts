@@ -518,6 +518,8 @@ export class SessionManager {
     rows: number;
     /** When the host started it, which is older than this daemon and usually older than the last. */
     startedAt?: number;
+    /** Somebody typed into it, remembered by the host across this daemon's restart. */
+    hasInput?: boolean;
   }): Session {
     const vt = new VtState(info_.cols, info_.rows, this.#config.scrollbackLines);
     /**
@@ -546,6 +548,9 @@ export class SessionManager {
       pid: info_.pid,
       pinned: false,
       persistent: false,
+      // Carried over from the host, which kept it across this daemon's restart. Without it a
+      // terminal somebody had typed into looked untouched again after every update.
+      ...(info_.hasInput === true ? { hasInput: true } : {}),
       titleFields: { cwd: info_.cwd },
       seq: 0,
       vt,

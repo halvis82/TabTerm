@@ -26,6 +26,8 @@ export interface HostSessionInfo {
   startedAt: number;
   seq: number;
   alive: boolean;
+  /** Somebody typed into it. Kept by the host, so it lasts as long as the session does. */
+  hasInput?: boolean;
   stash?: { seq: number; state: string };
 }
 

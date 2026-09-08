@@ -65,6 +65,7 @@ export class HostPtyBackend implements PtyBackend {
       startedAt?: number;
       cols?: number;
       rows?: number;
+      hasInput?: boolean;
     }[]
   > {
     const sessions = await this.#client.list();
@@ -80,6 +81,8 @@ export class HostPtyBackend implements PtyBackend {
         ...(typeof s.cols === 'number' && typeof s.rows === 'number'
           ? { cols: s.cols, rows: s.rows }
           : {}),
+        // Whether anybody has typed into it, which only the host has kept across the restart.
+        ...(s.hasInput === true ? { hasInput: true } : {}),
       }));
   }
 

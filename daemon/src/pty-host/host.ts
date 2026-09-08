@@ -53,6 +53,14 @@ interface Live {
   /** Recent output, so a restarted daemon can rebuild its screen. Bounded, see RING_BYTES. */
   ring: { seq: number; data: Uint8Array }[];
   ringBytes: number;
+  /**
+   * Somebody has typed into this terminal, whether or not they pressed Enter.
+   *
+   * Kept here rather than in the daemon because it has to last as long as the session does. The
+   * daemon forgets it on every restart, and a restart happens on every update; this process
+   * outlives the daemon and dies with the terminals it holds.
+   */
+  hasInput?: boolean;
   /** VT state the daemon handed over before it stopped, with the seq it was accurate at. */
   stash?: { seq: number; state: string };
   exited?: { exitCode: number; signal?: number };
@@ -290,6 +298,7 @@ export class PtyHost {
             startedAt: s.startedAt,
             seq: s.seq,
             alive: s.exited === undefined,
+            ...(s.hasInput === true ? { hasInput: true } : {}),
             ...(s.stash ? { stash: s.stash } : {}),
           })),
         });
@@ -357,7 +366,20 @@ export class PtyHost {
 
       case 'write': {
         const live = this.#sessions.get(id);
-        if (live && typeof msg['data'] === 'string') live.handle.pty.write(msg['data']);
+        if (live && typeof msg['data'] === 'string') {
+          /**
+           * Remembered here, because here is where it lasts as long as the session does.
+           *
+           * Whether anybody has typed into a terminal decides whether a tab may go back to the
+           * start screen, and it cannot be read from the screen: a half-typed command sits on the
+           * prompt line and leaves the line count at one, exactly like a prompt nobody has
+           * touched. The daemon knew it and forgot it on every restart, which is often. This
+           * process outlives the daemon and dies with the sessions, so a fact kept here is exactly
+           * as durable as the thing it is about.
+           */
+          if (msg['data'].length > 0) live.hasInput = true;
+          live.handle.pty.write(msg['data']);
+        }
         return;
       }
 

@@ -408,6 +408,14 @@ prompt line, so the tab still has exactly one line of content and looks identica
 nobody has touched, and nothing was run so the output says nothing either. The daemon sees every
 keystroke and remembers, which makes the answer survive a reload and a tab being recreated.
 
+That one is kept in the **PTY host** rather than in the daemon, and the reason is how long each of
+them lives. The daemon restarts on every update, and a fact held there is gone every time, so a
+terminal somebody had typed into looked untouched again after each one. The host outlives the
+daemon by design and dies with the terminals it holds, which makes it the only place where this
+lasts exactly as long as the thing it is about. It comes back on the adoption plan, which is
+rebuilt field by field rather than spread, so it has to be named there: that is how the terminal
+size was lost once before.
+
 ### A redraw restores the box before it restores what is under it
 
 The start screen follows what the rest of TabTerm is doing, so it redraws whenever a session

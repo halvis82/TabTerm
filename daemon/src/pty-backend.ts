@@ -66,6 +66,8 @@ export interface PtyBackend {
       startedAt?: number;
       cols?: number;
       rows?: number;
+      /** Somebody typed into it, which the host remembers and the daemon cannot. */
+      hasInput?: boolean;
     }[]
   >;
   close(): void;

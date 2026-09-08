@@ -38,6 +38,7 @@ export interface AdoptableSession {
    */
   cols?: number;
   rows?: number;
+  hasInput?: boolean;
 }
 
 export interface AdoptionPlan {
@@ -52,6 +53,8 @@ export interface AdoptionPlan {
     /** The size it is running at, when the host knows it. See `AdoptableSession`. */
     cols?: number;
     rows?: number;
+    /** Somebody typed into it, which only the host remembers across a daemon restart. */
+    hasInput?: boolean;
   }[];
   workspaces: { id: string; layout: LayoutNode }[];
 }
@@ -101,6 +104,9 @@ export function planAdoption(
       ...(session.cols !== undefined && session.rows !== undefined
         ? { cols: session.cols, rows: session.rows }
         : {}),
+      // This is rebuilt field by field rather than spread, so anything not named here is
+      // dropped. That is how the size used to be lost.
+      ...(session.hasInput === true ? { hasInput: true } : {}),
     });
     if (row?.workspace_id) wanted.add(row.workspace_id);
   }
