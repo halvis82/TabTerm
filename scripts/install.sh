@@ -192,6 +192,42 @@ if [ -t 0 ] && [ -f "$LIBEXEC/agent-hooks.mjs" ]; then
   fi
 fi
 
+# --- a host from before this build ------------------------------------------
+# macOS attaches a privacy decision to the process responsible for a request, and the PTY host is
+# the ancestor of every shell, so it is the process macOS names. A host running an unbundled
+# `node` cannot be given a durable decision, which is why the prompt comes back on every launch
+# rather than once. This build's host runs inside TabTerm.app, which can.
+#
+# The host is never restarted automatically, because doing so ends every terminal it holds. Said
+# here, prominently, because the doctor is somewhere people go when they already suspect a
+# problem, and this is a problem that presents as macOS being annoying rather than as TabTerm
+# being wrong.
+stale_host=$(ps -eo pid=,command= | grep "[l]ibexec/tabterm/pty-host" |
+  grep -v "TabTerm.app/Contents/MacOS/node" | head -1)
+if [ -n "$stale_host" ]; then
+  stale_pid=$(echo "$stale_host" | awk '{print $1}')
+  held=$(pgrep -P "$stale_pid" 2>/dev/null | wc -l | tr -d ' ')
+  cat <<STALE
+
+  ---------------------------------------------------------------------------
+  The terminal service is still the one from before this update.
+
+  It runs an unbundled 'node', so macOS cannot remember a permission decision
+  about it: that is why "node would like to access data from other apps" comes
+  back every time you start an agent instead of asking once.
+
+  This build's replacement runs as TabTerm.app and is asked about once.
+
+  Restarting it ends the $held terminal(s) it is holding. Nothing restarts it
+  for you, because that choice is yours:
+
+      kill $stale_pid
+
+  The daemon starts a new one within a second or two.
+  ---------------------------------------------------------------------------
+STALE
+fi
+
 cat <<NEXT
 
 Next, once:
