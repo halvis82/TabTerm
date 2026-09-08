@@ -219,6 +219,28 @@ submitting an empty one is what pressing Enter at a prompt does, and it makes th
 fresh prompt beneath the landmark. Only when nothing is running: those characters would otherwise
 be input to whatever program is in the foreground.
 
+**Only at a prompt.** A landmark is right where the scrollback is a record of what has happened.
+It is wrong inside anything that owns the screen: an agent, an editor, a pager, a build that
+redraws. The bars land in the middle of what is being drawn and the program redraws over and
+around them, which is what "it just stays stuck at the input box and looks all weird" was.
+
+The entry stays visible and is greyed, so it says the thing exists and cannot be used here, rather
+than disappearing and leaving somebody hunting for it.
+
+Three signals decide it, because each has a gap of its own:
+
+| Signal | Covers | Misses |
+|---|---|---|
+| The daemon says the pane was started with a command | `Open agent here`, templates | Typing `claude` into a shell that is already open, which is how people actually do it |
+| Something is running in the pane now | Editors, pagers, builds, agents alike | Anything the shell integration did not notice starting |
+| An agent has reported its own state here, or is named as what is running | An agent whose start nothing else saw | A pane where the agent has not spoken yet |
+
+The first of those was the whole of the first attempt, and it is why this was reported twice.
+
+An agent between turns still refuses. From the outside it looks exactly like a prompt and it is
+not one: the next thing it does is redraw. A pane that has held an agent goes on refusing until
+something else is put there.
+
 ### Highlights
 
 A highlight is a background behind text somebody picked out by hand. Select, right click,

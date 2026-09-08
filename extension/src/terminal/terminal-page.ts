@@ -860,6 +860,41 @@ const killedHere = new Map<string, number>();
  */
 const endedSessions = new Set<string>();
 
+/** Sessions an agent has reported state for. See the `agent-state` handler. */
+const agentSessions = new Set<string>();
+
+/** Agent CLIs by name, for the case where the only thing known is what is running. */
+const AGENT_PROGRAMS = new Set(['claude', 'codex', 'aider', 'cursor-agent', 'gemini', 'copilot']);
+
+/**
+ * Whether a marker would be printed into a program rather than into scrollback.
+ *
+ * A marker is written **into the session's output**. That is right at a prompt, where the
+ * scrollback is a record of what has happened and a landmark in it is a landmark in that record.
+ * It is wrong inside anything that owns the screen: an agent, an editor, a pager, a build that
+ * redraws. The bars land in the middle of whatever is being drawn and the program redraws over
+ * and around them, which is what "it just stays stuck at the input box and looks all weird" is.
+ *
+ * Three signals, because each one alone has a gap:
+ *
+ * 1. **The daemon said the pane was started with a command.** Covers `Open agent here` and
+ *    templates, and covers nothing about the usual way people get an agent, which is typing
+ *    `claude` into a shell that was already open. This was the whole of the first attempt
+ * 2. **Something is running in this pane right now.** The general truth, and it covers vim and
+ *    less and a build as well as an agent. Depends on the shell integration noticing
+ * 3. **An agent has reported its own state here**, or is named as what is running. Independent of
+ *    the shell integration, since it comes from the agent's hooks
+ */
+function markerWouldLandInAProgram(paneId: string): boolean {
+  if (panesWithCommand.has(paneId)) return true;
+  if (timeStateFor(paneId).commandStartedAt !== undefined) return true;
+  const sessionId = panesHost?.get(paneId)?.sessionId ?? '';
+  if (sessionId === '') return false;
+  if (agentSessions.has(sessionId)) return true;
+  const running = (sessionTitles.get(sessionId)?.process ?? '').split('/').pop() ?? '';
+  return AGENT_PROGRAMS.has(running);
+}
+
 function refreshFlashing(): void {
   void flashingSessions().then((set) => (flashing = set));
 }
@@ -3366,7 +3401,7 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
        * Greyed rather than hidden, so the menu keeps its shape and the entry says the offer
        * exists but not here.
        */
-      enabled: session !== '' && !panesWithCommand.has(paneId),
+      enabled: session !== '' && !markerWouldLandInAProgram(paneId),
       run: () => {
         splitView?.focus(paneId);
         const pane = panesHost?.get(paneId);
@@ -4714,6 +4749,14 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'agent-state': {
+      /**
+       * A session whose agent has reported anything is an agent session, for good.
+       *
+       * The strongest of the three signals and the only one that does not depend on the shell
+       * integration: it comes from the agent's own hooks. Never unset, because an agent that has
+       * gone quiet is still an agent, and the point of knowing is to refuse to print into it.
+       */
+      agentSessions.add(msg.sessionId);
       // Structured, from the agent's own hooks. Never inferred from what is on screen.
       const pane = panesHost?.all.find((p) => p.sessionId === msg.sessionId);
       if (pane) {
