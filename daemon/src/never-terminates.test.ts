@@ -366,3 +366,93 @@ describe('when there is no durable PTY host', () => {
     expect(sessions.canCreate).toBe(true);
   });
 });
+
+/**
+ * The question has to keep being asked, and one browser waking up must not answer for the rest.
+ *
+ * Both halves of a report from a real machine: sessions hours old under a thirty minute setting.
+ * Neither cause was a rule that was too permissive. One was a rule that could not be reached, and
+ * the other was a question nobody asked again.
+ */
+describe('a reporter that is still settling', () => {
+  it('does not stop every other session from ever being judged', async () => {
+    /**
+     * Chrome's control client reconnects whenever its service worker sleeps and wakes, and each
+     * reconnect is a new client id with a fresh timestamp. Withholding the answer while any
+     * reporter is settling therefore withheld it almost always, and the timeout never applied.
+     */
+    sessions.settledAfterMs = 50;
+    const ctx = aWorkingSession();
+    sessions.reportOpenWorkspaces('settled-chrome', []);
+    await sleep(120);
+
+    // And now a second browser connects, one millisecond old, with nothing to say yet.
+    sessions.reportOpenWorkspaces('just-woke-up', []);
+
+    await untilKilled(ctx.sessionId);
+    expect(backend.kills.map((k) => k.sessionId)).toEqual([ctx.sessionId]);
+  });
+
+  it('but a mention by any reporter protects, even when a settled one omits it', async () => {
+    /**
+     * The direction that must never be lost, and the review's governing rule: a workspace named
+     * by any tab report is open, and open outranks everything.
+     *
+     * Both reports are made before anything settles, on purpose. Letting the empty one settle
+     * first and then adding the mention races a correctly scheduled reap, which is a test about
+     * timing rather than about the rule.
+     */
+    sessions.settledAfterMs = 50;
+    const ctx = aWorkingSession();
+    sessions.reportOpenWorkspaces('settled-chrome', []);
+    sessions.reportOpenWorkspaces('has-it-open', [ctx.workspaceId]);
+
+    await sleep(WELL_PAST_EVERY_TIMER);
+    expect(backend.kills).toEqual([]);
+    expect(sessions.get(ctx.sessionId)).toBeTruthy();
+  });
+
+  it('and no reporter at all is still unknown, which keeps everything', async () => {
+    // Chrome quitting removes the reporter. That is absence, and absence authorizes nothing.
+    const ctx = aWorkingSession();
+    sessions.forgetReporter('settled-chrome');
+    await sleep(WELL_PAST_EVERY_TIMER);
+    expect(backend.kills).toEqual([]);
+    expect(sessions.get(ctx.sessionId)).toBeTruthy();
+  });
+});
+
+describe('the daemon asking again on its own clock', () => {
+  it('notices a reporter has settled without waiting for it to speak again', async () => {
+    /**
+     * The sweep exists because every other trigger is an event from somewhere else. A browser
+     * that reports once and then sleeps used to freeze the verdict: measured at thirty-nine
+     * minutes on a real machine, against a thirty minute setting.
+     */
+    sessions.settledAfterMs = 200;
+    const ctx = aWorkingSession();
+    // One report, from a reporter too new to be believed, and then silence.
+    sessions.reportOpenWorkspaces('chrome-then-sleeps', []);
+    await sleep(60);
+    expect(backend.kills).toEqual([]);
+
+    // Nothing further arrives. Only the daemon's own sweep runs.
+    await sleep(300);
+    sessions.rescheduleIdleReaps();
+
+    await untilKilled(ctx.sessionId);
+    expect(backend.kills.map((k) => k.sessionId)).toEqual([ctx.sessionId]);
+  });
+
+  it('and the sweep alone never authorizes anything', async () => {
+    // Called repeatedly with no evidence of any kind. It re-asks; it does not grant.
+    const ctx = aWorkingSession();
+    for (let i = 0; i < 20; i += 1) {
+      sessions.rescheduleIdleReaps();
+      await sleep(20);
+    }
+    await sleep(WELL_PAST_EVERY_TIMER);
+    expect(backend.kills).toEqual([]);
+    expect(sessions.get(ctx.sessionId)).toBeTruthy();
+  });
+});

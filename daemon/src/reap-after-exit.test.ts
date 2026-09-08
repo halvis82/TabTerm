@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { decideReap, reapInputFor } from './cleanup.js';
 import { DEFAULTS, type Config } from './config.js';
 import { initLog } from './log.js';
 import type { PtyBackend, PtySpawnRequest } from './pty-backend.js';
@@ -302,5 +303,73 @@ describe('a reap already scheduled', () => {
     expect(alive).toBeDefined();
     expect(alive?.state).toBe('detached');
     expect(backend.kills).toEqual([]);
+  });
+});
+
+/**
+ * A terminal somebody has used cannot be mistaken for one nobody ever touched.
+ *
+ * The short grace for an unused pane exists so a tab opened and closed by accident does not leave
+ * a shell behind. It is thirty seconds, against a configured timeout of half an hour, so being
+ * wrong about which one a session is costs the difference between the two.
+ *
+ * A daemon restart is where it goes wrong. The screen is rebuilt by replaying the host's output
+ * into a brand new emulator, so for a moment a session that has run plenty looks exactly like one
+ * that has run nothing. The host never forgot, which is the whole reason the fact lives there.
+ */
+describe('what counts as a terminal nobody has used', () => {
+  const used = (over: Partial<Parameters<typeof reapInputFor>[0]>) =>
+    decideReap(
+      reapInputFor(
+        {
+          hasRun: false,
+          hasInput: false,
+          cwd: '/tmp',
+          startedIn: '/tmp',
+          pinned: false,
+          persistent: false,
+          clients: new Map(),
+          state: 'detached',
+          paneClosedByUser: false,
+          lastAttachedAt: Date.now(),
+          ...over,
+        } as never,
+        {
+          inWorkspace: true,
+          sharesWorkspace: false,
+          closedPaneSecondsLeft: null,
+          paneClosedByUser: false,
+          keepBackgroundSeconds: 1800,
+          tabDisposition: 'closed',
+        },
+      ),
+      config,
+    );
+
+  it('gives an untouched shell the short grace, which is what it is for', () => {
+    expect(used({}).reason).toBe('never-used');
+  });
+
+  it('but a half-typed command that was never sent is use', () => {
+    // Nothing ran, nothing printed, nothing moved. The only trace is that somebody typed, and
+    // that trace survives a daemon restart because the host keeps it.
+    expect(used({ hasInput: true }).reason).toBe('tab-closed');
+  });
+
+  it('and so is having run something', () => {
+    expect(used({ hasRun: true }).reason).toBe('tab-closed');
+  });
+
+  it('and so is having been started with a command', () => {
+    expect(used({ command: ['npm', 'test'] }).reason).toBe('tab-closed');
+  });
+
+  it('and so is having moved out of the directory it opened in', () => {
+    expect(used({ cwd: '/tmp/elsewhere' }).reason).toBe('tab-closed');
+  });
+
+  it('so a used session gets the timeout the person chose, not thirty seconds', () => {
+    expect(used({ hasInput: true }).afterSeconds).toBe(1800);
+    expect(used({}).afterSeconds).toBe(30);
   });
 });

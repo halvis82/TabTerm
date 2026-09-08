@@ -234,10 +234,25 @@ export function reapInputFor(
     inWorkspace: opts.inWorkspace,
     sharesWorkspace: opts.sharesWorkspace ?? false,
     closedPaneSecondsLeft: opts.closedPaneSecondsLeft ?? null,
-    // Never used means never a command, and never anywhere but where it opened. A `cd` on its
-    // own is a shell builtin that spawns nothing, so the directory is checked as well rather
-    // than trusting the command flag alone.
-    neverUsed: session.hasRun !== true && session.cwd === session.startedIn,
+    /**
+     * Never used means no evidence of any kind that a person has touched this terminal.
+     *
+     * Every clause is a different way of having been used, and any one of them is enough to
+     * disqualify it. `hasRun` alone was not: a `cd` is a shell builtin that spawns nothing, so
+     * the directory is compared too; and a half-typed command that was never sent runs nothing,
+     * moves nothing, and prints nothing, so `hasInput` is asked as well.
+     *
+     * `hasInput` matters most across a daemon restart. The screen is rebuilt by replaying the
+     * host's output into a brand new emulator, so a session that has genuinely run things can be
+     * momentarily indistinguishable from one that never has. `hasInput` comes from the host,
+     * which never forgot, so a used terminal cannot be handed the thirty second grace meant for
+     * a shell nobody ever touched.
+     */
+    neverUsed:
+      session.hasRun !== true &&
+      session.hasInput !== true &&
+      session.command === undefined &&
+      session.cwd === session.startedIn,
     exited: session.state === 'exited',
     listeningPort: opts.listeningPort,
     keepBackgroundSeconds:

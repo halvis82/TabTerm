@@ -78,6 +78,16 @@ describe('the ways TabTerm can signal a process', () => {
         'user-replaced-pane',
         'user-reset',
         'expired-after-tab-close',
+        /**
+         * A live browser, with its tabs enumerated, no longer has this workspace.
+         *
+         * Added deliberately, and this list is why it had to be. The timer used to end with an
+         * unconditional `expired-after-pane-close`, so a workspace timeout that could not name
+         * its own authorization borrowed the provenance of a pane close that never happened. A
+         * cause is the evidence; a fallback cause is a lie in the record that says why a
+         * terminal was ended.
+         */
+        'expired-after-window-close',
         'expired-after-pane-close',
       ]),
     );

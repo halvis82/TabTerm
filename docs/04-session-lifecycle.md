@@ -374,6 +374,22 @@ The session was left in `expiring` with nothing to move it, neither reaped nor k
 laptop waking, where every overdue timer fires at once, before Chrome has said which tabs it has,
 and then the tabs come back.
 
+**An unsettled reporter is ignored, not obeyed.** A browser that has been connected and reporting
+for a while is a live account of what tabs exist. One that has just connected is not, and it used
+to withhold the answer for **every** session while it settled. That reads as caution and behaves
+as never: Chrome's control client reconnects each time its service worker sleeps, nine times in
+forty minutes on a real machine, each with a new client id and a fresh timestamp, so there was
+almost always one settling and nothing anywhere could be judged closed. The timeout applied to
+nothing. An unsettled reporter's list is now simply not consulted for absence. It can still say a
+workspace is **open**, and one mention from any reporter protects absolutely.
+
+**And the daemon asks again on its own clock.** Every other trigger is an event from elsewhere: a
+report of open tabs, a reporter going away, a client detaching, the setting changing. So the
+verdict went stale whenever Chrome stopped speaking, and a browser that reports once and sleeps
+froze it: measured at thirty-nine minutes against a thirty minute setting. A sweep every minute
+re-runs the same rules with the same evidence. It grants nothing; its whole effect is that the
+passage of time and the settling of a reporter are noticed without waiting to be told.
+
 **The clock measures elapsed time, not time since anybody last asked.**
 
 A scheduled reap keeps a **deadline**, and re-deciding does not restart it. The timer used to be
@@ -400,6 +416,14 @@ without one of four things: a pane the person closed, a tab the person closed, a
 inside its undo window, or a process that had already exited. It also checks the other direction,
 that pinned, persistent, attached and tab-open are absolute whatever else is true.
 
+**Never used means no evidence of any kind.** The short grace for an untouched pane is thirty
+seconds against a configured timeout of half an hour, so being wrong about which a session is
+costs the difference between the two. It required only that nothing had run and the directory had
+not moved, and a daemon restart rebuilds the screen by replaying the host's output into a brand
+new emulator, so a session that has run plenty can momentarily look like one that never has. It
+now also requires that nobody has typed into it and that it was not started with a command. The
+typing is remembered by the host, which never forgot.
+
 **A session in no workspace is still openable.** Closing one pane of a split takes a session out
 of the layout and keeps it alive for its undo window; closing the tab then drops the workspace. It
 is running, listed in Running Now, and belongs to nothing. Pressing its card used to do nothing at
@@ -417,6 +441,15 @@ it was allowed to go. Kept forever, in no workspace, reachable from no tab.
 constant at both ends. Accepting a value on the wire that startup would refuse means a setting a
 person chose is on disk, correct, and discarded on the next start in favour of the default, with a
 log line as the only trace. The floor is the shortest the settings panel offers.
+
+**The cause must be the proof that exists, and if none does, nothing happens.** The timer used to
+end with an unconditional `expired-after-pane-close`, so a workspace timeout that could not name
+its own authorization borrowed the provenance of a pane close that had never happened. A cause is
+supposed to **be** the evidence, and a fallback cause is a lie in the one record that says why a
+terminal was ended. Each branch now asks for its own proof: an explicit close message gives
+`expired-after-tab-close`, a settled browser that no longer lists the workspace gives
+`expired-after-window-close`, a session outside every workspace requires `paneClosedByUser` and
+gives `expired-after-pane-close`, and anything else cancels and logs `session.reap.unauthorized`.
 
 **A session whose process is already gone is not scheduled at all.** `exited` may only become
 `reaped`, so asking for `expiring` threw, which sounds like a stray warning and is not: the two

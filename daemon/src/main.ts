@@ -822,6 +822,32 @@ async function main(): Promise<void> {
   };
   const maintenanceTimer = setInterval(maintain, MAINTENANCE_INTERVAL_MS);
   maintenanceTimer.unref();
+
+  /**
+   * Ask the reap policy again, on the daemon's own clock.
+   *
+   * Every other trigger is an event from somewhere else: a report of open tabs, a reporter going
+   * away, a client detaching, the setting changing. So the answer was only ever revisited when
+   * Chrome happened to say something, and Chrome stops saying things when its service worker
+   * sleeps. Measured on a real machine: three sessions kept a verdict made at daemon startup for
+   * thirty-nine minutes, while the setting that was supposed to end them was thirty.
+   *
+   * This is not a poll for state and it is not a new authorization. It re-runs the same rules
+   * with the same evidence, and its whole effect is that the passage of time and the settling of
+   * a reporter are noticed without waiting for a browser to speak. A decision already scheduled
+   * keeps its deadline, because `#scheduleReap` keeps it while the reason is unchanged.
+   *
+   * A minute, unref'd. It costs a pure function per idle session.
+   */
+  const REAP_SWEEP_MS = 60 * 1000;
+  const reapSweep = setInterval(() => {
+    try {
+      sessions.rescheduleIdleReaps();
+    } catch (e) {
+      warn('reap.sweep.failed', { error: String(e) });
+    }
+  }, REAP_SWEEP_MS);
+  reapSweep.unref();
   // Once at startup too, so a machine that is rebooted daily still prunes.
   maintain();
 

@@ -243,6 +243,22 @@ export type TerminationCause =
       keepHistory?: boolean;
     }
   /** A pane a person closed, whose grace period has run out, in no workspace any more. */
+  /**
+   * A live browser, with its tabs enumerated, no longer has this workspace.
+   *
+   * Its own cause rather than being folded into either of the others. The proof is different: no
+   * message named this workspace as closed, and no pane of it was closed by hand. What happened
+   * is that a settled reporter gave a complete account of its tabs and this was not among them,
+   * which is what closing a whole window looks like from here.
+   *
+   * Named separately so the log says which proof was used, and so nothing can borrow the
+   * provenance of an act that did not happen.
+   */
+  | {
+      kind: 'expired-after-window-close';
+      workspaceId: string;
+      keepHistory?: boolean;
+    }
   | { kind: 'expired-after-pane-close'; keepHistory?: boolean };
 
 /** Thrown when a terminal is asked for and there is nothing durable to own it. */
@@ -1002,6 +1018,36 @@ export class SessionManager {
     for (const session of this.all) this.#rescheduleReapIfIdle(session);
   }
 
+  /**
+   * The timer fired and nothing authorizes ending this. Put it back and say so.
+   *
+   * `expiring` is the only state this can be reached from that has anywhere to go: a session
+   * whose process ended while the timer was pending is already `exited`, and `exited` may only
+   * become `reaped`. Asking for `detached` there threw out of a timer callback, which is not a
+   * place an exception can be caught.
+   */
+  #cancelUnauthorized(session: Session, workspaceId: string): void {
+    info('session.reap.unauthorized', { sessionId: session.id, workspaceId });
+    delete session.reapTimer;
+    delete session.reapDueAt;
+    delete session.reapReason;
+    if (session.state === 'expiring') this.#transition(session, 'detached');
+  }
+
+  /**
+   * Ask the policy again for every idle session, without any new evidence.
+   *
+   * For the daemon's own sweep. Everything else that re-runs the policy is an event from
+   * elsewhere, so the answer went stale whenever Chrome stopped speaking: a settling reporter
+   * that had since settled, and elapsed time, were both invisible until something arrived.
+   *
+   * Changes no rule and grants nothing. A session already on a clock keeps its deadline, because
+   * the reason is unchanged and `#scheduleReap` keeps the deadline while that is true.
+   */
+  rescheduleIdleReaps(): void {
+    for (const session of this.all) this.#rescheduleReapIfIdle(session);
+  }
+
   /** Only for a session nobody is attached to: an attached one has no timer to change. */
   #rescheduleReapIfIdle(session: Session): void {
     if (session.clients.size > 0) return;
@@ -1063,12 +1109,28 @@ export class SessionManager {
      * Every reporter must be settled. One browser still waking up is enough to withhold the
      * conclusion, which is the safe direction and costs only a delay.
      */
-    if (this.#reporterSince.size === 0) return 'unknown';
+    /**
+     * A settled reporter is one whose list can be believed. An unsettled one is ignored, not
+     * obeyed, and not allowed to speak for the others.
+     *
+     * This used to withhold the answer whenever **any** reporter was still settling, which reads
+     * as caution and behaves as never. Chrome's control client reconnects every time its service
+     * worker sleeps and wakes, nine times in forty minutes on a real machine, and each reconnect
+     * is a new client id with a fresh timestamp. There was almost always one settling, so nothing
+     * anywhere could ever be judged closed and the timeout never applied to anything.
+     *
+     * Ignoring an unsettled reporter is safe in the direction that matters. Its list cannot say a
+     * workspace is gone, because it is not consulted. It can still say a workspace is **open**:
+     * the loop above runs over every reporter, settled or not, and a single mention protects the
+     * session absolutely. And the decision is taken again when the timer fires, by which time a
+     * browser that was waking has long since reported.
+     */
     const now = Date.now();
+    let anySettled = false;
     for (const since of this.#reporterSince.values()) {
-      if (now - since < this.settledAfterMs) return 'unknown';
+      if (now - since >= this.settledAfterMs) anySettled = true;
     }
-    return 'closed';
+    return anySettled ? 'closed' : 'unknown';
   }
 
   /**
@@ -1241,19 +1303,50 @@ export class SessionManager {
        * A timer means "look again", so the authorization is fetched at the moment of use and
        * carried into the record of what was done. If it has gone, so has the permission.
        */
+      /**
+       * The cause has to be the proof that exists, and if none does, nothing happens.
+       *
+       * This used to end with an unconditional `expired-after-pane-close`, which meant a
+       * workspace timeout that could not name its own authorization borrowed the provenance of a
+       * pane close that had never happened. A cause is supposed to be the evidence; a fallback
+       * cause is a lie in the one record that says why a terminal was ended.
+       *
+       * So each branch asks for its own proof, and the last word is to cancel.
+       */
       const workspaceId = this.#workspaceOf?.(session.id);
-      const evidence = workspaceId === undefined ? undefined : this.closeEvidence(workspaceId);
-      if (workspaceId !== undefined && evidence !== undefined) {
-        void this.terminate(session, {
-          kind: 'expired-after-tab-close',
-          workspaceId,
-          closeEventId: evidence.eventId,
-          closedAt: evidence.at,
-          keepHistory: true,
-        });
+      if (workspaceId !== undefined) {
+        const evidence = this.closeEvidence(workspaceId);
+        if (evidence !== undefined) {
+          void this.terminate(session, {
+            kind: 'expired-after-tab-close',
+            workspaceId,
+            closeEventId: evidence.eventId,
+            closedAt: evidence.at,
+            keepHistory: true,
+          });
+          return;
+        }
+        // No close message, so the only remaining proof is a settled browser that does not have
+        // it. `decideReap` above has already required exactly that, and re-required it just now.
+        if (this.#tabDisposition(session.id) === 'closed') {
+          void this.terminate(session, {
+            kind: 'expired-after-window-close',
+            workspaceId,
+            keepHistory: true,
+          });
+          return;
+        }
+        this.#cancelUnauthorized(session, workspaceId);
         return;
       }
-      void this.terminate(session, { kind: 'expired-after-pane-close', keepHistory: true });
+
+      // Outside every workspace, and the only thing that authorizes ending one of those is a
+      // person having closed its pane.
+      if (session.paneClosedByUser === true) {
+        void this.terminate(session, { kind: 'expired-after-pane-close', keepHistory: true });
+        return;
+      }
+      this.#cancelUnauthorized(session, 'none');
     }, remainingMs);
     // Unref'd: a session waiting to be reaped must not be the reason the process stays alive.
     // The wait is minutes long, so without this a daemon told to stop would sit there until a
