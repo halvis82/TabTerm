@@ -207,3 +207,61 @@ describe('what the exit handler is told about a session it did not expect to end
     expect(isAFailureWorthSaying(record ?? {}, DEFAULT_NOTIFY_POLICY)).toBe(true);
   });
 });
+
+/**
+ * The clock must measure elapsed time, not time since the last time anybody asked.
+ *
+ * Reported from a real machine: a thirty minute timeout, sessions marked "background" for
+ * fifty-three minutes, still there. The policy was correct and the timer was never allowed to
+ * finish. `#scheduleReap` clears the pending timer and starts a fresh countdown on every call,
+ * and the extension reports its open tabs every two minutes, which re-runs the policy for every
+ * idle session. Any timeout longer than the reporting interval could therefore never elapse.
+ *
+ * It also explains why a probe passed against the same code: the probe reported once and then
+ * disconnected, so nothing arrived to restart its countdown.
+ */
+describe('a reap already scheduled', () => {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it('is not postponed by the browser saying again what it already said', async () => {
+    sessions.keepBackgroundSeconds = 1;
+    const id = aDetachedSession('view-1');
+    const workspace = workspaces.findBySession(id);
+    if (workspace) sessions.recordTabClosed(workspace.id, 'close-0');
+    sessions.settledAfterMs = 0;
+    sessions.reportOpenWorkspaces('view-1', []);
+
+    /**
+     * Six reports inside the one second timeout, which is what a browser reporting every two
+     * minutes looks like against a thirty minute one. Each says exactly what the last one said.
+     */
+    for (let i = 0; i < 6; i += 1) {
+      await sleep(200);
+      sessions.reportOpenWorkspaces('view-1', []);
+    }
+    await sleep(400);
+
+    expect(sessions.get(id)).toBeUndefined();
+  });
+
+  it('and a tab coming back still cancels it outright', async () => {
+    // The safety property the restart was there to provide. Keeping a deadline must not make a
+    // session survivable only by luck: a workspace reported open again is kept, with no timer.
+    sessions.keepBackgroundSeconds = 1;
+    const id = aDetachedSession('view-2');
+    const workspace = workspaces.findBySession(id);
+    if (workspace) sessions.recordTabClosed(workspace.id, 'close-1');
+    sessions.settledAfterMs = 0;
+    sessions.reportOpenWorkspaces('view-2', []);
+    await sleep(300);
+
+    // The tab is open again, which beats a recorded close.
+    if (workspace) sessions.reportOpenWorkspaces('view-2', [workspace.id]);
+    await sleep(1200);
+
+    const alive = sessions.get(id);
+    expect(alive).toBeDefined();
+    expect(alive?.state).toBe('detached');
+    expect(backend.kills).toEqual([]);
+  });
+});

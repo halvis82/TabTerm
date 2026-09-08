@@ -366,11 +366,30 @@ cancels the reap. Every reap is logged with the matched rule.
 
 **A timer means "look again", never "act on what I decided when I set it."** When it fires, the
 policy is asked again with everything known now, and a session whose reason to go has gone away
-returns to `detached`. That is the reprieve, and it is a state change like any other: it was
+returns to `detached`. So does one whose reason goes away without the timer firing at all, which
+it had not: a session put on a clock and then reprieved by a tab coming back kept the `expiring`
+label for the rest of its life, having been told it was safe. That is the reprieve, and it is a state change like any other: it was
 missing from the transition table, so it threw, and by then the timer had already been dropped.
 The session was left in `expiring` with nothing to move it, neither reaped nor kept. The case is a
 laptop waking, where every overdue timer fires at once, before Chrome has said which tabs it has,
 and then the tabs come back.
+
+**The clock measures elapsed time, not time since anybody last asked.**
+
+A scheduled reap keeps a **deadline**, and re-deciding does not restart it. The timer used to be
+cleared and started again from zero on every re-decision, and the policy is re-run for every idle
+session on every report of open tabs, which the extension sends every two minutes. Any timeout
+longer than that interval could therefore never elapse: a thirty minute setting left sessions
+sitting in Running Now an hour later, marked background, because the countdown had restarted
+twenty-nine times.
+
+The deadline is kept only while the **reason** is unchanged. A different decision is a different
+circumstance and starts a fresh clock, and the deadline is dropped outright wherever the clock is
+void rather than paused: a tab reattaching, a session pinned or made persistent, and a change to
+the timeout itself, which was measured against the old value.
+
+This changes no rule about what may be ended. It only lets a decision that was already made
+finish, and every safety check still runs again at the moment the timer fires.
 
 **A session whose process is already gone is not scheduled at all.** `exited` may only become
 `reaped`, so asking for `expiring` threw, which sounds like a stray warning and is not: the two

@@ -51,6 +51,16 @@ export interface Session {
   foregroundProcess?: string;
   /** Latest state reported by an agent CLI's hooks, never inferred from output. */
   agentState?: AgentState;
+  /**
+   * Somebody has typed into this session, whether or not they pressed Enter.
+   *
+   * A tab goes back to the start screen only when its one terminal is genuinely untouched, and
+   * the screen alone cannot answer that: a half-typed command sits on the prompt line and leaves
+   * the line count at one, exactly like a prompt nobody has touched. Nothing in the output says
+   * it either, because nothing was run. Only the input does, and only the daemon sees all of it,
+   * across a reload and across a tab being recreated.
+   */
+  hasInput?: boolean;
   /** Somebody asked for this to end, rather than the process ending on its own. */
   endedByRequest?: boolean;
   /**
@@ -98,6 +108,21 @@ export interface Session {
   vt: VtState;
   clients: Map<string, AttachedClient>;
   reapTimer?: NodeJS.Timeout;
+  /**
+   * When the scheduled reap is due, and what it was scheduled for.
+   *
+   * The timer used to be cleared and started again from zero on every re-decision, and the
+   * policy is re-run for every idle session on every report of open tabs, which a browser sends
+   * every two minutes. Any timeout longer than that interval could therefore never elapse: a
+   * thirty minute setting produced sessions still sitting in Running Now an hour later, marked
+   * background, because the countdown restarted twenty-nine times.
+   *
+   * Keeping the deadline makes the clock measure elapsed time rather than time since anybody
+   * last asked. The reason is kept beside it so a **different** decision still starts a fresh
+   * clock, which is what a change of circumstances should do.
+   */
+  reapDueAt?: number;
+  reapReason?: string;
   serverCheckTimer?: NodeJS.Timeout;
   /**
    * A command has been run in this session at least once.
@@ -272,6 +297,10 @@ export class SessionManager {
       if (session.clients.size === 0 && session.state !== 'exited') {
         clearTimeout(session.reapTimer);
         delete session.reapTimer;
+        // Every deadline was measured against the previous setting, so somebody who has just
+        // changed it means the new one, counted from now.
+        delete session.reapDueAt;
+        delete session.reapReason;
         this.#scheduleReap(session);
       }
     }
@@ -614,6 +643,10 @@ export class SessionManager {
       delete session.reapTimer;
       debug('session.reap.cancelled', { sessionId: session.id });
     }
+    // The tab is back, so the deadline it was counting to is void rather than paused. A session
+    // reattached for an hour and detached again gets the whole timeout, not what was left of it.
+    delete session.reapDueAt;
+    delete session.reapReason;
     this.#transition(session, 'attached');
     this.#applyResize(session, 'attach');
   }
@@ -665,6 +698,9 @@ export class SessionManager {
   write(session: Session, data: Buffer): void {
     if (session.state === 'exited' || session.state === 'reaped') return;
     const text = data.toString('utf8');
+    // Typed into, and so no longer an untouched terminal. Set on the first keystroke and never
+    // cleared: a session somebody has used stays used.
+    if (text.length > 0) session.hasInput = true;
     // The fallback command tracker needs to know when Enter was pressed. It ignores everything
     // else, so this costs a substring check per keystroke.
     this.#events.onInputWritten?.(session, text);
@@ -687,6 +723,8 @@ export class SessionManager {
     if (persistent && session.reapTimer) {
       clearTimeout(session.reapTimer);
       delete session.reapTimer;
+      delete session.reapDueAt;
+      delete session.reapReason;
     }
   }
 
@@ -695,6 +733,8 @@ export class SessionManager {
     if (pinned && session.reapTimer) {
       clearTimeout(session.reapTimer);
       delete session.reapTimer;
+      delete session.reapDueAt;
+      delete session.reapReason;
     }
   }
 
@@ -1071,7 +1111,8 @@ export class SessionManager {
     if (TERMINAL_STATES.includes(session.state)) return;
 
     // Any previous timer is void: this is a fresh decision, and leaving the old one running
-    // would end a session whose tab has since come back.
+    // would end a session whose tab has since come back. The **deadline** it was counting to is
+    // kept separately and only discarded below, once the new decision is known.
     if (session.reapTimer) {
       clearTimeout(session.reapTimer);
       delete session.reapTimer;
@@ -1103,9 +1144,34 @@ export class SessionManager {
         this.#lastReapReason.set(session.id, decision.reason);
         info('session.reap.declined', { sessionId: session.id, reason: decision.reason });
       }
+      delete session.reapDueAt;
+      delete session.reapReason;
+      /**
+       * And it is not expiring any more, so it should stop saying it is.
+       *
+       * `expiring` means this terminal is going soon unless something changes. Something has
+       * changed: the tab is back, or a server started listening, or the timeout was set to
+       * forever. Without this the session kept that label for the rest of its life, having been
+       * told it was safe, which is a thing the person is shown and other rules read.
+       */
+      if (session.state === 'expiring') this.#transition(session, 'detached');
       return;
     }
     this.#lastReapReason.delete(session.id);
+
+    /**
+     * The deadline, kept across re-decisions that reach the same conclusion.
+     *
+     * A different reason is a different clock and starts again. The same reason is the same
+     * circumstance continuing, and restarting there is what made a thirty minute timeout
+     * unreachable behind a two minute report.
+     */
+    const decidedAt = Date.now();
+    if (session.reapReason !== decision.reason || session.reapDueAt === undefined) {
+      session.reapReason = decision.reason;
+      session.reapDueAt = decidedAt + decision.afterSeconds * 1000;
+    }
+    const remainingMs = Math.max(0, session.reapDueAt - decidedAt);
 
     const timer = setTimeout(() => {
       /**
@@ -1140,6 +1206,8 @@ export class SessionManager {
           now: now.reason,
         });
         delete session.reapTimer;
+        delete session.reapDueAt;
+        delete session.reapReason;
         this.#transition(session, 'detached');
         return;
       }
@@ -1163,7 +1231,7 @@ export class SessionManager {
         return;
       }
       void this.terminate(session, { kind: 'expired-after-pane-close', keepHistory: true });
-    }, decision.afterSeconds * 1000);
+    }, remainingMs);
     // Unref'd: a session waiting to be reaped must not be the reason the process stays alive.
     // The wait is minutes long, so without this a daemon told to stop would sit there until a
     // timer nobody is waiting for happened to fire.
