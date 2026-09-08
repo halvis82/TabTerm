@@ -587,6 +587,25 @@ are separate shells with their own directories and their own work, and collapsin
 row would hide one of them. Both rows carry the same workspace, so pressing either brings that
 tab forward.
 
+### What a card calls a session
+
+A name somebody typed wins outright. Naming a pane puts the name on the layout node, and that is
+the only line on the card the person wrote themselves, so it says what the terminal is for in a
+way nothing derived from its output can. Without a name the order is: the running command, then a
+program that is not a shell, then the last command run there, then "shell" for a session that has
+genuinely never run anything.
+
+The directory above it is shortened from the **left**, by whole segments, because the end of a
+path is the part that distinguishes it: a screen of cards under one project otherwise reads
+`~/Documents/personal_cod…` on every line, which is a column of identical text where the whole
+point is telling them apart. The full path is on hover.
+
+Not done in CSS, though it was tried there. `direction: rtl` clips on the left, but a path is a
+run of bidi-neutral characters, so `~/Downloads/test6` was reordered and drawn as
+`Downloads/test6/~`. `unicode-bidi: plaintext` stops the reordering by taking the paragraph
+direction from the first strong character, which puts the clip back on the right: the two cannot
+both be had that way. Dropping segments in script also never cuts a directory name in half.
+
 ### One color picker, everywhere
 
 Three parts, in the same order and the same shape wherever it appears:
@@ -732,6 +751,7 @@ hidden or discarded.
 | Agent turn finished | Important | Duration threshold |
 | Shell command finished | Important | Duration threshold |
 | Shell command failed | Critical | Duration threshold |
+| A pane's process failed | Important | Not ended by TabTerm, and the policy is on |
 
 **The threshold is enforced in the daemon**, not in the page. The duration is authoritative there,
 and a discarded tab has nothing left to make the decision with. Default 60 seconds, clamped to
@@ -740,6 +760,18 @@ nothing. Set from the settings pane, persisted, and read back from the daemon ra
 
 A failure passes the same threshold as a success. A command that fails instantly is a typo, and
 being told about typos is how people turn notifications off.
+
+**A session TabTerm ended itself is not a failure.** A shell sent a hangup exits non-zero, which
+is indistinguishable from a failed command if the exit code is all you have. It was all the exit
+handler had, so every session the background reaper cleaned up was announced as the user's process
+failing: twelve of them on a real machine in one day, about work the user had not started and was
+not involved in. `terminate` records its cause on the session before it signals anything, and a
+non-zero exit is reported only when nothing caused it.
+
+That decision is `isAFailureWorthSaying`, kept out of the exit handler and tested, because inline
+and untested is how it came to be wrong. It also honors the notification policy, which it used to
+ignore: a notification that arrives after you have switched notifications off is how a setting
+stops being believed.
 
 **An agent turn is the event a command boundary cannot see.** The shell command is the agent CLI
 itself and it runs for an hour, so `command-end` fires when it is quit rather than when it finished

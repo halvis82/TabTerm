@@ -343,6 +343,14 @@ export interface LiveSession {
   sessionId: string;
   workspaceId?: string;
   cwd: string;
+  /**
+   * The name somebody gave this session, if they gave it one.
+   *
+   * Read from the layout node, which is where naming a pane puts it. Somebody who has named a
+   * terminal has said what it is better than anything derived from it could, so a card that went
+   * on showing the last command run there was ignoring the one authoritative answer it had.
+   */
+  name?: string;
   /** What is running, when that is known. */
   process?: string;
   lastCommand?: string;

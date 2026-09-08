@@ -418,19 +418,17 @@
     overflow: hidden;
     font-size: 12.5px;
     color: var(--text);
+    /* A backstop only. The path is shortened from the left in script before it gets here, by
+       whole segments, so this clips a name long enough to defeat that rather than a path.
+
+       Not done in CSS. `direction: rtl` does clip on the left, but a path is a run of
+       bidi-neutral characters, so `~/Downloads/test6` was reordered and drawn as
+       `Downloads/test6/~`. `unicode-bidi: plaintext` fixes the reordering by taking the
+       paragraph direction from the first strong character, which is a letter, which puts the
+       clip back on the right: the two cannot both be had this way. Dropping whole segments in
+       script also reads better, since it never cuts a directory name in half. */
     text-overflow: ellipsis;
     white-space: nowrap;
-    /* Truncated from the **left**, because the end of a path is the part that identifies it:
-       `…/personal_coding/TabTerm` says more than `~/Documents/personal…`. */
-    direction: rtl;
-    /* And read in its own direction, which `direction: rtl` alone does not do.
-       A path is a run of neutral characters as far as bidi is concerned, so `~/Downloads/test6`
-       came out as `Downloads/test6/~`: the leading `~/` was reordered to the end, which reads as
-       a path with a stray tilde on it rather than as a home directory. `plaintext` takes the
-       paragraph direction from the first strong character instead, leaving the text alone while
-       the box still clips on the left. */
-    unicode-bidi: plaintext;
-    text-align: left;
   }
   .session-badge {
     flex: none;

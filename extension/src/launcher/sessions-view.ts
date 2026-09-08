@@ -28,6 +28,36 @@ export function shortPath(path: string, home: string): string {
   return path.replace(HOME, '~');
 }
 
+/**
+ * How much of a path a card has room for.
+ *
+ * Generous, because the point is only to stop the longest ones from pushing the badge off the
+ * card. Anything shorter than this is left exactly as it is.
+ */
+const PATH_LIMIT = 34;
+
+/**
+ * A long path, shortened from the **left**.
+ *
+ * The end of a path is what distinguishes it. Cut from the right, a screen full of cards under
+ * one project reads "~/Documents/personal_cod..." on every line, which is a column of identical
+ * text where the whole purpose is telling them apart. The last segment is never cut, however
+ * long it is, because a card showing only an ellipsis says less than nothing.
+ */
+export function shortenFromLeft(path: string, limit = PATH_LIMIT): string {
+  if (path.length <= limit) return path;
+  const segments = path.split('/');
+  const last = segments[segments.length - 1] ?? path;
+  let kept = last;
+  for (let i = segments.length - 2; i >= 0; i -= 1) {
+    const wider = `${segments[i] ?? ''}/${kept}`;
+    // One for the ellipsis character that will stand in for everything dropped.
+    if (wider.length + 1 > limit) break;
+    kept = wider;
+  }
+  return `…/${kept}`;
+}
+
 /** How long ago, in the shortest form that is still specific. */
 export function since(at: number, now = Date.now()): string {
   const seconds = Math.max(0, Math.round((now - at) / 1000));
@@ -54,6 +84,9 @@ const SHELLS = new Set(['zsh', 'bash', 'sh', 'fish', 'dash', '-zsh', '-bash', 'l
  * run anything, where it is the truth.
  */
 export function describe(session: LiveSession): string {
+  // A name somebody typed wins outright. It is the only line here they wrote themselves, and it
+  // says what the terminal is for, which nothing derived from its output can.
+  if (session.name) return session.name;
   if (session.busy) return session.lastCommand ?? session.process ?? 'running';
   if (session.process && !SHELLS.has(session.process)) return session.process;
   if (session.lastCommand) return session.lastCommand;
@@ -118,7 +151,9 @@ export function buildSessionCard(session: LiveSession, options: SessionsOptions)
 
   const title = document.createElement('span');
   title.className = 'session-title';
-  title.textContent = shortPath(session.cwd, options.home);
+  title.textContent = shortenFromLeft(shortPath(session.cwd, options.home));
+  // The whole path on hover, since shortening throws the beginning of it away.
+  title.title = session.cwd;
   head.append(title);
 
   const badge = document.createElement('span');

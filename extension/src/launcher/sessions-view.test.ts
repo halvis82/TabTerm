@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { describe as describeSession, formatBytes, shortPath, since } from './sessions-view.js';
+import {
+  describe as describeSession,
+  formatBytes,
+  shortPath,
+  shortenFromLeft,
+  since,
+} from './sessions-view.js';
 import type { LiveSession } from '@tabterm/shared';
 
 const base: LiveSession = {
@@ -50,6 +56,60 @@ describe('what a session is doing', () => {
   it('says shell rather than zsh, which is not what people call it', () => {
     expect(describeSession({ ...base, process: 'zsh' })).toBe('shell');
     expect(describeSession(base)).toBe('shell');
+  });
+});
+
+describe('a session somebody named', () => {
+  it('is called what they called it, over anything derived', () => {
+    // The one line on the card they wrote themselves. A last command is a guess at what the
+    // terminal is for; a name is an answer.
+    const named = { ...base, name: 'deploy box', process: 'nvim', lastCommand: 'npm test' };
+    expect(describeSession(named)).toBe('deploy box');
+  });
+
+  it('and a name of only spaces is not a name', () => {
+    // Trimmed to nothing on the way out of the daemon, so the card falls back rather than
+    // rendering a blank line where the description belongs.
+    expect(describeSession({ ...base, process: 'nvim' })).toBe('nvim');
+  });
+});
+
+describe('a path too long for a card', () => {
+  it('keeps the end, which is the part that identifies it', () => {
+    const short = shortenFromLeft('~/Documents/personal_coding/TabTerm/daemon/src', 30);
+    expect(short.endsWith('daemon/src')).toBe(true);
+    expect(short.startsWith('…/')).toBe(true);
+  });
+
+  it('drops whole segments, never half a directory name', () => {
+    // Cutting mid-name gives "…rsonal_coding/TabTerm", which reads as a typo rather than a path.
+    const short = shortenFromLeft('~/Documents/personal_coding/TabTerm/daemon/src', 30);
+    for (const segment of short.replace('…/', '').split('/')) {
+      expect('~/Documents/personal_coding/TabTerm/daemon/src'.split('/')).toContain(segment);
+    }
+  });
+
+  it('leaves a path that already fits completely alone', () => {
+    expect(shortenFromLeft('~/Projects/app', 30)).toBe('~/Projects/app');
+  });
+
+  it('keeps the last segment whole even when it alone is too long', () => {
+    // An ellipsis and nothing else says less than a name that overflows its box, which the
+    // stylesheet still clips.
+    expect(shortenFromLeft('/very/deep/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 20)).toBe(
+      '…/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    );
+  });
+
+  it('is the fix for the two things CSS could not do at once', () => {
+    /**
+     * `direction: rtl` clips on the left but reorders a path, because a path is bidi-neutral:
+     * `~/Downloads/test6` was drawn as `Downloads/test6/~`. `unicode-bidi: plaintext` stops the
+     * reordering and puts the clip back on the right. Doing it here gets both.
+     */
+    expect(shortenFromLeft('~/Downloads/test6', 30)).toBe('~/Downloads/test6');
+    // Eleven characters plus the ellipsis is exactly the twelve allowed, so it all fits.
+    expect(shortenFromLeft('~/Downloads/test6/a/b/c/d/e/f/g/h', 12)).toBe('…/c/d/e/f/g/h');
   });
 });
 

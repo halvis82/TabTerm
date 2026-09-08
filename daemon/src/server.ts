@@ -236,6 +236,22 @@ export async function directoryExists(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * The name on the pane holding this session, if it has one.
+ *
+ * Returns a spreadable object rather than a string, so an unnamed session adds no key at all, the
+ * way every other optional field on a live session is built.
+ */
+function nameFromLayout(node: LayoutNode, sessionId: string): { name?: string } {
+  if (node.type === 'terminal') {
+    if (node.sessionId !== sessionId) return {};
+    const name = node.label?.trim() ?? '';
+    return name === '' ? {} : { name };
+  }
+  const found = nameFromLayout(node.children[0], sessionId);
+  return found.name === undefined ? nameFromLayout(node.children[1], sessionId) : found;
+}
+
 export class DaemonServer {
   readonly #http: Server;
   readonly #wss: WebSocketServer;
@@ -426,6 +442,8 @@ export class DaemonServer {
             memoryBytes: memoryOf(session.pid),
             ...(workspace ? { workspaceId: workspace.id } : {}),
             cwd: session.cwd,
+            // A name somebody typed beats anything derived, so it is carried and preferred.
+            ...(workspace ? nameFromLayout(workspace.layout, session.id) : {}),
             ...(session.titleFields.process ? { process: session.titleFields.process } : {}),
             ...(session.pendingCommand ? { lastCommand: session.pendingCommand } : {}),
             attached: session.clients.size > 0,

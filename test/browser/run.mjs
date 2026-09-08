@@ -225,6 +225,12 @@ const COVERS = [
   ['extension/src/transport/', ['resilience', 'reattach']],
   ['extension/src/service-worker', ['sessions', 'tab-persistence']],
   ['extension/src/chrome/', ['notifications', 'sessions']],
+  // The Running Now card, drawn on the start screen and in the chooser a pane offers.
+  [
+    'extension/src/launcher/sessions-view.ts',
+    ['live-homescreen', 'sessions', 'start-screen-refresh', 'pane-chooser'],
+  ],
+  ['daemon/src/notify-policy.ts', ['notifications']],
   ['scripts/', CORE],
   ['extension/public/terminal.html', ['light-mode', 'light-panels', 'palette', 'command-panel']],
 
