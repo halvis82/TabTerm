@@ -1816,7 +1816,55 @@ function menuToggleItem(): ShellItem {
     : { label: 'Open menu', run: () => commandPanel?.open() };
 }
 
+/**
+ * What you can do to a folder, wherever its name appears.
+ *
+ * Two things, and they are the two things a path is for outside this product: showing somebody
+ * where it is, and giving it to something else. Asked for on the folder picker and on a session
+ * card, and there is no reason for them to differ, so they are built once.
+ *
+ * Revealing goes through the daemon rather than through the page, because a page cannot open
+ * Finder and the daemon already resolves and checks a path before acting on it.
+ */
+function folderItems(path: string): ShellItem[] {
+  if (path === '') return [];
+  return [
+    {
+      label: 'Open in Finder',
+      run: () => client?.send({ t: 'open-path', path, how: 'reveal-in-finder' }),
+    },
+    {
+      label: 'Copy path',
+      run: () => {
+        void navigator.clipboard.writeText(path).catch(() => {
+          /* denied, and there is nothing useful to say about a clipboard that refuses */
+        });
+      },
+    },
+  ];
+}
+
+/** The folder a right click landed on, from whatever names one. */
+function folderUnder(target: Element): string {
+  const chip = target.closest('.launcher-completion');
+  if (chip instanceof HTMLElement && chip.dataset['path']) return chip.dataset['path'];
+  const card = target.closest('.session-card');
+  if (card instanceof HTMLElement && card.dataset['cwd']) return card.dataset['cwd'];
+  const row = target.closest('.launcher-row');
+  if (row instanceof HTMLElement && row.dataset['path']) return row.dataset['path'];
+  return '';
+}
+
 function pageMenuItems(target: Element): ShellItem[] {
+  /**
+   * A folder somebody pointed at outranks the surface it is drawn on.
+   *
+   * The chips sit inside the start screen, which has a menu of its own, and a right click on a
+   * named folder plainly means the folder rather than the page around it. The way out is still
+   * offered underneath, so nothing is lost by being specific first.
+   */
+  const folder = folderUnder(target);
+
   const box = target.closest('input, textarea');
   if (box instanceof HTMLInputElement || box instanceof HTMLTextAreaElement) {
     // A box for typing into is a box for typing into, wherever it happens to be.
@@ -1838,6 +1886,15 @@ function pageMenuItems(target: Element): ShellItem[] {
 
   const onStartScreen = target.closest('.launcher') !== null;
   return [
+    /**
+     * What a named folder offers, in front of what the surface it sits on offers.
+     *
+     * Added rather than substituted. A right click on a folder chip plainly means the folder, and
+     * it is still a right click on the start screen: paste and the ways out belong there whatever
+     * else is true, and taking them away would make the menu depend on exactly where inside a row
+     * the pointer landed.
+     */
+    ...folderItems(folder),
     /**
      * Paste, which on the start screen means into whichever box is taking typing.
      *
@@ -3459,6 +3516,16 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
      * agent beside this pane is exactly a thing to do here.
      */
     ...paneActionsForMenu(target),
+    /**
+     * The folder this terminal is in, which is a thing people want outside the terminal.
+     *
+     * Taken from what the daemon says the session's directory is rather than from the prompt: a
+     * prompt is decoration and can be made to say anything, and the daemon follows the process.
+     * Left out entirely when it is not known, rather than offered and doing nothing.
+     */
+    ...folderItems(sessionTitles.get(panesHost?.get(paneId)?.sessionId ?? '')?.cwd ?? '').map(
+      (item, i) => (i === 0 ? { ...item, separated: true } : item),
+    ),
     {
       /**
        * The same panel as Command+K and the button in the corner.

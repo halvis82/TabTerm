@@ -65,6 +65,33 @@ columns the shell does not know exist.
 
 ---
 
+## 2.8 What a browser saying "I do not have it" is worth
+
+The invariant below forbids ending a terminal on absence of evidence. That is right, and the first
+version of it drew the line in the wrong place: it required an explicit `tab-closed` message for
+**any** automatic ending, which made the background timeout unreachable for every tab closed
+before that message existed. Sessions from days earlier sat in Running Now marked "background" and
+outlived the setting meant to end them.
+
+The line is now between two things that were treated as one:
+
+| | |
+|---|---|
+| **Nobody is reporting**, or a browser has just connected, or an extension is being replaced | Silence. Not an account of anything. The terminal is kept |
+| **A settled browser**, connected and reporting for thirty seconds, with its tabs enumerated, does not list this workspace | A live account of what that browser has. The timeout applies |
+
+Every unsafe case is in the first row. Chrome quitting takes its reporter with it. A crash does the
+same. A browser starting up, or an extension being replaced, produces a short list on the way past,
+which is why a reporter has to have settled before its list counts as complete: it is not that the
+list is wrong, it is that it is not finished.
+
+**One unsettled reporter withholds the conclusion for everybody.** A second profile still waking up
+knows nothing yet, and its silence must not be read as agreement with the browser that has finished
+speaking.
+
+This was revisited deliberately after being decided the other way two days earlier. Both readings
+protect against losing work; only this one also does what the person asked the setting to do.
+
 ## 2.9 The invariant everything else here serves
 
 **TabTerm never ends a live terminal without positive evidence of a deliberate act that

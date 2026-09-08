@@ -680,6 +680,7 @@ export class Launcher {
       const up = document.createElement('button');
       up.className = 'launcher-completion is-up';
       up.textContent = '..';
+      up.dataset['path'] = this.#resolved(typedDir());
       up.addEventListener('click', () => {
         // One segment off what is typed. An empty box means home, which is where `..` from the
         // first level lands anyway.
@@ -699,6 +700,14 @@ export class Launcher {
       const item = document.createElement('button');
       item.className = 'launcher-completion';
       item.textContent = name;
+      /**
+       * The folder this chip stands for, written where a right click can find it.
+       *
+       * The chip's text is one segment; what somebody wants to open in Finder or put on the
+       * clipboard is the whole path. Resolved here, where the directory being listed is known,
+       * rather than reconstructed later from a label.
+       */
+      item.dataset['path'] = this.#resolved(`${typedDir()}${name}`);
       item.addEventListener('click', () => go(name));
       list.append(item);
     }
@@ -2118,6 +2127,8 @@ export class Launcher {
 
     const main = document.createElement('button');
     main.className = 'launcher-row';
+    // The folder this row is for, so a right click on it can open or copy that folder.
+    main.dataset['path'] = dir.path;
     main.append(strong(dir.name), dim(shorten(dir.path, home)));
     // Only when the directory is somewhere *inside* a repository. Repeating the name on the
     // root itself would say the same thing twice.

@@ -29,6 +29,7 @@ import { CommandTracker } from './command-tracker.js';
 import { ProjectTrust } from './project-trust.js';
 import { TurnTracker } from './agent-turns.js';
 import { AttentionNotices } from './attention-notices.js';
+import { alreadyAsked, askForFolders } from './ask-for-folders.js';
 import { LocalPtyBackend, NoPtyBackend } from './pty-backend.js';
 import { PtyHostClient } from './pty-host/client.js';
 import { HostPtyBackend } from './pty-host/backend.js';
@@ -704,6 +705,19 @@ async function main(): Promise<void> {
   });
 
   await server.listen();
+
+  /**
+   * And, on a first run, ask for the folders macOS guards.
+   *
+   * After listening rather than before, and never awaited: a folder nobody has decided about
+   * blocks until somebody answers, so putting this in front of the server would hold the whole
+   * product behind a dialog. See `ask-for-folders.ts` for why they are asked together.
+   */
+  if (process.platform === 'darwin' && !alreadyAsked()) {
+    void askForFolders().catch((e: unknown) => {
+      warn('folders.ask-failed', { error: String(e) });
+    });
+  }
   info('daemon.ready', { version: VERSION, protocol: PROTOCOL_VERSION, pid: process.pid });
   console.error(`tabtermd ${VERSION} listening on 127.0.0.1:${String(config.port)}`);
 

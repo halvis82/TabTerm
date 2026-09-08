@@ -65,3 +65,50 @@ describe('memory as a person reads it', () => {
     expect(formatBytes(512 * 1024 * 1024)).toBe('512 MB');
   });
 });
+
+/**
+ * What a card says about a session, when almost all of them are shells in different folders.
+ *
+ * "shell" was the answer for nearly every card, which made the one line meant to tell them apart
+ * the one line they all shared.
+ */
+describe('what a session card calls a session', () => {
+  const base: LiveSession = {
+    sessionId: 's',
+    cwd: '/Users/someone/work',
+    attached: false,
+    startedAt: 0,
+    preview: [],
+    busy: false,
+    memoryBytes: 0,
+  };
+
+  it('says what is running when something is', () => {
+    expect(describeSession({ ...base, busy: true, lastCommand: 'npm run build' })).toBe(
+      'npm run build',
+    );
+  });
+
+  it('says the program when it is not a shell', () => {
+    expect(describeSession({ ...base, process: 'vim' })).toBe('vim');
+  });
+
+  it('says the last command rather than the name of the shell it ran in', () => {
+    expect(describeSession({ ...base, process: 'zsh', lastCommand: 'git status' })).toBe(
+      'git status',
+    );
+  });
+
+  it('does not mistake any of the shells for a program worth naming', () => {
+    for (const shell of ['zsh', 'bash', 'fish', '-zsh']) {
+      expect(describeSession({ ...base, process: shell, lastCommand: 'ls -la' }), shell).toBe(
+        'ls -la',
+      );
+    }
+  });
+
+  it('says shell only when nothing has ever run there, where it is the truth', () => {
+    expect(describeSession({ ...base, process: 'zsh' })).toBe('shell');
+    expect(describeSession(base)).toBe('shell');
+  });
+});

@@ -186,6 +186,79 @@ describe('the view layer cannot end a terminal, whatever it does', () => {
   }
 });
 
+/**
+ * What a settled browser saying "I do not have it" is allowed to mean.
+ *
+ * WP-61 required an explicit close message for any automatic ending, which made the timeout
+ * unreachable for every tab closed before that message existed: day old sessions sat in Running
+ * Now marked background and outlived the setting meant to end them.
+ *
+ * The line moved, on purpose, and it moved to a place that keeps every case above safe. A browser
+ * that has been connected and reporting for a while, with its tabs enumerated, saying it does not
+ * have this workspace, is a live account of the world. Nobody connected, or a browser still waking
+ * up, or an extension being replaced, is not an account of anything, and all of those are where
+ * the unsafe readings came from.
+ */
+describe('a browser that has settled and does not have the workspace', () => {
+  it('ends the session, once the timeout the person chose has passed', async () => {
+    sessions.settledAfterMs = 10;
+    const ctx = aWorkingSession();
+    sessions.reportOpenWorkspaces('chrome', []);
+    await sleep(WELL_PAST_EVERY_TIMER);
+    expect(backend.kills.map((k) => k.sessionId)).toEqual([ctx.sessionId]);
+  });
+
+  it('but not while that browser is still waking up', async () => {
+    // The same report, from a browser that has only just connected. It has not finished finding
+    // out what it has, and its short list says nothing about what it does not have.
+    sessions.settledAfterMs = 60_000;
+    const ctx = aWorkingSession();
+    sessions.reportOpenWorkspaces('chrome', []);
+    await sleep(WELL_PAST_EVERY_TIMER);
+    expect(backend.kills).toEqual([]);
+    expect(sessions.get(ctx.sessionId)).toBeTruthy();
+  });
+
+  it('and not while any browser is still waking up, however many have settled', async () => {
+    /**
+     * One unsettled reporter withholds the conclusion for everybody.
+     *
+     * A second profile starting up knows nothing yet, and its silence must not be read as
+     * agreement with the one that has finished speaking. Waiting costs a delay; being wrong costs
+     * somebody's work.
+     */
+    sessions.settledAfterMs = 10;
+    const ctx = aWorkingSession();
+    sessions.reportOpenWorkspaces('settled', []);
+    await sleep(50);
+    sessions.settledAfterMs = 60_000;
+    sessions.reportOpenWorkspaces('just-woke', []);
+    await sleep(WELL_PAST_EVERY_TIMER);
+    expect(backend.kills).toEqual([]);
+    expect(sessions.get(ctx.sessionId)).toBeTruthy();
+  });
+
+  it('keeps it when a settled browser does have it open', async () => {
+    sessions.settledAfterMs = 10;
+    const ctx = aWorkingSession();
+    sessions.reportOpenWorkspaces('chrome', [ctx.workspaceId]);
+    await sleep(WELL_PAST_EVERY_TIMER);
+    expect(backend.kills).toEqual([]);
+  });
+
+  it('keeps it when the last browser goes away, since nobody is left to say anything', async () => {
+    // Chrome quitting takes its reporter with it. That is silence again, not an account.
+    sessions.settledAfterMs = 10;
+    const ctx = aWorkingSession();
+    sessions.reportOpenWorkspaces('chrome', [ctx.workspaceId]);
+    await sleep(50);
+    sessions.forgetReporter('chrome');
+    await sleep(WELL_PAST_EVERY_TIMER);
+    expect(backend.kills).toEqual([]);
+    expect(sessions.get(ctx.sessionId)).toBeTruthy();
+  });
+});
+
 describe('a tab somebody actually closed', () => {
   it('ends the session, which is the whole point of the timer', async () => {
     const ctx = aWorkingSession();

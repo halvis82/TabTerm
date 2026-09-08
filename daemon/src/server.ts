@@ -1303,9 +1303,16 @@ export class DaemonServer {
       case 'open-path': {
         // Re-resolve rather than trusting the path the frontend sends back. The frontend is
         // ours, but this keeps the trust boundary at the daemon where it belongs.
-        const session = this.#sessions.get(msg.sessionId);
-        if (!session) return;
-        void this.#liveCwd(session)
+        const session = msg.sessionId === undefined ? undefined : this.#sessions.get(msg.sessionId);
+        /**
+         * A path with no session behind it is resolved against home.
+         *
+         * A folder picked in the launcher, or the directory named on a session card, is a place
+         * rather than something typed at a prompt. Requiring a session for those meant borrowing
+         * an unrelated one and resolving against a working directory that has nothing to do with
+         * the path in hand.
+         */
+        void (session ? this.#liveCwd(session) : Promise.resolve(homedir()))
           .then((cwd) => resolvePaths([msg.path], cwd))
           .then(async ([resolved]) => {
             if (!resolved?.exists) {

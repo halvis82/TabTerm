@@ -429,7 +429,19 @@ export type ClientMessage =
     }
   | { t: 'detach-pane'; workspaceId: string; paneId: string }
   | { t: 'resolve-paths'; sessionId: string; candidates: readonly string[] }
-  | { t: 'open-path'; sessionId: string; path: string; how: OpenHow }
+  | {
+      t: 'open-path';
+      /**
+       * Whose working directory a relative path is resolved against.
+       *
+       * Optional, because not every path comes from a terminal. A folder chosen in the picker,
+       * or the directory named on a session card, is a place rather than something typed at a
+       * prompt, and there is no session it belongs to. Home is the base for those.
+       */
+      sessionId?: string;
+      path: string;
+      how: OpenHow;
+    }
   | { t: 'open-path-result'; ok: boolean }
   | {
       /** Launch an agent CLI, in a new tab or beside the current pane. */

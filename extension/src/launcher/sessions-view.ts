@@ -39,10 +39,24 @@ export function since(at: number, now = Date.now()): string {
   return `${String(Math.round(hours / 24))}d ago`;
 }
 
-/** What a session is doing, in the fewest words that distinguish it from the others. */
+/** Shells, which are what a session is when nothing more interesting is true of it. */
+const SHELLS = new Set(['zsh', 'bash', 'sh', 'fish', 'dash', '-zsh', '-bash', 'login']);
+
+/**
+ * What a session is doing, in the fewest words that distinguish it from the others.
+ *
+ * The order is most specific first. A running command says the most; a program that is not a
+ * shell says the next most; and after that the **last command run here** says far more than the
+ * name of the shell it ran in.
+ *
+ * "shell" was the answer for almost every card, which made the one line that is supposed to tell
+ * them apart the one line they all shared. It is kept only for a session that has genuinely never
+ * run anything, where it is the truth.
+ */
 export function describe(session: LiveSession): string {
   if (session.busy) return session.lastCommand ?? session.process ?? 'running';
-  if (session.process && session.process !== 'zsh') return session.process;
+  if (session.process && !SHELLS.has(session.process)) return session.process;
+  if (session.lastCommand) return session.lastCommand;
   return 'shell';
 }
 
@@ -88,6 +102,8 @@ export function buildSessionCard(session: LiveSession, options: SessionsOptions)
   const card = document.createElement('article');
   card.className = 'session-card';
   card.dataset['sessionId'] = session.sessionId;
+  // The folder it is in, so a right click on the card can act on that folder.
+  card.dataset['cwd'] = session.cwd;
   card.tabIndex = 0;
   // Attached and unattached are the whole point of the list, so they differ in more than a word.
   card.dataset['state'] = session.attached ? 'attached' : 'detached';

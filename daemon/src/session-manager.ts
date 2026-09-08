@@ -170,6 +170,15 @@ export function usedLines(screen: string): number {
 export const DEFAULT_KEEP_BACKGROUND_SECONDS = 60 * 60;
 
 /**
+ * How long a browser has to have been reporting before its list is taken as complete.
+ *
+ * Long enough to cover a worker waking and asking Chrome what it has, and an extension being
+ * replaced, both of which produce a short list on the way past. Short enough that a person who
+ * closes a tab does not wait noticeably longer than the timeout they chose.
+ */
+export const SETTLED_AFTER_MS = 30_000;
+
+/**
  * Why TabTerm is allowed to end somebody's process.
  *
  * There is no member of this union that means "something went wrong" or "I could not tell". Every
@@ -874,8 +883,31 @@ export class SessionManager {
    */
   readonly #openWorkspaces = new Map<string, ReadonlySet<string>>();
 
+  /**
+   * When each reporter first said anything, so a claim can be required to have settled.
+   *
+   * A browser that has just connected has not finished finding out what it has. Its first report
+   * can be empty, or short, simply because the worker woke before it could ask Chrome, and an
+   * extension that is being replaced produces exactly the same thing on the way past. Neither is
+   * a browser saying a workspace is closed; both are a browser that has not finished speaking.
+   *
+   * A reporter counts once it has been connected and reporting for `SETTLED_AFTER_MS`. Until
+   * then its list protects what is in it and proves nothing about what is not.
+   */
+  readonly #reporterSince = new Map<string, number>();
+
+  /**
+   * How long a reporter must have been reporting before its list counts as complete.
+   *
+   * A field rather than a constant so a test can make a browser settle immediately. The waiting
+   * is the safety property; the length of it is a judgement about how long a browser takes to
+   * find out what it has.
+   */
+  settledAfterMs: number = SETTLED_AFTER_MS;
+
   /** Told by each extension, on every tab event and on a poll. */
   reportOpenWorkspaces(clientId: string, ids: readonly string[]): void {
+    if (!this.#reporterSince.has(clientId)) this.#reporterSince.set(clientId, Date.now());
     this.#openWorkspaces.set(clientId, new Set(ids));
     // A session whose tab has come back must lose the clock it was put on, and one whose tab has
     // gone must be given one. Both are just the policy run again.
@@ -890,6 +922,7 @@ export class SessionManager {
    * means "unknown", which still keeps everything.
    */
   forgetReporter(clientId: string): void {
+    this.#reporterSince.delete(clientId);
     if (!this.#openWorkspaces.delete(clientId)) return;
     for (const session of this.all) this.#rescheduleReapIfIdle(session);
   }
@@ -936,7 +969,31 @@ export class SessionManager {
     for (const reported of this.#openWorkspaces.values()) {
       if (reported.has(workspaceId)) return 'open';
     }
-    return this.#closedWorkspaces.has(workspaceId) ? 'closed' : 'unknown';
+    if (this.#closedWorkspaces.has(workspaceId)) return 'closed';
+
+    /**
+     * A settled browser saying what it has is information. Silence is not.
+     *
+     * This is the distinction that decides whether the timeout somebody chose ever applies. Every
+     * unsafe reading of "the workspace is not in this list" comes from a list that was never a
+     * complete account of anything: nobody connected at all, or a browser that has just started,
+     * or an extension being replaced, all of which produce a short list or none.
+     *
+     * A reporter that has been connected and reporting for a while is different. It is a live
+     * browser, with its tabs enumerated, saying it does not have this workspace open. Requiring
+     * an explicit close event on top of that is requiring a message that cannot exist for any
+     * tab closed before the message did, which is why sessions from days ago sat in Running Now
+     * marked "background" and outlived the setting that was supposed to end them.
+     *
+     * Every reporter must be settled. One browser still waking up is enough to withhold the
+     * conclusion, which is the safe direction and costs only a delay.
+     */
+    if (this.#reporterSince.size === 0) return 'unknown';
+    const now = Date.now();
+    for (const since of this.#reporterSince.values()) {
+      if (now - since < this.settledAfterMs) return 'unknown';
+    }
+    return 'closed';
   }
 
   /**
