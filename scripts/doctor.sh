@@ -256,6 +256,21 @@ fi
 fda=$(sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
   "select 1 from access where service='kTCCServiceSystemPolicyAllFiles' and client='com.tabterm.daemon' and auth_value=2 limit 1;" 2>/dev/null)
 
+# A row that exists and says no is a different situation from no row at all, and it needs a
+# different fix. It is what an update leaves behind: the grant was recorded against the bundle's
+# signature, the bundle changed, and the entry stopped matching. Adding the app again does nothing
+# while the stale entry is still listed, so say to remove it first.
+fda_denied=$(sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+  "select 1 from access where service='kTCCServiceSystemPolicyAllFiles' and client='com.tabterm.daemon' and auth_value<>2 limit 1;" 2>/dev/null)
+
+stale_grant_note=""
+if [ -n "$fda_denied" ]; then
+  stale_grant_note="        TabTerm is already listed there and switched off. That is what an update leaves behind:
+        the grant is recorded against the signature of the bundle, the bundle changed, and the
+        entry stopped matching. Select it, press -, then add it again from the path above.
+"
+fi
+
 agent_probes_app_data=""
 for agent in "$HOME/.local/share/claude/versions"/*; do
   [ -f "$agent" ] || continue
@@ -285,7 +300,7 @@ if [ -n "$agent_probes_app_data" ]; then
         settled and there is nothing to do. To stop it if you are:
           System Settings > Privacy & Security > Full Disk Access > + > TabTerm.app
           $HOME/.local/libexec/tabterm/TabTerm.app
-        Read what that grants first: Full Disk Access is broad, and it goes to the process
+$stale_grant_note        Read what that grants first: Full Disk Access is broad, and it goes to the process
         that runs your shells. See README, step 5."
     fi
   fi
