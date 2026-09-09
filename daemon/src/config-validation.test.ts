@@ -78,3 +78,72 @@ describe('what a config file is allowed to say', () => {
     expect(config.port).toBe(DEFAULTS.port);
   });
 });
+
+describe('values that are the right type and still cannot work', () => {
+  /**
+   * The generic rule accepted anything of the right JavaScript type within a million times the
+   * shipped default. So an enum took any string at all, and a port took any positive number:
+   * `memoryMode: "banana"` was a string, `logLevel: "chatty"` was a string, and four billion is a
+   * number well inside a ceiling derived from 7377.
+   *
+   * None of those are values this program can do anything with. Refusing them where the file is
+   * read, and naming them, is the difference between a typo and a failure somewhere else entirely.
+   */
+  it('refuses an enum that is not one of the values', async () => {
+    const config = await withConfig('{"memoryMode":"banana","logLevel":"chatty"}');
+    expect(config.memoryMode).toBe(DEFAULTS.memoryMode);
+    expect(config.logLevel).toBe(DEFAULTS.logLevel);
+    expect(ignoredConfigFields).toContain('memoryMode');
+    expect(ignoredConfigFields).toContain('logLevel');
+  });
+
+  it('takes an enum that is one of them', async () => {
+    const config = await withConfig('{"memoryMode":"low","logLevel":"warn"}');
+    expect(config.memoryMode).toBe('low');
+    expect(config.logLevel).toBe('warn');
+  });
+
+  it('refuses a port outside the range a port has', async () => {
+    for (const bad of [
+      '{"port":0}',
+      '{"port":70000}',
+      '{"port":7377.5}',
+      '{"agentBridgePort":-1}',
+    ]) {
+      const config = await withConfig(bad);
+      expect(config.port).toBe(DEFAULTS.port);
+      expect(config.agentBridgePort).toBe(DEFAULTS.agentBridgePort);
+    }
+  });
+
+  it('takes the edges of that range', async () => {
+    const config = await withConfig('{"port":1,"agentBridgePort":65535}');
+    expect(config.port).toBe(1);
+    expect(config.agentBridgePort).toBe(65535);
+  });
+
+  it('refuses a list whose items are not usable strings', async () => {
+    for (const bad of [
+      '{"agentCommand":[""]}',
+      '{"longLivedPrograms":[1,2]}',
+      '{"agentCommand":"claude"}',
+    ]) {
+      const config = await withConfig(bad);
+      expect(config.agentCommand).toEqual(DEFAULTS.agentCommand);
+      expect(config.longLivedPrograms).toEqual(DEFAULTS.longLivedPrograms);
+    }
+  });
+
+  it('refuses a list long enough to be a mistake', async () => {
+    const huge = JSON.stringify({ longLivedPrograms: Array.from({ length: 5000 }, () => 'x') });
+    const config = await withConfig(huge);
+    expect(config.longLivedPrograms).toEqual(DEFAULTS.longLivedPrograms);
+    expect(ignoredConfigFields).toContain('longLivedPrograms');
+  });
+
+  it('refuses a boolean that is not one', async () => {
+    const config = await withConfig('{"archiveOutput":"yes"}');
+    expect(config.archiveOutput).toBe(DEFAULTS.archiveOutput);
+    expect(ignoredConfigFields).toContain('archiveOutput');
+  });
+});

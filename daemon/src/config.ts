@@ -52,25 +52,18 @@ export interface Config {
   reapAgentOrEditorSeconds: number;
   reapDefaultSeconds: number;
   /**
-   * How long a session survives with nobody able to speak for it, or null to keep it forever.
+   * There is no age at which a terminal may be ended.
    *
-   * Not the same question as the background timeout, and the difference is the whole reason this
-   * exists. The background timeout applies when Chrome has **said** a tab was closed. This
-   * applies when Chrome has said nothing at all, for a very long time: closed, crashed, or on a
-   * machine whose browser never came back.
+   * `abandonUnclaimedSeconds` used to be here, at seven days, with a comment explaining why that
+   * was a reasonable age. Nothing read it. No policy consulted it, and the only reference left in
+   * the product was a test modelling a rule that had already been taken out.
    *
-   * "Nobody told us" is read as a gap in what we know rather than as permission to end a
-   * terminal, which is right and which is also how a machine ends up holding sessions from a
-   * browser that stopped existing weeks ago. Three correct rules combined to make those
-   * immortal, and on 2026-09-02 that filled the machine's supply of pseudo-terminals and stopped
-   * every terminal in every application. See AGENTS/BACKLOG.md WP-27.
-   *
-   * Seven days. Long enough that a closed laptop, a holiday and a browser crash all cost
-   * nothing, short enough that abandoned work does not accumulate forever. What makes ending
-   * one acceptable at all is that it does not lose anything: the scrollback is on disk and the
-   * tab's recovery page still shows the last screen and the folder it was in.
+   * Deleted rather than left, because a setting for a destructive policy that no longer exists is
+   * a path back to one, and the rule it would bring back is the one this product is built around.
+   * Age is not evidence of intent: a laptop closed for a fortnight is not somebody saying they
+   * are finished. What keeps the supply of pseudo-terminals from filling is the background
+   * timeout, which is authorised by a browser saying the tab is gone.
    */
-  abandonUnclaimedSeconds: number | null;
   shell: string;
   /**
    * Foreground processes that get the longer detached grace period. An editor or an agent CLI
@@ -126,37 +119,94 @@ export const ignoredConfigFields: string[] = [];
  * looks like, which keeps this honest as fields are added: a new field is covered the moment it
  * has a default, rather than the day somebody remembers to add it here.
  */
+/**
+ * What each field is actually allowed to be.
+ *
+ * Written out per field rather than inferred from the type of the shipped default. The generic
+ * rule accepted anything of the right JavaScript type within a million times the default, which
+ * meant `memoryMode: "banana"` was a string and therefore fine, `logLevel: "chatty"` was fine, and
+ * a port of four billion was a positive number well inside the ceiling. None of those are values
+ * this program can do anything sensible with, and a resource bound derived from "the default times
+ * a million" is not a bound anybody chose.
+ *
+ * The point is not that a hand-written local config file is dangerous. It is that a value which
+ * cannot work should be refused where it is read, and named, rather than carried into the middle
+ * of the daemon to fail somewhere with no obvious connection to the file.
+ */
+type Rule = (value: unknown) => boolean;
+
+const isInt =
+  (min: number, max: number): Rule =>
+  (v) =>
+    typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
+/**
+ * Seconds, which may be fractional, and must be more than none.
+ *
+ * Greater than zero rather than at least zero, which is what this refused before and is worth
+ * keeping: a grace period of zero reads like "no grace" and behaves like "end it on the next tick",
+ * and nobody writing a config file means the second one.
+ */
+const isSeconds =
+  (max: number): Rule =>
+  (v) =>
+    typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= max;
+const isOneOf =
+  (...allowed: readonly string[]): Rule =>
+  (v) =>
+    typeof v === 'string' && allowed.includes(v);
+const isText =
+  (max: number): Rule =>
+  (v) =>
+    typeof v === 'string' && v.trim() !== '' && v.length <= max;
+const isTextList =
+  (maxItems: number, maxLength: number): Rule =>
+  (v) =>
+    Array.isArray(v) &&
+    v.length <= maxItems &&
+    v.every((item) => typeof item === 'string' && item.trim() !== '' && item.length <= maxLength);
+const isBool: Rule = (v) => typeof v === 'boolean';
+
+const PORT = isInt(1, 65535);
+
+const RULES: Record<string, Rule> = {
+  port: PORT,
+  agentBridgePort: PORT,
+  // Ten million lines of scrollback is far more than anybody keeps and still allocatable.
+  scrollbackLines: isInt(1, 10_000_000),
+  // A grace period of a year is meaningless, and zero is "immediately", which tests use.
+  reapIdleShellSeconds: isSeconds(365 * 24 * 60 * 60),
+  reapAgentOrEditorSeconds: isSeconds(365 * 24 * 60 * 60),
+  reapDefaultSeconds: isSeconds(365 * 24 * 60 * 60),
+  // A second of coalescing would be visible as lag. One millisecond is the smallest that means
+  // anything; zero was refused before this table existed and still is.
+  coalesceMs: isInt(1, 1000),
+  // Big enough for any terminal write, small enough that one allocation is not a problem.
+  maxChunkBytes: isInt(1024, 16 * 1024 * 1024),
+  creditWindowBytes: isInt(1024, 64 * 1024 * 1024),
+  shell: isText(4096),
+  editor: isText(4096),
+  guiEditor: isText(4096),
+  longLivedPrograms: isTextList(256, 256),
+  agentCommand: isTextList(64, 4096),
+  logLevel: isOneOf('debug', 'info', 'warn', 'error'),
+  memoryMode: isOneOf('low', 'balanced', 'full'),
+  archiveOutput: isBool,
+};
+
 function usableFields(parsed: Partial<Config>, base: Config): Partial<Config> {
   const good: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(parsed)) {
     const fallback = (base as unknown as Record<string, unknown>)[key];
     if (fallback === undefined) continue; // Not a field this build knows about.
 
-    if (typeof fallback === 'number') {
-      // Finite, positive, and not absurd. A million times the shipped value is far past anything
-      // meant, and well short of the sizes that turn an allocation into a crash.
-      const ceiling = Math.max(Math.abs(fallback), 1) * 1_000_000;
-      if (typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= ceiling) {
-        good[key] = value;
-        continue;
-      }
-    } else if (typeof fallback === 'boolean') {
-      if (typeof value === 'boolean') {
-        good[key] = value;
-        continue;
-      }
-    } else if (typeof fallback === 'string') {
-      if (typeof value === 'string' && value.trim() !== '') {
-        good[key] = value;
-        continue;
-      }
-    } else if (Array.isArray(fallback)) {
-      if (Array.isArray(value) && value.every((v) => typeof v === 'string' && v !== '')) {
-        good[key] = value;
-        continue;
-      }
-    } else {
-      // A shape this function does not understand is left alone rather than guessed at.
+    const rule = RULES[key];
+    /**
+     * A known field with no rule is a mistake in this table, not permission.
+     *
+     * Refusing it keeps the default, which is the safe direction, and the field is named in the
+     * report so it is visible rather than silently ignored for ever.
+     */
+    if (rule !== undefined && rule(value)) {
       good[key] = value;
       continue;
     }
@@ -179,7 +229,6 @@ export const DEFAULTS: Config = {
   reapIdleShellSeconds: 180,
   reapAgentOrEditorSeconds: 600,
   reapDefaultSeconds: 300,
-  abandonUnclaimedSeconds: 7 * 24 * 60 * 60,
   shell: process.env['SHELL'] ?? '/bin/zsh',
   longLivedPrograms: ['vim', 'nvim', 'emacs', 'ssh', 'claude', 'agent'],
   coalesceMs: 6,

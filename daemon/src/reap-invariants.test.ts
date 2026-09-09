@@ -175,7 +175,6 @@ describe('across every arrangement of facts, a session ends only when it should'
         i.persistent
       )
         return false;
-      if (i.detachedForSeconds >= (config.abandonUnclaimedSeconds ?? Infinity)) return false;
       const after = decideReap(i, config).afterSeconds;
       return after !== null && after < soon;
     });

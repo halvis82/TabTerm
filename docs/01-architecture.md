@@ -180,6 +180,20 @@ tabterm/
 | Path | Contents | Mode |
 |---|---|---|
 | `~/.config/tabterm/config.json` | User configuration | 0644 |
+
+**Every field in that file has a rule of its own.** Validation used to be inferred from the type of
+the shipped default: anything of the right JavaScript type, and for numbers anything up to a million
+times the default. So an enum accepted any string at all, `memoryMode: "banana"` and
+`logLevel: "chatty"` among them, and a port accepted four billion. None of those are values the
+program can do anything with, and a bound of "the default times a million" is not a bound anybody
+chose. Each field now states what it accepts, and a value outside it keeps the default and is named
+in the daemon's report of ignored fields.
+
+**There is no age at which a terminal may be ended.** `abandonUnclaimedSeconds` used to sit in the
+configuration at seven days. Nothing read it: no policy consulted it, and the only reference left
+was a test modelling a rule that had already been removed. A setting for a destructive policy that
+no longer exists is a path back to one, and the rule it would reintroduce is the one this product is
+built around, so it is deleted rather than deprecated. Age is not evidence of intent.
 | `~/.local/state/tabterm/token` | Auth token | **0600, enforced at startup** |
 | `~/.local/state/tabterm/tabterm.sqlite` | Metadata, history, notes | 0600 |
 | `~/.local/state/tabterm/scrollback/` | Spilled scrollback | 0700 |
