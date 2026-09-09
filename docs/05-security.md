@@ -318,3 +318,38 @@ Applied to any change touching this surface.
 - [ ] No new secret written to disk, or it is 0600 and never logged
 - [ ] Any new persisted field considered for the redaction pipeline
 - [ ] `10-limitations.md` updated if a new constraint was discovered
+
+## The prompt TabTerm cannot prevent
+
+> "TabTerm.app" would like to access data from other apps.
+
+Reported repeatedly, investigated from scratch each time, and worth writing down because the cause
+is somewhere nobody looks: it is not TabTerm.
+
+Claude Code reads `~/Library/Application Support/Claude/org-plugins`, which belongs to the Claude
+desktop app. macOS attributes an access to the **responsible process**, which for a shell is
+whatever started it, which is the PTY host, which is `TabTerm.app`. So the prompt carries
+TabTerm's name for something the agent is doing.
+
+It repeats because the directory usually does not exist. A probe that never finds anything never
+stops, so every agent launch asks again.
+
+TabTerm's own source touches nothing under `Application Support`, `Library/Containers` or
+`Library/Group Containers`. The only reference to those paths is the rule in `launcher-data.ts`
+that keeps the recents list from **checking** whether a folder inside one still exists, which was a
+real and separate cause of the same prompt and is fixed.
+
+The ways out are the user's, and both are in the README: Full Disk Access for the bundle, or
+denying each time and losing the agent's org plugins. Confirmed on a real machine that the grant
+stops the prompt.
+
+Full Disk Access is deliberately the last option offered rather than the first. It is broad, and it
+is granted to the process that runs every shell, so anything run in a TabTerm terminal inherits
+that reach. That is the same trade people make for iTerm and Terminal.app, and it is a trade rather
+than a fix, so the README says what it costs before it says how to do it.
+
+`doctor.sh` reads the grant from the **system** privacy database at `/Library`, not the per-user
+one. Full Disk Access is machine-wide and recorded there; the per-user file holds folder and
+app-data decisions and never mentions it, so looking in the obvious place always answered "not
+granted". Reading it requires the same access, so an empty answer means "cannot tell" rather than
+"not granted", and the wording survives both.

@@ -16,6 +16,8 @@ PORT=7377
 fails=0
 
 ok()   { printf '  \033[32mOK\033[0m    %s\n' "$1"; }
+# Not a fault and not a warning: something true about the machine that is worth saying once.
+note() { printf '  \033[36mNOTE\033[0m  %s\n' "$1"; }
 warn() { printf '  \033[33mWARN\033[0m  %s\n' "$1"; }
 bad()  { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; fails=$((fails+1)); }
 
@@ -233,6 +235,60 @@ done
 if [ -d "$STATE" ]; then
   size=$(du -sh "$STATE" 2>/dev/null | cut -f1)
   ok "state directory is $size"
+fi
+
+# --- the prompt TabTerm cannot prevent ------------------------------------
+#
+# "TabTerm.app would like to access data from other apps" on every agent launch is not TabTerm
+# reaching anywhere. Claude Code probes ~/Library/Application Support/Claude, which belongs to the
+# Claude desktop app, and macOS attributes that to the responsible process, which is the PTY host,
+# which is TabTerm.app. The path usually does not exist, so the probe repeats every launch.
+#
+# Said here because it has been reported repeatedly and investigated from scratch each time.
+# Whether the broad grant is already in place, so the note becomes an OK rather than a nudge.
+#
+# The **system** database, not the per-user one. Full Disk Access is machine-wide and is recorded
+# in /Library; the per-user file holds folder and app-data decisions and never mentions it, so
+# looking there always answered "not granted" no matter what the person had done.
+#
+# Reading it needs the reading process to have this same access, so an empty answer is genuinely
+# "cannot tell" rather than "not granted", and the wording below has to survive both.
+fda=$(sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+  "select 1 from access where service='kTCCServiceSystemPolicyAllFiles' and client='com.tabterm.daemon' and auth_value=2 limit 1;" 2>/dev/null)
+
+agent_probes_app_data=""
+for agent in "$HOME/.local/share/claude/versions"/*; do
+  [ -f "$agent" ] || continue
+  # Counted rather than matched with `grep -q`. This script runs under `pipefail`, and `-q` exits
+  # at the first hit, which sends SIGPIPE to `strings` and makes the whole pipeline report
+  # failure even though the match succeeded. Reading to the end costs a moment and is honest.
+  if [ "$(strings "$agent" 2>/dev/null | grep -cF 'Application Support/Claude/org-plugins')" -gt 0 ]
+  then
+    agent_probes_app_data="yes"
+    break
+  fi
+done
+if [ -n "$agent_probes_app_data" ]; then
+  if [ -d "$HOME/Library/Application Support/Claude" ]; then
+    if [ -n "$fda" ]; then
+      ok "an agent here reads another app's data, and TabTerm has Full Disk Access, so macOS
+        does not ask about it"
+    else
+      note "an agent here reads another app's data, which macOS asks about in TabTerm's name:
+        Claude Code probes ~/Library/Application Support/Claude, which belongs to the
+        Claude desktop app. TabTerm never goes there; it is the process that started the
+        agent, so the prompt carries its name, and it repeats because that directory does
+        not exist.
+
+        Nothing is broken and nothing is required. Pressing Don't Allow each time costs
+        only the agent's org plugins. If you are not seeing that prompt, this is already
+        settled and there is nothing to do. To stop it if you are:
+          System Settings > Privacy & Security > Full Disk Access > + > TabTerm.app
+          $HOME/.local/libexec/tabterm/TabTerm.app
+        Read what that grants first: Full Disk Access is broad, and it goes to the process
+        that runs your shells. See README, step 5."
+    fi
+  fi
 fi
 
 echo

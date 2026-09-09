@@ -126,6 +126,54 @@ The one state worth knowing about is *unanswered*: while a prompt is pending the
 which looks like a frozen terminal. `./scripts/doctor.sh` checks all three folders and tells the
 three states apart.
 
+#### Optional: stop an agent asking for permission on every launch
+
+**Nothing here is required.** TabTerm works fully without it, every terminal behaves the same, and
+no feature is lost. This section exists only to silence a prompt that repeats.
+
+If you run Claude Code in TabTerm you may see this on every single launch:
+
+> "TabTerm.app" would like to access data from other apps.
+
+**TabTerm is not the one asking.** Claude Code probes
+`~/Library/Application Support/Claude/org-plugins`, which belongs to the Claude *desktop* app.
+macOS attributes a file access to the **responsible process**, which for a shell is whatever
+started it, which is TabTerm. So the prompt carries TabTerm's name for something the agent does.
+
+It repeats because that directory usually does not exist. A probe that never finds anything never
+stops, so every launch asks again. Answering the prompt does not settle it: unlike the folder
+prompts above, this decision is re-asked rather than remembered.
+
+You have three options.
+
+**1. Leave it and press "Don't Allow" each time.** Nothing breaks. You lose the agent's org
+plugins, which most people do not use. This is the right choice if you find the prompt tolerable
+or if the trade below does not appeal.
+
+**2. Turn the probe off** by not running that agent in TabTerm. The prompt belongs to the agent,
+not the terminal.
+
+**3. Give TabTerm Full Disk Access**, which stops it:
+
+> System Settings → Privacy & Security → Full Disk Access → **+** → `TabTerm.app` → enable
+
+The bundle lives at `~/.local/libexec/tabterm/TabTerm.app`. `~/.local` is hidden in Finder, so use
+Command+Shift+G and paste that path, or run `open -R ~/.local/libexec/tabterm/TabTerm.app`. The
+toggle takes effect immediately; no restart is needed.
+
+**Understand what that grants before you do it.** Full Disk Access is broad: it lets the process
+read protected locations across your machine, including other applications' data, Mail, Messages
+and Safari. You are granting it to the process that runs your shells, which means anything you run
+in a TabTerm terminal inherits that reach. That is a real widening of what a terminal can touch,
+and it is why this is the third option rather than the first. It is the same grant people give
+iTerm and Terminal.app, and the same reasoning applies: convenient, and worth a moment's thought.
+
+Confirmed on a real machine: with it enabled the prompt stops. Turning it off again brings the
+prompts back and breaks nothing else, so it is safe to try and safe to undo.
+
+`./scripts/doctor.sh` reads the grant from the system privacy database and reports which of the
+two states you are in.
+
 ### 6. Open a terminal
 
 `Option+Shift+T`. `Shift+Command+.` and `Control+Shift+T` also work, and all three are

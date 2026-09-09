@@ -247,6 +247,15 @@ fi
 
 cat <<NEXT
 
+Optional, if an agent asks for permission on every launch:
+  "TabTerm.app would like to access data from other apps" is Claude Code probing
+  ~/Library/Application Support/Claude, which belongs to the Claude desktop app.
+  TabTerm never goes there; it is the process that started the agent, so the prompt
+  carries its name. Nothing is broken and nothing is required: Don't Allow costs only
+  the agent's org plugins. To stop it instead, and after reading what it grants:
+    System Settings > Privacy & Security > Full Disk Access > + > TabTerm.app
+  See README, step 5.
+
 Next, once:
   1. Chrome, chrome://extensions, enable Developer mode
   2. Load unpacked, choose:
