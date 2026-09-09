@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TabTerm</title>
+    <meta
+      name="description"
+      content="A macOS terminal where sessions behave like native Chrome tabs."
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #14161c;
+        --fg: #d7dbe6;
+        --dim: #8b91a6;
+        --accent: #7aa2f7;
+        --panel: rgba(120, 130, 160, 0.12);
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          15px/1.7 -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          sans-serif;
+      }
+      main {
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 64px 24px 96px;
+      }
+      h1 {
+        font-size: 30px;
+        margin: 0 0 6px;
+        letter-spacing: -0.01em;
+      }
+      .tag {
+        color: var(--dim);
+        margin: 0 0 32px;
+        font-size: 16px;
+      }
+      h2 {
+        font-size: 15px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--dim);
+        margin: 36px 0 10px;
+      }
+      pre {
+        background: var(--panel);
+        padding: 12px 14px;
+        border-radius: 8px;
+        overflow-x: auto;
+        font:
+          13px/1.7 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+      }
+      a {
+        color: var(--accent);
+      }
+      ul {
+        padding-left: 20px;
+      }
+      li {
+        margin: 4px 0;
+      }
+      footer {
+        margin-top: 44px;
+        padding-top: 18px;
+        color: var(--dim);
+        font-size: 13px;
+        border-top: 1px solid rgba(120, 130, 160, 0.22);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>TabTerm</h1>
+      <p class="tag">A macOS terminal where sessions behave like native Chrome tabs.</p>
+
+      <p>
+        The tabs are the interface. The terminals are real processes on your Mac, owned by a small
+        companion program that keeps them alive when Chrome is not looking at them. Closing a tab
+        does not end your work, and a browser restart does not either.
+      </p>
+
+      <h2>Requirements</h2>
+      <ul>
+        <li>macOS 13 or newer</li>
+        <li>Chrome 120 or newer</li>
+        <li>Node 22 or newer, and zsh</li>
+      </ul>
+
+      <h2>Install</h2>
+      <pre>
+git clone https://github.com/halvis82/TabTerm.git
+cd TabTerm
+npm install &amp;&amp; npm run build
+./scripts/install.sh</pre>
+      <p>
+        Then load the extension, or install it from the Chrome Web Store. Full instructions are in
+        the <a href="https://github.com/halvis82/TabTerm#setup">README</a>, and
+        <code>./scripts/doctor.sh</code> checks every part of the setup and says which one is
+        unhappy.
+      </p>
+
+      <h2>Privacy</h2>
+      <p>
+        There is no TabTerm server. Nothing is uploaded, because there is nowhere to upload it to.
+        The <a href="privacy.html">privacy policy</a> says exactly what is handled and what is
+        written to your disk.
+      </p>
+
+      <footer>
+        <a href="https://github.com/halvis82/TabTerm">Source on GitHub</a> &middot;
+        <a href="privacy.html">Privacy</a>
+      </footer>
+    </main>
+  </body>
+</html>

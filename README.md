@@ -253,6 +253,31 @@ Drop a `.mjs` file in `~/.config/tabterm/plugins/` and restart the daemon. See
 Anything else: `node scripts/diagnostics.mjs` writes a redacted bundle to your Desktop. It
 contains no scrollback, command text, or environment values, and it says what it redacted.
 
+## The site, and the privacy policy
+
+`PRIVACY.md` is the policy. It is written once, in markdown, because that is what is readable here
+and what has a public history. The Chrome Web Store needs a URL, so a page is generated from it:
+
+```sh
+node scripts/build-site.mjs   # PRIVACY.md -> privacy.html
+```
+
+Two copies of a legal statement is the kind of thing nobody notices has drifted until it matters,
+so `site.test.ts` fails when `privacy.html` is not what the markdown currently produces.
+
+GitHub Pages serves these from this repository, not from the `halvis82.github.io` one, which only
+serves the root address. In this repository: **Settings, Pages, Deploy from a branch, `main`,
+`/ (root)`**. That gives:
+
+| | |
+|---|---|
+| `https://halvis82.github.io/TabTerm/` | the landing page, for the store's homepage field |
+| `https://halvis82.github.io/TabTerm/privacy.html` | the policy, for the store's privacy field |
+
+`.nojekyll` is there on purpose. Pages would otherwise run these files through Jekyll, which
+processes `{{` and `{%` as template syntax, and the documentation here contains both inside code
+blocks. Serving the files as they are removes a build that can fail for a reason nobody would guess.
+
 ## Distributing it
 
 **The macOS side is built from source and needs no signing.** A locally built bundle carries no

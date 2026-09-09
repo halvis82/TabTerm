@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TabTerm privacy policy</title>
+    <!-- Generated from PRIVACY.md by scripts/build-site.mjs. Edit the markdown, not this file. -->
+    <style>
+      :root { color-scheme: dark; --bg:#14161c; --fg:#d7dbe6; --dim:#8b91a6;
+        --accent:#7aa2f7; --panel:rgba(120,130,160,0.12); }
+      body { margin:0; background:var(--bg); color:var(--fg);
+        font:15px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      main { max-width:680px; margin:0 auto; padding:56px 24px 96px; }
+      h1 { font-size:28px; margin:0 0 24px; letter-spacing:-0.01em; }
+      h2 { font-size:14px; text-transform:uppercase; letter-spacing:0.08em; color:var(--dim);
+        margin:38px 0 10px; }
+      h3 { font-size:16px; margin:26px 0 8px; }
+      p { margin:12px 0; }
+      hr { border:0; border-top:1px solid rgba(120,130,160,0.22); margin:30px 0; }
+      a { color:var(--accent); }
+      code { background:var(--panel); padding:1px 5px; border-radius:4px;
+        font:13px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      table { border-collapse:collapse; width:100%; margin:14px 0; display:block; overflow-x:auto; }
+      th, td { text-align:left; padding:7px 10px; border-bottom:1px solid rgba(120,130,160,0.18);
+        vertical-align:top; font-size:14px; }
+      th { color:var(--dim); font-weight:600; }
+      ul { padding-left:20px; }
+      li { margin:5px 0; }
+      footer { margin-top:44px; padding-top:18px; color:var(--dim); font-size:13px;
+        border-top:1px solid rgba(120,130,160,0.22); }
+    </style>
+  </head>
+  <body>
+    <main>
+<h1>TabTerm privacy policy</h1>
+<p><strong>Last updated:</strong> 2026-09-09</p>
+<p>TabTerm is a terminal. Everything it handles is the sort of thing a terminal handles, which is to say some of it is sensitive. This describes exactly what it touches, where that stays, and what you can delete.</p>
+<p>The short version: <strong>there is no TabTerm server.</strong> Nothing is uploaded, because there is nowhere to upload it to.</p>
+<hr />
+<h2>What TabTerm is made of</h2>
+<p>Two pieces, and the split matters for this document:</p>
+<ul>
+<li><strong>The Chrome extension</strong>, which is the interface. Tabs, panes, the start screen
+<li><strong>The companion program on your Mac</strong>, which owns the actual terminal processes and everything
+ written to disk
+</ul>
+<p>The extension talks to the companion program over a loopback connection on your own machine. It talks to nothing else.</p>
+<hr />
+<h2>What TabTerm handles</h2>
+<p><strong>Terminal input and output.</strong> What you type into a terminal and what your programs print. This lives in the terminal process on your Mac. Recent output is kept on disk so a tab can show what was there after Chrome restarts.</p>
+<p><strong>Command history.</strong> Commands you run, when, in which directory, and whether they succeeded, so the command menu can offer them again.</p>
+<p><strong>Directories and projects.</strong> Folders you have opened, and per-project configuration files you have explicitly trusted.</p>
+<p><strong>Clipboard contents.</strong> Read only when you invoke Paste. Written only when you invoke Copy.</p>
+<p><strong>Webpage text and URLs.</strong> Only when you explicitly choose a TabTerm action from the right-click menu on a page. The selected text or the URL is placed at your terminal prompt, on your machine, for you to look at before you run anything.</p>
+<p><strong>Settings and interface state.</strong> Your theme, panel state, saved templates, keyboard shortcuts, highlight colors, and which workspaces have tabs open.</p>
+<p><strong>A local access token.</strong> Generated on your machine so that only the extension can talk to the companion program. It is held in Chrome's session storage, which Chrome clears when the browser closes.</p>
+<hr />
+<h2>Where it goes</h2>
+<p>Nowhere.</p>
+<ul>
+<li><strong>No TabTerm server exists.</strong> There is no backend, no account, no sign-in
+<li><strong>Terminal input and output are never transmitted anywhere by TabTerm</strong>
+<li><strong>No analytics. No telemetry. No crash reporting</strong>
+<li><strong>No advertising, and no data is sold or shared with anybody</strong>
+</ul>
+<p>The extension makes no network requests to any remote host. Its only connection is to the companion program on your own machine, over loopback, and that connection is bound to loopback and refuses anything without the local token.</p>
+<p>Programs <strong>you</strong> run in a terminal can of course use the network. That is what a terminal is for, and it is your command doing it rather than TabTerm.</p>
+<hr />
+<h2>What is written to your disk, and where</h2>
+<p>All of it under your home directory, readable only by you:</p>
+<table><thead><tr>
+<th>What</th>
+<th>Where</th>
+</tr></thead><tbody>
+</tbody></table>
+<p>|---|---|</p>
+<table><thead><tr>
+<th>Command history, folders, projects, saved items, workspaces</th>
+<th><code>~/.local/state/tabterm/tabterm.sqlite</code></th>
+</tr></thead><tbody>
+<tr>
+<td>Your settings</td>
+<td><code>~/.local/state/tabterm/settings.json</code></td>
+</tr>
+<tr>
+<td>Output of individual commands, <strong>only if you turn it on</strong></td>
+<td>the same database, <code>archiveOutput</code> in the config file, off by default</td>
+</tr>
+<tr>
+<td>Diagnostic log</td>
+<td><code>~/.local/state/tabterm/logs/</code></td>
+</tr>
+<tr>
+<td>The local access token</td>
+<td><code>~/.local/state/tabterm/token</code>, mode 0600</td>
+</tr>
+<tr>
+<td>Interface state</td>
+<td>Chrome's own extension storage</td>
+</tr>
+</tbody></table>
+<p><strong>The diagnostic log deliberately excludes the things above.</strong> It records that a command ran, not what it was; that a folder was opened, not which one; that output arrived, not what it said. There is a test that reads the source and fails if a new log line would carry a path, a command, terminal text or an environment value.</p>
+<hr />
+<h2>Retention, and deleting it</h2>
+<p>Nothing is kept forever without you having asked for it.</p>
+<ul>
+<li><strong>Recent output</strong> is bounded by a size budget you set in Settings, and pruned after 30 days
+<li><strong>Command history</strong> can be cleared from the command menu, one entry or all of it
+<li><strong>Everything at once</strong>: Settings has a Reset that removes stored settings, and a Reset Everything
+ that ends every session and deletes stored history
+<li><strong>By hand</strong>: delete <code>~/.local/state/tabterm/</code> and it is all gone
+<li><strong>Uninstalling</strong>: <code>./scripts/uninstall.sh</code> in the repository removes the companion program.
+ Removing the extension removes what Chrome stored for it
+</ul>
+<hr />
+<h2>Native messaging</h2>
+<p>Chrome's native messaging is used for one thing: handing the extension the local token so it can open its connection to the companion program. It carries no terminal data. The companion program is registered to accept messages only from the TabTerm extension.</p>
+<hr />
+<h2>Permissions, and why each exists</h2>
+<table><thead><tr>
+<th>Permission</th>
+<th>What it is for</th>
+</tr></thead><tbody>
+</tbody></table>
+<p>|---|---|</p>
+<table><thead><tr>
+<th><code>tabs</code></th>
+<th>Open terminal tabs, find existing ones, move panes between them</th>
+</tr></thead><tbody>
+<tr>
+<td><code>storage</code></td>
+<td>Settings and interface state</td>
+</tr>
+<tr>
+<td><code>offscreen</code></td>
+<td>Hold the local connection open while Chrome suspends the extension's worker</td>
+</tr>
+<tr>
+<td><code>alarms</code></td>
+<td>Periodically tell the companion program which tabs are still open, so a terminal is not ended while its tab exists</td>
+</tr>
+<tr>
+<td><code>nativeMessaging</code></td>
+<td>The token handover described above</td>
+</tr>
+<tr>
+<td><code>notifications</code></td>
+<td>Tell you when a command finished or an agent needs you</td>
+</tr>
+<tr>
+<td><code>contextMenus</code></td>
+<td>The right-click actions that send a selection or a link to a terminal</td>
+</tr>
+<tr>
+<td><code>clipboardRead</code></td>
+<td>Paste, when you invoke it</td>
+</tr>
+<tr>
+<td><code>clipboardWrite</code></td>
+<td>Copy, when you invoke it</td>
+</tr>
+</tbody></table>
+<p>TabTerm requests no access to websites. It has no content scripts and no host permissions, so it cannot read pages you visit. The only webpage data it ever sees is what you hand it deliberately through the right-click menu.</p>
+<hr />
+<h2>Changes</h2>
+<p>This file lives in the repository, so its history is public and any change to it is a commit you can read.</p>
+<h2>Contact</h2>
+<p>Through the repository: <a href="https://github.com/halvis82/TabTerm">https://github.com/halvis82/TabTerm</a></p>
+      <footer>
+        <a href="./">TabTerm</a> &middot;
+        <a href="https://github.com/halvis82/TabTerm">Source on GitHub</a>
+      </footer>
+    </main>
+  </body>
+</html>

@@ -4,3 +4,8 @@ node_modules/
 plugins/
 *.md
 package-lock.json
+
+# Generated from PRIVACY.md by scripts/build-site.mjs. Formatting it here would make it differ from
+# what the generator produces, and the test that stops the published policy going stale compares
+# the two exactly.
+privacy.html
