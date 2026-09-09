@@ -4598,6 +4598,30 @@ function onControl(msg: ServerMessage): void {
       attached = true;
 
       /**
+       * And now measure, because everything measured before this was thrown away.
+       *
+       * The pane's resize observer is what keeps the terminal the size of its box, and it refuses
+       * to speak until `attached`. During a page load the box settles **after** the panes exist
+       * and **before** this line: it grew from 1402 to 1463 pixels on one machine, the observer
+       * fired, and the correction was dropped because the flag was still false.
+       *
+       * Nothing sent it again. The session stayed at the width the page had while it was still
+       * laying itself out, 187 columns against a real 195, until an unrelated event happened to
+       * run a refit: measured at two minutes and five seconds after the reload.
+       *
+       * For a shell that is a slightly narrow terminal. For anything that redraws over its own
+       * last frame it is much worse, because every frame drawn in those two minutes was wrapped
+       * for 187 columns and every frame after for 195, and the earlier ones stay in the history at
+       * the width they were written. That is one table on screen four times, at four widths.
+       *
+       * On the second frame rather than immediately: the layout has just been applied and the
+       * boxes are not final until it has been painted.
+       */
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => refitAllPanes());
+      });
+
+      /**
        * A template's commands, once each pane has a prompt to receive them.
        *
        * They used to be typed the instant the panes existed, which is before any shell has
