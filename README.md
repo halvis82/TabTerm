@@ -171,6 +171,13 @@ iTerm and Terminal.app, and the same reasoning applies: convenient, and worth a 
 Confirmed on a real machine: with it enabled the prompt stops. Turning it off again brings the
 prompts back and breaks nothing else, so it is safe to try and safe to undo.
 
+**An update can undo this grant.** macOS records the grant against the app's code signature, and
+the bundle is signed ad hoc, so its signature is a hash of its own contents. Change what is inside
+it, an icon included, and it is a different app as far as the privacy system is concerned: the
+grant stops applying and the prompt returns. If that happens, remove `TabTerm.app` from the Full
+Disk Access list with the **-** button and add it again. `./scripts/doctor.sh` says which state you
+are in, so check there first rather than guessing.
+
 `./scripts/doctor.sh` reads the grant from the system privacy database and reports which of the
 two states you are in.
 

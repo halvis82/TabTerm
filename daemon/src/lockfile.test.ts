@@ -67,9 +67,20 @@ describe('claiming a lock', () => {
     );
 
     try {
-      // The losers exit immediately; the winner stays and serves.
-      await new Promise((r) => setTimeout(r, 2500));
-      const running = hosts.filter((h) => h.exitCode === null && h.signalCode === null);
+      /**
+       * Waited for, not sampled once.
+       *
+       * A loser decides quickly and then exits, and a fixed window counts one that is still on
+       * its way out as a survivor. That is a different failure from two hosts both claiming the
+       * lock, and only one of them matters, so the count is given time to settle and the
+       * assertion is made on what it settles to.
+       */
+      const stillRunning = () => hosts.filter((h) => h.exitCode === null && h.signalCode === null);
+      const deadline = Date.now() + 15_000;
+      while (Date.now() < deadline && stillRunning().length > 1) {
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      const running = stillRunning();
       expect(running).toHaveLength(1);
 
       /**

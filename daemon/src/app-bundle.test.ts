@@ -61,6 +61,21 @@ describe.skipIf(!onMac)('the app bundle can hold a privacy identity', () => {
     expect(existsSync(join(resources, 'node_modules'))).toBe(false);
   });
 
+  it.skipIf(!built)('carries an icon, which is the one thing of ours worth sealing', () => {
+    /**
+     * Without it, TabTerm is a blank page in Privacy & Security and in Full Disk Access, which
+     * reads as something unidentified asking for permission.
+     *
+     * It is sealed like everything else, so adding it moved the cdhash once and cost a re-grant.
+     * That is affordable because artwork does not change: what must never be in here is anything
+     * that changes when the product does, which is what the test above is for.
+     */
+    const icon = join(APP, 'Contents', 'Resources', 'TabTerm.icns');
+    expect(existsSync(icon)).toBe(true);
+    const plist = readFileSync(join(APP, 'Contents', 'Info.plist'), 'utf8');
+    expect(plist).toMatch(/<key>CFBundleIconFile<\/key><string>TabTerm<\/string>/);
+  });
+
   it.skipIf(!built)('and it actually runs, which the rpath rewrite can break', () => {
     // `install_name_tool` invalidates a signature and macOS kills an invalidly signed binary on
     // launch rather than refusing it with an error, so this is the only thing that proves it.

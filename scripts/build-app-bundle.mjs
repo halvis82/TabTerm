@@ -62,6 +62,12 @@ writeFileSync(
   <key>CFBundleIdentifier</key><string>${BUNDLE_ID}</string>
   <key>CFBundleName</key><string>TabTerm</string>
   <key>CFBundleExecutable</key><string>node</string>
+  <!--
+    The icon macOS shows for this app: in Privacy & Security, in Full Disk Access, in a privacy
+    prompt, and anywhere else it is named. Without it the entry is a blank page, which reads as
+    something unidentified asking for permission.
+  -->
+  <key>CFBundleIconFile</key><string>TabTerm</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${version}</string>
   <key>CFBundleVersion</key><string>${version}</string>
@@ -178,6 +184,19 @@ if (!keptExisting) {
  * working when `24.14.0` becomes `24.14.1` and the Cellar directory is renamed underneath. The
  * resolved path is added as well, in case node came from somewhere with no such symlink.
  */
+/**
+ * The icon, copied in before signing so it is sealed with everything else.
+ *
+ * Optional on purpose. A checkout without the asset still produces a working bundle, because the
+ * icon is about recognition and the bundle is about identity, and failing the second for the sake
+ * of the first would be the wrong trade.
+ */
+const iconSource = join(ROOT, 'assets', 'TabTerm.icns');
+if (existsSync(iconSource)) {
+  mkdirSync(join(CONTENTS, 'Resources'), { recursive: true });
+  cpSync(iconSource, join(CONTENTS, 'Resources', 'TabTerm.icns'));
+}
+
 const libDirs = [...new Set([nodeBinary, realNode].map((p) => join(dirname(dirname(p)), 'lib')))];
 if (keptExisting) {
   console.log(`  runtime: kept the existing one from ${keptFrom}, so its identity does not move`);

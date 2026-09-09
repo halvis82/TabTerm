@@ -126,7 +126,32 @@ const COLORS: Record<FaviconState, { bg: string; fg: string }> = {
  * and setInterval is throttled. So state changes are pushed, and animation only runs while
  * visible. See docs/10-limitations.md tier 1.1.
  */
+/**
+ * The tab's icon when nothing is happening: the product's own, rather than a drawn square.
+ *
+ * Every other state has to be drawn, because each is a glyph over a coloured ground and the pulse
+ * changes between frames. Idle is not a state that needs drawing at all. It used to be the same
+ * rounded rectangle in a quieter colour, which is a placeholder standing where an identity should
+ * be: a tab full of terminals looked like nothing in particular.
+ *
+ * Returned as an extension URL rather than a data URL. The file is already packaged, a `<link>`
+ * takes either, and re-encoding a PNG through a canvas on every idle transition would cost more
+ * than it is worth.
+ */
+function packagedIcon(): string {
+  try {
+    return chrome.runtime.getURL('icon32.png');
+  } catch {
+    // No extension APIs, which is a test page or a preview. The drawn square is a fine fallback.
+    return '';
+  }
+}
+
 export function drawFavicon(state: FaviconState, phase = 0): string {
+  if (state === 'idle') {
+    const packaged = packagedIcon();
+    if (packaged !== '') return packaged;
+  }
   const size = 32;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
