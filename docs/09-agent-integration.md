@@ -268,9 +268,15 @@ no release. Everything else is kept, including an entrypoint the daemon does not
 file too old to carry the field: a real session hidden from the list is a worse failure than an
 odd one shown, and this is the only category known to be machine-made.
 
-The field sits within the first half kilobyte of a file, so it is read on its own, ahead of
-anything larger. Rejecting a session costs an 8 KB read; the expensive reads happen only for rows
-that will actually be offered.
+**The field is read from the end of the file, not the start.** It sits inside the first
+conversation record, and in the machine-made sessions this exists to exclude, that record runs to a
+median of 159 KB and a maximum of 623 KB. A bounded read of the start therefore returns a truncated
+line that will not parse, finds no entrypoint, and keeps every session it was meant to reject. The
+entrypoint is repeated on every turn, so the end carries it too: one 64 KB read from the end
+classified 151 of 161 files, and the rest have no entrypoint anywhere and are kept regardless.
+
+That is the same read the title comes from, so a candidate costs one read whether it is offered or
+rejected.
 
 **The check happens while the list is filled, not after it is cut.** Machine-made sessions are the
 newest, so taking the newest `limit` and then filtering returns an almost empty list with real work

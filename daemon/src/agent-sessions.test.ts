@@ -180,6 +180,40 @@ describe('sessions a program wrote, rather than a person', () => {
     expect(rows.every((r) => r.sessionId.startsWith('real-'))).toBe(true);
   });
 
+  it('rejects one whose entrypoint is buried inside an enormous first record', async () => {
+    /**
+     * The shape that defeated the first attempt at this, which read the start of the file.
+     *
+     * The field sits inside the first conversation record, and in these sessions that record runs
+     * to a median of 159 KB. A bounded head read returns a truncated line, the line does not
+     * parse, no entrypoint is found, and every session it was meant to reject is kept. Read from
+     * the end instead, where the field repeats on every turn.
+     */
+    const home = await mkdtemp(join(tmpdir(), 'tt-store-'));
+    const project = await mkdtemp(join(tmpdir(), 'tt-proj-'));
+    const dir = join(home, project.replaceAll('/', '-'));
+    await mkdir(dir, { recursive: true });
+
+    const enormous = {
+      type: 'user',
+      sessionId: 'buried',
+      entrypoint: 'sdk-ts',
+      message: { content: 'x'.repeat(400_000) },
+    };
+    // The id is readable from the start, so the only thing that can keep this row out of the list
+    // is seeing the entrypoint. A file that cannot even be identified is refused for another
+    // reason entirely, and would pass this test while proving nothing.
+    await writeFile(
+      join(dir, 'buried.jsonl'),
+      line({ type: 'user', sessionId: 'buried' }) +
+        line(enormous) +
+        line({ type: 'assistant', sessionId: 'buried', entrypoint: 'sdk-ts' }),
+    );
+
+    const rows = await listResumable({ store: home, knownDirs: [project], limit: 10 });
+    expect(rows).toEqual([]);
+  });
+
   it('labels a session with the title the agent kept, not the first thing typed', async () => {
     // The title is rewritten as the work moves on, so the last one is the one that describes the
     // session. The first prompt is often a pasted path, or a question whose subject only became

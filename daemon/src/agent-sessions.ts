@@ -45,19 +45,18 @@ const DEFAULT_STORE = join(homedir(), '.claude', 'projects');
 const HEAD_BYTES = 128 * 1024;
 
 /**
- * Enough to reach the record that says how the session was started.
+ * How much of the end of a file to read to learn what a row needs.
  *
- * Measured rather than guessed: across a store of 161 files the furthest `entrypoint` sat at byte
- * 468. It is read on its own, before anything larger, because most of what a busy store holds is
- * rejected on this field alone and there is no reason to pay a 128 KB read to throw a file away.
- */
-const ENTRY_BYTES = 8 * 1024;
-
-/**
- * How much of the end of a file to read looking for the title the agent wrote for itself.
+ * The end, for both of the things read there. The title record is rewritten as a session goes on,
+ * so only the last one describes what the session became; in a 97 MB transcript it sat 21 KB from
+ * the end. The entrypoint is repeated on every turn, so the end carries it as well as the start.
  *
- * From the end because that is where it is. The record is rewritten as a session goes on, so the
- * useful one is the last, and in a 97 MB transcript it sat 21 KB from the end.
+ * Reading it from the start was tried and does not work. The field sits inside the first
+ * conversation record, and in the machine-made sessions this exists to exclude that record runs to
+ * a median of 159 KB and a maximum of 623 KB, so a bounded head read returns a truncated line that
+ * will not parse, finds no entrypoint, and keeps every session it was meant to reject. From the
+ * end, one 64 KB read classified 151 of 161 real files; the ten it cannot are files with no
+ * entrypoint anywhere, which are kept regardless.
  */
 const TAIL_BYTES = 64 * 1024;
 
@@ -195,11 +194,12 @@ export async function listResumable(options?: {
    * `MAX_INSPECTED` bounds the other end, where a store holds thousands of machine-made sessions
    * and little else: that yields a short list rather than an unbounded scan.
    */
-  const top: typeof found = [];
+  const top: { session: ResumableSession; storeDir: string; title: string | null }[] = [];
   for (const candidate of found.slice(0, MAX_INSPECTED)) {
     if (top.length >= limit) break;
-    if (startedByAProgram(await readEntrypoint(candidate.session.path ?? ''))) continue;
-    top.push(candidate);
+    const facts = await readTailFacts(candidate.session.path ?? '');
+    if (startedByAProgram(facts.entrypoint)) continue;
+    top.push({ ...candidate, title: facts.title });
   }
 
   // Only the ones actually being offered get read, so a large store costs a stat per file and
@@ -217,13 +217,9 @@ export async function listResumable(options?: {
    * renames a file cannot make every row resume the wrong thing.
    */
   const described = await Promise.all(
-    top.map(async ({ session, storeDir }) => {
+    top.map(async ({ session, storeDir, title }) => {
       const path = join(STORE, storeDir, `${session.sessionId}.jsonl`);
-      const [title, summary, recordedId] = await Promise.all([
-        readTitle(path),
-        readSummary(path),
-        readSessionId(path),
-      ]);
+      const [summary, recordedId] = await Promise.all([readSummary(path), readSessionId(path)]);
       if (recordedId === null) return null;
       // The agent's own title first: a few words describing the session as a whole, kept current
       // as the work moves on, which is what somebody scanning a list needs. The first thing typed
@@ -282,45 +278,30 @@ async function readSessionId(path: string): Promise<string | null> {
   return null;
 }
 
-/**
- * How the session was started, as the store records it, or null when it does not say.
- *
- * Deliberately a separate, small read. It runs against every candidate, including the many that
- * are about to be rejected, so it stays cheap; the expensive reads happen only for rows that will
- * actually be offered.
- */
-async function readEntrypoint(path: string): Promise<string | null> {
-  if (path === '') return null;
-  try {
-    const head = await readHead(path, ENTRY_BYTES);
-    for (const line of head.split('\n')) {
-      if (!line.startsWith('{')) continue;
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      const entry = (parsed as Record<string, unknown>)['entrypoint'];
-      if (typeof entry === 'string' && entry !== '') return entry;
-    }
-  } catch {
-    debug('agent-sessions.entrypoint.unreadable', { path });
-  }
-  return null;
+/** What one read of the end of a file can say about a session. */
+interface TailFacts {
+  /** How the session was started, when the store says. */
+  entrypoint: string | null;
+  /** The title the agent kept for it, when there is one. */
+  title: string | null;
 }
 
 /**
- * The title the agent wrote for the session, or null.
+ * Both facts a row needs, from a single read of the end of the file.
  *
- * Read from the end, because the record is rewritten as the work moves on and only the last one
- * describes what the session became. A partial line at the head of a tail read is expected and is
- * skipped like any other unparseable line.
+ * One read rather than two because they come from the same place and are wanted at the same time.
+ * It runs against every candidate, including the many about to be rejected, which is what keeps
+ * the walk affordable.
+ *
+ * A partial line at the head of a tail read is expected, and is skipped like any other line that
+ * will not parse.
  */
-async function readTitle(path: string): Promise<string | null> {
+async function readTailFacts(path: string): Promise<TailFacts> {
+  if (path === '') return { entrypoint: null, title: null };
+  let entrypoint: string | null = null;
+  let title: string | null = null;
   try {
     const tail = await readTail(path, TAIL_BYTES);
-    let latest: string | null = null;
     for (const line of tail.split('\n')) {
       if (!line.startsWith('{')) continue;
       let parsed: unknown;
@@ -330,15 +311,21 @@ async function readTitle(path: string): Promise<string | null> {
         continue;
       }
       const record = parsed as Record<string, unknown>;
-      if (record['type'] !== 'ai-title') continue;
-      const title = record['aiTitle'];
-      if (typeof title === 'string' && title.trim() !== '') latest = title.trim();
+      const entry = record['entrypoint'];
+      if (typeof entry === 'string' && entry !== '') entrypoint = entry;
+      if (record['type'] === 'ai-title') {
+        const found = record['aiTitle'];
+        // The last one wins: earlier titles describe a session the work has since moved past.
+        if (typeof found === 'string' && found.trim() !== '') title = found.trim();
+      }
     }
-    return latest === null ? null : latest.replace(/\s+/g, ' ').slice(0, 100);
   } catch {
-    debug('agent-sessions.title.unreadable', { path });
-    return null;
+    debug('agent-sessions.tail.unreadable', { path });
   }
+  return {
+    entrypoint,
+    title: title === null ? null : title.replace(/\s+/g, ' ').slice(0, 100),
+  };
 }
 
 async function readSummary(path: string): Promise<string | null> {
