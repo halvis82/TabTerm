@@ -1,4 +1,25 @@
 import { existsSync } from 'node:fs';
+
+/**
+ * Whether a path lives inside another application's data, which must not be touched to check.
+ *
+ * macOS asks "TabTerm.app would like to access data from other apps" the first time a process
+ * reaches into another app's container, and an `existsSync` is reaching. This list is tidied by
+ * asking the filesystem whether each entry still exists, so a single recent folder under a
+ * container made that question get asked again on every start screen: reported as the prompt
+ * appearing on every single agent launch, for every session.
+ *
+ * A stale row in a list of recent folders costs nothing. A permission dialog on every launch is
+ * the thing the app bundle exists to prevent, so the tidying gives way. The folder still opens if
+ * it is chosen; that is a deliberate act by a person, and the prompt then belongs to it.
+ */
+export function underAnotherAppsData(path: string): boolean {
+  const home = homedir();
+  return (
+    path.startsWith(`${home}/Library/Containers/`) ||
+    path.startsWith(`${home}/Library/Group Containers/`)
+  );
+}
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { basename } from 'node:path';
@@ -191,6 +212,8 @@ export class LauncherData {
    * offering a folder that is not there is never right in the product.
    */
   recentDirs(limit = 12, opts: { requireExists?: boolean } = {}): RecentDir[] {
+    // See `underAnotherAppsData`. The tidying below must not be the thing that asks.
+
     const requireExists = opts.requireExists !== false;
     const rows = this.#db.handle
       .prepare(
@@ -217,9 +240,11 @@ export class LauncherData {
      * debris. Unpinned only: somebody who pinned a path meant it, even across a disk that is not
      * mounted right now.
      */
-    const present = requireExists ? rows.filter((r) => r.pinned === 1 || existsSync(r.path)) : rows;
+    const stillThere = (r: { path: string; pinned: number }): boolean =>
+      r.pinned === 1 || underAnotherAppsData(r.path) || existsSync(r.path);
+    const present = requireExists ? rows.filter(stillThere) : rows;
     if (requireExists && present.length !== rows.length) {
-      const gone = rows.filter((r) => r.pinned !== 1 && !existsSync(r.path)).map((r) => r.path);
+      const gone = rows.filter((r) => !stillThere(r)).map((r) => r.path);
       try {
         const drop = this.#db.handle.prepare(
           'DELETE FROM recent_dirs WHERE path = ? AND pinned = 0',

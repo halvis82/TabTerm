@@ -1,3 +1,4 @@
+import { homedir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import { Database } from './database.js';
 import { LauncherData } from './launcher-data.js';
@@ -116,6 +117,39 @@ describe('recent directories', () => {
       data.recordDir(dir);
     }
     expect(data.recentDirs()).toEqual([]);
+  });
+
+  /**
+   * A folder inside another app's data is never touched to find out whether it is still there.
+   *
+   * macOS asks "TabTerm.app would like to access data from other apps" the first time a process
+   * reaches into another app's container, and `existsSync` is reaching. This list is tidied by
+   * asking the filesystem about every entry, so one recent folder under a container made that
+   * question get asked on every start screen: reported as the prompt appearing on every single
+   * agent launch, for every session, long after the folder prompts had been settled.
+   *
+   * The row survives the tidying instead. A stale entry in a list of recent folders costs
+   * nothing; a permission dialog on every launch is the thing the app bundle exists to prevent.
+   */
+  it('keeps a folder under another app container without checking whether it exists', () => {
+    const data = fresh();
+    const inside = `${homedir()}/Library/Containers/com.apple.photolibraryd/Data/nowhere-real`;
+    data.recordDir(inside);
+    // Default options, which is the path that runs when the start screen is built.
+    expect(data.recentDirs().map((d) => d.path)).toContain(inside);
+  });
+
+  it('and the same for a group container', () => {
+    const data = fresh();
+    const inside = `${homedir()}/Library/Group Containers/group.com.example/nowhere-real`;
+    data.recordDir(inside);
+    expect(data.recentDirs().map((d) => d.path)).toContain(inside);
+  });
+
+  it('while a plain missing folder is still dropped, which is what the tidying is for', () => {
+    const data = fresh();
+    data.recordDir('/Users/someone/definitely/not/here');
+    expect(data.recentDirs().map((d) => d.path)).toEqual([]);
   });
 
   it('still records real project directories', () => {
