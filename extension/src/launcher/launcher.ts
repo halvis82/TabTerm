@@ -87,6 +87,39 @@ export interface LauncherOptions {
  */
 const MAX_RECENT = 6;
 const MAX_RESTORE = 3;
+
+/**
+ * How many rows a section grows to when it is opened out.
+ *
+ * The collapsed six is the shortcut this screen is for. Fifteen is the other thing people want
+ * from it occasionally, which is to find the one folder or conversation that has just fallen off
+ * the end, without opening a picker or typing a path they half remember.
+ *
+ * It stops there rather than showing everything. A list long enough to scroll past the buttons
+ * below it is a different screen, and the search box already covers looking for something by name.
+ */
+const MAX_EXPANDED = 15;
+
+/**
+ * How much of a list to draw, and how much a control would offer.
+ *
+ * Out here as a function because the two answers have to agree. A section that draws six rows and
+ * then offers to show nine more is counting the same list twice, and the two counts drifting apart
+ * is the kind of thing that reads as a bug in the list rather than in the arithmetic.
+ *
+ * `hidden` counts what opening out would add, and does **not** depend on whether the section is
+ * open. It is what the control is worth, not what is currently missing: a section that is already
+ * open still needs its control, to close again. Zero means no control belongs there at all.
+ */
+export function listWindow(
+  total: number,
+  collapsed: number,
+  expanded: boolean,
+): { shown: number; hidden: number } {
+  const shown = Math.min(total, expanded ? MAX_EXPANDED : collapsed);
+  const hidden = Math.min(total, MAX_EXPANDED) - Math.min(total, collapsed);
+  return { shown, hidden };
+}
 /**
  * Six, matching the folder list beside it.
  *
@@ -1305,12 +1338,10 @@ export class Launcher {
 
     // --- recent directories ----------------------------------------------
     if (state.recentDirs.length > 0) {
-      sections.push(
-        section(
-          'Recent folders',
-          state.recentDirs.slice(0, MAX_RECENT).map((d) => this.#dirRow(d, state.home)),
-        ),
-      );
+      const shown = this.#visibleCount('recent', state.recentDirs.length, MAX_RECENT);
+      const dirRows = state.recentDirs.slice(0, shown).map((d) => this.#dirRow(d, state.home));
+      const more = this.#moreRow('recent', state.recentDirs.length, MAX_RECENT);
+      sections.push(section('Recent folders', more ? [...dirRows, more] : dirRows));
     }
 
     // --- plugins ----------------------------------------------------------
@@ -1896,17 +1927,60 @@ export class Launcher {
   /** Conversations dismissed from this list, which stay dismissed. */
   #hiddenResumes = new Set<string>();
 
+  /**
+   * Which sections have been opened out, by the key the more-row uses.
+   *
+   * Held on the instance rather than stored, so it survives every redraw of the start screen and
+   * resets when the tab is closed. Opening a list out is answering "where is that other one",
+   * which is a question you have while you are looking, not a preference to remember.
+   */
+  #expandedSections = new Set<string>();
+
   setHiddenResumes(ids: readonly string[]): void {
     this.#hiddenResumes = new Set(ids);
     // Named, so it joins the batch it arrives with: which resume rows were dismissed, read from extension storage.
     this.#answered('hidden-resumes');
   }
 
+  /**
+   * How many rows a section shows, and the control that changes it.
+   *
+   * One place, because the answer has to agree with itself: a section that draws six rows and
+   * then offers to show nine more has to be counting the same list twice the same way.
+   *
+   * Returns null when everything already fits, so a short list carries no control at all.
+   */
+  #moreRow(key: string, total: number, collapsed: number): HTMLElement | null {
+    const open = this.#expandedSections.has(key);
+    const { hidden } = listWindow(total, collapsed, open);
+    if (hidden === 0) return null;
+
+    const more = document.createElement('button');
+    more.className = 'launcher-more';
+    more.type = 'button';
+    more.setAttribute('aria-expanded', open ? 'true' : 'false');
+    // Says how many, because "show more" leaves you to click to find out whether it was worth it.
+    more.textContent = open ? 'Show fewer' : `Show ${hidden} more`;
+    more.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (open) this.#expandedSections.delete(key);
+      else this.#expandedSections.add(key);
+      this.render();
+    });
+    return more;
+  }
+
+  /** The rows a section draws, given how many it holds and whether it has been opened out. */
+  #visibleCount(key: string, total: number, collapsed: number): number {
+    return listWindow(total, collapsed, this.#expandedSections.has(key)).shown;
+  }
+
   #resumeSection(home: string): HTMLElement | null {
     const offered = this.#resumable.filter((r) => !this.#hiddenResumes.has(r.sessionId));
     if (offered.length === 0) return null;
 
-    const rows = offered.slice(0, MAX_RESUME).map((session) => {
+    const shown = this.#visibleCount('resume', offered.length, MAX_RESUME);
+    const rows = offered.slice(0, shown).map((session) => {
       /**
        * Which agent, when, what was said, and where. In that order.
        *
@@ -1985,7 +2059,8 @@ export class Launcher {
       holder.append(wrap, this.#transcriptPanel(session.sessionId));
       return holder;
     });
-    return section('Resume an agent session', rows);
+    const more = this.#moreRow('resume', offered.length, MAX_RESUME);
+    return section('Resume an agent session', more ? [...rows, more] : rows);
   }
 
   /**

@@ -2925,7 +2925,10 @@ export class DaemonServer {
       controlFrame({
         t: 'launcher-state',
         state: {
-          recentDirs: this.#launcher.recentDirs(),
+          // Enough to fill the start screen's folder list when it is opened out. The screen
+          // shows six and grows to fifteen, so sending twelve made the control offer rows that
+          // were not there.
+          recentDirs: this.#launcher.recentDirs(15),
           saved: this.#launcher.saved(),
           // Whatever loaded from ~/.config/tabterm/plugins. With none installed this is empty
           // and the launcher renders no plugin section at all.

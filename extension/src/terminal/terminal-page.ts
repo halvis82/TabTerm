@@ -1089,7 +1089,7 @@ function showRecovery(reason: string): void {
   (document.getElementById('recovery-reason') as HTMLElement).textContent = reason;
   // Ask what we can remember about it, so the offer can be specific.
   if (workspaceId) client?.send({ t: 'recall-workspace', workspaceId });
-  client?.send({ t: 'list-resumable', limit: 8 });
+  client?.send({ t: 'list-resumable', limit: 15 });
 }
 
 function renderRecoveryActions(recall: {
@@ -4712,7 +4712,7 @@ function onControl(msg: ServerMessage): void {
       // Asked for alongside launcher state, so the chips are there when the panel first draws.
       // The same count as every other request for this list: asking for fewer here made the first
       // drawing of the start screen shorter than the one after any refresh.
-      client?.send({ t: 'list-resumable', limit: 8 });
+      client?.send({ t: 'list-resumable', limit: 15 });
       client?.send({ t: 'list-servers' });
       askForSettings();
       client?.send({ t: 'list-live-sessions' });
@@ -4889,7 +4889,7 @@ function onControl(msg: ServerMessage): void {
         alsoState ? ['live', 'resumable', 'state', 'servers'] : ['live', 'resumable'],
       );
       client?.send({ t: 'list-live-sessions' });
-      client?.send({ t: 'list-resumable', limit: 8 });
+      client?.send({ t: 'list-resumable', limit: 15 });
       /**
        * The folder list too, unless the command menu is open.
        *

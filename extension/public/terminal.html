@@ -2660,6 +2660,37 @@
     color: var(--accent);
     border-color: rgba(122, 162, 247, 0.45);
   }
+  /*
+   * The control that opens a section out.
+   *
+   * Quiet, and shaped like a row rather than a button, because it sits at the end of a list of
+   * rows and is not one of the things the list is for. It says how many are behind it, so that
+   * clicking is a decision rather than a way to find out.
+   */
+  .launcher-more {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 2px;
+    padding: 5px 8px;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    font: inherit;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-align: left;
+    color: var(--dim);
+    cursor: pointer;
+  }
+  .launcher-more:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+  .launcher-more:focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: -1px;
+  }
   /**
    * An expanded row and its conversation, which push what is below them down.
    *

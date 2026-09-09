@@ -240,6 +240,21 @@ few rows would never contain a single row for the other: the feature would be pr
 and unreachable. Recency still decides the order within each agent, and whichever has the single
 newest session leads.
 
+### Six rows, and the rest one click away
+
+The start screen is a shortcut, not an inventory, so the list is cut to six. It carries a control
+saying how many more it holds, which opens it out to fifteen. The recent folder list below it works
+the same way, and stops at the same place: a list long enough to scroll past the buttons under it
+is a different screen, and the search box already covers finding something by name.
+
+The two numbers come from one function, `listWindow`, because they have to agree. A section drawing
+six while offering nine more is one list counted twice. What the control offers is what opening out
+would add, not what is currently missing: derived from what is missing, it reaches zero the moment
+the section opens and the control vanishes with no way to close the list again.
+
+Being open is held in memory rather than stored. Opening a list out answers "where is that other
+one", which is a question somebody has while looking, not a preference to carry between sessions.
+
 ### Nothing is offered that would fail
 
 A row is a promise. Before a conversation is listed, three things are checked, none of which the
