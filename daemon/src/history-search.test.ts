@@ -219,7 +219,14 @@ describe('history search', () => {
     const timed = (label: string, run: () => unknown, budget: number) => {
       run(); // once to warm any statement preparation
       let ms = Infinity;
-      const giveUpAt = Date.now() + 3000;
+      /**
+       * Ten seconds to find one quiet moment, which costs nothing when there is one.
+       *
+       * An idle machine meets the budget on the first sample and stops. This ceiling is only ever
+       * reached inside a full parallel run, where several workers are competing for the same cores
+       * and three seconds was not always long enough to find a gap.
+       */
+      const giveUpAt = Date.now() + 10_000;
       let samples = 0;
       while (samples < 5 || (ms > budget && Date.now() < giveUpAt)) {
         samples += 1;

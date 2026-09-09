@@ -99,6 +99,14 @@ describe('over sequences nobody wrote down', () => {
      * workspace, attaching and detaching, sweeps, and the timeout being changed. None of those is
      * an account of the workspace being gone.
      */
+    /**
+     * Forty worlds, each thirty moves, with real waits in them.
+     *
+     * The timeout on this test is generous because the work is: the move set grew when provenance
+     * and out-of-order reports were added, and the whole thing has to finish on a machine that is
+     * also running every other suite. It timed out at thirty seconds once for exactly that reason
+     * and nothing about the product was wrong.
+     */
     for (let seed = 1; seed <= 40; seed += 1) {
       /**
        * A fresh world per seed.
@@ -197,7 +205,7 @@ describe('over sequences nobody wrote down', () => {
 
       expect({ seed, kills: backend.kills }).toEqual({ seed, kills: [] });
     }
-  });
+  }, 90_000);
 
   it('but a sequence that does contain one ends exactly that session, once', async () => {
     /**
