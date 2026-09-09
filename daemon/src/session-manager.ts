@@ -672,18 +672,26 @@ export class SessionManager {
       client.rows = known.rows;
     } else if (client.estimated && session.vt.cols > 0 && session.vt.rows > 0) {
       /**
-       * And a client that says its size is a guess does not move a terminal that already has one.
+       * And a client whose size is not yet worth believing does not move a terminal that has one.
        *
-       * A page that has just loaded has no pane with a box to measure, so it works a size out
-       * from the window. That guess is systematically too big, and it was being applied: every
-       * tab open resized the terminal to the guess and then to the real measurement a tenth of a
-       * second later. Harmless for a shell, and not harmless for a full-screen program, which
-       * redraws itself completely on each one. That is an agent visibly reflowing at the wrong
-       * width every single time its tab is opened.
+       * A page that has just loaded has not finished laying itself out, so whatever it measures is
+       * a scrollbar narrower than the box it will have a second later. Observed as `attach 187x44`
+       * followed by `resize-pane 195x44`, and eight columns is not cosmetic: a terminal that
+       * narrows rewraps every wrapped line in its history and widening rewraps them back, so one
+       * reattach reflowed a whole session twice for a size nobody ever had. What that leaves
+       * behind is fragments of earlier frames stranded between the current ones, which is what an
+       * agent's output looked like after its tab was reopened.
        *
-       * The rule that already covers a returning client covers this too, and for the same
-       * reason: an attach is not new information about how big anything is. The measurement
-       * follows in a moment and is believed then.
+       * So the page marks every attach as not-yet-measured, and this rule covers all of them. It
+       * cannot be widened to every attach regardless: a second view genuinely constrains the size,
+       * because one terminal has one size and it is the smallest of the views looking at it. That
+       * information arrives through `resize-pane` a moment later, from a page that has finished
+       * measuring, and is believed then.
+       *
+       *
+       * The rule the comment above states twice is the right one and was only half applied: an
+       * attach is not new information about how big anything is. The pane's own measurement
+       * follows within a second, through `resize-pane`, and that is believed.
        *
        * Only when the session already has a size. A session being created has nothing better to
        * go on, and nothing on screen to reflow.

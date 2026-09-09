@@ -697,6 +697,30 @@ A minute is what keeps the second case from being its own defect. Flicking betwe
 constant; a tab nobody has looked at since before the window was last resized is where a stale
 picture actually comes from.
 
+#### And an attach never claims a settled size
+
+A page that has just loaded measures its pane before the layout is done and gets a box a scrollbar
+narrower than the one it will have a second later. That went out as `attach 187x44` and was
+corrected to `195x44` a moment afterwards, and the session was resized to both.
+
+Eight columns is not cosmetic. Narrowing a terminal rewraps every wrapped line in its history and
+widening rewraps them back, so opening a tab reflowed a whole session twice for a size nobody ever
+had. What that leaves behind is fragments of earlier frames stranded between the current ones,
+which is what an agent's output looked like after its tab was reopened, even after the nudge below
+was removed.
+
+The number is still sent, because a session being created has nothing else to go on. It is marked
+as not-yet-settled, and a session that already has a size ignores it and waits for the measurement,
+which follows within a second as an ordinary `resize-pane`.
+
+**The rule cannot be widened to every attach.** A second view genuinely constrains the size: one
+terminal has one size and it is the smallest of the views looking at it. Trying that broke ten
+checks across four files, all of them about exactly that.
+
+This is pinned in the source rather than through the interface, because the effect is invisible
+from outside. The size ends up correct either way and what differs is a transient. Reverting the
+fix passed every browser suite there is.
+
 #### It used to ask the program instead, and that was destroying agents
 
 The size was nudged down a row and put back, which is what tmux does on reattach and which every

@@ -740,3 +740,45 @@ describe('what a daemon restart does to a background clock', () => {
     expect(backend.kills.map((k) => k.sessionId)).toContain(sessionId);
   });
 });
+
+describe('what an attach may change about a size', () => {
+  /**
+   * Nothing, when the page says its number is not yet settled.
+   *
+   * A page that has just loaded measures its pane before the layout is done and gets a box a
+   * scrollbar narrower than the one it will have a second later, so an attach announced 187
+   * columns where the truth was 195. Eight columns is not cosmetic: narrowing rewraps every
+   * wrapped line in a session's history and widening rewraps them back, so one reattach reflowed a
+   * whole session twice for a size nobody ever had, leaving fragments of earlier frames stranded
+   * between the current ones.
+   */
+  it('does not resize a session that already has one', () => {
+    const session = sessions.create({ cwd: '/tmp', cols: 195, rows: 44 });
+
+    sessions.attach(session, {
+      clientId: 'page-1',
+      cols: 187,
+      rows: 44,
+      estimated: true,
+      onOutput: () => {},
+    });
+
+    expect(session.vt.cols, 'an unsettled attach is not information about size').toBe(195);
+  });
+
+  it('but the pane measurement that follows is believed', () => {
+    // The correction arrives through resize-pane within a second, and that is real information.
+    const session = sessions.create({ cwd: '/tmp', cols: 195, rows: 44 });
+    sessions.attach(session, {
+      clientId: 'page-1',
+      cols: 187,
+      rows: 44,
+      estimated: true,
+      onOutput: () => {},
+    });
+
+    sessions.resize(session, 'page-1', 120, 30);
+    expect(session.vt.cols).toBe(120);
+    expect(session.vt.rows).toBe(30);
+  });
+});

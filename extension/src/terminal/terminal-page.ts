@@ -3147,8 +3147,26 @@ function repaintAfterRestore(paneId: string, screen: string): void {
  * that moment; 80 by 24 was wrong for the whole reattach.
  */
 function attachSize(): { cols: number; rows: number; estimated?: true } {
+  /**
+   * Always a claim to be corrected, never a measurement to be applied.
+   *
+   * A measurement taken here is taken before the layout has settled: the pane is measured against
+   * a box that is still a scrollbar narrower than the one it will have a second later. That went
+   * out as `attach 187x44` and was corrected to `195x44` a moment afterwards, and the session was
+   * resized both times.
+   *
+   * Eight columns is not cosmetic. Narrowing a terminal rewraps every wrapped line in its history
+   * and widening rewraps them back, so opening a tab reflowed a whole session twice for a size
+   * nobody ever had, leaving fragments of earlier frames stranded between the current ones.
+   *
+   * The number is still sent, because a session being created has nothing else to go on. It is
+   * marked so that a session which already has a size ignores it and waits for the measurement,
+   * which follows within a second through `resize-pane`.
+   */
   const measured = panesHost?.all[0]?.controller.fit();
-  if (measured && measured.cols > 1 && measured.rows > 1) return measured;
+  if (measured && measured.cols > 1 && measured.rows > 1) {
+    return { cols: measured.cols, rows: measured.rows, estimated: true };
+  }
   // A cell from the terminal's own font metrics when there is one, and a sane default when not.
   const cell = panesHost?.all[0]?.controller.cellSize();
   const width = cell?.width ?? 7;
