@@ -102,6 +102,39 @@ guaranteed by the socket instead, and the pid arrives through a callback.
   workspace row on creation, and the session-to-workspace link. State written only on a clean exit
   is not persisted state, and adoption reads exactly those two things.
 
+## Coming back is a phase, not an instant
+
+The host adds a socket to its broadcast set the moment it connects, before any handshake, so a
+daemon that reconnects starts receiving **live** output immediately and asks for the range it
+missed afterwards. Those are two streams down one socket with nothing sequencing them.
+
+Measured, with a session that kept running across the break, the sequences arrived in this order:
+
+```
+171, 241, 109, 170, 171, 241
+```
+
+Bytes from after the break first, then older bytes from during it, then the same two again.
+Applied to a terminal emulator in that order it is not a glitch; it is a wrong screen that nothing
+downstream can detect, which for a product whose promise is the exact screen is the worst kind of
+wrong. The daemon could not have sorted it out either, because the backend dropped the host's
+sequence before anything saw it.
+
+A connection therefore **reconciles** before it goes live. Live frames are held with their
+sequence, the replay the daemon asks for lands in the same buffer, and the daemon says when it has
+caught up: adoption and reconnection are the same situation, one with the whole history as its gap.
+The held frames are then merged by sequence and each byte is delivered once, which is also what
+removes the duplicated overlap. The same measurement afterwards:
+
+```
+106, 170, 171, 241
+```
+
+Two bounds stop this being a new way to fail. The hold is capped at 8 MB, after which it is
+released in order, because a screen missing bytes is visible and recoverable while a daemon that
+has run out of memory is not. And it is released anyway after five seconds, so a daemon that never
+finishes catching up produces a late terminal rather than a silent one.
+
 ## Alternatives rejected
 
 **Keep PTYs in the daemon and never restart it.** Not a design, a hope. Updates exist.

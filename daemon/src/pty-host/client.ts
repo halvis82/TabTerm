@@ -192,6 +192,103 @@ export class PtyHostClient {
     this.#dataListeners.push(fn);
   }
 
+  /**
+   * How far each session's output has actually been handed on.
+   *
+   * The host's sequence is the only authority on order, and this is the daemon's position in it.
+   * A frame is handed on only when its sequence is beyond this, and doing so advances it, so
+   * nothing is ever delivered twice or out of order.
+   */
+  readonly #deliveredThrough = new Map<string, number>();
+
+  /**
+   * Live output held back until the daemon has caught up.
+   *
+   * The host adds a socket to its broadcast set the moment it connects, before any handshake, so a
+   * reconnecting daemon starts receiving live output immediately and asks for the range it missed
+   * afterwards. Those are two streams down one socket with nothing sequencing them, and the
+   * observed order was `171, 241, 109, 170, 171, 241`: bytes from after the break first, then
+   * older bytes, then the same two again.
+   *
+   * Applied in that order to a terminal emulator that is not a glitch. It is a wrong screen that
+   * nothing downstream can detect, which for a product whose promise is the exact screen is the
+   * worst kind of wrong.
+   *
+   * So a fresh connection reconciles before it goes live: live frames are held with their
+   * sequence, the replay the daemon asks for lands in the same buffer, and `reconciled()` merges
+   * both by sequence and delivers each byte once.
+   */
+  #reconciling = false;
+  #held: { sessionId: string; data: Buffer; seq: number }[] = [];
+  #heldBytes = 0;
+
+  /**
+   * What the hold may grow to before it stops being a kindness.
+   *
+   * Reached only if catching up never finishes, and the alternative to a bound is the daemon
+   * growing without one while a session pours out output. On overflow the hold is released in
+   * order: a screen may then be missing bytes, which is visible and recoverable, rather than the
+   * daemon dying, which is not.
+   */
+  static readonly HOLD_LIMIT_BYTES = 8 * 1024 * 1024;
+
+  /**
+   * Start catching up, and make sure it cannot last for ever.
+   *
+   * The timer is the safety net rather than the mechanism. `reconciled()` is called by the daemon
+   * when it has finished adopting and replaying, and this exists so that a daemon which never gets
+   * there, through a bug or a failed adoption, ends up with a late terminal rather than a silent
+   * one. Unref'd, so it is never the reason a process stays alive.
+   */
+  #reconcileTimer: NodeJS.Timeout | undefined;
+
+  #beginReconciling(): void {
+    this.#reconciling = true;
+    this.#held = [];
+    this.#heldBytes = 0;
+    clearTimeout(this.#reconcileTimer);
+    this.#reconcileTimer = setTimeout(() => {
+      if (!this.#reconciling) return;
+      warn('pty-host.reconcile-timeout', { heldBytes: this.#heldBytes });
+      this.reconciled();
+    }, PtyHostClient.RECONCILE_DEADLINE_MS);
+    this.#reconcileTimer.unref();
+  }
+
+  /** How long catching up may take before output is released anyway. */
+  static readonly RECONCILE_DEADLINE_MS = 5000;
+
+  /** Hand on one frame, if it is genuinely new, and remember how far this session has come. */
+  #deliver(sessionId: string, data: Buffer, seq: number): void {
+    const through = this.#deliveredThrough.get(sessionId) ?? 0;
+    // A replay always overlaps live output that arrived first. That overlap is not new bytes.
+    if (seq <= through) return;
+    this.#deliveredThrough.set(sessionId, seq);
+    for (const fn of this.#dataListeners) fn(sessionId, data, seq);
+  }
+
+  /**
+   * Catching up is over: merge what was held with what the replay delivered, and go live.
+   *
+   * Sorted by the host's sequence, which is the only ordering here that means anything, then
+   * filtered by what has already been handed on, so a replay overlapping live output cannot
+   * deliver the same bytes twice.
+   */
+  reconciled(): void {
+    if (!this.#reconciling) return;
+    this.#reconciling = false;
+    clearTimeout(this.#reconcileTimer);
+    const held = this.#held.sort((a, b) => a.seq - b.seq);
+    this.#held = [];
+    this.#heldBytes = 0;
+    for (const frame of held) this.#deliver(frame.sessionId, frame.data, frame.seq);
+  }
+
+  /** Where a session's output has reached, for a daemon deciding what to ask for. */
+  deliveredThrough(sessionId: string): number {
+    return this.#deliveredThrough.get(sessionId) ?? 0;
+  }
+
   onExit(fn: ExitListener): void {
     this.#exitListeners.push(fn);
   }
@@ -210,6 +307,7 @@ export class PtyHostClient {
       if (existsSync(this.#socketPath)) {
         const socket = await this.#tryConnect();
         if (socket) {
+          this.#beginReconciling();
           this.#attach(socket);
           const hello = await this.#request({ t: 'hello' }, 'hello-ok', 4000, true);
           if (hello) {
@@ -339,7 +437,16 @@ export class PtyHostClient {
       for (const frame of decoded.frames) {
         if (frame.kind === 'output') {
           const buf = Buffer.from(frame.frame.data);
-          for (const fn of this.#dataListeners) fn(frame.frame.sessionId, buf, frame.frame.seq);
+          if (this.#reconciling) {
+            this.#held.push({ sessionId: frame.frame.sessionId, data: buf, seq: frame.frame.seq });
+            this.#heldBytes += buf.length;
+            if (this.#heldBytes > PtyHostClient.HOLD_LIMIT_BYTES) {
+              warn('pty-host.hold-overflow', { bytes: this.#heldBytes });
+              this.reconciled();
+            }
+            continue;
+          }
+          this.#deliver(frame.frame.sessionId, buf, frame.frame.seq);
           continue;
         }
         const msg = frame.message as Record<string, unknown>;

@@ -547,6 +547,9 @@ async function main(): Promise<void> {
         for (const entry of plan.sessions) {
           await (ptyBackend as HostPtyBackend).replay(entry.sessionId, 0);
         }
+        // And the first connection has caught up too: adoption is the same situation as a
+        // reconnect, with the whole history as the gap.
+        hostClient.reconciled();
         info('adopt.complete', {
           sessions: adopted.size,
           workspaces: plan.workspaces.length,
@@ -678,6 +681,15 @@ async function main(): Promise<void> {
             /* best effort: a screen with a gap beats no session at all */
           }
         }
+        /**
+         * Caught up. Live output held during this is merged in and delivered now.
+         *
+         * Until this is said the client holds live frames rather than handing them on, because the
+         * host starts broadcasting to a socket the moment it connects and the replay above has not
+         * been asked for yet. Delivering both as they arrived put bytes from after the break in
+         * front of bytes from during it, and then repeated the overlap.
+         */
+        hostClient.reconciled();
       })();
     });
 

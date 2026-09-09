@@ -28,6 +28,10 @@ beforeAll(async () => {
   await host.listen();
   client = new PtyHostClient({ socketPath: join(dir, 'sock'), hostScript: join(dir, 'never') });
   await client.connect(4000);
+  // Standing in for a daemon, which says when it has finished catching up. Until it does, the
+  // client holds live output rather than handing it on, so that a replay cannot arrive behind
+  // bytes that came after it. See `reconnect-order.test.ts`.
+  client.reconciled();
 });
 
 afterAll(async () => {
