@@ -9,6 +9,7 @@ import {
   sleep,
   finish,
   waitFor,
+  waitUntil,
 } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
@@ -19,19 +20,30 @@ const { client } = await openTerminal();
 r.ok('a terminal page attaches to a session', (await paneCount(client)) === 1);
 
 await type(client, `echo ${MARKER}`);
-await sleep(1200);
-r.ok('a real shell runs and echoes output', (await readScreen(client)).includes(MARKER));
+r.ok(
+  'a real shell runs and echoes output',
+  await waitUntil(async () => (await readScreen(client)).includes(MARKER), 8000),
+);
 
-// Control keys reach the shell. The most important key in a terminal.
+/**
+ * Control keys reach the shell. The most important key in a terminal.
+ *
+ * Waited for at every step rather than slept past. This check failed once in a full run, on a
+ * machine busy with fifty other suites, because a second was long enough for a shell on an idle
+ * machine and not for one on that machine: the interrupt went out before `sleep` was running.
+ */
 await type(client, '/bin/sleep 30');
-await sleep(900);
+await waitUntil(async () => (await readScreen(client)).includes('/bin/sleep 30'), 8000);
 await interrupt(client);
-await sleep(1000);
-r.ok('Ctrl+C interrupts a running command', (await readScreen(client)).includes('^C'));
+r.ok(
+  'Ctrl+C interrupts a running command',
+  await waitUntil(async () => (await readScreen(client)).includes('^C'), 8000),
+);
 
 // Command keys do not.
 await type(client, '/bin/sleep 30');
-await sleep(900);
+await waitUntil(async () => (await readScreen(client)).includes('/bin/sleep 30'), 8000);
+await sleep(300);
 const before = (await readScreen(client)).trim().split('\n').length;
 await press(client, 'c', 'KeyC', 4, 67);
 await sleep(900);

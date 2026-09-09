@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { claimLockFile, releaseLockFile } from './lockfile.js';
@@ -117,5 +118,47 @@ describe('claiming a lock', () => {
     expect(claimLockFile(file)).toBe(true);
     releaseLockFile(file);
     expect(claimLockFile(file)).toBe(true);
+  });
+});
+
+describe('a claim that is still being made', () => {
+  /**
+   * The window that produced two owners of one socket.
+   *
+   * The claim used to create the file and write the pid into it as two operations. In between it
+   * existed and was empty, and a second process read no pid, took that for no owner, removed the
+   * file and claimed it. Both then believed they held the lock.
+   *
+   * An empty lock stands for that instant. A crash cannot leave one, because the pid is written
+   * before the name exists, so the safe reading of an empty lock is that somebody is mid-claim.
+   */
+  it('is not mistaken for a lock nobody holds', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tt-lock-'));
+    const file = join(dir, 'held.lock');
+    await writeFile(file, '');
+
+    expect(claimLockFile(file)).toBe(false);
+    // And it is left alone, rather than removed on the way out.
+    expect(existsSync(file)).toBe(true);
+  });
+
+  it('still takes over a lock whose owner is gone', async () => {
+    // The case the staleness rule exists for, which must keep working: a real pid, no process.
+    const dir = await mkdtemp(join(tmpdir(), 'tt-lock-'));
+    const file = join(dir, 'stale.lock');
+    await writeFile(file, '999999');
+
+    expect(claimLockFile(file)).toBe(true);
+    expect(readFileSync(file, 'utf8')).toBe(String(process.pid));
+  });
+
+  it('leaves nothing behind when it loses', async () => {
+    // The staging file is an implementation detail and must not become litter in the state
+    // directory, which is the same directory the sockets and the database live in.
+    const dir = await mkdtemp(join(tmpdir(), 'tt-lock-'));
+    const file = join(dir, 'taken.lock');
+    expect(claimLockFile(file)).toBe(true);
+    expect(claimLockFile(file)).toBe(false);
+    expect(readdirSync(dir)).toEqual(['taken.lock']);
   });
 });

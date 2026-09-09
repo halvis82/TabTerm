@@ -1,4 +1,4 @@
-import { closeSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { linkSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { paths } from './config.js';
 
 /**
@@ -31,6 +31,15 @@ export function claimLockFile(file: string): boolean {
   if (Number.isInteger(owner) && owner > 0 && alive(owner)) return false;
 
   /**
+   * A lock with no owner written in it is somebody at work, not somebody gone.
+   *
+   * A crash always leaves a valid pid, because the pid is in the file before the file is linked
+   * into place. So an empty one cannot be wreckage; it is a claim in progress, and taking it is
+   * the one move that ends with two processes owning one socket.
+   */
+  if (owner === 0) return false;
+
+  /**
    * Stale, so remove it and try once more.
    *
    * Removing a claim that somebody else has just made would be the one dangerous move here, so
@@ -45,19 +54,38 @@ export function claimLockFile(file: string): boolean {
   return tryCreate(file);
 }
 
-/** Create it exclusively and write who owns it, or report that somebody else got there. */
+/**
+ * Create it exclusively, already holding the owner's pid, or report that somebody else got there.
+ *
+ * Written to a private file first and then **linked** into place. `link` refuses to replace a name
+ * that exists, so it is exclusive in the same way `wx` is, and it puts the file there with its
+ * contents already in it.
+ *
+ * `open(wx)` followed by a write was not the same thing, and the difference was a real double
+ * claim rather than a theoretical one. Between the create and the write the lock existed and was
+ * empty; a second process read no pid from it, took no pid to mean no owner, removed the file and
+ * claimed it. Two hosts then reached `listen()` together, one lost with EADDRINUSE and died, and
+ * which one survived was decided by a race nobody meant to run. Reproduced under load about once
+ * in thirty-six attempts.
+ */
 function tryCreate(file: string): boolean {
-  let fd: number;
+  const staging = `${file}.${process.pid}.${Date.now().toString(36)}`;
   try {
-    fd = openSync(file, 'wx', 0o600);
+    writeFileSync(staging, String(process.pid), { mode: 0o600, flag: 'wx' });
   } catch {
     return false;
   }
   try {
-    writeFileSync(fd, String(process.pid));
+    linkSync(staging, file);
     return true;
+  } catch {
+    return false;
   } finally {
-    closeSync(fd);
+    try {
+      unlinkSync(staging);
+    } catch {
+      /* nothing to tidy */
+    }
   }
 }
 

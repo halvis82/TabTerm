@@ -37,6 +37,23 @@ function claimLock(): boolean {
 async function main(): Promise<void> {
   initLog('info');
 
+  /**
+   * Installed before anything can throw, rather than after the host is listening.
+   *
+   * They used to be registered at the end of `main`, which left the whole of startup uncovered:
+   * `listen()` rejects on error, `main` is called with `void`, and a rejection with no handler
+   * ends the process with a bare exit code 1 and not one line said about why. That is how a host
+   * that failed to start looked identical to a host that lost the race and left on purpose.
+   */
+  process.on('uncaughtException', (e) => {
+    // Staying up matters more here than anywhere else in the product: this process holds the
+    // only handle to everybody's running work.
+    error('pty-host.uncaught', { error: String(e), stack: e.stack });
+  });
+  process.on('unhandledRejection', (reason) => {
+    error('pty-host.unhandled-rejection', { reason: String(reason) });
+  });
+
   if (!claimLock()) {
     // Not a failure. Another host is serving, which is exactly what should happen when a daemon
     // restarts and tries to start one again.
@@ -100,15 +117,17 @@ async function main(): Promise<void> {
     }
     void stop('SIGTERM');
   });
-
-  process.on('uncaughtException', (e) => {
-    // Staying up matters more here than anywhere else in the product: this process holds the
-    // only handle to everybody's running work.
-    error('pty-host.uncaught', { error: String(e), stack: e.stack });
-  });
-  process.on('unhandledRejection', (reason) => {
-    error('pty-host.unhandled-rejection', { reason: String(reason) });
-  });
 }
 
-void main();
+/**
+ * A startup that fails says so, and says it in the log rather than only in an exit code.
+ *
+ * The lock is released on the way out. A process that claimed it and then could not serve is not
+ * an owner, and leaving the file behind makes the next starter wait for a claim it will never see
+ * released by a process that is already gone.
+ */
+void main().catch((e: unknown) => {
+  error('pty-host.start-failed', { error: String(e) });
+  releaseLockFile(HOST_LOCK);
+  process.exit(1);
+});

@@ -79,6 +79,20 @@ guaranteed by the socket instead, and the pid arrives through a callback.
   it: a daemon that is restarting, wedged, or absent can no longer apply backpressure to a build.
 - **A second process to reason about**, with a lock so only one runs, and a fallback path when it
   cannot be started at all.
+
+  That lock has to be exclusive in its contents and not only in its existence. Claiming it by
+  creating the file and then writing the owner's pid leaves an instant where the file is there and
+  empty; a second process reads no pid, takes that for no owner, removes the file and claims it,
+  and two hosts then own one socket path. That is the failure this design cannot survive, since
+  the loser unlinking the winner's socket takes every terminal on the machine with it. Observed
+  2026-09-08 under load, about once in thirty-six starts: two hosts reached `listen()` together
+  and one died with `EADDRINUSE`.
+
+  The claim is now written to a private file and **linked** into place. `link` refuses a name that
+  already exists, so it is exclusive in the same way, and the lock is never observable without an
+  owner in it. A lock holding no pid is therefore read as a claim in progress and left alone,
+  while a lock holding the pid of a process that is gone is still taken over: a crash always
+  leaves a valid pid, because the pid is in the file before the name exists.
 - **Updating the host itself still ends terminals**, when it is eventually restarted. The
   installer now compares the staged file and leaves it alone when the bytes are identical, so an
   ordinary update that changes only the daemon or the extension does not touch it at all. That

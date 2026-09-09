@@ -142,6 +142,25 @@ class C {
     this.ws.send(inputFrame(this.streamId, new TextEncoder().encode(text)));
   }
 
+  /**
+   * Wait for something to actually reach the screen, rather than sleeping and hoping.
+   *
+   * A fixed sleep after typing is a guess about how fast a shell runs, and on a loaded machine it
+   * is the wrong guess often enough to matter: the startup-herd check failed once in a full run
+   * because it asserted on a screen holding the command it had typed and none of the output.
+   */
+  async untilOutput(text: string, ms = 15000): Promise<void> {
+    const deadline = Date.now() + ms;
+    while (!this.output.includes(text)) {
+      if (Date.now() > deadline) {
+        throw new Error(
+          `timed out waiting for ${JSON.stringify(text)}; saw ${JSON.stringify(this.output.slice(-200))}`,
+        );
+      }
+      await sleep(15);
+    }
+  }
+
   async wait(t: string, ms = 6000): Promise<ControlMessage> {
     const deadline = Date.now() + ms;
     for (;;) {
@@ -565,6 +584,10 @@ describe('startup herd', () => {
     for (const m of made) {
       m.c.type('for i in 1 2 3 4 5 6 7 8 9 10; do echo herd-line-$i; done\r');
     }
+    // Every shell has finished before anything detaches. Waited for rather than slept past: what
+    // this asserts at the end is that a screen came back, which needs the screen to have existed,
+    // and eight shells on a loaded machine do not all finish on a schedule.
+    await Promise.all(made.map((m) => m.c.untilOutput('herd-line-10')));
     await sleep(PAST_GRACE);
     for (const m of made) m.c.close();
     await sleep(800);
