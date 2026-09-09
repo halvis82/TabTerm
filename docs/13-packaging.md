@@ -80,7 +80,21 @@ TabTerm.app/
 ```
 
 The LaunchAgent points at `Contents/MacOS/tabtermd`, never at a Homebrew `node`. TCC grants then
-attach to the bundle identifier and survive upgrades.
+attach to the bundle identifier rather than to whichever `node` happened to run.
+
+**Not every grant survives an upgrade, and the difference matters.** The bundle is signed ad hoc,
+so its signature is a hash of its own contents. Folder and app-data decisions are keyed by
+identifier and do survive; **Full Disk Access is recorded against the signature and does not**.
+Measured on 2026-09-08: adding an icon moved the identity from `548ec5d5` to `91eeafc4`, the folder
+grants came through untouched, and the Full Disk Access row went to `auth_value = 0`, denied. An
+icon is enough, because an icon is contents.
+
+The consequence is that the entry stays listed in System Settings while no longer applying, so
+adding the app again does nothing until the stale entry is removed. `scripts/doctor.sh`
+distinguishes the two states and says which one the machine is in.
+
+The real fix is a Developer ID certificate, which would let the requirement name the identifier
+instead of the hash. Until then, any change to the bundle's contents costs the grant.
 
 Built by `scripts/build-app-bundle.mjs`, which verifies the signed identifier is
 `com.tabterm.daemon` and fails if it is not, since a bundle signed under any other identifier

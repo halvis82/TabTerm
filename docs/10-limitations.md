@@ -448,7 +448,7 @@ Each has a Phase 0 spike. Nothing load-bearing may rely on an unverified assumpt
 | ~~4~~ | ~~Hidden-tab favicon updates via push~~ | yes Resolved: fully unthrottled, 25/25 repaints at 5 fps |
 | ~~5~~ | ~~node-pty prebuild availability~~ | yes Resolved: prebuild ships and is used |
 | 6 | Whether Chrome discards a tab holding an open WebSocket | the background-tab status spike |
-| 7 | Whether a signed app bundle yields an upgrade-surviving TCC grant | the TCC spike |
+| ~~7~~ | ~~Whether a signed app bundle yields an upgrade-surviving TCC grant~~ | **Resolved: it depends on the grant.** Measured 2026-09-08. Folder and app-data decisions are keyed by bundle identifier and survived an identity change untouched. Full Disk Access is recorded against the code signature, and an ad-hoc signature is a hash of the bundle's contents, so adding an icon voided it: the row went to `auth_value = 0`. See `13-packaging.md` |
 | ~~8~~ | ~~Round-trip fidelity of the headless emulator~~ | yes Resolved: 7/7 fixtures exact |
 | ~~9~~ | ~~Sustained throughput ceiling~~ | yes Resolved: 50 MB/s, bounded by the VT parser |
 
