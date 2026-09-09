@@ -3155,12 +3155,24 @@ function repaintAfterRestore(paneId: string, screen: string): void {
  * not knowable from here, and two attempts to reason it out were both wrong, so the numbers are
  * recorded and the answer comes from a machine where it happens.
  */
+const lastBox = new Map<string, string>();
+
 function reportBox(when: string, paneId: string): void {
   const pane = panesHost?.get(paneId);
   const element = pane?.element.querySelector('.xterm-screen');
   if (!element) return;
   const box = element.getBoundingClientRect();
   const cell = pane?.controller.cellSize();
+  /**
+   * Only when it is different from the last time.
+   *
+   * This found a real fault and is worth keeping, and a line per refit is not: a refit runs
+   * whenever a tab is focused, and a file full of a measurement that has not moved is a file whose
+   * useful lines have rotated out. A box that is holding still writes nothing.
+   */
+  const shape = `${String(Math.round(box.width))}x${String(Math.round(box.height))}`;
+  if (lastBox.get(paneId) === shape) return;
+  lastBox.set(paneId, shape);
   client?.send({
     t: 'note',
     event: `box.${when}`,
