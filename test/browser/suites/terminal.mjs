@@ -40,17 +40,25 @@ r.ok(
   await waitUntil(async () => (await readScreen(client)).includes('^C'), 8000),
 );
 
-// Command keys do not.
+/**
+ * Command keys do not, and the way to say so is that no interrupt appears.
+ *
+ * Counting lines before and after was the wrong question. A screen gains lines for all sorts of
+ * reasons that have nothing to do with the key being pressed, and on a machine running fifty other
+ * suites the line count moved between the two reads on its own. What is actually being claimed is
+ * narrower and does not drift: Command+C must not reach the shell, and a shell that receives one
+ * prints `^C`.
+ *
+ * Counted rather than merely looked for, because there is one on screen already from the check
+ * above, and the claim is that no **second** one appears.
+ */
+const marks = async () => ((await readScreen(client)).match(/\^C/g) ?? []).length;
 await type(client, '/bin/sleep 30');
 await waitUntil(async () => (await readScreen(client)).includes('/bin/sleep 30'), 8000);
-await sleep(300);
-const before = (await readScreen(client)).trim().split('\n').length;
+const before = await marks();
 await press(client, 'c', 'KeyC', 4, 67);
 await sleep(900);
-r.ok(
-  'Command+C does not interrupt',
-  before === (await readScreen(client)).trim().split('\n').length,
-);
+r.ok('Command+C does not interrupt', (await marks()) === before, `${String(before)} marks before`);
 await interrupt(client);
 await sleep(600);
 

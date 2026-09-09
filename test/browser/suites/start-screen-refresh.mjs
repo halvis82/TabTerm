@@ -7,7 +7,16 @@
 // up and only one of them told the terminal to make way.
 //
 // So this is measured in pixels. Nothing that reads text can catch it.
-import { openTerminal, evaluate, sleep, finish, waitFor, inkIn, boxOf } from '../helpers.mjs';
+import {
+  openTerminal,
+  evaluate,
+  sleep,
+  finish,
+  waitFor,
+  inkIn,
+  boxOf,
+  waitUntil,
+} from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -60,6 +69,27 @@ r.ok(
   'and it is still painted there after a refresh',
   after.ink > 0,
   `${JSON.stringify(after)} was ${JSON.stringify(before)}`,
+);
+
+/**
+ * Waited for, not slept through.
+ *
+ * A reloaded tab re-establishes the start screen and then sizes the terminal into a strip, and
+ * those are two paints. A flat wait after the reload is a guess at how long that takes, and on a
+ * machine running fifty other suites it measured the moment in between: the panel not yet open and
+ * the pane still filling the window. That reads as the strip being broken and is the assertion
+ * arriving first.
+ *
+ * It still fails properly if the strip never appears, because this gives up and the assertion below
+ * measures whatever is actually there and says what the tab decided.
+ */
+await waitUntil(
+  async () =>
+    (await evaluate(
+      client,
+      `String(document.getElementById('terminal')?.classList.contains('panel-open') ?? false)`,
+    )) === 'true',
+  8000,
 );
 
 const afterLayout = JSON.parse(
