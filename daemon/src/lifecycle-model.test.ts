@@ -122,20 +122,66 @@ describe('over sequences nobody wrote down', () => {
       session.hasRun = true;
       const { workspace } = workspaces.create(session.id);
 
+      /**
+       * The browser this workspace belongs to, which is what makes any of these reports mean
+       * anything. A report from a browser that never had it is noise, and the model includes
+       * plenty of it below.
+       */
+      sessions.noteWorkspaceOwner('chrome:page', workspace.id);
+
+      let generation = 0;
       const steps = [
         () => sessions.attach(session, { clientId: 'a', cols: 80, rows: 24, onOutput: () => {} }),
         () => sessions.detach(session, 'a'),
-        () => sessions.reportOpenWorkspaces('chrome', [workspace.id]),
-        () => sessions.reportOpenWorkspaces('second-chrome', [workspace.id]),
+        () => sessions.reportOpenWorkspaces('chrome:control', [workspace.id]),
+        () => sessions.reportOpenWorkspaces('second-chrome:control', [workspace.id]),
         // A third browser that also has it open. Any reporter listing it protects it.
-        () => sessions.reportOpenWorkspaces('third-chrome', [workspace.id]),
-        () => sessions.forgetReporter('chrome'),
-        () => sessions.forgetReporter('second-chrome'),
-        () => sessions.forgetReporter('third-chrome'),
+        () => sessions.reportOpenWorkspaces('third-chrome:control', [workspace.id]),
+        () => sessions.forgetReporter('chrome:control'),
+        () => sessions.forgetReporter('second-chrome:control'),
+        () => sessions.forgetReporter('third-chrome:control'),
         () => sessions.rescheduleIdleReaps(),
         () => sessions.rescheduleReaps(),
         () => {
           sessions.keepBackgroundSeconds = random() < 0.5 ? null : 0.05;
+        },
+
+        /**
+         * A browser that has never held this workspace, saying what it has.
+         *
+         * Which is nothing to do with this workspace, however settled it is. Before provenance
+         * existed, one of these was enough to start the clock on somebody else's terminal.
+         */
+        () => sessions.reportOpenWorkspaces('stranger:control', []),
+        () => sessions.forgetReporter('stranger:control'),
+
+        /**
+         * Inventories that arrive out of the order they were taken in.
+         *
+         * The reporter is asynchronous end to end and retries for several seconds, so a snapshot
+         * describing an older moment can arrive after a newer one. Numbered snapshots are what
+         * stop the older one being applied; unnumbered ones stand for an older extension.
+         */
+        () => {
+          generation += 1;
+          sessions.reportOpenWorkspaces('chrome:control', [workspace.id], {
+            incarnation: 'worker-1',
+            generation,
+          });
+        },
+        () => {
+          // Deliberately behind whatever has already been applied.
+          sessions.reportOpenWorkspaces('chrome:control', [], {
+            incarnation: 'worker-1',
+            generation: Math.max(0, generation - 2),
+          });
+        },
+        () => {
+          // A worker that has been replaced and counts from one again.
+          sessions.reportOpenWorkspaces('chrome:control', [workspace.id], {
+            incarnation: `worker-${String(Math.floor(random() * 3) + 2)}`,
+            generation: 1,
+          });
         },
       ];
 
