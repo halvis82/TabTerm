@@ -3164,9 +3164,7 @@ function attachSize(): { cols: number; rows: number; estimated?: true } {
    * which follows within a second through `resize-pane`.
    */
   const measured = panesHost?.all[0]?.controller.fit();
-  if (measured && measured.cols > 1 && measured.rows > 1) {
-    return { cols: measured.cols, rows: measured.rows, estimated: true };
-  }
+  if (measured && measured.cols > 1 && measured.rows > 1) return measured;
   // A cell from the terminal's own font metrics when there is one, and a sane default when not.
   const cell = panesHost?.all[0]?.controller.cellSize();
   const width = cell?.width ?? 7;

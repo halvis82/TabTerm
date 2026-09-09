@@ -697,29 +697,22 @@ A minute is what keeps the second case from being its own defect. Flicking betwe
 constant; a tab nobody has looked at since before the window was last resized is where a stale
 picture actually comes from.
 
-#### And an attach never claims a settled size
+#### An attach applies the size it measured, and that coupling is load bearing
 
-A page that has just loaded measures its pane before the layout is done and gets a box a scrollbar
-narrower than the one it will have a second later. That went out as `attach 187x44` and was
-corrected to `195x44` a moment afterwards, and the session was resized to both.
+A page that has just loaded measures its pane before the layout has fully settled, so an attach can
+announce `187x44` where the box will be `195x44` a second later, and the session is resized twice.
+That is a real cost, because narrowing a terminal rewraps every wrapped line in its history and
+widening rewraps them back.
 
-Eight columns is not cosmetic. Narrowing a terminal rewraps every wrapped line in its history and
-widening rewraps them back, so opening a tab reflowed a whole session twice for a size nobody ever
-had. What that leaves behind is fragments of earlier frames stranded between the current ones,
-which is what an agent's output looked like after its tab was reopened, even after the nudge below
-was removed.
+**It was tried and reverted, and the reason is worth keeping.** Marking the attach size as
+not-yet-settled, so a session that already had one ignored it, made every reattach far worse: the
+page's own grid is that measurement, so refusing it at the daemon leaves the grid at one width and
+the terminal at another. The program then writes lines wider than the grid and every row of its
+output wraps. What looks like a redundant resize is the one thing keeping the grid and the terminal
+the same size.
 
-The number is still sent, because a session being created has nothing else to go on. It is marked
-as not-yet-settled, and a session that already has a size ignores it and waits for the measurement,
-which follows within a second as an ordinary `resize-pane`.
-
-**The rule cannot be widened to every attach.** A second view genuinely constrains the size: one
-terminal has one size and it is the smallest of the views looking at it. Trying that broke ten
-checks across four files, all of them about exactly that.
-
-This is pinned in the source rather than through the interface, because the effect is invisible
-from outside. The size ends up correct either way and what differs is a transient. Reverting the
-fix passed every browser suite there is.
+So the transient stays. It is two resizes of a size the pane really had, in lockstep with the grid,
+rather than a lasting disagreement between them.
 
 #### It used to ask the program instead, and that was destroying agents
 
