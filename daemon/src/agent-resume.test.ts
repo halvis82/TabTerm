@@ -28,11 +28,11 @@ describe('asking an agent to resume', () => {
 describe('showing both agents in one short list', () => {
   const at = (agent: 'claude' | 'codex', modifiedAt: number) => ({ agent, modifiedAt });
 
-  it('takes turns, so a busy agent cannot hide the other', () => {
+  it('reserves a place for the quieter agent, so a busy one cannot hide it', () => {
     /**
-     * The reason this exists: one agent is usually the one in daily use, so its conversations
-     * are always the newest. Straight recency in a list cut to a few rows would never show a
-     * single row for the other, and resuming it would be unreachable.
+     * One agent is usually the one in daily use, so its conversations are always the newest, and
+     * straight recency in a list cut to a few rows would never contain a single row for the
+     * other. Resuming it would be present, correct and unreachable.
      */
     const merged = interleaveByAgent([
       at('claude', 100),
@@ -41,7 +41,25 @@ describe('showing both agents in one short list', () => {
       at('codex', 50),
       at('codex', 40),
     ]);
-    expect(merged.slice(0, 4).map((s) => s.agent)).toEqual(['claude', 'codex', 'claude', 'codex']);
+    expect(merged.slice(0, 2).map((s) => s.agent)).toEqual(['claude', 'codex']);
+  });
+
+  it('and then orders by recency, rather than alternating forever', () => {
+    /**
+     * Alternating strictly was the first answer and overcorrected: half the rows belonged to
+     * whichever agent was used less, however old they were. Measured on a real machine, four of
+     * eight rows were codex sessions between two and twenty days old while claude sessions from
+     * the same morning were not shown at all, which read as an arbitrary list.
+     */
+    const merged = interleaveByAgent([
+      at('claude', 100),
+      at('claude', 99),
+      at('claude', 98),
+      at('codex', 50),
+      at('codex', 40),
+    ]);
+    // The newest of each, and after that the genuinely most recent.
+    expect(merged.map((s) => s.modifiedAt)).toEqual([100, 50, 99, 98, 40]);
   });
 
   it('still leads with the newest thing that happened', () => {

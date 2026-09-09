@@ -29,47 +29,41 @@ export function resumeCommand(agent: AgentKind, executable: string, sessionId: s
 }
 
 /**
- * Merge two agents' sessions into one list that shows both.
+ * Merge two agents' sessions into one list that shows both, newest first.
  *
- * Straight recency would be the obvious answer and is the wrong one. One agent is usually the
- * one in daily use, so its conversations are always the newest, and a list cut to a handful of
- * rows would never contain a single row for the other. The feature would be present, correct,
- * and unreachable.
+ * Straight recency alone is wrong, and full round robin is wrong in the other direction.
  *
- * So: round robin, newest first within each agent. Both are visible from the first row or two,
- * and recency still decides the order inside each. An agent with nothing to offer simply does
- * not take turns.
+ * Recency alone hides the agent that is not in daily use: its conversations are never the newest,
+ * so a list cut to a handful of rows never contains one, and the feature is present, correct and
+ * unreachable.
+ *
+ * Round robin was the first answer and overcorrected. Alternating strictly means half the rows
+ * belong to whichever agent is used less, however old they are, so a conversation from three
+ * weeks ago sat above one from an hour earlier and the list read as arbitrary. Measured on a real
+ * machine: of eight rows, four were codex sessions between two and twenty days old while recent
+ * claude sessions from the same morning were not shown at all.
+ *
+ * So: **the newest of each agent first, and then strict recency.** Both agents are reachable from
+ * the first rows, which is what round robin was protecting, and everything after that is ordered
+ * the way "past sessions" is understood, which is what it was breaking.
  */
 export function interleaveByAgent<T extends { agent: AgentKind; modifiedAt: number }>(
   sessions: readonly T[],
 ): T[] {
-  const queues = new Map<AgentKind, T[]>();
-  for (const session of sessions) {
-    const queue = queues.get(session.agent) ?? [];
-    queue.push(session);
-    queues.set(session.agent, queue);
-  }
-  for (const queue of queues.values()) queue.sort((a, b) => b.modifiedAt - a.modifiedAt);
+  const byRecency = [...sessions].sort((a, b) => b.modifiedAt - a.modifiedAt);
 
-  // Whichever agent has the single newest session leads, so the top row is still the most
-  // recent thing that happened.
-  const order = [...queues.keys()].sort(
-    (a, b) => (queues.get(b)?.[0]?.modifiedAt ?? 0) - (queues.get(a)?.[0]?.modifiedAt ?? 0),
-  );
-
-  const out: T[] = [];
-  for (let round = 0; out.length < sessions.length; round++) {
-    let took = false;
-    for (const agent of order) {
-      const next = queues.get(agent)?.[round];
-      if (next) {
-        out.push(next);
-        took = true;
-      }
-    }
-    if (!took) break;
+  // One reserved place per agent that has anything, in recency order between them, so the top of
+  // the list still opens with the most recent thing that happened.
+  const reserved: T[] = [];
+  const claimed = new Set<AgentKind>();
+  for (const session of byRecency) {
+    if (claimed.has(session.agent)) continue;
+    claimed.add(session.agent);
+    reserved.push(session);
   }
-  return out;
+
+  const rest = byRecency.filter((session) => !reserved.includes(session));
+  return [...reserved, ...rest];
 }
 
 /**
