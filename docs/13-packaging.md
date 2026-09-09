@@ -96,6 +96,12 @@ distinguishes the two states and says which one the machine is in.
 The real fix is a Developer ID certificate, which would let the requirement name the identifier
 instead of the hash. Until then, any change to the bundle's contents costs the grant.
 
+**So the installer says when it happens.** It records the signature before it writes the bundle and
+compares afterwards, and when they differ and the machine has a Full Disk Access row for
+`com.tabterm.daemon`, it says the grant no longer applies and how to restore it. It cannot prevent
+the loss; what it can do is stop the discovery being an agent asking for permission a day later,
+with nothing on screen to connect it to an update.
+
 Built by `scripts/build-app-bundle.mjs`, which verifies the signed identifier is
 `com.tabterm.daemon` and fails if it is not, since a bundle signed under any other identifier
 would give TCC nothing to attach to.

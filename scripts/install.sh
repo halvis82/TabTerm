@@ -130,6 +130,11 @@ echo "  daemon staged at $LIBEXEC"
 # nothing on screen to explain why. The already installed bundle is handed over for that reason.
 # It is the copy macOS remembers, and dist/ is a build directory that a clean wipes.
 APP="$LIBEXEC/TabTerm.app"
+
+# What the bundle's signature was before this install, so a change to it can be noticed rather
+# than discovered later by a prompt nobody expected. See the check further down.
+IDENTITY_BEFORE=$(codesign -dvvv "$APP" 2>&1 | sed -n 's/.*CandidateCDHash sha256=\([0-9a-f]*\).*/\1/p' | head -1)
+
 if TABTERM_NODE="$NODE" "$NODE" "$REPO/scripts/build-app-bundle.mjs" \
      --adopt-runtime "$APP/Contents/MacOS/node" >/dev/null 2>&1 &&
    [ -x "$REPO/dist/TabTerm.app/Contents/MacOS/node" ]; then
@@ -219,8 +224,13 @@ fi
 # here, prominently, because the doctor is somewhere people go when they already suspect a
 # problem, and this is a problem that presents as macOS being annoying rather than as TabTerm
 # being wrong.
+#
+# `|| true` because finding nothing is the good case and `grep` reports it as failure. Under
+# `set -euo pipefail` that failure ended the script here, silently and with status 1, on every
+# healthy install: everything below this point, including how to load the extension into Chrome,
+# has never been printed to anybody whose host was already current.
 stale_host=$(ps -eo pid=,command= | grep "[l]ibexec/tabterm/pty-host" |
-  grep -v "TabTerm.app/Contents/MacOS/node" | head -1)
+  grep -v "TabTerm.app/Contents/MacOS/node" | head -1 || true)
 if [ -n "$stale_host" ]; then
   stale_pid=$(echo "$stale_host" | awk '{print $1}')
   held=$(pgrep -P "$stale_pid" 2>/dev/null | wc -l | tr -d ' ')
@@ -243,6 +253,43 @@ if [ -n "$stale_host" ]; then
   The daemon starts a new one within a second or two.
   ---------------------------------------------------------------------------
 STALE
+fi
+
+# ---------------------------------------------------------------------------------------------
+# An update that changes the bundle costs the Full Disk Access grant, silently.
+#
+# The bundle is signed ad hoc, so its signature is a hash of its own contents and any change to
+# them is a different app as far as the privacy system is concerned. Folder decisions are keyed by
+# identifier and survive; Full Disk Access is recorded against the signature and does not. It was
+# an icon that did it the first time, and the way anyone found out was an agent asking for
+# permission on every launch a day later.
+#
+# Nothing here can prevent it without a Developer ID certificate. What it can do is say so at the
+# moment it happens, while the person is still looking at an install.
+IDENTITY_AFTER=$(codesign -dvvv "$APP" 2>&1 | sed -n 's/.*CandidateCDHash sha256=\([0-9a-f]*\).*/\1/p' | head -1)
+if [ -n "$IDENTITY_BEFORE" ] && [ -n "$IDENTITY_AFTER" ] && [ "$IDENTITY_BEFORE" != "$IDENTITY_AFTER" ]; then
+  # Only worth saying to somebody who had the grant. Reading the system database needs that same
+  # access, so an empty answer means "cannot tell" and stays quiet rather than guessing.
+  HAD_FDA=$(sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+    "select 1 from access where service='kTCCServiceSystemPolicyAllFiles' and client='com.tabterm.daemon' limit 1;" 2>/dev/null)
+  if [ -n "$HAD_FDA" ]; then
+    cat <<GRANT
+
+  NOTE  this update changed the app, so Full Disk Access no longer applies to it.
+        macOS records that grant against the signature, and the signature is a hash of
+        the bundle's contents, so any change to them makes it a different app. The entry
+        stays listed while no longer applying, which is why adding it again does nothing
+        until the old one is removed.
+
+        To restore it:
+          System Settings > Privacy & Security > Full Disk Access
+          select TabTerm, press -, then + and add it again:
+          $APP
+
+        Nothing is broken without it. It is only what stops an agent being asked for
+        permission on every launch. See README, step 5.
+GRANT
+  fi
 fi
 
 cat <<NEXT
