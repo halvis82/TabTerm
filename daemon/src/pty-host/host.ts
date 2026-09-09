@@ -131,6 +131,14 @@ const MAX_SESSIONS = 100;
  */
 const IDLE_EXIT_MS = 120_000;
 
+/**
+ * How much output may be queued for one daemon connection before that connection is given up on.
+ *
+ * Sixteen megabytes is far past any ordinary burst and far short of a problem for the one process
+ * on the machine that cannot be restarted without ending somebody's work.
+ */
+const SLOW_PEER_BYTES = 16 * 1024 * 1024;
+
 export class PtyHost {
   readonly #sessions = new Map<string, Live>();
   /** Per session, set by the daemon from the user's setting. */
@@ -155,7 +163,16 @@ export class PtyHost {
     scrollbackDirectory: string,
     maxSessions = MAX_SESSIONS,
     onIdle?: () => void,
+    /**
+     * How much may be queued for one connection before it is given up on.
+     *
+     * A parameter so a fault test can reach the bound in seconds rather than by producing sixteen
+     * megabytes. The default is the number that matters in production; the behaviour at the bound
+     * is the same whatever it is set to.
+     */
+    slowPeerBytes = SLOW_PEER_BYTES,
   ) {
+    this.#slowPeerBytes = slowPeerBytes;
     this.#maxSessions = maxSessions;
     this.#onIdle = onIdle;
     this.#socketPath = socketPath;
@@ -282,8 +299,40 @@ export class PtyHost {
     if (!socket.destroyed) socket.write(controlFrame(message));
   }
 
+  /**
+   * What one connection may have waiting for it before it is given up on.
+   *
+   * This process holds every PTY master on the machine, and of the three things that can give when
+   * a consumer stops reading, only one is acceptable. Blocking the PTY stops somebody's build
+   * because a browser is busy. Queueing without limit runs the one process that cannot be restarted
+   * out of memory. Dropping that transport costs a reconnect, and the bounded ring and the replay
+   * protocol already exist to make the reconnect whole.
+   *
+   * Sixteen megabytes is far past any ordinary burst and far short of a problem.
+   */
+  readonly #slowPeerBytes: number;
+
+  /**
+   * Write to one client, unless it has stopped keeping up.
+   *
+   * `writableLength` is what is queued in this process for a socket the peer is not draining. A
+   * peer that has let it grow past the bound is not slow, it is gone in every way that matters,
+   * and the honest thing is to end the transport and let it come back.
+   */
+  #writeOrDrop(c: Socket, payload: Uint8Array): void {
+    if (c.destroyed) return;
+    if (c.writableLength > this.#slowPeerBytes) {
+      warn('pty-host.slow-peer-dropped', { queued: c.writableLength });
+      // The terminals are untouched. Only this connection to them ends.
+      c.destroy();
+      this.#clients.delete(c);
+      return;
+    }
+    c.write(payload);
+  }
+
   #broadcast(payload: Uint8Array): void {
-    for (const c of this.#clients) if (!c.destroyed) c.write(payload);
+    for (const c of this.#clients) this.#writeOrDrop(c, payload);
   }
 
   #handle(socket: Socket, msg: Record<string, unknown>): void {
@@ -452,9 +501,15 @@ export class PtyHost {
         const live = this.#sessions.get(id);
         if (!live) return;
         const from = Number(msg['fromSeq']) || 0;
+        // Bounded like every other write to a peer. A replay is the largest thing this process
+        // ever hands over, and a peer that is not draining it must not be able to hold the whole
+        // ring in memory here as well as in the ring.
         for (const chunk of live.ring) {
           if (chunk.seq > from && !socket.destroyed) {
-            socket.write(outputFrame({ sessionId: id, seq: chunk.seq, data: chunk.data }));
+            this.#writeOrDrop(
+              socket,
+              outputFrame({ sessionId: id, seq: chunk.seq, data: chunk.data }),
+            );
           }
         }
         /**

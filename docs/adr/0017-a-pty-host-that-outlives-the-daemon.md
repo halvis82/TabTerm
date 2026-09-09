@@ -135,6 +135,26 @@ released in order, because a screen missing bytes is visible and recoverable whi
 has run out of memory is not. And it is released anyway after five seconds, so a daemon that never
 finishes catching up produces a late terminal rather than a silent one.
 
+## A consumer that stops reading is dropped, not queued
+
+This process holds every PTY master on the machine, and it is the one thing here that cannot be
+restarted without ending somebody's work. When a daemon stops draining its socket, three things
+could give, and only one of them is acceptable:
+
+| | |
+|---|---|
+| Block the PTY | Somebody's build stops because a browser is busy. No |
+| Queue in the host without limit | The one process that cannot be restarted runs out of memory. No |
+| Drop that transport | Costs a reconnect, which is already whole. Yes |
+
+Measured: a peer that connects and never reads leaves the host queueing without any bound at all.
+Sixteen megabytes is now the limit for one connection, past which the connection is destroyed and
+the terminals it was watching are untouched. The bounded ring and the replay protocol already exist
+to make what follows correct, so the cost of being dropped is a reconnect and a catch-up.
+
+The same rule covers replay, which is the largest thing this process ever hands over. A peer that
+does not drain a replay must not be able to hold the ring in memory twice.
+
 ## Alternatives rejected
 
 **Keep PTYs in the daemon and never restart it.** Not a design, a hope. Updates exist.
