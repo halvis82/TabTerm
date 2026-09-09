@@ -61,7 +61,17 @@ export class ProjectTrust {
            decision = excluded.decision, decided_at = excluded.decided_at`,
       )
       .run(config.path, config.contentHash, decision, Date.now());
-    info('project-trust.recorded', { path: config.path, decision });
+    /**
+     * The decision, and a hash of what was trusted. Not where it lives.
+     *
+     * A project path is a project's name and often a client's. The hash is what makes this
+     * diagnosable at all, because the question afterwards is whether the file has changed since it
+     * was trusted, and that is exactly what it answers.
+     */
+    info('project-trust.recorded', {
+      decision,
+      contentHash: config.contentHash.slice(0, 12),
+    });
   }
 
   forget(path: string): void {

@@ -1,7 +1,8 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { PtyHost } from './pty-host/host.js';
 import { PtyHostClient } from './pty-host/client.js';
@@ -18,6 +19,8 @@ import { flushLog, initLog, info } from './log.js';
  *
  * The category answers that question. The content was never needed for it.
  */
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+
 describe('what a notification leaves behind in the log', () => {
   it('records which kind fired, and nothing a person typed or ran', () => {
     initLog('info');
@@ -106,3 +109,56 @@ describe('what a failed host operation leaves behind', () => {
     expect(written).toContain('no-such-directory');
   }, 20000);
 });
+
+describe('what is left that could reach a log', () => {
+  /**
+   * The audit that keeps this honest, rather than a promise in a document.
+   *
+   * Written as a scan of the source because the failure is one of addition: somebody logs a path
+   * or a command in a new place, every individual line looks reasonable, and nothing notices. The
+   * list of allowed fields is short on purpose, and a field that is not on it has to be argued for
+   * here rather than in a review.
+   */
+  it('logs no field that carries a path, a command, or terminal text at default level', () => {
+    const roots = ['daemon/src', 'daemon/src/pty-host'];
+    const suspicious = /\b(cwd|command|argv|env|input|screen|title|prompt|text|data|path)\b/;
+    const offenders: string[] = [];
+
+    for (const root of roots) {
+      for (const name of readdirSync(join(repoRoot, root))) {
+        if (!name.endsWith('.ts') || name.includes('.test.')) continue;
+        const source = readFileSync(join(repoRoot, root, name), 'utf8');
+        // Only the levels that are on by default. `debug` is off unless somebody turns it on and
+        // is told what that means.
+        for (const call of source.matchAll(/\b(info|warn|error)\('([^']+)',\s*\{([^}]*)\}/g)) {
+          const [, level, event, fields] = call;
+          if (fields === undefined || event === undefined) continue;
+          if (!suspicious.test(fields)) continue;
+          if (ALLOWED.has(event)) continue;
+          offenders.push(`${level ?? ''} ${event} { ${fields.trim().slice(0, 80)} }`);
+        }
+      }
+    }
+
+    expect(offenders, 'each of these needs a reason, or a different field').toEqual([]);
+  });
+});
+
+/**
+ * Events that name a path on purpose, each because the path is not the person's work.
+ *
+ * `agent-hooks` writes to the agent CLI's own settings file at a fixed location, and saying which
+ * file could not be written is the whole content of the message. `login-path` names the shell from
+ * the configuration. Neither is a project, a directory somebody works in, or anything typed.
+ */
+const ALLOWED = new Set([
+  'agent-hooks.unreadable',
+  'agent-hooks.write-failed',
+  'login-path.failed',
+  /**
+   * The notification's `kind` is the part of the title before the colon, which is the category and
+   * never the command. That is checked directly by the first test in this file; the field is only
+   * on this list because the expression that builds it mentions the title it came from.
+   */
+  'notify.sent',
+]);

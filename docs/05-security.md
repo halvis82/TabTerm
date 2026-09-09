@@ -314,6 +314,20 @@ none currently does.
   The test drives a real host through a real failure with a recognisable string in the cwd, the
   argv and the environment, and asserts it appears nowhere in the log. Reverting either fix fails
   it.
+
+  **And the audit is a test, not a promise.** A canary proves one path; the failure this invariant
+  actually has is one of addition, where somebody logs a path in a new place, every individual line
+  looks reasonable, and nothing notices. So the source is scanned for fields that carry a path, a
+  command, terminal text or an environment at the levels that are on by default, and anything not on
+  a short allow-list fails. It found three more the moment it was written: a project trust decision
+  logged the project's path, launching a project logged it again, and changing the agent command
+  logged the whole argv. Trust and launch now record a hash of the file, which is the thing anybody
+  actually asks about afterwards, and the agent command records the program without its arguments.
+
+  Three events name a path deliberately and are on the list: the two that write to the agent CLI's
+  own settings file at a fixed location, where saying which file could not be written is the entire
+  message, and the one that names the shell from the configuration. None of them is a project, a
+  directory somebody works in, or anything typed.
 - A verbose mode exists for debugging and states clearly that it will capture sensitive data
 - The diagnostic bundle from `tabterm doctor` is redacted by default and lists what it includes
 - Stack traces are logged daemon-side and never returned to the page. The page receives an error

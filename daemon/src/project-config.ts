@@ -68,7 +68,15 @@ export async function findProjectConfig(root: string): Promise<LoadedProjectConf
       };
     } catch (e) {
       if (e instanceof ProjectConfigError) {
-        warn('project-config.rejected', { path, reason: e.message });
+        /**
+         * Which kind of file, and what was wrong with it. Not where it is.
+         *
+         * A project path is a project's name, and often a client's. The person who needs to know
+         * which file this was is looking at it: the rejection is reported to the page that asked,
+         * with the path, because that is a screen they chose to open rather than a file that
+         * accumulates. See docs/05-security.md.
+         */
+        warn('project-config.rejected', { reason: e.message.slice(0, 200) });
         return null;
       }
       // Absent or unreadable is the normal case, not an error worth reporting.

@@ -2124,7 +2124,17 @@ export class DaemonServer {
           const argv = splitCommand(msg.command);
           this.#agentCommand = argv.length > 0 ? argv : [...this.#config.agentCommand];
           updateUserSetting('agentCommand', this.#agentCommand);
-          info('agent-command.changed', { command: this.#agentCommand });
+          /**
+           * Which program, not how it was invoked.
+           *
+           * The arguments are somebody's own configuration and can carry anything they would put
+           * on a command line, flags and tokens included. The program name is what makes a report
+           * of "my agent stopped starting" answerable.
+           */
+          info('agent-command.changed', {
+            program: this.#agentCommand[0] ?? '',
+            arguments: this.#agentCommand.length - 1,
+          });
         }
         this.broadcastAll({ t: 'agent-command', command: this.#agentCommand.join(' ') });
         return;
@@ -2466,7 +2476,13 @@ export class DaemonServer {
     if (layout) this.#realizeTemplate(workspace.id, layout, paneId, spawn);
 
     if (this.#launcher.recordDir(cwd)) this.launcherChanged();
-    info('project.launched', { path: loaded.path, panes: commands.length });
+    /**
+     * What was launched, not where from. A project path is a project's name.
+     */
+    info('project.launched', {
+      panes: commands.length,
+      contentHash: loaded.contentHash.slice(0, 12),
+    });
     send(
       client.socket,
       controlFrame({
