@@ -88,13 +88,18 @@ export interface LauncherOptions {
 const MAX_RECENT = 6;
 const MAX_RESTORE = 3;
 /**
- * Four, not three.
+ * Six, matching the folder list beside it.
  *
- * The daemon takes turns between the agents, so three rows showed two of one and one of the
- * other. Four gives each of them a pair, which is what makes "resume the one before last"
- * possible without a picker.
+ * It was four, because the daemon used to alternate strictly between the agents and four gave
+ * each of them a pair. It no longer alternates: it reserves the newest of each agent and then
+ * orders by recency, so rows past the second are simply the most recent work, and a pair each is
+ * no longer a thing four buys.
+ *
+ * More rows are worth showing now that they say something. A row used to be labeled with the
+ * first thing typed, so a longer list mostly repeated pasted paths; it now carries the title the
+ * agent keeps for the session, which is what makes six scannable rather than six to read.
  */
-const MAX_RESUME = 4;
+const MAX_RESUME = 6;
 
 export class Launcher {
   readonly #opts: LauncherOptions;

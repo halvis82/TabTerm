@@ -4710,7 +4710,9 @@ function onControl(msg: ServerMessage): void {
       palette?.setSaved(savedItems);
       commandPanel?.setFavorites(savedItems);
       // Asked for alongside launcher state, so the chips are there when the panel first draws.
-      client?.send({ t: 'list-resumable', limit: 5 });
+      // The same count as every other request for this list: asking for fewer here made the first
+      // drawing of the start screen shorter than the one after any refresh.
+      client?.send({ t: 'list-resumable', limit: 8 });
       client?.send({ t: 'list-servers' });
       askForSettings();
       client?.send({ t: 'list-live-sessions' });
