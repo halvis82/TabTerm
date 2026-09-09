@@ -275,3 +275,49 @@ describe('saving a restore snapshot', () => {
     expect(after?.layout.type).toBe('terminal');
   });
 });
+
+describe('what a daemon remembers about a workspace across a restart', () => {
+  /**
+   * Two facts that are worthless if they only live in memory.
+   *
+   * Provenance decides whether a browser saying "I do not have that workspace" means anything. A
+   * daemon that lost it would find every session it adopted unattributable: no browser in this
+   * lifetime reported the workspace or asked for it, so nothing could ever authorise the timeout
+   * somebody chose, and the session would live for ever. That is the safe direction and still the
+   * wrong answer.
+   *
+   * The background time is the start of that timeout. Recomputing it after every daemon update
+   * hands each waiting session a fresh countdown, which is the same setting quietly not working.
+   */
+  it('keeps which browser held it, and when it went to the background', () => {
+    const db = new Database(':memory:');
+    const store = new RestoreStore(db);
+    const ws = workspace('ws-provenance', ['s1']);
+    store.save(ws, () => null);
+
+    store.noteOwner(ws.id, 'profile-uuid');
+    store.noteBackgroundSince(ws.id, 1_700_000_000_000);
+
+    const back = store.provenance().find((p) => p.workspaceId === ws.id);
+    expect(back?.profile).toBe('profile-uuid');
+    expect(back?.backgroundSince).toBe(1_700_000_000_000);
+  });
+
+  it('forgets the background time when the tab comes back', () => {
+    const db = new Database(':memory:');
+    const store = new RestoreStore(db);
+    const ws = workspace('ws-returned', ['s1']);
+    store.save(ws, () => null);
+    store.noteOwner(ws.id, 'profile-uuid');
+    store.noteBackgroundSince(ws.id, 1_700_000_000_000);
+
+    store.noteBackgroundSince(ws.id, null);
+
+    const back = store.provenance().find((p) => p.workspaceId === ws.id);
+    expect(
+      back?.backgroundSince,
+      'a workspace that is open has no background clock',
+    ).toBeUndefined();
+    expect(back?.profile, 'but it is still the same browser that had it').toBe('profile-uuid');
+  });
+});

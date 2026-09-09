@@ -1040,6 +1040,68 @@ export class SessionManager {
   readonly #reporterSeen = new Map<string, Set<string>>();
 
   /**
+   * When each workspace was first judged to have gone to the background, and why.
+   *
+   * The daemon owns this rather than recomputing it from whatever the browser happens to be saying
+   * at the moment. A background session has a **deadline**, and a deadline that is recalculated
+   * every time the reporter blinks is not one: Chrome's control connection goes away whenever its
+   * service worker sleeps, nine times in forty minutes on a real machine, and each disappearance
+   * used to erase the clock and start it again on reconnect. The setting was then unreachable from
+   * the other direction, not ending a session too early but never ending one at all, which is
+   * exactly what was reported as "set to 30 mins, still here after 50".
+   *
+   * The rules are deliberately asymmetric, and all in the safe direction:
+   *
+   * - a reporter disappearing never **creates** one, because absence proves nothing
+   * - a reporter disappearing never **deletes** one, because the tab did not come back
+   * - the workspace being reported open again deletes it outright, because it did
+   */
+  readonly #backgroundSince = new Map<string, { at: number; reason: string }>();
+
+  /**
+   * Where provenance and the background clock are written so they outlive this daemon.
+   *
+   * Optional, because a `SessionManager` in a test owns no database, and losing this costs
+   * durability rather than correctness while the daemon runs.
+   */
+  rememberOwner?: (workspaceId: string, profile: string) => void;
+  rememberBackgroundSince?: (workspaceId: string, at: number | null) => void;
+
+  /**
+   * What a previous daemon knew, handed back at startup.
+   *
+   * Without this, every session adopted across a restart is unattributable: no browser in this
+   * daemon's lifetime has reported its workspace or asked for it to be created, so nothing can
+   * ever authorise the timeout somebody chose, and it lives for ever. The background time comes
+   * back with it, so a daemon update does not hand every waiting session a fresh countdown.
+   */
+  restoreProvenance(
+    entries: readonly { workspaceId: string; profile?: string; backgroundSince?: number }[],
+  ): void {
+    for (const entry of entries) {
+      if (entry.profile !== undefined) {
+        let seen = this.#reporterSeen.get(entry.profile);
+        if (seen === undefined) {
+          seen = new Set<string>();
+          this.#reporterSeen.set(entry.profile, seen);
+        }
+        seen.add(entry.workspaceId);
+      }
+      if (entry.backgroundSince !== undefined) {
+        this.#backgroundSince.set(entry.workspaceId, {
+          at: entry.backgroundSince,
+          reason: 'restored',
+        });
+      }
+    }
+  }
+
+  /** When this session's workspace went to the background, if it has. For tests and diagnostics. */
+  backgroundSince(workspaceId: string): number | undefined {
+    return this.#backgroundSince.get(workspaceId)?.at;
+  }
+
+  /**
    * How long a reporter must have been reporting before its list counts as complete.
    *
    * A field rather than a constant so a test can make a browser settle immediately. The waiting
@@ -1063,7 +1125,10 @@ export class SessionManager {
       seen = new Set<string>();
       this.#reporterSeen.set(profile, seen);
     }
-    seen.add(workspaceId);
+    if (!seen.has(workspaceId)) {
+      seen.add(workspaceId);
+      this.rememberOwner?.(workspaceId, profile);
+    }
   }
 
   /** Which browsers are known to have held this workspace. For tests and for diagnostics. */
@@ -1120,7 +1185,11 @@ export class SessionManager {
       seen = new Set<string>();
       this.#reporterSeen.set(profile, seen);
     }
-    for (const id of ids) seen.add(id);
+    for (const id of ids) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      this.rememberOwner?.(id, profile);
+    }
     // A session whose tab has come back must lose the clock it was put on, and one whose tab has
     // gone must be given one. Both are just the policy run again.
     for (const session of this.all) this.#rescheduleReapIfIdle(session);
@@ -1351,6 +1420,28 @@ export class SessionManager {
       delete session.reapTimer;
     }
 
+    const disposition = this.#tabDisposition(session.id);
+    const workspaceId = this.#workspaceOf?.(session.id);
+
+    /**
+     * The authorization, kept by the daemon rather than recomputed from the browser's mood.
+     *
+     * Created only by a positive judgement that the workspace has gone, cancelled only by it
+     * coming back. `unknown` leaves it exactly as it is: the reporter being away is not the tab
+     * returning, and it is not the tab closing either.
+     */
+    if (workspaceId !== undefined) {
+      if (disposition === 'open') {
+        if (this.#backgroundSince.delete(workspaceId)) {
+          this.rememberBackgroundSince?.(workspaceId, null);
+        }
+      } else if (disposition === 'closed' && !this.#backgroundSince.has(workspaceId)) {
+        const at = Date.now();
+        this.#backgroundSince.set(workspaceId, { at, reason: 'tab-absent' });
+        this.rememberBackgroundSince?.(workspaceId, at);
+      }
+    }
+
     const decision = decideReap(
       reapInputFor(session, {
         inWorkspace: this.#inWorkspace(session.id),
@@ -1359,7 +1450,7 @@ export class SessionManager {
         paneClosedByUser: session.paneClosedByUser === true,
         listeningPort: session.listeningPort,
         keepBackgroundSeconds: this.keepBackgroundSeconds,
-        tabDisposition: this.#tabDisposition(session.id),
+        tabDisposition: disposition,
       }),
       this.#config,
     );
@@ -1377,8 +1468,19 @@ export class SessionManager {
         this.#lastReapReason.set(session.id, decision.reason);
         info('session.reap.declined', { sessionId: session.id, reason: decision.reason });
       }
-      delete session.reapDueAt;
-      delete session.reapReason;
+      /**
+       * The deadline is dropped only when there is a reason to drop it.
+       *
+       * "Nothing authorizes this" has two very different causes. The tab is back, or a server
+       * started listening, or the timeout is forever: those are the circumstance changing, and the
+       * clock should go with it. The reporter merely being away is not a change in the world at
+       * all, and erasing the clock there is what let a session outlive the timeout it was given.
+       */
+      if (disposition !== 'unknown' || workspaceId === undefined) {
+        if (workspaceId !== undefined) this.#backgroundSince.delete(workspaceId);
+        delete session.reapDueAt;
+        delete session.reapReason;
+      }
       /**
        * And it is not expiring any more, so it should stop saying it is.
        *
@@ -1400,9 +1502,19 @@ export class SessionManager {
      * unreachable behind a two minute report.
      */
     const decidedAt = Date.now();
+    /**
+     * Counted from when the session actually went to the background, not from now.
+     *
+     * These are the same the first time round. They differ after the reporter has been away: the
+     * authorization is older than this decision, and the deadline belongs to the authorization.
+     */
+    const startedAt =
+      workspaceId !== undefined && decision.reason === 'tab-closed'
+        ? (this.#backgroundSince.get(workspaceId)?.at ?? decidedAt)
+        : decidedAt;
     if (session.reapReason !== decision.reason || session.reapDueAt === undefined) {
       session.reapReason = decision.reason;
-      session.reapDueAt = decidedAt + decision.afterSeconds * 1000;
+      session.reapDueAt = startedAt + decision.afterSeconds * 1000;
     }
     const remainingMs = Math.max(0, session.reapDueAt - decidedAt);
 

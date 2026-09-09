@@ -633,3 +633,110 @@ describe('an inventory that arrives out of order', () => {
     expect(backend.kills.map((k) => k.sessionId)).toContain(sessionId);
   });
 });
+
+describe('a background clock that has already started', () => {
+  /**
+   * Once a session has legitimately gone to the background, the timeout somebody chose is a
+   * deadline, not a countdown that restarts whenever the browser blinks.
+   *
+   * Chrome's control connection goes away every time its service worker sleeps, which on a real
+   * machine was nine times in forty minutes. If losing the reporter erases the deadline, the
+   * setting is unreachable from the other direction: not a session ended too early, but a session
+   * that outlives the thirty minutes it was given, which is what was reported.
+   */
+  it('is not erased by the reporter going away and coming back', async () => {
+    const { sessionId, workspaceId } = aWorkingSession();
+    sessions.settledAfterMs = 0;
+    // Long enough that the timer cannot fire during the test; this is about the deadline, not
+    // about ending anything.
+    sessions.keepBackgroundSeconds = 300;
+
+    sessions.reportOpenWorkspaces('chrome:control', [workspaceId]);
+    sessions.reportOpenWorkspaces('chrome:control', []);
+    const dueAfterFirst = sessions.get(sessionId)?.reapDueAt;
+    expect(dueAfterFirst, 'the clock should have started').toBeGreaterThan(0);
+
+    // The service worker sleeps, and wakes up somewhere else in the same browser.
+    sessions.forgetReporter('chrome:control');
+    await sleep(60);
+    sessions.reportOpenWorkspaces('chrome:control', []);
+
+    const dueAfterReconnect = sessions.get(sessionId)?.reapDueAt;
+    expect(dueAfterReconnect, 'the deadline must be the one already set, not a fresh timeout').toBe(
+      dueAfterFirst,
+    );
+  });
+
+  it('is cancelled outright when the tab comes back', () => {
+    // The direction that must keep working: open beats everything, including a running clock.
+    const { sessionId, workspaceId } = aWorkingSession();
+    sessions.settledAfterMs = 0;
+    sessions.keepBackgroundSeconds = 300;
+    sessions.reportOpenWorkspaces('chrome:control', [workspaceId]);
+    sessions.reportOpenWorkspaces('chrome:control', []);
+    expect(sessions.get(sessionId)?.reapDueAt).toBeGreaterThan(0);
+
+    sessions.reportOpenWorkspaces('chrome:control', [workspaceId]);
+    expect(
+      sessions.get(sessionId)?.reapDueAt,
+      'a tab that is open again has no deadline at all',
+    ).toBeUndefined();
+  });
+
+  it('still ends the session when the deadline it kept actually passes', async () => {
+    // And the clock is real: keeping it across a reconnect must not mean never firing.
+    const { sessionId, workspaceId } = aWorkingSession();
+    sessions.settledAfterMs = 0;
+    sessions.keepBackgroundSeconds = 0.25;
+    sessions.reportOpenWorkspaces('chrome:control', [workspaceId]);
+    sessions.reportOpenWorkspaces('chrome:control', []);
+    sessions.forgetReporter('chrome:control');
+    sessions.reportOpenWorkspaces('chrome:control', []);
+    await untilKilled(sessionId);
+    expect(backend.kills.map((k) => k.sessionId)).toContain(sessionId);
+  });
+});
+
+describe('what a daemon restart does to a background clock', () => {
+  /**
+   * A daemon update must not quietly restart everybody's timeout, and must not make a session
+   * unreapable either. Both are failures of the same fact: the daemon that comes back knows
+   * nothing about which browser held what, or since when, unless it was written down.
+   */
+  it('picks up where the previous daemon left off', async () => {
+    const { sessionId, workspaceId } = aWorkingSession();
+    sessions.settledAfterMs = 0;
+    sessions.keepBackgroundSeconds = 300;
+
+    // What a previous daemon had written: this browser held it, and it went background 200s ago.
+    const wentBackgroundAt = Date.now() - 200_000;
+    sessions.restoreProvenance([
+      { workspaceId, profile: 'chrome', backgroundSince: wentBackgroundAt },
+    ]);
+
+    // A browser connects for the first time in this daemon's life and reports what it has.
+    sessions.reportOpenWorkspaces('chrome:control', []);
+
+    const due = sessions.get(sessionId)?.reapDueAt ?? 0;
+    const fromRestored = wentBackgroundAt + 300_000;
+    expect(
+      Math.abs(due - fromRestored) < 2000,
+      `the deadline should continue from ${String(fromRestored)}, not restart; got ${String(due)}`,
+    ).toBe(true);
+    await sleep(20);
+  });
+
+  it('can still judge a workspace it only knows about from the previous daemon', async () => {
+    // Provenance restored is provenance. Without it nothing this browser says about the workspace
+    // means anything, and the session it belongs to could never reach any timeout at all.
+    const { sessionId, workspaceId } = aWorkingSession();
+    sessions.settledAfterMs = 0;
+    sessions.keepBackgroundSeconds = 0.25;
+    // Forget everything this process learned, leaving only what was written down.
+    sessions.restoreProvenance([{ workspaceId, profile: 'other-browser' }]);
+    sessions.reportOpenWorkspaces('other-browser:control', []);
+
+    await untilKilled(sessionId);
+    expect(backend.kills.map((k) => k.sessionId)).toContain(sessionId);
+  });
+});

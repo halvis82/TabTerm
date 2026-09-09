@@ -193,6 +193,20 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       ALTER TABLE pane_snapshots ADD COLUMN agent TEXT;
     `,
   },
+  {
+    version: 10,
+    sql: `
+      -- Which browser held this workspace, and when it went to the background.
+      --
+      -- Both exist so a daemon restart does not lose them. Provenance is what allows a browser's
+      -- report that a workspace is gone to mean anything, and without it every session adopted
+      -- across a restart would be unattributable and could never reach the timeout somebody chose.
+      -- The background time is the start of that timeout, and recomputing it on every daemon
+      -- update would silently give each session a fresh one.
+      ALTER TABLE workspaces ADD COLUMN owner_profile TEXT;
+      ALTER TABLE workspaces ADD COLUMN background_since INTEGER;
+    `,
+  },
 ];
 
 export class Database {

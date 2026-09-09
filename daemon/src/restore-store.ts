@@ -59,6 +59,59 @@ export class RestoreStore {
   }
 
   /**
+   * Remember which browser held a workspace, and when it went to the background.
+   *
+   * Both survive a daemon restart on purpose. Provenance is what lets a browser's report that a
+   * workspace is gone mean anything at all, and a daemon that lost it would find every adopted
+   * session unattributable and therefore unable ever to reach the timeout somebody chose. The
+   * background time is the start of that timeout, and recomputing it on each daemon update would
+   * quietly hand every session a fresh one.
+   *
+   * Written where the workspace already is, and best effort: a workspace this daemon has not
+   * persisted yet simply has nowhere to record it, and the in-memory copy still works for as long
+   * as this daemon runs.
+   */
+  noteOwner(workspaceId: string, profile: string): void {
+    try {
+      this.#db.handle
+        .prepare('UPDATE workspaces SET owner_profile = ? WHERE id = ?')
+        .run(profile, workspaceId);
+    } catch {
+      /* provenance is an optimization over asking again; never a reason to fail a request */
+    }
+  }
+
+  /** When a workspace went to the background, or null when it came back. */
+  noteBackgroundSince(workspaceId: string, at: number | null): void {
+    try {
+      this.#db.handle
+        .prepare('UPDATE workspaces SET background_since = ? WHERE id = ?')
+        .run(at, workspaceId);
+    } catch {
+      /* as above */
+    }
+  }
+
+  /** What was remembered about every workspace, for seeding a daemon that has just started. */
+  provenance(): { workspaceId: string; profile?: string; backgroundSince?: number }[] {
+    try {
+      const rows = this.#db.handle
+        .prepare(
+          `SELECT id, owner_profile, background_since FROM workspaces
+           WHERE owner_profile IS NOT NULL OR background_since IS NOT NULL`,
+        )
+        .all() as { id: string; owner_profile: string | null; background_since: number | null }[];
+      return rows.map((r) => ({
+        workspaceId: r.id,
+        ...(r.owner_profile === null ? {} : { profile: r.owner_profile }),
+        ...(r.background_since === null ? {} : { backgroundSince: r.background_since }),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * Record a workspace as it currently is.
    *
    * Called whenever a layout changes and on shutdown, rather than on a timer. A workspace that

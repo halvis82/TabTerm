@@ -196,6 +196,20 @@ async function main(): Promise<void> {
   // And which workspace, so a report of the tabs Chrome has open can be matched to sessions.
   sessions.setWorkspaceLookup((sessionId) => workspaces.findBySession(sessionId)?.id);
 
+  /**
+   * Provenance and the background clock, kept across daemon restarts.
+   *
+   * Both are read back before anything is adopted. Without the first, every session adopted across
+   * a restart is unattributable: no browser in this daemon's lifetime has reported its workspace or
+   * asked for it to be created, so nothing can authorise the timeout somebody chose and the session
+   * lives for ever. Without the second, every daemon update quietly hands each waiting session a
+   * fresh countdown.
+   */
+  sessions.rememberOwner = (workspaceId, profile) => restore.noteOwner(workspaceId, profile);
+  sessions.rememberBackgroundSince = (workspaceId, at) =>
+    restore.noteBackgroundSince(workspaceId, at);
+  sessions.restoreProvenance(restore.provenance());
+
   const server = new DaemonServer(
     config,
     sessions,

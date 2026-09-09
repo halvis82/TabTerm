@@ -86,6 +86,28 @@ same. A browser starting up, or an extension being replaced, produces a short li
 which is why a reporter has to have settled before its list counts as complete: it is not that the
 list is wrong, it is that it is not finished.
 
+**A background session has a deadline, not a countdown.** Once a workspace has legitimately gone
+to the background the daemon records when, and the timeout is measured from there. It is not
+recalculated from whatever the browser happens to be saying at the moment, because Chrome's control
+connection goes away every time its service worker sleeps: nine times in forty minutes on a real
+machine. Erasing the clock on each disappearance made the setting unreachable from the other
+direction, not a session ended too early but one that outlives the thirty minutes it was given.
+
+The rules are deliberately asymmetric, and all in the safe direction:
+
+| | |
+|---|---|
+| A reporter disappearing | Never **creates** an authorization. Absence proves nothing |
+| A reporter disappearing | Never **deletes** one. The tab did not come back |
+| The workspace reported open again | Deletes it outright. The tab did come back |
+| Pinned, persistent, or a listening server | Still outrank it entirely |
+
+Both the provenance and the background time are written to the database, so a daemon update does
+not lose them. Without the first, every session adopted across a restart is unattributable, since
+no browser in the new daemon's lifetime has reported its workspace or asked for it, and nothing
+could ever authorise the timeout: safe, and still the wrong answer. Without the second, each update
+hands every waiting session a fresh countdown.
+
 **A browser may only speak about what it has actually had.** Settling says a list is complete;
 provenance says whose list it is. "No current list contains W, and some browser is settled" is not
 evidence that W closed: it is one browser saying it does not have W, and a browser that never had W
