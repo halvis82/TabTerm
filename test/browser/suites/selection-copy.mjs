@@ -5,7 +5,7 @@
 // selection and greyed out Copy in the menu the same click had just opened. Selecting a whole
 // line worked, selecting text and right-clicking beside it did not, which from the outside is
 // simply "sometimes I can't copy".
-import { openTerminal, evaluate, sleep, type, finish } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, type, finish, waitFor } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -48,7 +48,14 @@ const selectLine = async () => {
 const copyState = async (x) => {
   await mouse('mousePressed', x, y, 'right');
   await mouse('mouseReleased', x, y, 'right');
-  await sleep(350);
+  /**
+   * Waited for, not slept through.
+   *
+   * A third of a second is enough for a menu to open on an idle machine and not on one running
+   * four browsers, and reading too early returns "no menu", which reads as Copy being unavailable
+   * and is the question arriving before the answer.
+   */
+  await waitFor(client, `!!document.querySelector('.term-menu-item')`, 6000);
   return evaluate(
     client,
     `(() => {
