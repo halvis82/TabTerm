@@ -239,14 +239,26 @@ r.ok(
   r.ok('a recent command offers a star', had === '★' || had === '☆', had);
 
   if (had === '☆') {
-    await evaluate(client, `${firstStar}?.click()`);
-    // Waited for rather than slept past: keeping a favorite is a round trip to the daemon, and
-    // how long that takes is not this suite's business.
-    const filled = await waitFor(
-      client,
-      `document.querySelector('.cmd-row .cmd-star')?.textContent === '\u2605'`,
-      8000,
-    );
+    /**
+     * Pressed again if the first press did not land.
+     *
+     * Keeping a favorite is a round trip to the daemon and the row is redrawn when it returns, so a
+     * press that arrives during a redraw reaches an element that is no longer in the page: nothing
+     * happens, and waiting afterwards is waiting for a click that never occurred. It failed that
+     * way once in a full run with four browsers going and passed alone twice straight after.
+     *
+     * Retrying is what a person does, and what is being tested is that starring works rather than
+     * that one synthetic press falls between two repaints.
+     */
+    let filled = false;
+    for (let attempt = 0; attempt < 3 && !filled; attempt++) {
+      await evaluate(client, `${firstStar}?.click()`);
+      filled = await waitFor(
+        client,
+        `document.querySelector('.cmd-row .cmd-star')?.textContent === '\u2605'`,
+        4000,
+      );
+    }
     r.ok('starring it fills the star', filled, String(await state()));
   }
 
