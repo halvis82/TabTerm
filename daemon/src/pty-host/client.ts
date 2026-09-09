@@ -506,8 +506,8 @@ export class PtyHostClient {
            * whatever was on somebody's screen. None of that belongs in a log.
            */
           warn('pty-host.message-failed', {
-            error: String(msg['message'] ?? '').slice(0, 200),
-            messageType: String(msg['messageType'] ?? 'unknown'),
+            error: typeof msg['message'] === 'string' ? msg['message'].slice(0, 200) : 'unknown',
+            messageType: typeof msg['messageType'] === 'string' ? msg['messageType'] : 'unknown',
             ...(typeof msg['sessionId'] === 'string' ? { sessionId: msg['sessionId'] } : {}),
             ...(typeof msg['requestId'] === 'string' ? { requestId: msg['requestId'] } : {}),
           });
