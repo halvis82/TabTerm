@@ -239,3 +239,39 @@ describe('what is not worth offering back', () => {
     expect(store.list(new Set())).toHaveLength(2);
   });
 });
+
+/**
+ * A snapshot is one state, written whole or not at all.
+ *
+ * `save` writes three things that only mean something together: the layout, a row per pane in it,
+ * and the removal of rows for panes that have left. Written separately, a crash partway leaves a
+ * layout from now beside pane contents from before, and the next start restores a workspace that
+ * never existed: a pane showing another pane's screen, or a layout naming a pane whose snapshot
+ * was already deleted.
+ *
+ * The live terminals are not at risk either way, because the host holds those. What is at risk is
+ * the recovery after a reboot, and a recovery that restores a state nobody was ever in is worse
+ * than one that restores the previous coherent state.
+ */
+describe('saving a restore snapshot', () => {
+  it('leaves the previous state untouched when the save cannot finish', () => {
+    const store = fresh();
+    store.save(workspace('ws-atomic', ['s1']), () => pane('/first'));
+    expect(store.get('ws-atomic')?.panes[0]?.cwd).toBe('/first');
+
+    /**
+     * A save that throws partway through its panes. Without a transaction the layout row is
+     * already written by this point, so the workspace would be left describing a shape whose
+     * panes still hold the previous contents: a state nobody was ever in.
+     */
+    store.save(workspace('ws-atomic', ['s9', 's8']), () => {
+      throw new Error('the emulator went away mid-save');
+    });
+
+    const after = store.get('ws-atomic');
+    expect(after?.panes).toHaveLength(1);
+    expect(after?.panes[0]?.cwd).toBe('/first');
+    // And the layout is the one that matches those panes, not the half-written new one.
+    expect(after?.layout.type).toBe('terminal');
+  });
+});

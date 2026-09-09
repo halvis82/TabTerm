@@ -2,7 +2,7 @@ import type { LayoutNode, Workspace } from '@tabterm/shared';
 import { closePane, panes } from '@tabterm/shared';
 import { homedir } from 'node:os';
 import type { Database } from './database.js';
-import { debug, info } from './log.js';
+import { debug, info, warn } from './log.js';
 
 /**
  * What survives a macOS restart.
@@ -65,6 +65,40 @@ export class RestoreStore {
    * has not changed does not need saving again, and a timer would write constantly for nothing.
    */
   save(
+    workspace: Workspace,
+    paneData: (sessionId: string) => Omit<PaneSnapshot, 'paneId' | 'sessionId' | 'savedAt'> | null,
+  ): void {
+    /**
+     * One snapshot, written whole or not at all.
+     *
+     * This writes three things that only mean something together: the layout, a row per pane in
+     * it, and the removal of rows for panes that have left. Written separately, a crash partway
+     * leaves a layout from now beside pane contents from before, and the next start restores a
+     * workspace that never existed: a pane showing another pane's screen, or a layout with a
+     * pane whose snapshot was already deleted.
+     *
+     * The live terminals are not at risk either way, because the host holds those. What is at
+     * risk is the recovery after a reboot, and a recovery that restores a state nobody was ever
+     * in is worse than one that restores the previous coherent state.
+     */
+    this.#db.handle.exec('BEGIN IMMEDIATE');
+    try {
+      this.#saveWithin(workspace, paneData);
+      this.#db.handle.exec('COMMIT');
+    } catch (e: unknown) {
+      try {
+        this.#db.handle.exec('ROLLBACK');
+      } catch {
+        /* the transaction was already resolved, which is the state we wanted anyway */
+      }
+      // Nothing is retried and nothing is thrown on. A snapshot that could not be written leaves
+      // the previous coherent one in place, which is exactly the outcome this is protecting.
+      warn('restore.save-failed', { workspaceId: workspace.id, error: String(e) });
+    }
+  }
+
+  /** The body of `save`, run inside its transaction. */
+  #saveWithin(
     workspace: Workspace,
     paneData: (sessionId: string) => Omit<PaneSnapshot, 'paneId' | 'sessionId' | 'savedAt'> | null,
   ): void {
