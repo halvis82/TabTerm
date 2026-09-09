@@ -210,7 +210,11 @@ const COVERS = [
   ['extension/src/terminal/label-form', ['pane-label']],
   ['extension/src/terminal/pane-chooser', ['pane-chooser']],
   ['extension/src/terminal/quote-path', ['opening-and-undo']],
-  ['extension/src/terminal/xterm-controller', ['pane-menu', 'menu-aftermath', 'selection-copy']],
+  [
+    'extension/src/terminal/xterm-controller',
+    ['pane-menu', 'menu-aftermath', 'selection-copy', 'char-width'],
+  ],
+  ['shared/src/char-width', ['char-width', 'inplace-redraw']],
   ['extension/src/terminal/path-links', ['link-hover']],
   ['extension/src/terminal/hotstrings', ['hotstrings']],
   ['extension/src/layout/', ['layout', 'workspace', 'resume-and-tabs']],

@@ -2,6 +2,8 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { SerializeAddon } from '@xterm/addon-serialize';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
+import { installCurrentWidths } from '@tabterm/shared';
 import type { ILinkProvider } from '@xterm/xterm';
 import { classifyKey, xtermShouldHandle } from './keymap.js';
 import { placeMenu } from './menu-position.js';
@@ -132,6 +134,10 @@ export class XtermController {
         selectionBackground: '#31405e',
       },
     });
+    // The same table the daemon uses, installed before a byte is written. An agent pads its box
+    // drawing against a current width table, so a terminal on xterm's built-in Unicode 6 one draws
+    // every row holding a check mark a column short. See docs/07-terminal-fidelity.md.
+    installCurrentWidths(this.term, new Unicode11Addon());
 
     this.#fit = new FitAddon();
     this.term.loadAddon(this.#fit);

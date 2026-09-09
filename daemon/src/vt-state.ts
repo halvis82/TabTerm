@@ -1,9 +1,12 @@
 import headless from '@xterm/headless';
 import serializeAddon from '@xterm/addon-serialize';
+import unicode11 from '@xterm/addon-unicode11';
+import { installCurrentWidths } from '@tabterm/shared';
 
 // Both ship CommonJS. Node ESM cannot destructure their named exports.
 const { Terminal } = headless;
 const { SerializeAddon } = serializeAddon;
+const { Unicode11Addon } = unicode11;
 
 /**
  * Server-side terminal state, one per session.
@@ -26,6 +29,9 @@ export class VtState {
     this.#cols = cols;
     this.#rows = rows;
     this.#term = new Terminal({ cols, rows, scrollback, allowProposedApi: true });
+    // Before anything is written, and with the same table the page uses. A screen measured under
+    // one set of widths and redrawn under another is a screen that does not match itself.
+    installCurrentWidths(this.#term, new Unicode11Addon());
     this.#serializer = new SerializeAddon();
     this.#term.loadAddon(this.#serializer);
   }

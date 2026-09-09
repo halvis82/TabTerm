@@ -87,6 +87,69 @@ between daemon and renderer would produce a snapshot that restores into a subtly
 and that class of bug is close to undebuggable. Using one implementation makes the mismatch
 impossible by construction.
 
+### And the same width table as the programs it hosts
+
+The same emulator is not sufficient on its own. Both copies also have to agree with the programs
+being hosted about how many columns a character occupies, and that is a separate decision the
+emulator does not make for us.
+
+xterm ships one built-in width table and it is Unicode 6, from 2011. Programs that draw boxes pad
+each cell to a column count they work out themselves, against a current table by way of
+`string-width`. Where the two disagree, the padding lands in the wrong column and the box drawing
+comes apart.
+
+That is not hypothetical. An agent's status table came out with every row holding `U+2705` a column
+short, while the rows holding a warning sign stayed straight, which is the detail that identifies
+the cause rather than merely fitting it. `U+2705` has emoji presentation, so a current table calls
+it two columns wide and Unicode 6 calls it one. `U+26A0` is text-default, neutral width, made emoji
+only by a variation selector, and both sides already counted it as one. So those rows agreed. The
+same session opened in a terminal with a current table was flawless.
+
+Measured in our own build before deciding anything:
+
+| Character | Unicode 6 | what the programs pad for |
+| --- | --- | --- |
+| `U+2705` white heavy check mark | 1 | 2 |
+| `U+274C` cross mark | 1 | 2 |
+| `U+26A0 U+FE0F` warning sign | 1 | 1 |
+| `U+4E00` CJK | 2 | 2 |
+
+CJK was always right, so the table was never broken in general. It simply predates Unicode 9 giving
+the emoji block a wide East Asian Width.
+
+There is no current provider to install. xterm offers version 6, the `unicode11` addon adds version
+11, and that is the whole menu. Version 11 fixes the characters above and is still frozen in 2018.
+So the addon supplies the base table, including the zero-width behavior that is combining and
+control rather than a width question, and a generated set of corrections carries it the rest of the
+way. `scripts/generate-char-width.mjs` writes them by comparing the addon against
+`get-east-asian-width`, which is the same data `string-width` reads, so the agreement is by
+construction rather than by hand. It comes to 993 codepoints in 42 ranges, most of them Tangut
+ideographs and CJK strokes, and the ones that matter here are the post-2018 emoji blocks.
+
+Two characters go the other way. `U+1F93B` and `U+1F946` were two columns in 2018 and are one now,
+so the corrections carry a width rather than a widen flag.
+
+Width is read once per codepoint on the output path, so the cost was measured rather than assumed:
+14.2 ms per five million lookups for the base table alone against 37.6 ms with the corrections
+applied, which is 0.075 ms to width a full 200x50 screen. Correctness decided this and speed
+did not.
+
+#### Why the daemon needs the table even though replay would survive without it
+
+Worth stating plainly, because the obvious reason is wrong. Serializing stores characters rather
+than columns, so a screen laid out under the wrong widths is re-wrapped by whoever draws it next
+and arrives looking correct. Replay is not what forces the daemon to match.
+
+What forces it is that the daemon's buffer is a model of the same screen and the daemon reads it.
+Widths decide where a line wraps, wrapping decides how many rows the content occupies, and that
+decides what is still on screen once the rest has scrolled off. `hasRun` is exactly that question,
+counted off a snapshot taken without scrollback, and it is how an adopted session is judged to have
+run something. Twelve two-column characters in a six-column terminal leave half of them on screen
+and half above it. Under a table that calls them one column, nothing has scrolled at all.
+
+Both sides call `installCurrentWidths` from `@tabterm/shared`, before a byte is written. The width
+table is not something one of them can pick up and the other not.
+
 ### What the snapshot must carry
 
 - Grid dimensions
