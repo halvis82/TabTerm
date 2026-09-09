@@ -108,13 +108,33 @@ describe('what logging costs, and what it must still guarantee', () => {
       }
       return performance.now() - t0;
     };
-    const before = oneAtATime();
+    const batched = (): number => {
+      writeFileSync(path, '');
+      const t0 = performance.now();
+      for (let i = 0; i < N; i++) log.info('probe.speed', { i });
+      log.flushLog();
+      return performance.now() - t0;
+    };
 
-    writeFileSync(path, '');
-    const t0 = performance.now();
-    for (let i = 0; i < N; i++) log.info('probe.speed', { i });
-    log.flushLog();
-    const after = performance.now() - t0;
+    /**
+     * Both shapes, alternately, and the median of each.
+     *
+     * One sample of each is a comparison between two different moments rather than between two
+     * pieces of code, and this machine also runs four browsers. Measured once at 73 against a
+     * threshold of 52 while the batched write itself had not changed at all. Alternating puts
+     * both under whatever is happening at the time, and a median throws away the one round that
+     * was interrupted.
+     */
+    const slow: number[] = [];
+    const fast: number[] = [];
+    for (let round = 0; round < 5; round += 1) {
+      writeFileSync(path, '');
+      slow.push(oneAtATime());
+      fast.push(batched());
+    }
+    const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[2] ?? 0;
+    const before = median(slow);
+    const after = median(fast);
 
     // eslint-disable-next-line no-console
     console.log(`    ${String(N)} lines: was ${before.toFixed(0)} ms, now ${after.toFixed(0)} ms`);

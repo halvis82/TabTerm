@@ -118,15 +118,40 @@ r.ok(
   `median ${median.toFixed(1)} ms, worst ${worst.toFixed(1)} ms, budget ${budget.toFixed(1)} ms`,
 );
 
-/** And it is doing that with the accelerated renderer, which is what makes it possible. */
+/**
+ * And it is doing that with the accelerated renderer, which is what makes it possible.
+ *
+ * Two different failures look identical here, and only one of them is about TabTerm. A browser
+ * can refuse a WebGL context altogether, which it does when several are already alive and the
+ * driver runs out: a full run drives four at once, and this failed three times that way while
+ * nothing about the terminal had changed. So the browser is asked first, on a bare canvas of the
+ * suite's own. If it cannot give one to anybody, there is nothing here to measure and saying so
+ * is the honest answer. If it can, and the terminal is not using it, that is a real fault.
+ */
+const canDoWebgl =
+  (await evaluate(
+    client,
+    `(() => {
+       const c = document.createElement('canvas');
+       return (c.getContext('webgl2') ?? c.getContext('webgl')) ? 'yes' : 'no';
+     })()`,
+  )) === 'yes';
+
 const renderers = JSON.parse(
   await evaluate(client, 'JSON.stringify(window.__tabterm.renderers())'),
 );
-r.ok(
-  'and it is drawing with the accelerated renderer',
-  renderers.every((p) => p.webgl === true),
-  JSON.stringify(renderers),
-);
+if (canDoWebgl) {
+  r.ok(
+    'and it is drawing with the accelerated renderer',
+    renderers.every((p) => p.webgl === true),
+    JSON.stringify(renderers),
+  );
+} else {
+  r.skip(
+    'and it is drawing with the accelerated renderer',
+    'this browser cannot make a WebGL context at all, so there is nothing to compare against',
+  );
+}
 
 /**
  * And the work that runs after a scroll settles, which is where the buffer size shows.

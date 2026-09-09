@@ -110,12 +110,19 @@ r.ok(
   );
 
   await realClick(a.client, '.launcher-row-action.is-expand');
-  await sleep(400);
-  r.ok(
-    'and it collapses again, putting the list back',
-    Number(await evaluate(a.client, `document.querySelectorAll('.launcher-transcript').length`)) ===
-      0,
+  /**
+   * Waited for rather than slept through.
+   *
+   * A flat four hundred milliseconds is fine on an idle machine and not on one running four
+   * browsers, and this list redraws whenever the daemon reports anything. It failed once that
+   * way, which reads as the collapse not working and was the assertion arriving first.
+   */
+  const collapsed = await waitFor(
+    a.client,
+    `document.querySelectorAll('.launcher-transcript').length === 0`,
+    8000,
   );
+  r.ok('and it collapses again, putting the list back', collapsed);
 
   /**
    * And expanding does not throw the list back to the top.
