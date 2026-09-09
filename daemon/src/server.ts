@@ -870,6 +870,7 @@ export class DaemonServer {
         // Every session lives in a workspace, even a lone one. That is what makes splitting
         // and detaching operations on one model rather than special cases.
         const { workspace } = this.#workspaces.create(session.id);
+        this.#sessions.noteWorkspaceOwner(client.id, workspace.id);
         const streamId = this.#bind(client, session);
         send(
           client.socket,
@@ -1472,6 +1473,7 @@ export class DaemonServer {
                 : resolved.absolute.slice(0, resolved.absolute.lastIndexOf('/')) || '/';
               const spawned = this.#sessions.create({ cwd: dir, cols: 80, rows: 24 });
               const { workspace } = this.#workspaces.create(spawned.id);
+              this.#sessions.noteWorkspaceOwner(client.id, workspace.id);
               if (this.#launcher.recordDir(dir)) this.launcherChanged();
               send(
                 client.socket,
@@ -1531,6 +1533,7 @@ export class DaemonServer {
           // A new native tab is the default, because that is the whole premise: an agent
           // session is a Chrome tab like any other. See docs/09-agent-integration.md §5.
           const { workspace } = this.#workspaces.create(session.id);
+          this.#sessions.noteWorkspaceOwner(client.id, workspace.id);
           send(
             client.socket,
             controlFrame({
@@ -1818,6 +1821,7 @@ export class DaemonServer {
         });
         if (this.#launcher.recordDir(msg.cwd)) this.launcherChanged();
         const { workspace } = this.#workspaces.create(session.id);
+        this.#sessions.noteWorkspaceOwner(client.id, workspace.id);
         send(
           client.socket,
           controlFrame({
@@ -2435,6 +2439,7 @@ export class DaemonServer {
     const layout = loaded.template.layout;
     const first = spawn(layout ? templateCommandIndex(leftmostTemplatePane(layout)) : 0);
     const { workspace, paneId } = this.#workspaces.create(first.id);
+    this.#sessions.noteWorkspaceOwner(client.id, workspace.id);
     if (layout) this.#realizeTemplate(workspace.id, layout, paneId, spawn);
 
     if (this.#launcher.recordDir(cwd)) this.launcherChanged();
@@ -2574,6 +2579,7 @@ export class DaemonServer {
 
     const firstSession = spawn(first);
     const { workspace, paneId } = this.#workspaces.create(firstSession.id);
+    this.#sessions.noteWorkspaceOwner(client.id, workspace.id);
     const created: { session: Session; pane: (typeof ordered)[number] }[] = [
       { session: firstSession, pane: first },
     ];
@@ -2670,6 +2676,7 @@ export class DaemonServer {
     const count = Math.min(6, Math.max(1, Math.floor(msg.panes)));
     const first = this.#sessions.create({ cwd: target, cols: msg.cols, rows: msg.rows });
     const { workspace } = this.#workspaces.create(first.id);
+    this.#sessions.noteWorkspaceOwner(client.id, workspace.id);
     const rootPane = this.#workspaces.paneFor(workspace, first.id) as string;
 
     /** Another shell in the same directory, for a pane that is about to exist. */

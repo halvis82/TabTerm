@@ -78,12 +78,32 @@ The line is now between two things that were treated as one:
 | | |
 |---|---|
 | **Nobody is reporting**, or a browser has just connected, or an extension is being replaced | Silence. Not an account of anything. The terminal is kept |
-| **A settled browser**, connected and reporting for thirty seconds, with its tabs enumerated, does not list this workspace | A live account of what that browser has. The timeout applies |
+| **A settled browser that had this workspace**, connected and reporting for thirty seconds, with its tabs enumerated, no longer lists it | A live account from the browser that held it. The timeout applies |
+| **A settled browser that never had this workspace** does not list it | It cannot speak about a workspace it never held. Not evidence. The terminal is kept |
 
 Every unsafe case is in the first row. Chrome quitting takes its reporter with it. A crash does the
 same. A browser starting up, or an extension being replaced, produces a short list on the way past,
 which is why a reporter has to have settled before its list counts as complete: it is not that the
 list is wrong, it is that it is not finished.
+
+**A browser may only speak about what it has actually had.** Settling says a list is complete;
+provenance says whose list it is. "No current list contains W, and some browser is settled" is not
+evidence that W closed: it is one browser saying it does not have W, and a browser that never had W
+is not a witness to anything about it. Two Chrome profiles, or two browsers, produce exactly that,
+and the mistake runs in the fatal direction, because a settled stranger was enough to start the
+clock on somebody else's terminal.
+
+A browser is recorded as having had a workspace in two ways, and both are the same claim: it
+positively reported the workspace in an inventory, or it was the browser that asked for the
+workspace to be created. The second matters for the ordinary case, where a tab is closed before any
+poll happens to mention it.
+
+Provenance is kept per **profile**, not per connection. The extension stores a UUID and connects as
+`<uuid>:control`, so the browser survives the reconnect that happens every time the service worker
+sleeps, and only the settling clock restarts. A browser that owned a workspace and disappeared
+without ever reporting its absence contributes nothing at all: it is no longer connected, so it
+cannot be the settled reporter this rule looks for. That is unknown, which keeps the terminal, and
+is deliberately not read as agreement.
 
 **One unsettled reporter withholds the conclusion for everybody.** A second profile still waking up
 knows nothing yet, and its silence must not be read as agreement with the browser that has finished

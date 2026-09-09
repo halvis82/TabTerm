@@ -285,6 +285,20 @@ export class NoDurableHostError extends Error {
   }
 }
 
+/**
+ * Which browser profile a client belongs to.
+ *
+ * The extension stores a UUID and connects as `<uuid>:control` for the reporter and
+ * `<uuid>:<connection>` for each page, so the first segment is the browser and everything after it
+ * is one connection's lifetime. Provenance belongs to the browser: a reconnect is the same Chrome
+ * with the same tabs, and treating it as a stranger would mean a window closed while the service
+ * worker slept could never be recognised.
+ */
+function profileOf(clientId: string): string {
+  const cut = clientId.indexOf(':');
+  return cut === -1 ? clientId : clientId.slice(0, cut);
+}
+
 export class SessionManager {
   readonly #sessions = new Map<string, Session>();
   readonly #config: Config;
@@ -1005,6 +1019,27 @@ export class SessionManager {
   readonly #reporterSince = new Map<string, number>();
 
   /**
+   * Which workspaces each browser has actually told us it had.
+   *
+   * Provenance, and the thing the settling rule on its own does not have. "No current list contains
+   * W, and some reporter is settled" is not evidence that W closed: it is one browser saying it
+   * does not have W, and a browser that never had W cannot speak about it at all. Two Chrome
+   * profiles produce exactly that, and the mistake runs in the fatal direction, because a settled
+   * stranger was enough to start the clock on somebody else's terminal.
+   *
+   * Keyed by profile rather than by connection. The extension stores a UUID in
+   * `chrome.storage.local` and connects as `<uuid>:control`, so the profile survives the reconnect
+   * that happens every time the service worker sleeps; only the settling clock restarts. Keeping
+   * provenance across that is what lets a window closed while the worker was asleep still be
+   * recognised once the browser is awake and settled again.
+   *
+   * Kept when a reporter goes away, because it says what that browser has held rather than what it
+   * holds now, and a browser that is gone contributes nothing regardless: the check below requires
+   * a reporter that is currently connected and settled.
+   */
+  readonly #reporterSeen = new Map<string, Set<string>>();
+
+  /**
    * How long a reporter must have been reporting before its list counts as complete.
    *
    * A field rather than a constant so a test can make a browser settle immediately. The waiting
@@ -1013,10 +1048,44 @@ export class SessionManager {
    */
   settledAfterMs: number = SETTLED_AFTER_MS;
 
+  /**
+   * A browser opened this workspace, which is provenance as strong as reporting it.
+   *
+   * A workspace exists because a tab in some browser asked for it, and that browser plainly had it
+   * at that moment. Without this, the ordinary single-browser case has no provenance until the
+   * next poll happens to mention it, and a tab closed before that poll would leave the workspace
+   * unattributable and its session immortal.
+   */
+  noteWorkspaceOwner(clientId: string, workspaceId: string): void {
+    const profile = profileOf(clientId);
+    let seen = this.#reporterSeen.get(profile);
+    if (seen === undefined) {
+      seen = new Set<string>();
+      this.#reporterSeen.set(profile, seen);
+    }
+    seen.add(workspaceId);
+  }
+
+  /** Which browsers are known to have held this workspace. For tests and for diagnostics. */
+  ownersOf(workspaceId: string): string[] {
+    const out: string[] = [];
+    for (const [profile, seen] of this.#reporterSeen) if (seen.has(workspaceId)) out.push(profile);
+    return out;
+  }
+
   /** Told by each extension, on every tab event and on a poll. */
   reportOpenWorkspaces(clientId: string, ids: readonly string[]): void {
     if (!this.#reporterSince.has(clientId)) this.#reporterSince.set(clientId, Date.now());
     this.#openWorkspaces.set(clientId, new Set(ids));
+    // Everything this browser has ever positively claimed, which is the only basis on which it may
+    // later be believed about the same workspace being gone.
+    const profile = profileOf(clientId);
+    let seen = this.#reporterSeen.get(profile);
+    if (seen === undefined) {
+      seen = new Set<string>();
+      this.#reporterSeen.set(profile, seen);
+    }
+    for (const id of ids) seen.add(id);
     // A session whose tab has come back must lose the clock it was put on, and one whose tab has
     // gone must be given one. Both are just the policy run again.
     for (const session of this.all) this.#rescheduleReapIfIdle(session);
@@ -1142,12 +1211,23 @@ export class SessionManager {
      * session absolutely. And the decision is taken again when the timer fires, by which time a
      * browser that was waking has long since reported.
      */
+    /**
+     * And it must be a browser that had this workspace, not merely a browser that is settled.
+     *
+     * The reporter has to be connected now, settled now, and have positively reported this
+     * workspace at some point as the same profile. That is the whole of "it was here and now it is
+     * not", said by the only party that can say it.
+     *
+     * A browser that owned it and disappeared without ever reporting its absence contributes
+     * nothing: it is not in `#reporterSince` any more, so it cannot be the reporter found here.
+     * That is deliberately unknown rather than agreement.
+     */
     const now = Date.now();
-    let anySettled = false;
-    for (const since of this.#reporterSince.values()) {
-      if (now - since >= this.settledAfterMs) anySettled = true;
+    for (const [clientId, since] of this.#reporterSince) {
+      if (now - since < this.settledAfterMs) continue;
+      if (this.#reporterSeen.get(profileOf(clientId))?.has(workspaceId) === true) return 'closed';
     }
-    return anySettled ? 'closed' : 'unknown';
+    return 'unknown';
   }
 
   /**

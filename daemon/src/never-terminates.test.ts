@@ -91,10 +91,19 @@ let sessions: SessionManager;
 let workspaces: WorkspaceStore;
 
 /** A session that has been used, in a workspace, with nobody attached. The ordinary case. */
-function aWorkingSession(clientId = 'view-1'): { sessionId: string; workspaceId: string } {
+function aWorkingSession(clientId = 'chrome:page-1'): { sessionId: string; workspaceId: string } {
   const session = sessions.create({ cwd: '/tmp', cols: 80, rows: 24 });
   session.hasRun = true;
   const { workspace } = workspaces.create(session.id);
+  /**
+   * The browser that asked for it is recorded as having had it, which is what the server does at
+   * every creation site.
+   *
+   * The harness used to name the tab `view-1` and the reporter `chrome`, which are one browser in
+   * reality and two strangers to a rule about provenance. Sharing a profile is what makes these
+   * tests describe a Chrome rather than a coincidence.
+   */
+  sessions.noteWorkspaceOwner(clientId, workspace.id);
   // Attached and then detached, which is what a tab opening and its socket going away looks like.
   sessions.attach(session, { clientId, cols: 80, rows: 24, onOutput: () => {} });
   sessions.detach(session, clientId);
@@ -386,7 +395,8 @@ describe('a reporter that is still settling', () => {
      */
     sessions.settledAfterMs = 50;
     const ctx = aWorkingSession();
-    sessions.reportOpenWorkspaces('settled-chrome', []);
+    // The same browser that opened it, which is the one whose absence means anything.
+    sessions.reportOpenWorkspaces('chrome:control', []);
     await sleep(120);
 
     // And now a second browser connects, one millisecond old, with nothing to say yet.
@@ -435,7 +445,7 @@ describe('the daemon asking again on its own clock', () => {
     sessions.settledAfterMs = 200;
     const ctx = aWorkingSession();
     // One report, from a reporter too new to be believed, and then silence.
-    sessions.reportOpenWorkspaces('chrome-then-sleeps', []);
+    sessions.reportOpenWorkspaces('chrome:control', []);
     await sleep(60);
     expect(backend.kills).toEqual([]);
 
@@ -488,5 +498,67 @@ describe('which connection may shape the tab lifecycle', () => {
       );
       expect(guardAt).toBeLessThan(actAt);
     }
+  });
+});
+
+describe('a reporter has authority only over what it has actually seen', () => {
+  /**
+   * Provenance, which the settling rule on its own does not have.
+   *
+   * "No current list contains W, and some reporter is settled" is not evidence that W closed. It
+   * is evidence that **one** browser does not have W, and a browser that has never had W cannot
+   * say anything about it. Two Chrome profiles, or two browsers, produce exactly that: profile A
+   * settles, reports what it has, and its list has never mentioned anything belonging to B.
+   *
+   * The direction of the mistake is what makes it serious. A settled stranger is enough to start
+   * the clock on somebody else's terminal.
+   */
+  it('does not let a settled stranger authorise closing a workspace it never reported', async () => {
+    const { sessionId, workspaceId } = aWorkingSession();
+
+    // Profile B has the workspace and says so. This is the only reporter with any provenance here.
+    sessions.reportOpenWorkspaces('profile-b', [workspaceId]);
+    // Profile A is a different Chrome that has never held this workspace, and it is settled.
+    sessions.settledAfterMs = 0;
+    sessions.reportOpenWorkspaces('profile-a', []);
+
+    // B's control connection drops, which happens whenever its service worker sleeps. The tab is
+    // still there; nothing about B's socket says otherwise.
+    sessions.forgetReporter('profile-b');
+    // A keeps reporting what it has, which is still nothing to do with W.
+    sessions.reportOpenWorkspaces('profile-a', []);
+
+    await sleep(WELL_PAST_EVERY_TIMER);
+    expect(
+      backend.kills.filter((k) => k.sessionId === sessionId),
+      'a browser that never reported this workspace cannot prove it closed',
+    ).toEqual([]);
+  });
+
+  it('still lets the reporter that did have it say it is gone', async () => {
+    // The feature that must survive the fix: one Chrome, one window closed, the same reporter
+    // still alive and now giving a complete list without it.
+    const { sessionId, workspaceId } = aWorkingSession();
+    sessions.settledAfterMs = 0;
+    sessions.reportOpenWorkspaces('profile-b', [workspaceId]);
+    sessions.reportOpenWorkspaces('profile-b', []);
+
+    await untilKilled(sessionId);
+    expect(
+      backend.kills.map((k) => k.sessionId),
+      'a window close proven by the reporter that owned it must still work',
+    ).toContain(sessionId);
+  });
+
+  it('treats an owner that vanished before saying so as unknown, not as agreement', async () => {
+    // The other half of provenance. B had it, B never said it went, B is gone. Nobody knows.
+    const { sessionId, workspaceId } = aWorkingSession();
+    sessions.settledAfterMs = 0;
+    sessions.reportOpenWorkspaces('profile-b', [workspaceId]);
+    sessions.reportOpenWorkspaces('profile-a', []);
+    sessions.forgetReporter('profile-b');
+
+    await sleep(WELL_PAST_EVERY_TIMER);
+    expect(backend.kills.filter((k) => k.sessionId === sessionId)).toEqual([]);
   });
 });
