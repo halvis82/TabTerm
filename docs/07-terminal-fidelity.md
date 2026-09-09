@@ -6,6 +6,17 @@ TabTerm must behave like a modern terminal emulator. Anything less and it is a t
 
 ## 1. The byte path
 
+**When typing is dropped, the terminal says so.** The queue for an absent host is bounded, and the
+last thing it gives up is somebody's input. That is the right order to give things up in, and it is
+still a loss that only the person typing can put right: the shell carries on, and the next thing
+typed lands against a command line that is not what its author believes it is.
+
+There was a record of it and no way for anybody to see it. The ids were collected, a line went into
+the log, and the method that returned them had no caller in the product. So the notice is now
+written into the session's own stream, the same way a failed spawn is: it reaches the screen, the
+scrollback, and any tab that attaches later.
+
+
 ```
 process → PTY → daemon → VT state machine + scrollback → coalesce → WebSocket → xterm.js
 ```

@@ -292,13 +292,47 @@ export class PtyHostClient {
    * deliver the same bytes twice.
    */
   reconciled(): void {
-    if (!this.#reconciling) return;
-    this.#reconciling = false;
-    clearTimeout(this.#reconcileTimer);
-    const held = this.#held.sort((a, b) => a.seq - b.seq);
-    this.#held = [];
-    this.#heldBytes = 0;
-    for (const frame of held) this.#deliver(frame.sessionId, frame.data, frame.seq);
+    if (this.#reconciling) {
+      this.#reconciling = false;
+      clearTimeout(this.#reconcileTimer);
+      const held = this.#held.sort((a, b) => a.seq - b.seq);
+      this.#held = [];
+      this.#heldBytes = 0;
+      for (const frame of held) this.#deliver(frame.sessionId, frame.data, frame.seq);
+    }
+    /**
+     * Outside the guard on purpose.
+     *
+     * Catching up may have nothing to do, and input may still have been lost: a queue can overflow
+     * during an outage that never reached the point of a fresh connection. Somebody whose typing
+     * was dropped is told either way.
+     */
+    this.#announceLostInput();
+  }
+
+  /**
+   * Tell each affected terminal that some of what was typed into it never arrived.
+   *
+   * There was a record of this and no way for anybody to see it: the ids were collected, a line
+   * went into the log, and `takeLostInput` had no caller anywhere. A log entry is not error
+   * handling for something only the person typing can put right, and the failure is silent in the
+   * worst way, because the shell carries on and the next thing typed lands against a command line
+   * that is not what its author thinks it is.
+   *
+   * Written into the session's own stream, which is how everything else here says something to a
+   * person: it reaches the screen, the scrollback, and any tab that attaches later. Sequence zero
+   * because it is not host output and must not move this session's position in the host's stream.
+   */
+  #announceLostInput(): void {
+    for (const sessionId of this.takeLostInput()) {
+      warn('pty-host.input-lost-announced', { sessionId });
+      const notice = Buffer.from(
+        '\r\n\u001b[31m[TabTerm: some of what you typed was not delivered while the terminal ' +
+          'service was unavailable. Check the line above before running it.]\u001b[0m\r\n',
+        'utf8',
+      );
+      for (const fn of this.#dataListeners) fn(sessionId, notice, 0);
+    }
   }
 
   /** Where a session's output has reached, for a daemon deciding what to ask for. */
