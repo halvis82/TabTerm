@@ -107,3 +107,101 @@ describe('which store files are actually resumable', () => {
     expect(rows[0]?.sessionId).toBe('recorded-as-another');
   });
 });
+
+describe('sessions a program wrote, rather than a person', () => {
+  /**
+   * Claude Code records how it was started, and sessions driven through its SDK land in the same
+   * store as sessions somebody typed. On a real machine 123 of 161 stored sessions belonged to one
+   * plugin, all of them newer than any real work, so they took every row in the launcher.
+   */
+  const line = (o: Record<string, unknown>) => `${JSON.stringify(o)}\n`;
+
+  it('does not offer a session the agent started for itself', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'tt-store-'));
+    const project = await mkdtemp(join(tmpdir(), 'tt-proj-'));
+    const dir = join(home, project.replaceAll('/', '-'));
+    await mkdir(dir, { recursive: true });
+
+    await writeFile(
+      join(dir, 'typed.jsonl'),
+      line({ type: 'user', sessionId: 'typed', entrypoint: 'cli' }),
+    );
+    await writeFile(
+      join(dir, 'generated.jsonl'),
+      line({ type: 'user', sessionId: 'generated', entrypoint: 'sdk-ts' }),
+    );
+
+    const rows = await listResumable({ store: home, knownDirs: [project], limit: 10 });
+    expect(rows.map((r) => r.sessionId)).toEqual(['typed']);
+  });
+
+  it('still offers one too old to say how it started', async () => {
+    // Sessions written by earlier versions carry no entrypoint at all. Hiding real work because a
+    // field is missing is the worse mistake of the two, so anything unrecognised is kept.
+    const home = await mkdtemp(join(tmpdir(), 'tt-store-'));
+    const project = await mkdtemp(join(tmpdir(), 'tt-proj-'));
+    const dir = join(home, project.replaceAll('/', '-'));
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'old.jsonl'), line({ type: 'user', sessionId: 'old' }));
+
+    const rows = await listResumable({ store: home, knownDirs: [project], limit: 10 });
+    expect(rows.map((r) => r.sessionId)).toEqual(['old']);
+  });
+
+  it('fills the list with real sessions even when the generated ones are newer', async () => {
+    /**
+     * The property that matters, and the one a filter applied after the slice would fail.
+     *
+     * Generated sessions are written continuously, so they are always the newest. Taking the first
+     * `limit` and then dropping them returns a nearly empty list while real sessions sit just
+     * below the cut.
+     */
+    const home = await mkdtemp(join(tmpdir(), 'tt-store-'));
+    const project = await mkdtemp(join(tmpdir(), 'tt-proj-'));
+    const dir = join(home, project.replaceAll('/', '-'));
+    await mkdir(dir, { recursive: true });
+
+    for (let i = 0; i < 6; i++) {
+      await writeFile(
+        join(dir, `real-${i}.jsonl`),
+        line({ type: 'user', sessionId: `real-${i}`, entrypoint: 'cli' }),
+      );
+    }
+    // Written afterwards, so every one of them is newer than every real session.
+    for (let i = 0; i < 20; i++) {
+      await writeFile(
+        join(dir, `bot-${i}.jsonl`),
+        line({ type: 'user', sessionId: `bot-${i}`, entrypoint: 'sdk-ts' }),
+      );
+    }
+
+    const rows = await listResumable({ store: home, knownDirs: [project], limit: 5 });
+    expect(rows).toHaveLength(5);
+    expect(rows.every((r) => r.sessionId.startsWith('real-'))).toBe(true);
+  });
+
+  it('labels a session with the title the agent kept, not the first thing typed', async () => {
+    // The title is rewritten as the work moves on, so the last one is the one that describes the
+    // session. The first prompt is often a pasted path, or a question whose subject only became
+    // clear later.
+    const home = await mkdtemp(join(tmpdir(), 'tt-store-'));
+    const project = await mkdtemp(join(tmpdir(), 'tt-proj-'));
+    const dir = join(home, project.replaceAll('/', '-'));
+    await mkdir(dir, { recursive: true });
+
+    await writeFile(
+      join(dir, 'titled.jsonl'),
+      line({
+        type: 'user',
+        sessionId: 'titled',
+        entrypoint: 'cli',
+        message: { content: '/Users/x/notes.md talk to me' },
+      }) +
+        line({ type: 'ai-title', aiTitle: 'an early guess' }) +
+        line({ type: 'ai-title', aiTitle: 'Rework the payment retry' }),
+    );
+
+    const rows = await listResumable({ store: home, knownDirs: [project], limit: 10 });
+    expect(rows[0]?.summary).toBe('Rework the payment retry');
+  });
+});

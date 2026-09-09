@@ -1,7 +1,7 @@
 import { readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
-import { readHead } from './file-slice.js';
+import { readHead, readTail } from './file-slice.js';
 import { debug } from './log.js';
 
 /**
@@ -43,6 +43,51 @@ const DEFAULT_STORE = join(homedir(), '.claude', 'projects');
  * read rather than becoming a scan.
  */
 const HEAD_BYTES = 128 * 1024;
+
+/**
+ * Enough to reach the record that says how the session was started.
+ *
+ * Measured rather than guessed: across a store of 161 files the furthest `entrypoint` sat at byte
+ * 468. It is read on its own, before anything larger, because most of what a busy store holds is
+ * rejected on this field alone and there is no reason to pay a 128 KB read to throw a file away.
+ */
+const ENTRY_BYTES = 8 * 1024;
+
+/**
+ * How much of the end of a file to read looking for the title the agent wrote for itself.
+ *
+ * From the end because that is where it is. The record is rewritten as a session goes on, so the
+ * useful one is the last, and in a 97 MB transcript it sat 21 KB from the end.
+ */
+const TAIL_BYTES = 64 * 1024;
+
+/**
+ * Entrypoints that are not a person at a terminal.
+ *
+ * Claude Code records how it was started, and sessions driven through its SDK are written to the
+ * same store as sessions somebody typed. They are not work anyone would resume: they are a
+ * program's own conversations, they are generated continuously, and they are numerous enough to
+ * bury everything else. On this machine 123 of 161 stored sessions were `sdk-ts`, all of them
+ * belonging to one plugin.
+ *
+ * Matched on the prefix, so a future `sdk-py` is covered without another release. Anything else,
+ * including an entrypoint this does not recognise and a file too old to carry the field at all, is
+ * kept: a session hidden from the list is worse than one shown, and only this one thing is known
+ * to be machine-made.
+ */
+function startedByAProgram(entrypoint: string | null): boolean {
+  return entrypoint !== null && entrypoint.startsWith('sdk');
+}
+
+/**
+ * How far down the sorted candidates to look before giving up on filling the list.
+ *
+ * Generous on purpose. Machine-made sessions are written continuously, so they are all newer than
+ * the real work and sit ahead of it: a tight bound here does not save time, it just returns a
+ * short list. The walk stops the moment the list is full, so this ceiling is only reached by a
+ * store that really is mostly machine-made, and it costs one 8 KB read per file to establish that.
+ */
+const MAX_INSPECTED = 500;
 
 /**
  * The store's directory naming: a path with every separator replaced by a hyphen.
@@ -138,7 +183,24 @@ export async function listResumable(options?: {
   }
 
   found.sort((a, b) => b.session.modifiedAt - a.session.modifiedAt);
-  const top = found.slice(0, limit);
+
+  /**
+   * Filled by walking the sorted list, rather than by taking the first `limit` and filtering it.
+   *
+   * Filtering after the slice would not work here. The machine-made sessions are the newest ones,
+   * being written continuously, so they take every slot and are then dropped, and the list comes
+   * back nearly empty of anything real.
+   *
+   * The walk stops as soon as the list is full, so an ordinary store costs `limit` small reads.
+   * `MAX_INSPECTED` bounds the other end, where a store holds thousands of machine-made sessions
+   * and little else: that yields a short list rather than an unbounded scan.
+   */
+  const top: typeof found = [];
+  for (const candidate of found.slice(0, MAX_INSPECTED)) {
+    if (top.length >= limit) break;
+    if (startedByAProgram(await readEntrypoint(candidate.session.path ?? ''))) continue;
+    top.push(candidate);
+  }
 
   // Only the ones actually being offered get read, so a large store costs a stat per file and
   // a read per visible chip. The store directory is carried along rather than recomputed,
@@ -157,9 +219,18 @@ export async function listResumable(options?: {
   const described = await Promise.all(
     top.map(async ({ session, storeDir }) => {
       const path = join(STORE, storeDir, `${session.sessionId}.jsonl`);
-      const [summary, recordedId] = await Promise.all([readSummary(path), readSessionId(path)]);
+      const [title, summary, recordedId] = await Promise.all([
+        readTitle(path),
+        readSummary(path),
+        readSessionId(path),
+      ]);
       if (recordedId === null) return null;
-      if (summary) session.summary = summary;
+      // The agent's own title first: a few words describing the session as a whole, kept current
+      // as the work moves on, which is what somebody scanning a list needs. The first thing typed
+      // is the fallback, and a weak one. It is often a pasted path, or a request whose subject
+      // only became clear later.
+      const label = title ?? summary;
+      if (label) session.summary = label;
       session.sessionId = recordedId;
       return session;
     }),
@@ -209,6 +280,65 @@ async function readSessionId(path: string): Promise<string | null> {
     debug('agent-sessions.id.unreadable', { path });
   }
   return null;
+}
+
+/**
+ * How the session was started, as the store records it, or null when it does not say.
+ *
+ * Deliberately a separate, small read. It runs against every candidate, including the many that
+ * are about to be rejected, so it stays cheap; the expensive reads happen only for rows that will
+ * actually be offered.
+ */
+async function readEntrypoint(path: string): Promise<string | null> {
+  if (path === '') return null;
+  try {
+    const head = await readHead(path, ENTRY_BYTES);
+    for (const line of head.split('\n')) {
+      if (!line.startsWith('{')) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const entry = (parsed as Record<string, unknown>)['entrypoint'];
+      if (typeof entry === 'string' && entry !== '') return entry;
+    }
+  } catch {
+    debug('agent-sessions.entrypoint.unreadable', { path });
+  }
+  return null;
+}
+
+/**
+ * The title the agent wrote for the session, or null.
+ *
+ * Read from the end, because the record is rewritten as the work moves on and only the last one
+ * describes what the session became. A partial line at the head of a tail read is expected and is
+ * skipped like any other unparseable line.
+ */
+async function readTitle(path: string): Promise<string | null> {
+  try {
+    const tail = await readTail(path, TAIL_BYTES);
+    let latest: string | null = null;
+    for (const line of tail.split('\n')) {
+      if (!line.startsWith('{')) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const record = parsed as Record<string, unknown>;
+      if (record['type'] !== 'ai-title') continue;
+      const title = record['aiTitle'];
+      if (typeof title === 'string' && title.trim() !== '') latest = title.trim();
+    }
+    return latest === null ? null : latest.replace(/\s+/g, ' ').slice(0, 100);
+  } catch {
+    debug('agent-sessions.title.unreadable', { path });
+    return null;
+  }
 }
 
 async function readSummary(path: string): Promise<string | null> {

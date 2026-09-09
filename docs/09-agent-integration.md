@@ -255,6 +255,44 @@ The same rule governs the rest of the launcher: recent folders that have been de
 dropped from the list and from the table, and a saved workspace whose directories are all gone
 is not offered for reopening.
 
+### Sessions a program wrote, rather than a person
+
+Claude Code records how each session was started, and sessions driven through its SDK are written
+to the same store as sessions somebody typed. They are not work anyone would resume: they are a
+program's own conversations, held with itself, and they are generated continuously. On one real
+machine 123 of 161 stored sessions were `sdk-ts`, every one of them belonging to a single plugin,
+and all of them newer than any real work. They filled the launcher and left nothing else visible.
+
+**An entrypoint beginning `sdk` is not offered.** Matched on the prefix, so a later `sdk-py` needs
+no release. Everything else is kept, including an entrypoint the daemon does not recognise and a
+file too old to carry the field: a real session hidden from the list is a worse failure than an
+odd one shown, and this is the only category known to be machine-made.
+
+The field sits within the first half kilobyte of a file, so it is read on its own, ahead of
+anything larger. Rejecting a session costs an 8 KB read; the expensive reads happen only for rows
+that will actually be offered.
+
+**The check happens while the list is filled, not after it is cut.** Machine-made sessions are the
+newest, so taking the newest `limit` and then filtering returns an almost empty list with real work
+sitting just below the cut. The walk down the sorted candidates stops as soon as the list is full.
+
+Codex needs no equivalent. Its store records an originator, and every value seen there is a person
+at a terminal or at the desktop app.
+
+### A session is labeled with the title the agent kept
+
+Claude Code writes a short title for each session and rewrites it as the work moves on, so the last
+one describes what the session became. That is what a row shows.
+
+The first thing typed is the fallback, and a weak one: it is often a pasted file path, or a request
+whose subject only became clear later. `/Users/me/Downloads/TabTerm.md talk to me. go through this
+thoroughly` was a real row; the title for the same session was `Review TabTerm project plan and
+feasibility`.
+
+The title is read from the **end** of the file, because that is where the current one is. In a
+97 MB transcript it sat 21 KB from the end. Codex writes no such record, so its rows keep the first
+prompt.
+
 ### Reading somebody else's format
 
 Two formats, and they agree on nothing. The Codex store states the working directory in its
