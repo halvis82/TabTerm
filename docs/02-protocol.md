@@ -75,8 +75,8 @@ Rules, all enforced:
 | `clear-scrollback` | `sessionId` | Drops every stored copy, not just the screen |
 | `list-live-sessions` | | Sessions that have run something, with a preview of their screen |
 | `complete-path` | `partial` | Directory completion. The daemon reads the filesystem; a page cannot |
-| `check-folder` | `path` | Is that folder there? Same reason as above: only the daemon can look |
-| `create-folder` | `path` | Make it, then answer as `check-folder` would |
+| `check-folder` | `path`, `checkId?` | Is that folder there? Same reason as above: only the daemon can look. `checkId` names the question |
+| `create-folder` | `path`, `checkId?` | Make it, then answer as `check-folder` would |
 | `get-scrollback-budget` / `set-scrollback-budget` | `bytes` | Clamped to 1 MB..50 MB |
 | `tabs-open` | `workspaceIds[]` | Which workspaces Chrome still has a tab for. The daemon cannot see Chrome and a dropped socket is not a closed tab. See `04-session-lifecycle.md` §4 |
 | `list-resumable` | `cwd?`, `limit?` | Agent conversations that could be picked up. Both stores, filtered to what would work |
@@ -112,7 +112,7 @@ Rules, all enforced:
 | `scrollback-budget` | `bytes` | After a get or a set |
 | `live-sessions` | `sessions[]` | Each with `attached`, `busy` and a `preview`. See §4.1 |
 | `path-completion` | `partial`, `completed`, `matches[]` | `partial` is echoed so a stale answer can be dropped |
-| `folder-checked` | `path`, `exists`, `isFile?`, `error?` | `path` is echoed for the same reason. A folder that is not there is an answer, not an error |
+| `folder-checked` | `path`, `exists`, `isFile?`, `error?`, `checkId?` | `path` and `checkId` are both echoed. A folder that is not there is an answer, not an error |
 | `resumable-sessions` | `sessions[]` | Each with `agent`, `cwd`, `modifiedAt` and a `summary?`. Never contains one that would fail |
 | `pane-detached` | `workspaceId`, `newWorkspaceId` | The tab opens the new workspace beside itself |
 | `error` | `code`, `message`, `context?` | Never a bare string |
@@ -134,6 +134,20 @@ presenting it, because the daemon serves one list to every connection and cannot
 is asking.
 
 ---
+
+
+**Why `folder-checked` echoes an id and not only the path.** The path alone cannot tell two
+questions apart, and two questions about one path is an ordinary thing to produce: type a path,
+change it, type the same path again. Both answers then match the box, and the older one arriving
+last replaces a current reading of the disk with a stale one, which sticks. The line under the box
+says a folder is missing when it is there and offers to create it.
+
+The asker names each question and ignores answers to any question but the current one. The daemon
+echoes what it was given and has no opinion, because only the asker knows which question it still
+cares about. The field is optional in both directions: an answer carrying no id is believed, so a
+daemon that does not echo one leaves the box working rather than permanently blank.
+
+This is the same defect, and the same fix, as the request ids on the PTY host protocol.
 
 ## 5. Flow control
 

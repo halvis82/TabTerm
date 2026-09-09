@@ -1157,6 +1157,7 @@ export class DaemonServer {
                   path: msg.path,
                   exists: false,
                   error: causeOf(e),
+                  ...(msg.checkId === undefined ? {} : { checkId: msg.checkId }),
                 }),
               );
               return;
@@ -1180,6 +1181,9 @@ export class DaemonServer {
               path: msg.path,
               exists,
               ...(isFile ? { isFile } : {}),
+              // Echoed rather than decided here: the daemon has no way to know which question is
+              // the current one, and the asker is the only thing that does.
+              ...(msg.checkId === undefined ? {} : { checkId: msg.checkId }),
             }),
           );
         })().catch(() => {

@@ -66,8 +66,8 @@ export interface LauncherOptions {
   /** Ask the daemon to complete a folder path. The answer arrives via pathCompletion(). */
   onCompletePath: (partial: string) => void;
   /** Ask whether a folder is there, as it is typed. The answer arrives via folderChecked(). */
-  onCheckFolder: (path: string) => void;
-  onCreateFolder: (path: string) => void;
+  onCheckFolder: (path: string, checkId: string) => void;
+  onCreateFolder: (path: string, checkId: string) => void;
   onCloseSession: (session: LiveSession) => void;
   onForgetRestorable: (workspaceId: string) => void;
   onOpenServer: (port: number) => void;
@@ -111,6 +111,23 @@ const MAX_EXPANDED = 15;
  * open. It is what the control is worth, not what is currently missing: a section that is already
  * open still needs its control, to close again. Zero means no control belongs there at all.
  */
+/**
+ * Whether a folder answer belongs to the question currently being asked.
+ *
+ * Out here because the rule is easy to state and was easy to get wrong. Matching on the path was
+ * the original rule and it is not enough: a path typed, replaced and typed again leaves two
+ * questions in flight about the same text, both answers match the box, and the older arriving last
+ * replaces a current reading of the disk with a stale one. The wrong answer then sticks, so the
+ * line under the box says a folder is missing when it is there, and offers to create it.
+ *
+ * An answer with no id at all is accepted. The field is additive, and an older daemon that does
+ * not echo it must not leave the box permanently blank.
+ */
+export function answersCurrentQuestion(replyId: string | undefined, currentId: string): boolean {
+  if (replyId === undefined) return true;
+  return replyId === currentId;
+}
+
 export function listWindow(
   total: number,
   collapsed: number,
@@ -393,8 +410,30 @@ export class Launcher {
    * Answered against the text that was asked about, so a reply to a keystroke that has since
    * been replaced is discarded rather than shown against something else.
    */
-  folderChecked(reply: { path: string; exists: boolean; isFile?: boolean; error?: string }): void {
+  folderChecked(reply: {
+    path: string;
+    exists: boolean;
+    isFile?: boolean;
+    error?: string;
+    checkId?: string;
+  }): void {
     if (this.#dirInput === null) return;
+
+    /**
+     * An answer to a question that has been superseded, even when it is about the same path.
+     *
+     * Matching on the path alone was not enough. A path typed, replaced, and typed again leaves
+     * two questions in flight about the same text; both answers match the box, and the older one
+     * arriving last replaces a current reading of the disk with a stale one. The window is small
+     * and the wrong answer is sticky: the line under the box then says a folder is not there when
+     * it is, and offers to create it.
+     *
+     * Dropped rather than re-asked, which is the difference from the case below. Something newer
+     * is already in flight, so asking again would add a third question to a queue whose whole
+     * problem is that it has more than one.
+     */
+    if (!answersCurrentQuestion(reply.checkId, this.#checkId)) return;
+
     // Compared against what was asked, which is the resolved form: the box may say `Documents`
     // while the question was about `~/Documents`.
     if (this.#resolved(this.#dirInput.value) !== reply.path) {
@@ -456,7 +495,9 @@ export class Launcher {
      * made the folder somewhere nobody was looking, or failed silently. Every other question
      * asked about this box is resolved first, and this one was the exception.
      */
-    make.addEventListener('click', () => this.#opts.onCreateFolder(this.#resolved(typed)));
+    make.addEventListener('click', () =>
+      this.#opts.onCreateFolder(this.#resolved(typed), this.#newCheckId()),
+    );
     slot.append(label, make);
   }
 
@@ -616,7 +657,7 @@ export class Launcher {
     const asked = this.#resolved(typed);
     this.#checkTimer = window.setTimeout(() => {
       this.#awaitingFolderState = asked;
-      this.#opts.onCheckFolder(asked);
+      this.#opts.onCheckFolder(asked, this.#newCheckId());
     }, 260);
   }
 
@@ -1926,6 +1967,21 @@ export class Launcher {
 
   /** Conversations dismissed from this list, which stay dismissed. */
   #hiddenResumes = new Set<string>();
+
+  /**
+   * Which folder question is the current one.
+   *
+   * Only the newest matters. An answer carrying any other id is an answer to a question that has
+   * been replaced, whatever path it names.
+   */
+  #checkId = '';
+  #checkSeq = 0;
+
+  #newCheckId(): string {
+    this.#checkSeq += 1;
+    this.#checkId = `c${String(this.#checkSeq)}`;
+    return this.#checkId;
+  }
 
   /**
    * Which sections have been opened out, by the key the more-row uses.

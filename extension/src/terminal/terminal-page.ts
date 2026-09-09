@@ -2604,8 +2604,8 @@ function buildLauncher(): void {
 
   launcher = new Launcher({
     root: overlay,
-    onCheckFolder: (path) => client?.send({ t: 'check-folder', path }),
-    onCreateFolder: (path) => client?.send({ t: 'create-folder', path }),
+    onCheckFolder: (path, checkId) => client?.send({ t: 'check-folder', path, checkId }),
+    onCreateFolder: (path, checkId) => client?.send({ t: 'create-folder', path, checkId }),
     onChooseDir: (path) => {
       // Send a real `cd` rather than restarting the session: the shell you are already in is
       // the one you want, just somewhere else.

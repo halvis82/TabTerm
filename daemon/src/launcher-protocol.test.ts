@@ -270,6 +270,37 @@ describe('the folder box asks the daemon whether a folder is there', () => {
     c.close();
   });
 
+  it('echoes which question it is answering, so a stale answer can be spotted', async () => {
+    /**
+     * The path is not enough to tell two questions apart.
+     *
+     * Somebody types a path, changes it, and types the same path again. Two answers are then in
+     * flight, both matching the box, and the older arriving last replaces a current reading of the
+     * disk with a stale one. The wrong answer sticks: the line under the box says the folder is
+     * missing when it is there, and offers to create it.
+     */
+    const c = await Client.connect();
+    c.send({ t: 'check-folder', path: scratch, checkId: 'q-42' });
+    const msg = (await c.waitFor('folder-checked')) as unknown as {
+      exists: boolean;
+      checkId?: string;
+    };
+
+    expect(msg.exists).toBe(true);
+    expect(msg.checkId).toBe('q-42');
+    c.close();
+  });
+
+  it('says nothing about it when nothing was asked, so an older client still works', async () => {
+    // The field is additive. A client that does not send one must not receive one, and must not
+    // be left with an answer it cannot match.
+    const c = await Client.connect();
+    c.send({ t: 'check-folder', path: scratch });
+    const msg = (await c.waitFor('folder-checked')) as unknown as { checkId?: string };
+    expect(msg.checkId).toBeUndefined();
+    c.close();
+  });
+
   it('tells a file apart from a folder', async () => {
     // Both are "something is there", and only one of them can be opened as a working directory.
     const file = join(scratch, 'a-file');

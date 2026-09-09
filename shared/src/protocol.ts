@@ -370,11 +370,21 @@ export type ClientMessage =
       /** Does this folder exist? Asked as somebody types, so the answer can be shown live. */
       t: 'check-folder';
       path: string;
+      /**
+       * Which question this is, echoed back on the answer.
+       *
+       * The path is not enough to tell two questions apart, because the same path can be asked
+       * about twice: typed, replaced, and typed again. Both answers then match, and the older one
+       * arriving last overwrites the newer with a stale reading of the disk.
+       */
+      checkId?: string;
     }
   | {
       /** Make it, then say whether it is there. Only ever a folder, never a file. */
       t: 'create-folder';
       path: string;
+      /** As `check-folder`: which question this is, echoed back on the answer. */
+      checkId?: string;
     }
   | {
       /**
@@ -848,6 +858,14 @@ export type ServerMessage =
       t: 'folder-checked';
       /** Exactly the text that was asked about, so a late answer to an old keystroke is ignored. */
       path: string;
+      /**
+       * The `checkId` of the question this answers, when it carried one.
+       *
+       * The path alone cannot separate two questions about the same path, which happens whenever
+       * somebody types a path, changes it, and types it again. Both answers match the box, and the
+       * older one arriving last replaces a current reading of the disk with a stale one.
+       */
+      checkId?: string;
       exists: boolean;
       /** Set when the path is there but is a file, which is a different thing to say. */
       isFile?: boolean;

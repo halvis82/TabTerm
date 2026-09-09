@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { listWindow, shorten } from './launcher.js';
+import { answersCurrentQuestion, listWindow, shorten } from './launcher.js';
 
 describe('path display', () => {
   const home = '/Users/someone';
@@ -38,5 +38,25 @@ describe('how much of a list to draw', () => {
 
   it('never draws past the ceiling, however much the daemon sent', () => {
     expect(listWindow(400, 6, true).shown).toBe(15);
+  });
+});
+
+describe('which folder answer to believe', () => {
+  /**
+   * The path was the only thing matched on, and two questions can share a path: typed, replaced,
+   * and typed again. Both answers match, and the older arriving last is the one that sticks.
+   */
+  it('takes the answer to the question being asked', () => {
+    expect(answersCurrentQuestion('c7', 'c7')).toBe(true);
+  });
+
+  it('drops an answer to a question that has been replaced, same path or not', () => {
+    expect(answersCurrentQuestion('c6', 'c7')).toBe(false);
+  });
+
+  it('still takes an answer from a daemon that does not echo the id', () => {
+    // The field is additive. An older daemon that ignores it must not leave the line under the box
+    // blank for good, which is worse than the race it is there to prevent.
+    expect(answersCurrentQuestion(undefined, 'c7')).toBe(true);
   });
 });
