@@ -683,33 +683,37 @@ line wraps somewhere else. The snapshot carries its dimensions and they were ign
 now set to them before the screen is written, and measured back afterwards, which is the same
 thing that happens when a window is dragged.
 
-### And the application is asked to draw itself again
+### And the screen is asked for again
 
-After a screen that had something on it is restored, the size is nudged by a row and put back. A
-size change is the one thing every terminal application treats as "you know nothing, draw it all
-again", which is the only way to clear a divergence that has already happened. It is what tmux
-does on reattach, for the same reason.
+After a screen that had something on it is restored, and again when a tab becomes visible after a
+minute or more out of sight, the page asks the daemon to send that pane's screen again. The daemon
+holds the authoritative copy, so handing it over is both correct and completely invisible to the
+program: no signal, no resize, nothing it can observe.
 
 Never for a screen that came back empty. A session created a moment ago gets a snapshot too, and
-nudging there is two size changes arriving exactly while a template is waiting for a prompt to
-type its command into.
+there is nothing to put right.
 
-### And again after a tab has been away for a long time
+A minute is what keeps the second case from being its own defect. Flicking between two tabs is
+constant; a tab nobody has looked at since before the window was last resized is where a stale
+picture actually comes from.
 
-The same nudge runs when a tab becomes visible after a minute or more out of sight. A full-screen
-program draws only what it believes changed, so once its picture and the terminal's have parted
-company nothing brings them back on its own: the size is already right, so no size change is
-sent, so nothing repaints. A tab opened after five hours showed an agent drawn across a third of
-the window with the rest blank, and reloading the page was the only way out.
+#### It used to ask the program instead, and that was destroying agents
 
-A minute is what keeps this from being its own defect. Flicking between two tabs is constant and
-repainting an agent every time would be worse than the fault; a tab nobody has looked at since
-before the window was last resized is where a stale picture actually comes from.
+The size was nudged down a row and put back, which is what tmux does on reattach and which every
+terminal program treats as "you know nothing, draw it all again". It is safe for a shell, which
+draws forwards from a prompt and never revisits what it wrote.
 
-This is checked against **what the daemon applied**, not against the grid on screen. A page follows
-a size only when it is overruled, and a nudge is that page's own request, so the daemon agrees and
-the grid never moves. The first check watched the grid and passed with the entire restore deleted,
-which is a check that cannot fail and therefore is not one.
+It is ruinous for anything that redraws in place. Measured in one Claude Code session that came out
+unreadable: **21,881** cursor-up sequences, **five** erase-downs, **no** absolute cursor positioning
+and **no** alternate screen. That program redraws by moving the cursor up over its own last frame
+and writing on top of it. A row-shrink scrolls the buffer underneath that frame, so every redraw
+afterwards lands a row out, overwrites the wrong lines, and leaves the previous frame's fragments
+behind. The daemon's log for that session shows nine of these over twenty-four minutes, each one
+195x44, 195x43, 195x44 inside a single second.
+
+The check for this in `steady-size` used to assert that a woken tab **does** change the size, which
+is the bug written down as a requirement. It asserts the opposite now, and fails against the old
+code with `48x22 48x22 48x23 48x23`.
 
 ## A size is only ever asked for once it has been measured
 

@@ -3123,12 +3123,15 @@ function repaintAfterRestore(paneId: string, screen: string): void {
    * deal worse than the thing this exists to fix.
    */
   if (screen.trim() === '') return;
-  askForSize(paneId, { cols: size.cols, rows: Math.max(1, size.rows - 1) }, 'nudge-down');
-  setTimeout(() => {
-    // Measured again, and only sent if it really was measured.
-    const now = panesHost?.fit(paneId);
-    if (now) askForSize(paneId, now, 'nudge-back');
-  }, 60);
+  /**
+   * Asked of the daemon, not of the program.
+   *
+   * This used to nudge the size by a row and put it back, the trick a multiplexer uses on
+   * reattach. It is safe for a shell and ruinous for anything that redraws by moving the cursor up
+   * over its own last frame, because the resize scrolls the buffer underneath it and every frame
+   * after that lands a row out. See `askForRedraw`.
+   */
+  askForRedraw(paneId);
 }
 
 /**
@@ -3314,20 +3317,23 @@ function installRefitOnWake(): void {
 }
 
 /**
- * Ask whatever is running in a pane to draw itself again.
+ * Put a pane's screen right, when this page's copy may have drifted.
  *
- * A size change is the one thing every terminal application treats as "you know nothing, draw it
- * all", so the size is nudged by a row and put back. The same trick a multiplexer uses on
- * reattach, and the only way to clear a divergence that has already happened.
+ * The daemon holds the authoritative screen, so this asks for it. Nothing reaches the program: no
+ * signal, no resize, nothing it can observe at all.
+ *
+ * It used to ask the **program** to redraw instead, by nudging the size a row and putting it back,
+ * which is what a multiplexer does on reattach. That works for a shell and destroys a full-frame
+ * terminal interface. Those redraw by moving the cursor up over their own last frame and writing
+ * on top of it, so a resize that scrolls the buffer underneath them leaves every later frame a row
+ * out, overwriting the wrong lines and leaving the previous one's fragments behind. Measured in a
+ * Claude Code session that came out unreadable: 21,881 cursor-up sequences, five erase-downs, no
+ * absolute positioning anywhere, and nine of these nudges over twenty-four minutes.
  */
 function askForRedraw(paneId: string): void {
-  const size = panesHost?.fit(paneId);
-  if (!size || !workspaceId) return;
-  askForSize(paneId, { cols: size.cols, rows: Math.max(1, size.rows - 1) }, 'redraw-down');
-  setTimeout(() => {
-    const now = panesHost?.fit(paneId);
-    if (now) askForSize(paneId, now, 'redraw-back');
-  }, 60);
+  const pane = panesHost?.get(paneId);
+  if (!pane?.sessionId) return;
+  client?.send({ t: 'resync-pane', sessionId: pane.sessionId });
 }
 
 /**

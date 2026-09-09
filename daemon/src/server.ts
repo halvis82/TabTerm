@@ -1375,6 +1375,32 @@ export class DaemonServer {
         return;
       }
 
+      case 'resync-pane': {
+        /**
+         * Send this pane's screen again.
+         *
+         * For a page that suspects its copy has drifted: a tab back from a long absence, or one
+         * that has just restored a pane. It used to ask the **program** to redraw instead, by
+         * shrinking the terminal a row and putting it back, which is what a multiplexer does on
+         * reattach and which destroys a full-frame terminal interface. Those redraw by moving the
+         * cursor up over their own last frame and overwriting it, so a resize that scrolls the
+         * buffer underneath them leaves every later frame a row out.
+         *
+         * The daemon has the screen. Handing it over is correct, and invisible to whatever is
+         * running: no signal, no resize, nothing reaches the process at all.
+         */
+        const session = this.#sessions.get(msg.sessionId);
+        if (!session) return;
+        let streamId: number | undefined;
+        for (const [id, sid] of client.byStream) if (sid === session.id) streamId = id;
+        if (streamId === undefined) return;
+        this.#sendSnapshot(client, session, streamId);
+        // The sequence point moved with the snapshot, so the live stream resumes from there with
+        // no gap and nothing delivered twice.
+        client.flow.get(session.id)?.resync();
+        return;
+      }
+
       case 'resize-pane': {
         const workspace = this.#workspaces.get(msg.workspaceId);
         if (!workspace) return;

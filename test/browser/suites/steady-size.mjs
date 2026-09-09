@@ -182,6 +182,17 @@ r.ok(
    * changed and the grid has not caught up. Comparing one against the other made this check
    * about that gap rather than about the nudge.
    */
+  /**
+   * Something on the screen first, so there is a picture to be wrong about, and only then a
+   * baseline.
+   *
+   * Typing is itself a reason for the box to change size, since the strip grows to fit what is
+   * being typed. Taking the baseline before that measured the typing rather than the waking.
+   */
+  await type(client, 'echo WOKEN-MARKER');
+  await waitFor(client, `(window.__tabterm.readScreen() ?? '').includes('WOKEN-MARKER')`, 8000);
+  await sleep(1200);
+
   const history = await applied();
   const at = history[history.length - 1] ?? '';
   const seenBefore = history.length;
@@ -189,20 +200,36 @@ r.ok(
   await evaluate(client, 'window.__tabterm.redrawAfterAway()');
   await sleep(1500);
   const after = (await applied()).slice(seenBefore);
+
+  /**
+   * A woken tab must not resize the terminal at all.
+   *
+   * It used to, deliberately: a row down and back, the trick a multiplexer uses on reattach to make
+   * a program repaint. That is safe for a shell and ruinous for anything that redraws by moving the
+   * cursor up over its own last frame, because the resize scrolls the buffer underneath it and
+   * every frame after that lands a row out, overwriting the wrong lines and leaving the previous
+   * frame's fragments behind. A Claude Code session came out unreadable that way: nine of these
+   * over twenty-four minutes, against 21,881 cursor-up sequences and five erase-downs in its
+   * output.
+   *
+   * The screen is asked of the daemon now, which holds it, and nothing reaches the program at all.
+   */
   r.ok(
-    'a woken tab really does change the size the terminal runs at',
-    after.length > 0 && after.some((size) => size !== at),
-    `from ${at}: ${after.join(' ')}`,
+    'a woken tab does not resize the terminal',
+    after.length === 0,
+    `from ${at}: ${after.join(' ') || '(none, which is right)'}`,
   );
   r.ok(
-    'and puts it back, rather than leaving every pane a row short',
-    after.length > 0 && after[after.length - 1] === after[0],
-    `from ${at}: ${after.join(' ')}`,
+    'and what was on the screen is still there afterwards',
+    String(
+      await evaluate(client, `(window.__tabterm.readScreen() ?? '').includes('WOKEN-MARKER')`),
+    ) === 'true',
+    'the marker survived the repaint',
   );
 
   const afterNudge = await watch(4);
   r.ok(
-    'and settles rather than hunting after the nudge',
+    'and it settles rather than hunting',
     afterNudge.length === 1,
     JSON.stringify(afterNudge.slice(0, 8)),
   );

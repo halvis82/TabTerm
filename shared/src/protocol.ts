@@ -446,6 +446,24 @@ export type ClientMessage =
   | { t: 'set-ratio'; workspaceId: string; paneId: string; ratio: number }
   | { t: 'swap-panes'; workspaceId: string; a: string; b: string }
   | { t: 'resize-pane'; workspaceId: string; paneId: string; cols: number; rows: number }
+  /**
+   * Send this pane's screen again, because the copy on this page may be wrong.
+   *
+   * The answer is a `snapshot`, the same one an attach receives, and the sequence point moves with
+   * it so the live stream resumes with no gap and no duplication.
+   *
+   * It exists because the alternative was worse. A page that suspected its copy was stale used to
+   * ask the **program** to redraw, by shrinking the terminal a row and putting it back, which is
+   * what a multiplexer does on reattach. That works for a shell and destroys a full-frame terminal
+   * interface: those redraw by moving the cursor up over their own last frame and writing on top
+   * of it, so a resize that scrolls the buffer underneath them leaves every later frame one row
+   * out and overwriting the wrong lines. Measured in one Claude Code session: 21,881 cursor-up
+   * sequences, five erase-downs, and no absolute positioning at all.
+   *
+   * The daemon holds the authoritative screen. Asking it for that screen is both correct and
+   * invisible to whatever is running.
+   */
+  | { t: 'resync-pane'; sessionId: string }
   | {
       t: 'merge-session';
       sessionId: string;
