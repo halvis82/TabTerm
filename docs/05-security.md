@@ -288,11 +288,24 @@ review failure.
 | `notifications` | Terminal event notifications |
 | `nativeMessaging` | Token bootstrap only |
 | `contextMenus` | Explicit browser-to-terminal actions |
-| `clipboardRead` | Paste into the terminal |
+| `clipboardRead` | Paste into the terminal, on an explicit Paste |
+| `clipboardWrite` | Copy a selection out of the terminal, on an explicit Copy |
+| `alarms` | Re-report which tabs are open on a timer |
 | `commands` | Keyboard shortcuts |
 
 No `<all_urls>`. No content scripts on arbitrary pages unless a specific feature justifies it, and
 none currently does.
+
+**Why `alarms` is here at all**, since it is the one that looks like it could be dropped. The
+extension tells the daemon which workspaces still have a tab, and that report is what stands
+between a background session and the timeout somebody set for it. Tab events alone are not enough:
+a service worker that has been asleep missed whatever happened while it was, and the daemon has no
+way to ask. The alarm is what makes the account periodic rather than event driven, and without it a
+browser that goes quiet looks the same as a browser that closed every tab. See
+`04-session-lifecycle.md`.
+
+**Every one of these is checked against the manifest by a test**, so a permission cannot be added
+without a line here, and one that stops being used shows up as a line describing nothing.
 
 ---
 

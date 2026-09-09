@@ -1992,6 +1992,47 @@
     margin: 0;
     color: #8b91a6;
   }
+  /*
+   * The first run for somebody who has the extension and nothing else.
+   *
+   * Wider and left aligned, because this one is read rather than glanced at: it is prose and a
+   * short list of commands, not a row of labels and values.
+   */
+  .recovery-note {
+    max-width: 460px;
+    margin: 0 auto !important;
+    text-align: left;
+    line-height: 1.6;
+  }
+  .recovery-steps {
+    max-width: 460px;
+    margin: 10px auto;
+    padding: 10px 12px;
+    text-align: left;
+    border-radius: 8px;
+    background: rgba(120, 130, 160, 0.12);
+    color: var(--term-fg);
+    font:
+      12px/1.7 ui-monospace,
+      SFMono-Regular,
+      Menlo,
+      monospace;
+    user-select: text;
+    overflow-x: auto;
+  }
+  .recovery-action {
+    display: inline-block;
+    padding: 7px 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(120, 130, 160, 0.35);
+    color: var(--term-fg);
+    text-decoration: none;
+    font-size: 12.5px;
+  }
+  .recovery-action:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
 
   /* --- launcher and palette -------------------------------------------- */
   #overlays {
@@ -3240,7 +3281,11 @@
   <div id="overlays"></div>
   <div id="recovery" hidden>
     <h1 id="recovery-reason">This terminal session expired.</h1>
-    <p>Nothing was run automatically.</p>
+    <!--
+      True of an expired session and meaningless to somebody who has never had one, so the
+      first-run screen hides it rather than reassuring a person about something that never happened.
+    -->
+    <p id="recovery-subhead">Nothing was run automatically.</p>
     <div id="recovery-detail"></div>
     <div id="recovery-actions"></div>
   </div>

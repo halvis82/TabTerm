@@ -1086,10 +1086,86 @@ let serverOfferTimer: ReturnType<typeof setTimeout> | undefined;
 function showRecovery(reason: string): void {
   recoveryEl.hidden = false;
   root.style.display = 'none';
+  const subhead = document.getElementById('recovery-subhead');
+  if (subhead) subhead.hidden = false;
   (document.getElementById('recovery-reason') as HTMLElement).textContent = reason;
   // Ask what we can remember about it, so the offer can be specific.
   if (workspaceId) client?.send({ t: 'recall-workspace', workspaceId });
   client?.send({ t: 'list-resumable', limit: 15 });
+}
+
+/**
+ * The screen for somebody who has the extension and nothing else.
+ *
+ * This is every new person's first run, and it is also what a Chrome Web Store reviewer sees. It
+ * used to say "TabTerm is not paired with the daemon yet" and stop there: no link, no next step,
+ * and no mention that companion software exists at all. The honest reading of that screen is that
+ * the extension is broken, which is what a reviewer concludes and what a first user believes.
+ *
+ * Nothing in Chrome stops the extension being installed on Windows or Linux either, so the first
+ * thing this checks is whether the machine can run TabTerm at all. Telling somebody the truth
+ * immediately is kinder than three commands that cannot work.
+ */
+const REPOSITORY = 'https://github.com/halvis82/TabTerm';
+
+function showSetupNeeded(): void {
+  recoveryEl.hidden = false;
+  root.style.display = 'none';
+
+  // "Nothing was run automatically" answers a worry only somebody whose session ended can have.
+  const subhead = document.getElementById('recovery-subhead');
+  if (subhead) subhead.hidden = true;
+
+  const mac = navigator.userAgent.includes('Macintosh');
+  (document.getElementById('recovery-reason') as HTMLElement).textContent = mac
+    ? 'TabTerm needs its macOS companion'
+    : 'TabTerm runs on macOS only';
+
+  const detail = document.getElementById('recovery-detail') as HTMLElement;
+  const actions = document.getElementById('recovery-actions') as HTMLElement;
+  detail.replaceChildren();
+  actions.replaceChildren();
+
+  const say = (text: string): void => {
+    const p = document.createElement('p');
+    p.className = 'recovery-note';
+    p.textContent = text;
+    detail.append(p);
+  };
+
+  if (!mac) {
+    say(
+      'The terminals themselves are real processes on a Mac, started by a small companion program. ' +
+        'This browser is not running on macOS, so there is nothing for the extension to talk to.',
+    );
+  } else {
+    say(
+      'The tabs are the interface. The terminals are real processes on your Mac, owned by a small ' +
+        'companion program that keeps them alive when Chrome is not looking at them. It is built ' +
+        'from source and takes about a minute.',
+    );
+    const steps = document.createElement('pre');
+    steps.className = 'recovery-steps';
+    steps.textContent = [
+      `git clone ${REPOSITORY}.git`,
+      'cd TabTerm',
+      'npm install && npm run build',
+      './scripts/install.sh',
+    ].join('\n');
+    detail.append(steps);
+    say(
+      'Already installed it? Run ./scripts/doctor.sh, which checks every part of the setup and ' +
+        'says which one is unhappy.',
+    );
+  }
+
+  const link = document.createElement('a');
+  link.className = 'recovery-action';
+  link.href = REPOSITORY;
+  link.target = '_blank';
+  link.rel = 'noreferrer';
+  link.textContent = mac ? 'Setup instructions on GitHub' : 'About TabTerm on GitHub';
+  actions.append(link);
 }
 
 function renderRecoveryActions(recall: {
@@ -5373,6 +5449,8 @@ declare global {
       focus: (paneId: string) => void;
       probePaths: () => string[];
       resolvedPaths: () => ResolvedPath[];
+      /** Draw the first-run screen for somebody with no companion program. */
+      showSetupNeeded: () => void;
     };
   }
 }
@@ -5718,13 +5796,22 @@ function installTestHook(): void {
       return found;
     },
     resolvedPaths: () => [...pathCache.values()],
+    /**
+     * Draw the screen somebody sees when they have the extension and nothing else.
+     *
+     * Reaching it honestly means uninstalling the companion program, which is not something a test
+     * can do to the machine it is running on. This calls exactly what the real path calls.
+     */
+    showSetupNeeded: () => {
+      showSetupNeeded();
+    },
   };
 }
 
 async function start(): Promise<void> {
   const token = await getToken();
   if (!token) {
-    showRecovery('TabTerm is not paired with the daemon yet.');
+    showSetupNeeded();
     return;
   }
 

@@ -97,6 +97,12 @@ and the agent CLI hooks.
 
 ### 4. Load the extension
 
+If you installed it from the Chrome Web Store instead, the store gave it a different id from the
+one the manifest key pins. Put that id in `package.json` under `tabterm.publishedExtensionId` and
+run `./scripts/install.sh` again. Both ids are then registered with the native messaging host, so a
+store install and an unpacked build work side by side and nobody has to choose.
+
+
 Chrome no longer honors `--load-extension`, so this step is manual:
 
 1. Open `chrome://extensions`

@@ -12,6 +12,15 @@ if [ -z "$EXT_ID" ]; then
   echo "could not read the extension id from package.json" >&2
   exit 1
 fi
+# And the published one, when there is one. A store install and a developer's unpacked build have
+# different ids and both are real: registering one of them breaks the other, and which one broke is
+# invisible from the browser, where it looks like the extension cannot reach the daemon at all.
+PUBLISHED_ID="$(python3 -c "import json;print(json.load(open('$REPO/package.json'))['tabterm'].get('publishedExtensionId',''))" 2>/dev/null)"
+
+ORIGINS="\"chrome-extension://$EXT_ID/\""
+if [ -n "$PUBLISHED_ID" ] && [ "$PUBLISHED_ID" != "$EXT_ID" ]; then
+  ORIGINS="$ORIGINS, \"chrome-extension://$PUBLISHED_ID/\""
+fi
 HOSTS="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
 # The host binary must NOT live under Documents, Desktop, or Downloads. Chrome has no TCC
 # grant for those, so exec fails with a bare "Operation not permitted" and Chrome reports it
@@ -67,10 +76,14 @@ cat > "$HOSTS/com.tabterm.host.json" <<JSON
   "description": "TabTerm token bootstrap",
   "path": "$LIBEXEC/host-wrapper.sh",
   "type": "stdio",
-  "allowed_origins": ["chrome-extension://$EXT_ID/"]
+  "allowed_origins": [$ORIGINS]
 }
 JSON
-echo "  native messaging host at $LIBEXEC, registered for $EXT_ID"
+if [ -n "$PUBLISHED_ID" ] && [ "$PUBLISHED_ID" != "$EXT_ID" ]; then
+  echo "  native messaging host at $LIBEXEC, registered for $EXT_ID and $PUBLISHED_ID"
+else
+  echo "  native messaging host at $LIBEXEC, registered for $EXT_ID"
+fi
 
 mkdir -p "$HOME/.local/share/tabterm"
 cp "$REPO/shell/tabterm-integration.zsh" "$HOME/.local/share/tabterm/"
