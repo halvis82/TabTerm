@@ -27,6 +27,20 @@ import { ScrollbackStore } from './scrollback-store.js';
 
 export const HOST_PROTOCOL = 1;
 
+/**
+ * Give an answer back the id of the question it answers.
+ *
+ * Replies used to be matched by their type alone, which is correct only while at most one request
+ * of each type is outstanding. Two `replay` calls at once, which a daemon adopting several
+ * sessions makes naturally, had the second overwrite the first: one call never resolved and the
+ * other could take an answer meant for a different session.
+ *
+ * Absent when the caller sent none, so an older daemon still gets exactly what it did before.
+ */
+function echo(msg: Record<string, unknown>): { requestId?: string } {
+  return typeof msg['requestId'] === 'string' ? { requestId: msg['requestId'] } : {};
+}
+
 /** How often a running host tidies scrollback it no longer needs. See the constructor. */
 const PRUNE_EVERY_MS = 24 * 60 * 60 * 1000;
 
@@ -280,6 +294,7 @@ export class PtyHost {
       case 'hello':
         this.#send(socket, {
           t: 'hello-ok',
+          ...echo(msg),
           protocol: HOST_PROTOCOL,
           pid: process.pid,
           instance: HOST_INSTANCE,
@@ -299,6 +314,7 @@ export class PtyHost {
       case 'list':
         this.#send(socket, {
           t: 'sessions',
+          ...echo(msg),
           sessions: [...this.#sessions.values()].map((s) => ({
             sessionId: s.id,
             pid: s.handle.pid,
@@ -457,6 +473,7 @@ export class PtyHost {
         const servableFrom = oldest ? oldest.seq - oldest.data.length : live.seq;
         this.#send(socket, {
           t: 'replayed',
+          ...echo(msg),
           sessionId: id,
           seq: live.seq,
           servableFrom,
@@ -496,7 +513,7 @@ export class PtyHost {
         if (!socket.destroyed && data.length > 0) {
           socket.write(outputFrame({ sessionId: id, seq: 0, data }));
         }
-        this.#send(socket, { t: 'history-end', sessionId: id, bytes: data.length });
+        this.#send(socket, { t: 'history-end', sessionId: id, bytes: data.length, ...echo(msg) });
         return;
       }
 

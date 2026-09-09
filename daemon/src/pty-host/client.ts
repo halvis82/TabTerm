@@ -160,7 +160,24 @@ export class PtyHostClient {
   #spawnListeners: ((sessionId: string, pid: number) => void)[] = [];
   #reconnecting = false;
   #onReconnect: (() => void) | undefined;
-  readonly #waiting = new Map<string, (msg: Record<string, unknown>) => void>();
+  /**
+   * Requests in flight, keyed by the id that will come back with the answer.
+   *
+   * Keyed by the **reply type** before, which is only correct while at most one request of each
+   * type is outstanding. Two `replay` calls at once, which a daemon adopting several sessions
+   * makes naturally, had the second overwrite the first: the first never resolved and timed out,
+   * and the second took whichever answer arrived first, possibly for the other session entirely.
+   *
+   * `kill` already carried a `requestId` because getting that one wrong ends the wrong terminal.
+   * The same discipline now covers the rest, where getting it wrong hands back the wrong screen.
+   */
+  readonly #waiting = new Map<
+    string,
+    { expect: string; resolve: (msg: Record<string, unknown>) => void }
+  >();
+
+  /** Distinct per request, per client. Only ever compared, never parsed. */
+  #nextRequestId = 0;
   readonly #socketPath: string;
   readonly #hostScript: string;
   readonly #nodePath: string;
@@ -362,10 +379,28 @@ export class PtyHostClient {
             fn(String(msg['sessionId']), Number(msg['exitCode']), msg['signal'] as number);
           }
         }
-        const waiter = this.#waiting.get(t);
-        if (waiter) {
-          this.#waiting.delete(t);
-          waiter(msg);
+        /**
+         * By id when the host sends one back, and by type when it does not.
+         *
+         * A host outlives the daemon by design, so one built before this change is a real thing
+         * to meet: it echoes no id, and matching by type is exactly what it did before. The
+         * oldest waiter for that type is the one that has been waiting longest, which is the
+         * same answer the single-slot map used to give.
+         */
+        const id = typeof msg['requestId'] === 'string' ? msg['requestId'] : '';
+        let key = id !== '' && this.#waiting.has(id) ? id : '';
+        if (key === '') {
+          for (const [candidate, waiter] of this.#waiting) {
+            if (waiter.expect === t) {
+              key = candidate;
+              break;
+            }
+          }
+        }
+        const waiter = key === '' ? undefined : this.#waiting.get(key);
+        if (waiter && waiter.expect === t) {
+          this.#waiting.delete(key);
+          waiter.resolve(msg);
         }
       }
     });
@@ -606,24 +641,30 @@ export class PtyHostClient {
     /** Handshake traffic, which may go to a host that has not identified itself yet. */
     duringHandshake = false,
   ): Promise<Record<string, unknown> | null> {
+    this.#nextRequestId += 1;
+    const requestId = `r${String(this.#nextRequestId)}`;
+    const withId = { ...(message as Record<string, unknown>), requestId };
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
-        this.#waiting.delete(expect);
+        this.#waiting.delete(requestId);
         resolve(null);
       }, timeoutMs);
-      this.#waiting.set(expect, (msg) => {
-        clearTimeout(timer);
-        resolve(msg);
+      this.#waiting.set(requestId, {
+        expect,
+        resolve: (msg) => {
+          clearTimeout(timer);
+          resolve(msg);
+        },
       });
       if (duringHandshake) {
-        if (!this.#sendHandshake(message)) {
+        if (!this.#sendHandshake(withId)) {
           clearTimeout(timer);
-          this.#waiting.delete(expect);
+          this.#waiting.delete(requestId);
           resolve(null);
         }
         return;
       }
-      this.#send(message);
+      this.#send(withId);
     });
   }
 
