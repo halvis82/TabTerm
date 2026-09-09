@@ -90,7 +90,17 @@ guaranteed by the socket instead, and the pid arrives through a callback.
 
   The claim is now written to a private file and **linked** into place. `link` refuses a name that
   already exists, so it is exclusive in the same way, and the lock is never observable without an
-  owner in it. A lock holding no pid is therefore read as a claim in progress and left alone,
+  owner in it.
+
+  Taking over a lock whose owner has died needs the same care, and deleting the name is not the
+  way to do it. Reading the owner, judging it gone, and unlinking is three operations, and two
+  contenders reach the third: the second deletes a claim the first has legitimately replaced, and
+  both then believe they own the socket. `rename` is what closes it, because moving a directory
+  entry is atomic and exactly one contender can move a given entry; the loser gets ENOENT and
+  starts again, by which time the winner's fresh lock is there to find. What was moved is then
+  checked against what was judged stale, since a contender that completed its takeover in between
+  would otherwise have its live claim carried off, and it is put back with `link` so that a third
+  party who has since claimed the name is not clobbered in turn. A lock holding no pid is therefore read as a claim in progress and left alone,
   while a lock holding the pid of a process that is gone is still taken over: a crash always
   leaves a valid pid, because the pid is in the file before the name exists.
 - **Updating the host itself still ends terminals**, when it is eventually restarted. The

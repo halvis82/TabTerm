@@ -1,4 +1,4 @@
-import { linkSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { linkSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { paths } from './config.js';
 
 /**
@@ -17,13 +17,15 @@ import { paths } from './config.js';
  * The recovery is deliberately not a loop. One retry after removing a stale claim is enough: if
  * somebody else took it in between, they hold it, and this process is the one that should stop.
  */
-export function claimLockFile(file: string): boolean {
+export function claimLockFile(file: string, hooks?: ClaimHooks): boolean {
   if (tryCreate(file)) return true;
 
   // Somebody has it. Whether they are still alive is the only question left.
   let owner = 0;
+  let ownerText = '';
   try {
-    owner = Number(readFileSync(file, 'utf8').trim());
+    ownerText = readFileSync(file, 'utf8').trim();
+    owner = Number(ownerText);
   } catch {
     // It went away between the failed create and this read, which means the owner released it.
     return tryCreate(file);
@@ -40,18 +42,80 @@ export function claimLockFile(file: string): boolean {
   if (owner === 0) return false;
 
   /**
-   * Stale, so remove it and try once more.
+   * Stale. Taking it over is the dangerous part, and deleting the name is not the way to do it.
    *
-   * Removing a claim that somebody else has just made would be the one dangerous move here, so
-   * the retry is exclusive too: if another process created it in the meantime, this fails and
-   * stops, which is the right answer for whichever of the two got here second.
+   * Reading the owner, deciding it is gone, and then unlinking is three operations, and two
+   * contenders both reach the unlink. The second one deletes a lock that the first has already
+   * legitimately replaced, and both then believe they own the socket. That is the same failure as
+   * the empty-window bug this function was already fixed for once, on the other side of the claim.
+   *
+   * `rename` is the operation that fixes it. Moving a directory entry is atomic and exactly one
+   * contender can move a given entry: the loser gets ENOENT and starts again, by which time the
+   * winner's fresh lock is there to be found.
    */
+  hooks?.beforeTakeover?.();
+  const graveyard = `${file}.stale.${String(process.pid)}.${Date.now().toString(36)}`;
   try {
-    unlinkSync(file);
+    renameSync(file, graveyard);
   } catch {
-    /* somebody else tidied it first, which is fine */
+    // Somebody else moved it first. Start again: whatever is there now is theirs to answer for.
+    return claimLockFile(file, hooks);
+  }
+
+  /**
+   * And check what was actually moved, because it may not be the lock that was judged stale.
+   *
+   * Between the decision and the rename, another contender can complete its own takeover, in which
+   * case the entry moved here is that contender's **live** claim rather than the dead one. It is
+   * put back, with `link` rather than `rename` so that a third party who has claimed the name in
+   * the meantime is not clobbered in turn.
+   */
+  let movedText = '';
+  try {
+    movedText = readFileSync(graveyard, 'utf8').trim();
+  } catch {
+    /* unreadable, which is not the same as being the claim that was judged stale */
+  }
+  /**
+   * Compared as text, not as numbers.
+   *
+   * A claim this cannot parse is still a claim, and `Number('nonsense')` is `NaN`, which is not
+   * equal to itself. Comparing numbers therefore concluded that every unparseable lock had been
+   * replaced by somebody else and put it back, which turned a recoverable stale lock into a
+   * permanent wall.
+   */
+  if (movedText !== ownerText) {
+    try {
+      linkSync(graveyard, file);
+    } catch {
+      /* somebody has the name now; it is theirs, and putting it back would take it from them */
+    }
+    try {
+      unlinkSync(graveyard);
+    } catch {
+      /* nothing to tidy */
+    }
+    return false;
+  }
+
+  try {
+    unlinkSync(graveyard);
+  } catch {
+    /* the copy of the dead owner's claim, which nothing needs any more */
   }
   return tryCreate(file);
+}
+
+/**
+ * Seams for a test that has to force one interleaving in particular.
+ *
+ * The race being closed here is between the moment a contender decides a lock is stale and the
+ * moment it acts on that decision. Nothing about it is observable from outside, and a test that
+ * starts several contenders and hopes is not evidence, so the one point that matters is exposed.
+ */
+export interface ClaimHooks {
+  /** Called after this contender has judged the lock stale, before it does anything about it. */
+  beforeTakeover?: () => void;
 }
 
 /**

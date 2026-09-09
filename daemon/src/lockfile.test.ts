@@ -162,3 +162,54 @@ describe('a claim that is still being made', () => {
     expect(readdirSync(dir)).toEqual(['taken.lock']);
   });
 });
+
+describe('two contenders that both decide the same lock is stale', () => {
+  /**
+   * The interleaving, forced rather than hoped for.
+   *
+   * Reading the owner, deciding it is gone, and acting on that decision are three operations, and
+   * both contenders reach the third. Started together and left to chance this almost never
+   * happens; written down it is obvious:
+   *
+   *   A reads the stale lock and decides to take it
+   *   B reads the same lock, decides the same, and completes its takeover
+   *   A resumes and acts on a decision that is no longer true
+   *
+   * If A's action is "unlink the name", it deletes a claim B legitimately holds and both processes
+   * then believe they own the socket. For the PTY host that means the loser unlinking the winner's
+   * socket, and every terminal on the machine becoming unreachable.
+   */
+  it('never lets the slower one delete the winner fresh claim', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tt-lock-'));
+    const file = join(dir, 'contended.lock');
+    // A pid that cannot be running: the lock is genuinely stale.
+    await writeFile(file, '999999');
+
+    let bWon = false;
+    const aWon = claimLockFile(file, {
+      beforeTakeover: () => {
+        // B runs to completion here, inside A's decision, exactly once.
+        if (bWon) return;
+        bWon = claimLockFile(file);
+      },
+    });
+
+    expect(bWon, 'the contender that got there first should have taken the stale lock').toBe(true);
+    expect(aWon, 'and the one that was still deciding must not take it from them').toBe(false);
+    // The winner's claim is intact and says so.
+    expect(readFileSync(file, 'utf8')).toBe(String(process.pid));
+    // And nothing was left lying about in the state directory.
+    expect(readdirSync(dir)).toEqual(['contended.lock']);
+  });
+
+  it('still takes over a stale lock when nobody is competing for it', async () => {
+    // The recovery that has to keep working: one contender, one dead owner, no ceremony.
+    const dir = await mkdtemp(join(tmpdir(), 'tt-lock-'));
+    const file = join(dir, 'alone.lock');
+    await writeFile(file, '999999');
+
+    expect(claimLockFile(file)).toBe(true);
+    expect(readFileSync(file, 'utf8')).toBe(String(process.pid));
+    expect(readdirSync(dir)).toEqual(['alone.lock']);
+  });
+});
