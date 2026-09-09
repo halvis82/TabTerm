@@ -218,14 +218,24 @@ r.ok(
   );
 
   // Recording, then Escape. The panel must still be there afterwards.
-  await evaluate(a.client, `${row}?.querySelector('.set-key')?.click()`);
-  // Waited for: clearing the shortcut redraws the panel, so a press sent immediately after can
-  // land on the row that is being replaced.
-  const recording = await waitFor(
-    a.client,
-    `(${row}?.querySelector('.set-key')?.textContent ?? '').includes('Press the keys')`,
-    6000,
-  );
+  /**
+   * Clicked, and clicked again if the click did not land.
+   *
+   * Clearing the shortcut redraws the panel, so a click sent immediately after can arrive at a
+   * row that is being replaced and reach nothing at all. Waiting after the click does not help:
+   * the thing being waited for never starts. Two different failures look identical here, and only
+   * one of them is about the product, so the click is retried once and the feature is judged with
+   * no retry after that.
+   */
+  let recording = false;
+  for (let attempt = 0; attempt < 2 && !recording; attempt += 1) {
+    await evaluate(a.client, `${row}?.querySelector('.set-key')?.click()`);
+    recording = await waitFor(
+      a.client,
+      `(${row}?.querySelector('.set-key')?.textContent ?? '').includes('Press the keys')`,
+      6000,
+    );
+  }
   r.ok('pressing the key button starts recording', recording, String(await keysNow()));
   await press(a.client, 'Escape', 'Escape');
   await sleep(400);
