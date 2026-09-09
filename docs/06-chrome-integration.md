@@ -219,11 +219,11 @@ carries everything. See `10-limitations.md` tier 1.6.
 
 ### Favicons
 
-Canvas-generated data URLs assigned to `<link rel="icon">`.
+Canvas-generated data URLs assigned to `<link rel="icon">`, except at idle.
 
 | State | Icon | Means |
 |---|---|---|
-| `idle` | Caret | Nothing to report |
+| `idle` | The extension's own icon | Nothing to report |
 | `running` | Caret, sweeping underline | A command is in flight |
 | `done` | Grey bar | Finished, with no exit code to say how. See ADR-0016 |
 | `success` | Green tick | Exited zero |
@@ -231,6 +231,12 @@ Canvas-generated data URLs assigned to `<link rel="icon">`.
 | `waiting` | Amber dot | An agent is waiting for a person |
 | `approval` | Amber dot, ringed | An agent needs approval |
 | `disconnected` | Grey caret | No session |
+
+**Idle is the packaged icon, not a drawn one.** A tab showing a terminal that has nothing to
+report should look like the product, the way a tab of any other application does. It is served as
+an extension URL rather than a data URL, since the file is already packaged and re-encoding a PNG
+through a canvas on every idle transition would cost more than it is worth. A page with no
+extension APIs, a test or a preview, falls back to the drawn mark.
 
 **Shape carries the state as well as color.** At 16 pixels in a strip of twenty tabs, hue is the
 first thing read and the first thing lost. Roughly one man in twelve cannot separate the red from
