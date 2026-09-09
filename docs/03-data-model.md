@@ -344,6 +344,27 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 CREATE TABLE migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);
 ```
 
+### Preferences, and what Reset has to do about them
+
+Preferences somebody set from the interface live in `~/.local/state/tabterm/settings.json`, not in
+SQLite, so a database that has to be rebuilt does not take them with it. There are four:
+
+| Setting | Held in | Read at startup by | Reset puts back |
+|---|---|---|---|
+| `notify` | the server's notify policy | `server.ts` | The default policy, and every page is told |
+| `keepBackgroundSeconds` | the session manager | `main.ts` | The default timeout, and reaps are rescheduled |
+| `scrollbackBytes` | the server's budget | `server.ts` | The default budget, applied to sessions and the host |
+| `agentCommand` | the server's agent command | `server.ts` | Whatever the config file says |
+
+**Reset has to put each of them back in memory, not only remove them from the file.** It emptied the
+file and restored two of the four, so the scrollback budget and the agent command kept whatever they
+had been set to: the reset appeared to work, changed neither, and then took effect at the next
+daemon start, which is the least explicable moment for a setting to change on its own.
+
+`settings-audit.test.ts` holds this table as a test. It reads the source and insists every stored
+setting is persisted, read back at startup, restored by Reset in memory, and announced to open
+pages, and it fails if a setting is added and left out of the list.
+
 Scrollback is **not** in SQLite. It lives in a capped in-memory ring per session, spilling to
 `~/.local/state/tabterm/scrollback/<sessionId>` when it exceeds the cap. Putting megabytes of
 terminal bytes in the database would make every history query slow and every backup enormous.

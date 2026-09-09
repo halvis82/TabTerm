@@ -1986,15 +1986,32 @@ export class DaemonServer {
          * on disk goes back to saying nothing and the defaults keep coming from one place.
          */
         writeUserSettings({});
+
         this.#notifyPolicy = clampPolicy(undefined);
         this.#sessions.keepBackgroundSeconds = DEFAULT_KEEP_BACKGROUND_SECONDS;
         this.#sessions.rescheduleReaps();
+
+        /**
+         * Every setting that is stored, not only the two this used to remember.
+         *
+         * The file was emptied and two of the four values in memory were put back. The scrollback
+         * budget and the agent command kept whatever they had been set to, so a reset appeared to
+         * work, changed neither, and then took effect at the next daemon start: the least
+         * explicable moment for a setting to change on its own.
+         */
+        this.#scrollbackBytes = DEFAULT_SCROLLBACK_BYTES;
+        this.#sessions.applyScrollback(linesForBytes(this.#scrollbackBytes));
+        this.hostBudget?.(this.#scrollbackBytes);
+        this.#agentCommand = [...this.#config.agentCommand];
+
         info('settings.reset', {});
         this.broadcastAll({ t: 'notify-policy', policy: this.#notifyPolicy });
         this.broadcastAll({
           t: 'background-timeout',
           seconds: this.#sessions.keepBackgroundSeconds,
         });
+        this.broadcastAll({ t: 'scrollback-budget', bytes: this.#scrollbackBytes });
+        this.broadcastAll({ t: 'agent-command', command: this.#agentCommand.join(' ') });
         return;
       }
 
