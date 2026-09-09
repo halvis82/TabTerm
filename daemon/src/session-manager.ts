@@ -10,7 +10,7 @@ import { decideReap, describeReap, reapInputFor, type TabDisposition } from './c
 import { plainText } from './plain-text.js';
 import { expandHome } from './complete-path.js';
 import { listeningPorts } from './server-detect.js';
-import { assertTransition, TERMINAL_STATES } from './session-state.js';
+import { assertTransition } from './session-state.js';
 import { VtState } from './vt-state.js';
 
 /**
@@ -1210,7 +1210,20 @@ export class SessionManager {
      * loop and every session after it kept whatever timer it already had. Twenty nine of these in
      * one day on a real machine.
      */
-    if (TERMINAL_STATES.includes(session.state)) return;
+    /**
+     * Only a session that is actually idle may be put on a clock.
+     *
+     * Stated as what is allowed rather than what is not. `expiring` is reachable only from
+     * `detached`, and this excluded terminal states alone, so a session still in `starting`
+     * threw: created, not yet attached, and caught by a sweep or by a reporter going away. The
+     * throw came out of a loop over every session, so one session in that window stopped every
+     * session after it from being reconsidered, which is the same shape as the `exited` case this
+     * guard was originally written for.
+     *
+     * Found by the model test rather than by reasoning, and made more likely by the daemon's own
+     * sweep, which asks this question on a timer instead of only when a browser speaks.
+     */
+    if (session.state !== 'detached' && session.state !== 'expiring') return;
 
     // Any previous timer is void: this is a fresh decision, and leaving the old one running
     // would end a session whose tab has since come back. The **deadline** it was counting to is

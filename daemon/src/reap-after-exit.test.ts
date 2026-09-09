@@ -404,3 +404,47 @@ describe('what ending a session reports', () => {
     expect(sessions.get(id)).toBeDefined();
   });
 });
+
+/**
+ * A session that has not finished starting is not idle, and may not be put on a clock.
+ *
+ * `expiring` is reachable only from `detached`. A session created but not yet attached is
+ * `starting`, and scheduling one threw out of a loop over every session, so one session in that
+ * window stopped every session after it from being reconsidered at all. The same shape as the
+ * `exited` case above, a different state.
+ *
+ * Found by the model test, and made more likely by the daemon's own sweep, which asks this
+ * question on a timer rather than only when a browser speaks.
+ */
+describe('a session that is still starting', () => {
+  it('is not scheduled, and does not stop the sweep', () => {
+    const fresh = sessions.create({ cwd: '/tmp', cols: 80, rows: 24 });
+    fresh.hasRun = true;
+    const workspace = workspaces.create(fresh.id).workspace;
+    sessions.recordTabClosed(workspace.id, 'starting-close');
+    sessions.settledAfterMs = 0;
+    sessions.reportOpenWorkspaces('chrome', []);
+
+    expect(sessions.get(fresh.id)?.state).toBe('starting');
+    expect(() => {
+      sessions.rescheduleIdleReaps();
+    }).not.toThrow();
+    expect(sessions.get(fresh.id)?.state).toBe('starting');
+  });
+
+  it('and the sessions after it are still reconsidered', () => {
+    // The consequence that made this worth fixing: the throw escaped the whole loop.
+    const starting = sessions.create({ cwd: '/tmp', cols: 80, rows: 24 });
+    starting.hasRun = true;
+    workspaces.create(starting.id);
+
+    const idle = aDetachedSession('view-9');
+    const workspace = workspaces.findBySession(idle);
+    if (workspace) sessions.recordTabClosed(workspace.id, 'after-starting');
+    sessions.settledAfterMs = 0;
+    sessions.reportOpenWorkspaces('view-9', []);
+
+    sessions.rescheduleIdleReaps();
+    expect(sessions.get(idle)?.state).toBe('expiring');
+  });
+});
