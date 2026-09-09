@@ -86,7 +86,6 @@ interface Live {
    */
   paneClosedByUser?: boolean;
   /** VT state the daemon handed over before it stopped, with the seq it was accurate at. */
-  stash?: { seq: number; state: string };
   exited?: { exitCode: number; signal?: number };
 }
 
@@ -394,7 +393,6 @@ export class PtyHost {
             alive: s.exited === undefined,
             ...(s.hasInput === true ? { hasInput: true } : {}),
             ...(s.paneClosedByUser === true ? { paneClosedByUser: true } : {}),
-            ...(s.stash ? { stash: s.stash } : {}),
           })),
         });
         return;
@@ -505,16 +503,6 @@ export class PtyHost {
         return;
       }
 
-      case 'stash': {
-        // The daemon's screen state, handed over before it stops. Replaying bytes alone can
-        // only approximate a screen, because the buffer may not begin at a state boundary.
-        const live = this.#sessions.get(id);
-        if (live && typeof msg['state'] === 'string') {
-          live.stash = { seq: Number(msg['seq']) || live.seq, state: msg['state'] };
-        }
-        return;
-      }
-
       case 'replay': {
         // Everything after a sequence number, so a reconnecting daemon gets exactly the gap.
         const live = this.#sessions.get(id);
@@ -562,7 +550,6 @@ export class PtyHost {
         if (live) {
           live.ring = [];
           live.ringBytes = 0;
-          delete live.stash;
         }
         // On disk too, or clearing is only true until something reads the history back.
         this.#store.clear(id);

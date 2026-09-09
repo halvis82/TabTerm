@@ -30,7 +30,6 @@ export interface HostSessionInfo {
   hasInput?: boolean;
   /** A person closed its pane. Kept by the host for the same reason. */
   paneClosedByUser?: boolean;
-  stash?: { seq: number; state: string };
 }
 
 export interface SpawnRequest {
@@ -90,7 +89,7 @@ export function readableSpawnError(raw: string): string {
  *
  * Three passes, in order of how little each costs.
  *
- * 1. **Coalesce.** A resize, a stash and a budget are each a statement of a current value, so only
+ * 1. **Coalesce.** A resize and a budget are each a statement of a current value, so only
  *    the last per session says anything true. A resize storm is what fills this queue in practice
  *    and it compresses to nothing.
  * 2. **Drop housekeeping** addressed to a session with no input and no spawn at stake.
@@ -118,11 +117,11 @@ export function trimOutbox(
   const lastAt = new Map<string, number>();
   kept.forEach((m, i) => {
     const t = typeOf(m);
-    if (t === 'resize' || t === 'stash' || t === 'budget') lastAt.set(`${t}:${idOf(m)}`, i);
+    if (t === 'resize' || t === 'budget') lastAt.set(`${t}:${idOf(m)}`, i);
   });
   kept = kept.filter((m, i) => {
     const t = typeOf(m);
-    if (t !== 'resize' && t !== 'stash' && t !== 'budget') return true;
+    if (t !== 'resize' && t !== 'budget') return true;
     return lastAt.get(`${t}:${idOf(m)}`) === i;
   });
   if (kept.length <= limit) return { kept, lostInputFor: [] };
@@ -965,11 +964,6 @@ export class PtyHostClient {
   }
 
   readonly #killWaits = new Map<string, (gone: boolean) => void>();
-
-  /** Hand over screen state, so the next daemon can restore it exactly rather than approximately. */
-  stash(sessionId: string, seq: number, state: string): void {
-    this.#send({ t: 'stash', sessionId, seq, state });
-  }
 
   /** Ask for everything after a sequence number. Output arrives through the data listeners. */
   /**

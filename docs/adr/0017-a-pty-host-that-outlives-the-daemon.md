@@ -165,6 +165,20 @@ to make what follows correct, so the cost of being dropped is a reconnect and a 
 The same rule covers replay, which is the largest thing this process ever hands over. A peer that
 does not drain a replay must not be able to hold the ring in memory twice.
 
+## The screen after adoption is replayed, not handed over
+
+There was a `stash` message: the daemon would serialise its terminal state and give it to the host
+before stopping, so the next daemon could restore a screen exactly rather than rebuild it. The host
+stored one, reported it in its session listing, and cleared it at the right moments. Nothing ever
+sent one. The method existed on the client and had no caller anywhere in the product.
+
+It is removed rather than wired up. The path that does run is a replay from sequence zero, which
+rebuilds the screen from the ring, and it is honest about its own limit: when the ring cannot cover
+the gap the session is told in its own output that a measured number of kilobytes is missing. A
+second screen-recovery path would be new code in the most dangerous area of the product, for a
+saving in time on adoption rather than a difference in correctness, and a mechanism that exists in
+name only is worse than one that does not exist.
+
 ## Alternatives rejected
 
 **Keep PTYs in the daemon and never restart it.** Not a design, a hope. Updates exist.
