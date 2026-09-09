@@ -53,6 +53,23 @@ type ExitListener = (sessionId: string, exitCode: number, signal?: number) => vo
  * of it. Anything unrecognized is passed through rather than replaced, because a message nobody
  * predicted is still better than a generic one.
  */
+/**
+ * Which kind of spawn failure this was, with nothing of the person's in it.
+ *
+ * The readable form goes on the screen, where the whole point is that it names the program and the
+ * directory. The log is a different audience and must not carry either: a path is a project name,
+ * a client's name, or a folder somebody would not choose to write down, and a diagnostic file is
+ * not the place for any of it.
+ */
+export function spawnErrorKind(raw: string): string {
+  if (/command not found/i.test(raw)) return 'command-not-found';
+  if (/ENOTDIR|no such directory|chdir/i.test(raw)) return 'no-such-directory';
+  if (/EACCES|not executable|permission denied/i.test(raw)) return 'not-executable';
+  if (/ENOENT/i.test(raw)) return 'not-found';
+  if (/already running/i.test(raw)) return 'session-cap-reached';
+  return 'other';
+}
+
 export function readableSpawnError(raw: string): string {
   const text = raw.replace(/^Error:\s*/, '').trim();
   if (/command not found/i.test(text)) {
@@ -470,7 +487,12 @@ export class PtyHostClient {
           const sessionId = String(msg['sessionId']);
           const raw = msg['error'];
           const reason = readableSpawnError(typeof raw === 'string' ? raw : '');
-          warn('pty-host.spawn-failed', { sessionId, error: msg['error'] });
+          // The kind, not the text. The text names a program and a directory, and both go on the
+          // screen where they belong rather than into a file nobody chose to write.
+          warn('pty-host.spawn-failed', {
+            sessionId,
+            kind: spawnErrorKind(typeof raw === 'string' ? raw : ''),
+          });
           const notice = Buffer.from(`\r\n\u001b[31m${reason}\u001b[0m\r\n`, 'utf8');
           for (const fn of this.#dataListeners) fn(sessionId, notice, 0);
           for (const fn of this.#exitListeners) fn(sessionId, 1);
@@ -478,7 +500,17 @@ export class PtyHostClient {
         if (t === 'message-failed') {
           // The host could not act on something we asked for. Recorded, because a request that
           // silently did nothing is the hardest kind of failure to find later.
-          warn('pty-host.message-failed', { error: msg['message'], about: msg['about'] });
+          /**
+           * Structure only. `about` used to be the original control message, which is a `write`
+           * carrying keystrokes, a `spawn` carrying argv and environment, or an `inject` carrying
+           * whatever was on somebody's screen. None of that belongs in a log.
+           */
+          warn('pty-host.message-failed', {
+            error: String(msg['message'] ?? '').slice(0, 200),
+            messageType: String(msg['messageType'] ?? 'unknown'),
+            ...(typeof msg['sessionId'] === 'string' ? { sessionId: msg['sessionId'] } : {}),
+            ...(typeof msg['requestId'] === 'string' ? { requestId: msg['requestId'] } : {}),
+          });
         }
         if (t === 'killed') this.#onKilled(msg);
         if (t === 'exited') {

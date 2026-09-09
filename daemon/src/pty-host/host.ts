@@ -285,10 +285,29 @@ export class PtyHost {
            * handle to everybody's running work, so a message it cannot make sense of is
            * answered by ignoring that message and nothing more.
            */
+          /**
+           * Enough to find the bug, and nothing a person typed.
+           *
+           * The original message went back and into the log verbatim. That message is a `write`
+           * carrying keystrokes, or a `spawn` carrying argv and environment, or an `inject`
+           * carrying whatever was being put on somebody's screen. A failed operation is exactly
+           * when a payload is most likely to be unusual, and least likely to be something its
+           * owner wanted written down.
+           *
+           * So: which kind of message, which session, which request, and a bounded description of
+           * what went wrong. The rest is not the host's to repeat.
+           */
+          const about = f.message as Record<string, unknown>;
           this.#send(socket, {
             t: 'message-failed',
-            message: String(e),
-            about: f.message,
+            message: String(e).slice(0, 200),
+            messageType: typeof about['t'] === 'string' ? about['t'] : 'unknown',
+            ...(typeof about['sessionId'] === 'string'
+              ? { sessionId: about['sessionId'].slice(0, 64) }
+              : {}),
+            ...(typeof about['requestId'] === 'string'
+              ? { requestId: about['requestId'].slice(0, 64) }
+              : {}),
           });
         }
       }

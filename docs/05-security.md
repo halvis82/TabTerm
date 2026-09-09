@@ -298,7 +298,22 @@ none currently does.
 
 ## 9. Logging
 
-- Logs never contain command text, environment values, or terminal output by default
+- Logs never contain command text, environment values, terminal output, or working directories
+
+  **Two places got this wrong and were found by a canary rather than by reading.** The PTY host
+  answered a message it could not handle by sending the whole original message back, and the daemon
+  logged it: that message is a `write` carrying keystrokes, a `spawn` carrying argv and an
+  environment, or an `inject` carrying whatever was being put on somebody's screen. It now sends the
+  message type, the session, the request id, and a bounded description of what went wrong.
+
+  A failed spawn logged the error text, which names the program and the directory. That text still
+  goes on the **screen**, where naming them is the entire point, and the log gets a classification
+  instead: `no-such-directory`, `command-not-found`, `not-executable`. A path is a project name or a
+  client's name, and a diagnostic file is not somewhere anybody chose to write it down.
+
+  The test drives a real host through a real failure with a recognisable string in the cwd, the
+  argv and the environment, and asserts it appears nowhere in the log. Reverting either fix fails
+  it.
 - A verbose mode exists for debugging and states clearly that it will capture sensitive data
 - The diagnostic bundle from `tabterm doctor` is redacted by default and lists what it includes
 - Stack traces are logged daemon-side and never returned to the page. The page receives an error
