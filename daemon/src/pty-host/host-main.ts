@@ -1,4 +1,4 @@
-import { existsSync, openSync, closeSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
+import { claimLockFile, releaseLockFile } from '../lockfile.js';
 import { error, info, initLog, warn } from '../log.js';
 import { PtyHost } from './host.js';
 import { HOST_LOCK, HOST_SOCKET } from './paths.js';
@@ -22,26 +22,16 @@ import { paths } from '../config.js';
  */
 const IGNORED: NodeJS.Signals[] = ['SIGHUP', 'SIGINT', 'SIGPIPE'];
 
+/**
+ * The host's claim on its lock, which matters more than the daemon's.
+ *
+ * The socket path is manipulated on the assumption that exactly one host owns it, so two hosts
+ * both believing they own it ends with the loser unlinking the winner's socket, and every
+ * terminal on the machine becomes unreachable. `claimLockFile` makes the claim one operation the
+ * kernel does not interleave. See `lockfile.ts`.
+ */
 function claimLock(): boolean {
-  try {
-    if (existsSync(HOST_LOCK)) {
-      const pid = Number(readFileSync(HOST_LOCK, 'utf8').trim());
-      if (Number.isFinite(pid) && pid > 0) {
-        try {
-          process.kill(pid, 0);
-          return false; // A host is already running, and it owns the sessions.
-        } catch {
-          // The pid is gone. The lock is stale and the sessions it described are long dead.
-        }
-      }
-    }
-    const fd = openSync(HOST_LOCK, 'w', 0o600);
-    closeSync(fd);
-    writeFileSync(HOST_LOCK, String(process.pid), { mode: 0o600 });
-    return true;
-  } catch {
-    return false;
-  }
+  return claimLockFile(HOST_LOCK);
 }
 
 async function main(): Promise<void> {
@@ -78,11 +68,10 @@ async function main(): Promise<void> {
      */
     info('pty-host.stopping', { signal, sessions: host.sessionCount });
     await host.close();
-    try {
-      unlinkSync(HOST_LOCK);
-    } catch {
-      /* already gone */
-    }
+    // Only if it is still ours. A lock judged stale and taken over by a successor belongs to that
+    // successor now, and removing it here would hand a third starter a free claim while the real
+    // owner is running. See `releaseLockFile`.
+    releaseLockFile(HOST_LOCK);
     process.exit(0);
   };
 
