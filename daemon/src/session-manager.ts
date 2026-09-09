@@ -701,6 +701,24 @@ export class SessionManager {
     }
     session.clients.set(client.clientId, client);
     session.lastAttachedAt = Date.now();
+
+    /**
+     * A tab is looking at this session, so its workspace is not in the background.
+     *
+     * The clock was only ever cleared inside `#scheduleReap`, which is unreachable for a session
+     * that has a client: every caller returns early when one is attached. So reopening a tab left
+     * the timestamp from the **previous** close in place, and closing that tab again produced a
+     * deadline measured from an hour ago, which is a deadline already in the past.
+     *
+     * That is a live terminal ending the moment its tab closes, which is the one outcome this
+     * product does not accept. Attaching is the strongest evidence there is that a workspace is
+     * open, and clearing it here is what makes the clock mean "since it went to the background"
+     * rather than "since it first ever did".
+     */
+    const attachedWorkspace = this.#workspaceOf?.(session.id);
+    if (attachedWorkspace !== undefined && this.#backgroundSince.delete(attachedWorkspace)) {
+      this.rememberBackgroundSince?.(attachedWorkspace, null);
+    }
     if (session.reapTimer) {
       clearTimeout(session.reapTimer);
       delete session.reapTimer;

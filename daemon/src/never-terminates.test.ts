@@ -740,3 +740,49 @@ describe('what a daemon restart does to a background clock', () => {
     expect(backend.kills.map((k) => k.sessionId)).toContain(sessionId);
   });
 });
+
+describe('a tab that is closed, reopened, and closed again', () => {
+  /**
+   * Reported by a review of current main, and it is a false termination, which this product treats
+   * as the one unacceptable outcome.
+   *
+   * The background clock is cleared when a workspace is seen open again, and that clearing lives
+   * inside `#scheduleReap`, which never runs for a session that has a client. Reopening a tab
+   * attaches one, so the clock is never cleared. Closing that tab again finds the old timestamp
+   * still there, and the deadline it produces is already in the past.
+   */
+  it('gets the whole timeout again, not the remains of the first one', async () => {
+    const { sessionId, workspaceId } = aWorkingSession();
+    sessions.settledAfterMs = 0;
+    sessions.keepBackgroundSeconds = 300;
+
+    // Closed once: the clock starts.
+    sessions.reportOpenWorkspaces('chrome:control', [workspaceId]);
+    sessions.reportOpenWorkspaces('chrome:control', []);
+    const firstDeadline = sessions.get(sessionId)?.reapDueAt ?? 0;
+    expect(firstDeadline, 'the first close starts a clock').toBeGreaterThan(0);
+
+    // Reopened. A tab attaching is what makes this reachable at all.
+    const session = sessions.get(sessionId);
+    expect(session).toBeTruthy();
+    if (session) {
+      sessions.attach(session, { clientId: 'page-1', cols: 80, rows: 24, onOutput: () => {} });
+      sessions.reportOpenWorkspaces('chrome:control', [workspaceId]);
+      expect(
+        sessions.backgroundSince(workspaceId),
+        'a workspace whose tab is open has no background clock',
+      ).toBeUndefined();
+
+      // And closed again, some time later.
+      sessions.detach(session, 'page-1');
+      sessions.reportOpenWorkspaces('chrome:control', []);
+    }
+
+    const secondDeadline = sessions.get(sessionId)?.reapDueAt ?? 0;
+    expect(
+      secondDeadline > firstDeadline,
+      `the second close must start its own clock; first ${String(firstDeadline)}, second ${String(secondDeadline)}`,
+    ).toBe(true);
+    await sleep(20);
+  });
+});
