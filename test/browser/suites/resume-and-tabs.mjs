@@ -109,19 +109,28 @@ r.ok(
     `${String(beforeTop)} -> ${String(afterTop)}`,
   );
 
-  await realClick(a.client, '.launcher-row-action.is-expand');
   /**
-   * Waited for rather than slept through.
+   * Clicked again to collapse, and clicked again if that one did not land.
    *
-   * A flat four hundred milliseconds is fine on an idle machine and not on one running four
-   * browsers, and this list redraws whenever the daemon reports anything. It failed once that
-   * way, which reads as the collapse not working and was the assertion arriving first.
+   * Waiting was not enough on its own. This list redraws whenever the daemon reports anything, and
+   * a redraw between finding the button and pressing it means the press reaches an element that is
+   * no longer in the page: nothing happens, and eight seconds of waiting afterwards is eight
+   * seconds of waiting for a click that never occurred. It failed exactly once that way, in a full
+   * run with four browsers going, and passed alone immediately after.
+   *
+   * Retrying is right rather than lenient. A person whose click lands during a redraw clicks
+   * again, and the thing being tested is that collapsing works, not that a single synthetic press
+   * happens to fall between two repaints.
    */
-  const collapsed = await waitFor(
-    a.client,
-    `document.querySelectorAll('.launcher-transcript').length === 0`,
-    8000,
-  );
+  let collapsed = false;
+  for (let attempt = 0; attempt < 3 && !collapsed; attempt++) {
+    await realClick(a.client, '.launcher-row-action.is-expand');
+    collapsed = await waitFor(
+      a.client,
+      `document.querySelectorAll('.launcher-transcript').length === 0`,
+      4000,
+    );
+  }
   r.ok('and it collapses again, putting the list back', collapsed);
 
   /**
