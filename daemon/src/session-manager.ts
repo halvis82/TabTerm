@@ -1073,8 +1073,43 @@ export class SessionManager {
     return out;
   }
 
+  /**
+   * The newest snapshot each reporter has managed to deliver.
+   *
+   * `reportOpenTabs` in the extension is asynchronous from end to end and is triggered from seven
+   * places, so two runs overlap routinely and can arrive in the opposite order to the snapshots
+   * they describe. An older snapshot replacing a newer one is not merely stale: when the older one
+   * is the empty list it is an authorisation to end a terminal whose tab is open.
+   *
+   * The incarnation separates one service-worker lifetime from the next, because a worker that has
+   * been replaced counts from one again and its first report must not be discarded for being
+   * smaller than the numbers its predecessor reached.
+   */
+  readonly #reporterMark = new Map<string, { incarnation: string; generation: number }>();
+
   /** Told by each extension, on every tab event and on a poll. */
-  reportOpenWorkspaces(clientId: string, ids: readonly string[]): void {
+  reportOpenWorkspaces(
+    clientId: string,
+    ids: readonly string[],
+    from?: { incarnation: string; generation: number },
+  ): void {
+    if (from !== undefined) {
+      const mark = this.#reporterMark.get(clientId);
+      if (mark !== undefined && mark.incarnation === from.incarnation) {
+        if (from.generation < mark.generation) {
+          debug('tabs-open.stale', {
+            clientId,
+            generation: from.generation,
+            latest: mark.generation,
+          });
+          return;
+        }
+      }
+      this.#reporterMark.set(clientId, {
+        incarnation: from.incarnation,
+        generation: from.generation,
+      });
+    }
     if (!this.#reporterSince.has(clientId)) this.#reporterSince.set(clientId, Date.now());
     this.#openWorkspaces.set(clientId, new Set(ids));
     // Everything this browser has ever positively claimed, which is the only basis on which it may
@@ -1100,6 +1135,9 @@ export class SessionManager {
    */
   forgetReporter(clientId: string): void {
     this.#reporterSince.delete(clientId);
+    // The watermark goes with the connection. A browser that comes back is a new lifetime as far
+    // as ordering is concerned, and its incarnation says so anyway.
+    this.#reporterMark.delete(clientId);
     if (!this.#openWorkspaces.delete(clientId)) return;
     for (const session of this.all) this.#rescheduleReapIfIdle(session);
   }

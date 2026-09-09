@@ -255,11 +255,59 @@ let startupSettled: Promise<void> = Promise.resolve();
  */
 let claimedWhileStarting: string[] = [];
 
+/**
+ * This service worker's lifetime, and which snapshot within it.
+ *
+ * Both travel with every report so the daemon can refuse one describing an older moment than the
+ * one it already has. The incarnation is new whenever the worker is replaced, which stops a
+ * counter restarting at one from looking like a very stale report.
+ */
+const REPORTER_INCARNATION = crypto.randomUUID();
+let reportGeneration = 0;
+
+/**
+ * One report at a time, with at most one more queued behind it.
+ *
+ * This is triggered from seven places and awaits four times on the way through, so runs overlap
+ * routinely and can reach the daemon in the opposite order to the snapshots they describe. When
+ * the older of two is the empty list, that is an authorisation to end a terminal whose tab is open.
+ *
+ * Serialising removes the race at its source. The generation on each report is still needed,
+ * because a send retries for about eight seconds and can outlive its own turn.
+ *
+ * One trailing run is enough: whatever changed while a report was in flight is described by taking
+ * a fresh snapshot after it, and several would describe the same moment repeatedly.
+ */
+let reportInFlight: Promise<void> | null = null;
+let reportQueued = false;
+
 async function reportOpenTabs(): Promise<void> {
+  if (reportInFlight !== null) {
+    reportQueued = true;
+    return reportInFlight;
+  }
+  reportInFlight = (async () => {
+    try {
+      await reportOpenTabsOnce();
+    } finally {
+      reportInFlight = null;
+      if (reportQueued) {
+        reportQueued = false;
+        void reportOpenTabs();
+      }
+    }
+  })();
+  return reportInFlight;
+}
+
+async function reportOpenTabsOnce(): Promise<void> {
   try {
     await startupSettled;
     const base = chrome.runtime.getURL('terminal.html');
     const tabs = await chrome.tabs.query({ url: `${base}*` });
+    // Numbered when the browser was asked, which is what the number has to mean.
+    reportGeneration += 1;
+    const generation = reportGeneration;
     const workspaceIds = tabs
       .map((t) => new URL(t.url ?? '').searchParams.get('workspace'))
       .filter((id): id is string => id !== null && id !== '');
@@ -277,7 +325,7 @@ async function reportOpenTabs(): Promise<void> {
       if (tab.id !== undefined && id !== null && id !== '') map[String(tab.id)] = id;
     }
     await chrome.storage.local.set({ [TAB_MAP_KEY]: map });
-    await sendTabsOpen([...new Set([...workspaceIds, ...claimedWhileStarting])]);
+    await sendTabsOpen([...new Set([...workspaceIds, ...claimedWhileStarting])], generation);
   } catch {
     /**
      * Silent, and safe when it fails.
@@ -414,7 +462,7 @@ async function sendTabClosed(workspaceId: string, eventId: string): Promise<void
   }
 }
 
-async function sendTabsOpen(workspaceIds: readonly string[]): Promise<void> {
+async function sendTabsOpen(workspaceIds: readonly string[], generation: number): Promise<void> {
   // The document that forwards it may not exist yet, and asking for it is what creates it.
   await ensureOffscreen().catch(() => undefined);
   for (const wait of [0, 250, 750, 2000, 5000]) {
@@ -423,6 +471,8 @@ async function sendTabsOpen(workspaceIds: readonly string[]): Promise<void> {
       const reply: unknown = await chrome.runtime.sendMessage({
         t: 'tabterm:tabs-open',
         workspaceIds,
+        reporterIncarnation: REPORTER_INCARNATION,
+        generation,
       });
       // The offscreen document answers only once it has a connection to send it on.
       if (typeof reply === 'object' && reply !== null && (reply as { sent?: boolean }).sent) return;
@@ -473,7 +523,9 @@ async function reopenAfterReload(): Promise<void> {
      * reopen works, and saves the shells if it does not.
      */
     claimedWhileStarting = wanted.filter((id): id is string => typeof id === 'string');
-    void sendTabsOpen(claimedWhileStarting);
+    // Numbered too, and taken before any snapshot, so a real inventory always outranks it.
+    reportGeneration += 1;
+    void sendTabsOpen(claimedWhileStarting, reportGeneration);
 
     const base = chrome.runtime.getURL('terminal.html');
     const open = await chrome.tabs.query({ url: `${base}*` });

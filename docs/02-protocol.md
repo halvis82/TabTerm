@@ -78,7 +78,7 @@ Rules, all enforced:
 | `check-folder` | `path`, `checkId?` | Is that folder there? Same reason as above: only the daemon can look. `checkId` names the question |
 | `create-folder` | `path`, `checkId?` | Make it, then answer as `check-folder` would |
 | `get-scrollback-budget` / `set-scrollback-budget` | `bytes` | Clamped to 1 MB..50 MB |
-| `tabs-open` | `workspaceIds[]` | Which workspaces Chrome still has a tab for. The daemon cannot see Chrome and a dropped socket is not a closed tab. See `04-session-lifecycle.md` §4 |
+| `tabs-open` | `workspaceIds[]`, `reporterIncarnation?`, `generation?` | Which workspaces Chrome still has a tab for. The daemon cannot see Chrome and a dropped socket is not a closed tab. See `04-session-lifecycle.md` §4 |
 | `list-resumable` | `cwd?`, `limit?` | Agent conversations that could be picked up. Both stores, filtered to what would work |
 | `resume-agent` | `sessionId`, `cwd`, `cols`, `rows`, `agent?` | `agent` decides the argv: Claude takes a flag, Codex a subcommand. See `09-agent-integration.md` |
 | `insert-marker` | `sessionId`, `label`, `color?` | A landmark, printed as output so it survives a reload |
@@ -86,6 +86,25 @@ Rules, all enforced:
 | `detach-pane-to-tab` | `workspaceId`, `paneId` | The pane leaves; the answer carries the workspace it went to |
 
 ---
+
+
+**Why `tabs-open` is numbered.** The reporter is asynchronous from end to end: it awaits startup,
+awaits the tab query, awaits two storage writes, and then calls a sender that retries for about
+eight seconds. It is triggered from tab removal, creation, url change, replacement, browser
+startup, extension install and a poll alarm, so two runs overlap routinely and can arrive in the
+opposite order to the snapshots they describe.
+
+An older snapshot replacing a newer one is not merely stale. When the older one is the empty list,
+it is an authorisation to end a terminal whose tab is open.
+
+`generation` counts snapshots within one service-worker lifetime, taken at the moment the browser
+is asked rather than when the report is sent. `reporterIncarnation` names that lifetime, so a
+worker that has been replaced and counts from one again is not mistaken for a very stale report.
+The daemon keeps the newest pair per reporter and ignores anything older from the same lifetime.
+
+The worker also serialises its reports, which removes the race at its source. The numbering stays
+because a send outlives its own turn: it retries for eight seconds while newer snapshots are taken.
+Both fields are optional, so an older extension still reports and is simply not ordered.
 
 ## 4. Control messages, daemon to client
 

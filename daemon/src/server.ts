@@ -1212,7 +1212,13 @@ export class DaemonServer {
           warn('tabs-open.refused', { clientId: client.id, role: client.role });
           return;
         }
-        this.#sessions.reportOpenWorkspaces(client.id, msg.workspaceIds);
+        this.#sessions.reportOpenWorkspaces(
+          client.id,
+          msg.workspaceIds,
+          msg.reporterIncarnation !== undefined && msg.generation !== undefined
+            ? { incarnation: msg.reporterIncarnation, generation: msg.generation }
+            : undefined,
+        );
         /**
          * A workspace that is open again is not a workspace anybody closed.
          *

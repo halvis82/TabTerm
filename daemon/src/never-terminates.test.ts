@@ -562,3 +562,74 @@ describe('a reporter has authority only over what it has actually seen', () => {
     expect(backend.kills.filter((k) => k.sessionId === sessionId)).toEqual([]);
   });
 });
+
+describe('an inventory that arrives out of order', () => {
+  /**
+   * `reportOpenTabs` in the service worker is asynchronous from end to end: it awaits startup,
+   * awaits `chrome.tabs.query`, awaits two storage writes, and then calls a sender that retries
+   * for about eight seconds. It is invoked from tab events, tab creation, url changes, tab
+   * replacement, browser startup, extension install and a poll alarm, so two runs overlap
+   * routinely.
+   *
+   * Two overlapping runs can therefore reach the daemon in the opposite order to the snapshots
+   * they describe. The older snapshot then replaces newer browser truth, and if the older one is
+   * the empty list, it is an authorisation to end a terminal whose tab is open.
+   */
+  it('does not let an older snapshot replace a newer one', async () => {
+    const { sessionId, workspaceId } = aWorkingSession();
+    sessions.settledAfterMs = 0;
+
+    // The newer snapshot: the tab is open, and the browser knows it.
+    sessions.reportOpenWorkspaces('chrome:control', [workspaceId], {
+      incarnation: 'worker-1',
+      generation: 2,
+    });
+    // The older one, delayed behind it in the retry loop, describing a moment before the tab
+    // existed. It must not be able to say anything about now.
+    sessions.reportOpenWorkspaces('chrome:control', [], {
+      incarnation: 'worker-1',
+      generation: 1,
+    });
+
+    await sleep(WELL_PAST_EVERY_TIMER);
+    expect(
+      backend.kills.filter((k) => k.sessionId === sessionId),
+      'a stale snapshot must not authorise ending a terminal whose tab is open',
+    ).toEqual([]);
+  });
+
+  it('takes a newer snapshot from the same worker', async () => {
+    const { sessionId, workspaceId } = aWorkingSession();
+    sessions.settledAfterMs = 0;
+    sessions.reportOpenWorkspaces('chrome:control', [workspaceId], {
+      incarnation: 'worker-1',
+      generation: 1,
+    });
+    sessions.reportOpenWorkspaces('chrome:control', [], {
+      incarnation: 'worker-1',
+      generation: 2,
+    });
+    await untilKilled(sessionId);
+    expect(backend.kills.map((k) => k.sessionId)).toContain(sessionId);
+  });
+
+  it('starts again when the worker restarts, rather than ignoring it for ever', async () => {
+    /**
+     * A service worker that has been replaced counts from one again, and its first report must
+     * not be discarded for being older than the numbers the previous worker reached. The
+     * incarnation is what separates the two lifetimes.
+     */
+    const { sessionId, workspaceId } = aWorkingSession();
+    sessions.settledAfterMs = 0;
+    sessions.reportOpenWorkspaces('chrome:control', [workspaceId], {
+      incarnation: 'worker-1',
+      generation: 9,
+    });
+    sessions.reportOpenWorkspaces('chrome:control', [], {
+      incarnation: 'worker-2',
+      generation: 1,
+    });
+    await untilKilled(sessionId);
+    expect(backend.kills.map((k) => k.sessionId)).toContain(sessionId);
+  });
+});

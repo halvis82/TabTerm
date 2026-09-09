@@ -140,6 +140,9 @@ chrome.runtime.onMessage.addListener(
       workspaceIds?: readonly string[];
       workspaceId?: string;
       eventId?: string;
+      /** Carried through from the worker, so the daemon can tell which snapshot is newer. */
+      reporterIncarnation?: string;
+      generation?: number;
     } & Credentials,
     _sender,
     sendResponse: (reply: { sent: boolean }) => void,
@@ -165,7 +168,18 @@ chrome.runtime.onMessage.addListener(
        * seconds.
        */
       const connected = client?.connected === true;
-      if (connected) client?.send({ t: 'tabs-open', workspaceIds: msg.workspaceIds });
+      if (connected) {
+        client?.send({
+          t: 'tabs-open',
+          workspaceIds: msg.workspaceIds,
+          // Carried through untouched. This document forwards; it has no view of which snapshot
+          // is newer, and inventing one here would be a second opinion nobody asked for.
+          ...(typeof msg.reporterIncarnation === 'string'
+            ? { reporterIncarnation: msg.reporterIncarnation }
+            : {}),
+          ...(typeof msg.generation === 'number' ? { generation: msg.generation } : {}),
+        });
+      }
       sendResponse({ sent: connected });
       return false;
     }

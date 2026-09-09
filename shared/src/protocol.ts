@@ -399,6 +399,22 @@ export type ClientMessage =
        */
       t: 'tabs-open';
       workspaceIds: readonly string[];
+      /**
+       * Which service-worker lifetime produced this snapshot.
+       *
+       * A worker that has been replaced counts its snapshots from one again, and that first report
+       * must not be discarded for being smaller than the numbers its predecessor reached.
+       */
+      reporterIncarnation?: string;
+      /**
+       * Which snapshot this is, counting up within one lifetime.
+       *
+       * The reporter is asynchronous from end to end and is triggered from seven places, so two
+       * runs overlap routinely and can arrive in the opposite order to the snapshots they describe.
+       * An older list replacing a newer one is not merely stale: when the older one is empty it is
+       * an authorisation to end a terminal whose tab is open.
+       */
+      generation?: number;
     }
   | {
       /**
