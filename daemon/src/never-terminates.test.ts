@@ -773,7 +773,14 @@ describe('a tab that is closed, reopened, and closed again', () => {
         'a workspace whose tab is open has no background clock',
       ).toBeUndefined();
 
-      // And closed again, some time later.
+      /**
+       * And closed again, a moment later.
+       *
+       * The pause is the point rather than padding: without it both closes land in the same
+       * millisecond and two correct deadlines compare equal, which fails for a reason that has
+       * nothing to do with the rule being checked.
+       */
+      await sleep(8);
       sessions.detach(session, 'page-1');
       sessions.reportOpenWorkspaces('chrome:control', []);
     }
