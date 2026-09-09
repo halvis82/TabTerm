@@ -3146,6 +3146,34 @@ function repaintAfterRestore(paneId: string, screen: string): void {
  * is a small correction rather than a different screen. A wrong guess is only ever wrong for
  * that moment; 80 by 24 was wrong for the whole reattach.
  */
+/**
+ * Both measurements of the same pane, so a difference between them can be seen rather than guessed.
+ *
+ * A reattach announced `187x44` and corrected itself to `195x44` a second later. Eight columns is
+ * enough to change how a wrapped line lays out, and a program that redraws over its own last frame
+ * then stacks frames instead of replacing them. Which part of the box changes in that second is
+ * not knowable from here, and two attempts to reason it out were both wrong, so the numbers are
+ * recorded and the answer comes from a machine where it happens.
+ */
+function reportBox(when: string, paneId: string): void {
+  const pane = panesHost?.get(paneId);
+  const element = pane?.element.querySelector('.xterm-screen');
+  if (!element) return;
+  const box = element.getBoundingClientRect();
+  const cell = pane?.controller.cellSize();
+  client?.send({
+    t: 'note',
+    event: `box.${when}`,
+    detail: {
+      width: Math.round(box.width),
+      height: Math.round(box.height),
+      cell: `${String(Math.round((cell?.width ?? 0) * 100) / 100)}x${String(Math.round((cell?.height ?? 0) * 100) / 100)}`,
+      grid: `${String(pane?.controller.term.cols ?? 0)}x${String(pane?.controller.term.rows ?? 0)}`,
+      window: `${String(window.innerWidth)}x${String(window.innerHeight)}`,
+    },
+  });
+}
+
 function attachSize(): { cols: number; rows: number; estimated?: true } {
   /**
    * Always a claim to be corrected, never a measurement to be applied.
@@ -3164,7 +3192,11 @@ function attachSize(): { cols: number; rows: number; estimated?: true } {
    * which follows within a second through `resize-pane`.
    */
   const measured = panesHost?.all[0]?.controller.fit();
-  if (measured && measured.cols > 1 && measured.rows > 1) return measured;
+  if (measured && measured.cols > 1 && measured.rows > 1) {
+    const first = panesHost?.all[0];
+    if (first) reportBox('attach', first.paneId);
+    return measured;
+  }
   // A cell from the terminal's own font metrics when there is one, and a sane default when not.
   const cell = panesHost?.all[0]?.controller.cellSize();
   const width = cell?.width ?? 7;
@@ -3276,7 +3308,10 @@ function noticeResize(paneId: string, size: { cols: number; rows: number }, why:
 function refitAllPanes(): void {
   for (const pane of panesHost?.all ?? []) {
     const size = panesHost?.fit(pane.paneId);
-    if (size) askForSize(pane.paneId, size, 'refit');
+    if (size) {
+      reportBox('refit', pane.paneId);
+      askForSize(pane.paneId, size, 'refit');
+    }
   }
 }
 
