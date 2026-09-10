@@ -30,7 +30,13 @@ import { debug, info, warn } from './log.js';
 import { expandHome } from './complete-path.js';
 import { plainText } from './plain-text.js';
 import { markerBlock } from './marker-block.js';
-import { MAX_DROP_BYTES, sweepDrops, writeDrop } from './dropped-files.js';
+import {
+  MAX_DROP_BYTES,
+  copyImageToClipboard,
+  isImage,
+  sweepDrops,
+  writeDrop,
+} from './dropped-files.js';
 import { openPath, resolvePaths } from './paths.js';
 import { processCwd } from './process-cwd.js';
 import type { LauncherData } from './launcher-data.js';
@@ -1544,9 +1550,29 @@ export class DaemonServer {
             now,
             randomUUID().slice(0, 8),
           );
+          /*
+           * An image dropped into an agent goes to the clipboard, not to the prompt.
+           *
+           * Which is what he asked for, and it turns out to be the mechanism both agents already
+           * use rather than anything invented here: Claude Code binds a key to an image paste and
+           * reads the clipboard for PNG data, and Codex reaches for the clipboard the same way.
+           * Both were read out of their own binaries. So the image goes where they already look,
+           * and the page presses the key they already listen for.
+           *
+           * Only into an agent. In a shell that key means "take the next character literally",
+           * and a shell has no use for an image anyway, so a path is the useful answer there.
+           */
+          const toClipboard = isImage(msg.type, msg.name) && session.agentState !== undefined;
+          if (toClipboard) await copyImageToClipboard(path, msg.type, msg.name);
           send(
             client.socket,
-            controlFrame({ t: 'file-staged', sessionId: session.id, name: msg.name, path }),
+            controlFrame({
+              t: 'file-staged',
+              sessionId: session.id,
+              name: msg.name,
+              path,
+              as: toClipboard ? 'clipboard' : 'path',
+            }),
           );
           // Old copies go on the way past, so nothing has to remember to tidy up.
           await sweepDrops(paths.dropped, now);

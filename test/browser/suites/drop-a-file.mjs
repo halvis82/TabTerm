@@ -52,14 +52,16 @@ await evaluate(client, drag('dragleave', true));
 await sleep(200);
 r.ok('and goes out when the drag leaves', !(await overlayShown()), 'overlay stayed up');
 
-// Dragged text is not a file, and must not put the window into a state it cannot leave.
+// Dragged text is taken too, and the window says which of the two it is about to do.
 await evaluate(client, drag('dragenter', false));
 await sleep(200);
-r.ok(
-  'dragged text is not mistaken for a file',
-  !(await overlayShown()),
-  'overlay came up for text',
+const textLabel = String(
+  await evaluate(client, `document.querySelector('#drop span')?.textContent ?? ''`),
 );
+r.ok('dragged text lights the window up as well', await overlayShown(), 'no overlay for text');
+r.ok('and it says the text is going to the prompt', /text/i.test(textLabel), textLabel);
+await evaluate(client, drag('dragleave', false));
+await sleep(200);
 
 await evaluate(client, drag('dragenter', true));
 await sleep(150);
@@ -86,6 +88,30 @@ r.ok(
   line.slice(-90),
 );
 r.ok('and it is staged rather than run', !screen.includes('command not found'), line.slice(-90));
+
+// Dragged text pastes as text. Asked for as "why wouldn't that work".
+await evaluate(
+  client,
+  `(() => {
+    const dt = new DataTransfer();
+    dt.setData('text/plain', 'some dragged words');
+    for (const type of ['dragenter', 'drop']) {
+      window.dispatchEvent(new DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true }));
+    }
+    return true;
+  })()`,
+);
+await sleep(1200);
+const afterText = String(await evaluate(client, 'window.__tabterm.readScreen() ?? ""'));
+r.ok(
+  'dragged text lands at the prompt',
+  afterText.includes('some dragged words'),
+  afterText
+    .split(String.fromCharCode(10))
+    .filter((l) => l.trim())
+    .slice(-1)[0] ?? '',
+);
+r.ok('and it is staged rather than run', !afterText.includes('command not found'), 'it ran');
 
 await finish();
 r.done();

@@ -235,7 +235,7 @@ export type ClientMessage =
    * so there is no path to type. The daemon writes a copy and answers with the path of that.
    * Base64 because a control frame is JSON, and capped well under the frame limit.
    */
-  | { t: 'stage-file'; sessionId: string; name: string; data: string }
+  | { t: 'stage-file'; sessionId: string; name: string; type: string; data: string }
   | {
       t: 'attach';
       sessionId?: string;
@@ -796,7 +796,15 @@ export type ServerMessage =
   | { t: 'auth-ok'; serverVersion: string; sessionCount: number }
   | { t: 'auth-fail'; code: ServerErrorCode }
   | { t: 'session-created'; sessionId: string; streamId: number; pid: number; workspaceId: string }
-  | { t: 'file-staged'; sessionId: string; name: string; path: string }
+  /**
+   * Where a dropped file ended up.
+   *
+   * `path` means the copy is on disk and its path is what should be typed. `clipboard` means it
+   * was an image and an agent is running, so it is on the system clipboard and the paste key is
+   * what should be sent: that is how both Claude Code and Codex actually take an image, read out
+   * of their own binaries rather than guessed.
+   */
+  | { t: 'file-staged'; sessionId: string; name: string; path: string; as: 'path' | 'clipboard' }
   | { t: 'snapshot'; snapshot: SessionSnapshot }
   | { t: 'cwd'; sessionId: string; cwd: string; gitRoot?: string }
   | { t: 'title'; sessionId: string; fields: TitleFields }

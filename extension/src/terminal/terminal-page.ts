@@ -24,7 +24,13 @@ import { describeError } from './describe-error.js';
 import type { PaneMenuAction } from './xterm-controller.js';
 import { findCandidates } from './path-links.js';
 import { askHasLapsed, missHasExpired } from './link-scan.js';
-import { DragDepth, dragCarriesFiles, MAX_DROPPED_FILES } from './drop-zone.js';
+import {
+  DragDepth,
+  DROP_LABEL,
+  droppedText,
+  MAX_DROPPED_FILES,
+  whatIsCarried,
+} from './drop-zone.js';
 import { TypedBuffer, backspaces } from './hotstrings.js';
 import { chooseOpenAction, describeOpen } from './open-action.js';
 import { needsAttention, StatusMachine, titleStatus } from './status-machine.js';
@@ -2578,6 +2584,7 @@ function installModifierTracking(): void {
  */
 function installDropTarget(): void {
   const overlay = document.getElementById('drop');
+  const label = overlay?.querySelector('span') ?? null;
   const depth = new DragDepth();
 
   const show = (on: boolean): void => {
@@ -2585,33 +2592,60 @@ function installDropTarget(): void {
   };
 
   window.addEventListener('dragenter', (e) => {
-    if (!dragCarriesFiles(e.dataTransfer?.types)) return;
+    const carried = whatIsCarried(e.dataTransfer?.types);
+    if (!carried) return;
     e.preventDefault();
-    if (depth.enter()) show(true);
+    if (depth.enter()) {
+      if (label) label.textContent = DROP_LABEL[carried];
+      show(true);
+    }
   });
 
   window.addEventListener('dragover', (e) => {
-    if (!dragCarriesFiles(e.dataTransfer?.types)) return;
-    // Both of these are required. Without them the drop never fires and Chrome opens the file.
+    if (!whatIsCarried(e.dataTransfer?.types)) return;
+    // Both of these are required, on every event and not only the first. Without them the drop
+    // never fires at all and Chrome does its own thing, which is to open the file in the tab.
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
   });
 
   window.addEventListener('dragleave', (e) => {
-    if (!dragCarriesFiles(e.dataTransfer?.types)) return;
+    if (!whatIsCarried(e.dataTransfer?.types)) return;
     if (depth.leave()) show(false);
   });
 
   window.addEventListener('drop', (e) => {
-    if (!dragCarriesFiles(e.dataTransfer?.types)) return;
+    const carried = whatIsCarried(e.dataTransfer?.types);
+    if (!carried) return;
     e.preventDefault();
     depth.end();
     show(false);
-    void takeDroppedFiles([...(e.dataTransfer?.files ?? [])]);
+    if (carried === 'files') {
+      void takeDroppedFiles([...(e.dataTransfer?.files ?? [])]);
+      return;
+    }
+    /*
+     * Dragged text is staged the way selected text sent from a page is staged.
+     *
+     * Asked for as "what if we have some text selected and we try to drag and drop it in and it
+     * just pastes that text. why wouldn't that work". There was no reason, other than that only
+     * files were being looked at.
+     */
+    const text = droppedText(
+      e.dataTransfer?.getData('text/plain') || (e.dataTransfer?.getData('text/uri-list') ?? ''),
+    );
+    if (text) stageAtPrompt(text);
   });
 }
 
-/** Hand each dropped file to the daemon, which writes it and answers with its path. */
+/** Put text at the prompt of the focused pane, staged and never run. */
+function stageAtPrompt(text: string): void {
+  const pane = panesHost?.get(splitView?.focused ?? panesHost.all[0]?.paneId ?? '');
+  if (!pane) return;
+  client?.write(pane.streamId, new TextEncoder().encode(text));
+}
+
+/** Hand each dropped file to the daemon, which writes it and answers with what to do about it. */
 async function takeDroppedFiles(files: File[]): Promise<void> {
   const pane = panesHost?.get(splitView?.focused ?? panesHost.all[0]?.paneId ?? '');
   if (!pane?.sessionId || !client) return;
@@ -2628,7 +2662,13 @@ async function takeDroppedFiles(files: File[]): Promise<void> {
       setStatus(`${file.name} could not be read`, 'error');
       continue;
     }
-    client.send({ t: 'stage-file', sessionId: pane.sessionId, name: file.name, data });
+    client.send({
+      t: 'stage-file',
+      sessionId: pane.sessionId,
+      name: file.name,
+      type: file.type,
+      data,
+    });
   }
 }
 
@@ -5156,17 +5196,28 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'file-staged': {
-      /*
-       * The copy exists, so its path can be typed.
-       *
-       * Quoted, because the name came off a dragged file and may contain a space or worse, and
-       * with a trailing space rather than a newline so it is staged and not run. That is the same
-       * rule everything else that puts text at a prompt follows. See docs/05-security.md.
-       */
       const target = [...(panesHost?.all ?? [])].find((p) => p.sessionId === msg.sessionId);
       if (!target) return;
-      client?.write(target.streamId, new TextEncoder().encode(`${quotePath(msg.path)} `));
-      setStatus(`${msg.name} is at the prompt`, 'ok');
+      if (msg.as === 'clipboard') {
+        /*
+         * The image is on the system clipboard, so the paste key is what finishes the drop.
+         *
+         * This is how both agents actually take an image, read out of their own binaries rather
+         * than guessed: Claude Code binds Ctrl+V to an image paste and reads PNG data off the
+         * clipboard, and Codex reaches for the clipboard the same way. Nothing is being emulated.
+         * The image goes where they already look and this presses the key they already listen for.
+         */
+        client?.write(target.streamId, new Uint8Array([0x16]));
+        setStatus(`${msg.name} pasted`, 'ok');
+      } else {
+        /*
+         * Quoted, because the name came off a dragged file and may hold a space or worse, and
+         * with a trailing space rather than a newline so it is staged and not run. The same rule
+         * everything else that puts text at a prompt follows. See docs/05-security.md.
+         */
+        client?.write(target.streamId, new TextEncoder().encode(`${quotePath(msg.path)} `));
+        setStatus(`${msg.name} is at the prompt`, 'ok');
+      }
       setTimeout(() => {
         setStatus('', 'hidden');
       }, 2200);

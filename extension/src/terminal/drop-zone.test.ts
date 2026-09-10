@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dragCarriesFiles, droppedText, DragDepth } from './drop-zone.js';
+import { dragCarriesFiles, droppedText, whatIsCarried, DragDepth } from './drop-zone.js';
 
 const ESC = String.fromCharCode(27);
 
@@ -60,5 +60,21 @@ describe('text dropped on the window', () => {
 
   it('says there is nothing to stage rather than staging nothing', () => {
     expect(droppedText('   ')).toBeNull();
+  });
+});
+
+describe('what is worth taking from a drag', () => {
+  it('takes files over text, because a dragged file carries its name as text too', () => {
+    expect(whatIsCarried(['Files', 'text/plain'])).toBe('files');
+  });
+
+  it('takes dragged text', () => {
+    expect(whatIsCarried(['text/plain'])).toBe('text');
+    expect(whatIsCarried(['text/uri-list'])).toBe('text');
+  });
+
+  it('takes nothing from a drag carrying neither', () => {
+    expect(whatIsCarried(['application/x-moz-nativeimage'])).toBeNull();
+    expect(whatIsCarried([])).toBeNull();
   });
 });

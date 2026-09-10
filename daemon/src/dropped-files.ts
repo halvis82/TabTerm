@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import { readdir, stat, unlink, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -92,4 +93,61 @@ export async function sweepDrops(dir: string, now: number, ttlMs = DROP_TTL_MS):
     }
   }
   return removed;
+}
+
+/**
+ * Whether a dropped file is an image, and so worth putting on the clipboard.
+ *
+ * The type the browser reports is preferred, because it comes from the file itself rather than
+ * from its name. The name is the fallback for the cases where the browser offers nothing.
+ */
+export function isImage(type: string, name: string): boolean {
+  if (type.startsWith('image/')) return true;
+  return /\.(png|jpe?g|gif|webp|bmp|heic|tiff?)$/i.test(name);
+}
+
+/** Whether it has to be turned into a PNG first. The clipboard is handed PNG data. */
+export function needsPngConversion(type: string, name: string): boolean {
+  return !(type === 'image/png' || /\.png$/i.test(name));
+}
+
+function run(command: string, args: string[]): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    execFile(command, args, { timeout: 10000 }, (err) => {
+      // `execFile` gives an Error or nothing, but the type is wider than the promise wants.
+      if (err) reject(new Error(`${command} failed: ${err.message}`));
+      else resolve();
+    });
+  });
+}
+
+/**
+ * Put an image on the macOS clipboard, so an agent can take it the way a paste gives it one.
+ *
+ * This is how both agents actually receive an image, which was read out of their own binaries
+ * rather than guessed. Claude Code binds Ctrl+V to an image paste and reads the clipboard with
+ * `the clipboard as PNGf`; Codex reaches for the clipboard through osascript in the same way. So
+ * the drop puts the image where they already look and then presses the key they already listen
+ * for. Nothing about either agent is being emulated: the clipboard is the interface.
+ *
+ * Every value handed to a command is its own argument, never a string a shell parses. The path is
+ * ours and the name has already been rebuilt, but a path is exactly the kind of value that stops
+ * being ours the day something else calls this.
+ */
+export async function copyImageToClipboard(
+  path: string,
+  type: string,
+  name: string,
+): Promise<void> {
+  let png = path;
+  if (needsPngConversion(type, name)) {
+    png = `${path}.png`;
+    await run('/usr/bin/sips', ['-s', 'format', 'png', path, '--out', png]);
+  }
+  // AppleScript has no way to take a value except by building the script around it, so the path
+  // is the one thing here that is interpolated. It is a path this module made.
+  await run('/usr/bin/osascript', [
+    '-e',
+    `set the clipboard to (read (POSIX file ${JSON.stringify(png)}) as \u00abclass PNGf\u00bb)`,
+  ]);
 }

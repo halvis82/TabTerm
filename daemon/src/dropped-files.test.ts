@@ -2,7 +2,15 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync, utimesSync, existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { safeDropName, dropPath, writeDrop, sweepDrops, DROP_TTL_MS } from './dropped-files.js';
+import {
+  safeDropName,
+  dropPath,
+  writeDrop,
+  sweepDrops,
+  isImage,
+  needsPngConversion,
+  DROP_TTL_MS,
+} from './dropped-files.js';
 
 describe('the name a dropped file is written under', () => {
   it('keeps an ordinary name as it is', () => {
@@ -71,5 +79,28 @@ describe('writing a drop', () => {
     const path = await writeDrop(dir, 'note.txt', new TextEncoder().encode('hello'), 0, 'aaaa');
     expect(existsSync(path)).toBe(true);
     expect(readdirSync(dir)).toHaveLength(1);
+  });
+});
+
+describe('deciding an image goes to the clipboard', () => {
+  it('believes the type the browser reports', () => {
+    expect(isImage('image/png', 'whatever')).toBe(true);
+    expect(isImage('image/webp', 'whatever')).toBe(true);
+  });
+
+  it('falls back to the name when the browser offers nothing', () => {
+    expect(isImage('', 'shot.PNG')).toBe(true);
+    expect(isImage('', 'photo.jpeg')).toBe(true);
+  });
+
+  it('does not call a text file an image', () => {
+    expect(isImage('text/plain', 'notes.txt')).toBe(false);
+    expect(isImage('', 'archive.zip')).toBe(false);
+  });
+
+  it('converts anything that is not already a PNG, since the clipboard takes PNG data', () => {
+    expect(needsPngConversion('image/png', 'a.png')).toBe(false);
+    expect(needsPngConversion('', 'a.png')).toBe(false);
+    expect(needsPngConversion('image/jpeg', 'a.jpg')).toBe(true);
   });
 });

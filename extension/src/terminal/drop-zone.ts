@@ -23,6 +23,25 @@ export function dragCarriesFiles(types: readonly string[] | undefined): boolean 
   return (types ?? []).includes('Files');
 }
 
+/** What a drag is worth taking, or nothing when it carries neither files nor text. */
+export type Carried = 'files' | 'text';
+
+/**
+ * Files win over text, because a drag of a file from Finder carries its name as text as well.
+ * Taking the text there would put a bare filename at the prompt instead of a usable path.
+ */
+export function whatIsCarried(types: readonly string[] | undefined): Carried | null {
+  if (dragCarriesFiles(types)) return 'files';
+  const has = types ?? [];
+  return has.includes('text/plain') || has.includes('text/uri-list') ? 'text' : null;
+}
+
+/** What the window says letting go will do. */
+export const DROP_LABEL: Record<Carried, string> = {
+  files: 'Drop to add the file',
+  text: 'Drop to put the text at the prompt',
+};
+
 /**
  * Whether the window should be showing that it will take a drop.
  *

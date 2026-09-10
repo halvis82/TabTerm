@@ -833,6 +833,31 @@ Three details that are easy to get wrong:
 
 `drop-zone.ts` holds those decisions apart from the page, so they are asserted directly.
 
+### An image goes to the clipboard, not to the prompt
+
+A path is the useful answer for most files and the wrong one for an image dropped into an agent,
+where what somebody wants is the image itself. How an agent actually receives one was read out of
+the agents rather than guessed:
+
+| | How it takes an image |
+|---|---|
+| Claude Code | Binds `Ctrl+V` to an image paste and reads the clipboard with `the clipboard as PNGf` through `osascript` |
+| Codex | Reaches for the system clipboard the same way |
+
+The clipboard is the interface, so an image dropped into a pane running an agent is written, turned
+into a PNG with `sips` if it is not one, put on the clipboard, and followed by the paste key. The
+agent then takes it exactly as it would take a paste. Nothing about either agent is emulated and no
+key is invented.
+
+Only into an agent, which the daemon knows because a session running one has an `agentState`. In a
+shell that key means "take the next character literally" and a shell has no use for an image, so
+there a path is still what lands. **A drop of an image does replace what is on the system
+clipboard**, which is the price of the mechanism being the clipboard.
+
+Dragged text is staged as text, under the same rules as a selection sent from a page. Files win
+over text when a drag carries both, because a file dragged out of Finder carries its name as text
+as well and a bare filename at the prompt is not useful.
+
 ## 7. Notifications
 
 `chrome.notifications`, fired from the offscreen document so they work with every terminal tab
