@@ -23,6 +23,7 @@ import { openLabelForm } from './label-form.js';
 import { describeError } from './describe-error.js';
 import type { PaneMenuAction } from './xterm-controller.js';
 import { findCandidates } from './path-links.js';
+import { missHasExpired } from './link-scan.js';
 import { TypedBuffer, backspaces } from './hotstrings.js';
 import { chooseOpenAction, describeOpen } from './open-action.js';
 import { needsAttention, StatusMachine, titleStatus } from './status-machine.js';
@@ -661,6 +662,8 @@ let animTimer: number | undefined;
  * directory it was resolved against. Absolute and home-relative paths stand on their own.
  */
 const pathCache = new Map<string, ResolvedPath>();
+/** When a "no such path" answer arrived, so it can be asked about again. See `link-scan.ts`. */
+const pathMissAt = new Map<string, number>();
 const pathsInFlight = new Set<string>();
 let currentCwd = '';
 
@@ -1314,7 +1317,12 @@ function cacheKey(candidate: string, cwd = currentCwd): string {
   return isCwdIndependent(candidate) ? candidate : `${cwd}\u0000${candidate}`;
 }
 function lookupPath(candidate: string): ResolvedPath | undefined {
-  return pathCache.get(cacheKey(candidate));
+  const key = cacheKey(candidate);
+  const known = pathCache.get(key);
+  if (known === undefined) return undefined;
+  // A path that does not exist is worth asking about again, because it may not exist *yet*.
+  if (!known.exists && missHasExpired(Date.now(), pathMissAt.get(key) ?? 0)) return undefined;
+  return known;
 }
 
 // ---------------------------------------------------------------------------
@@ -1803,6 +1811,15 @@ function setCmdHeld(held: boolean): void {
   if (held === cmdHeld) return;
   cmdHeld = held;
   document.body.classList.toggle('cmd-held', held);
+  /*
+   * Holding Command is the moment to find out what is on screen.
+   *
+   * Nothing here is a link until Command is down, so this always happens before one is hovered,
+   * and it leaves the round trip to the daemon the time it takes to move a hand. Without it the
+   * first hover asked, was answered "not yet", and xterm kept that answer for the line until the
+   * pointer left it and came back.
+   */
+  if (held) panesHost?.scanForLinks();
   panesHost?.refreshLinks();
 }
 
@@ -5050,6 +5067,8 @@ function onControl(msg: ServerMessage): void {
       for (const r of msg.results) {
         const key = cacheKey(r.candidate, msg.cwd);
         pathCache.set(key, r);
+        if (r.exists) pathMissAt.delete(key);
+        else pathMissAt.set(key, Date.now());
         pathsInFlight.delete(key);
       }
       panesHost?.refreshLinks();

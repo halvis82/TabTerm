@@ -1,6 +1,7 @@
 import type { ResolvedPath } from '@tabterm/shared';
 import { XtermController, type PaneMenuAction } from './xterm-controller.js';
 import { createPathLinkProvider, findCandidates } from './path-links.js';
+import { scanIsOverdue, QUIET_MS } from './link-scan.js';
 import { loadHighlights, saveHighlights } from './highlights.js';
 import { DEFAULT_COLOR } from './color-store.js';
 
@@ -46,6 +47,8 @@ interface Pane {
   streamId: number;
   element: HTMLElement;
   controller: XtermController;
+  /** Read the rows on screen for paths right now, rather than when the output settles. */
+  scanLinks: () => void;
 }
 
 export class PaneHost {
@@ -119,7 +122,11 @@ export class PaneHost {
      * a request per line.
      */
     let scanTimer = 0;
+    let lastScanAt = 0;
     const scanVisible = (): void => {
+      clearTimeout(scanTimer);
+      scanTimer = 0;
+      lastScanAt = Date.now();
       const buffer = controller.term.buffer.active;
       const first = buffer.viewportY;
       const last = Math.min(buffer.length, first + controller.term.rows);
@@ -133,8 +140,19 @@ export class PaneHost {
       if (unknown.length > 0) this.#opts.resolvePaths(paneId, unknown);
     };
     controller.term.onRender(() => {
+      /*
+       * A maximum wait, not only a settle.
+       *
+       * An agent redrawing its own screen renders continuously, so waiting for quiet meant waiting
+       * forever: the scan was starved for as long as the agent kept working, and a path it had
+       * just printed stayed inert the whole time. See `link-scan.ts`.
+       */
+      if (scanIsOverdue(Date.now(), lastScanAt)) {
+        scanVisible();
+        return;
+      }
       clearTimeout(scanTimer);
-      scanTimer = window.setTimeout(scanVisible, 180);
+      scanTimer = window.setTimeout(scanVisible, QUIET_MS);
     });
 
     controller.installMarkers(element);
@@ -155,7 +173,14 @@ export class PaneHost {
       }),
     );
 
-    this.#panes.set(paneId, { paneId, sessionId, streamId: 0, element, controller });
+    this.#panes.set(paneId, {
+      paneId,
+      sessionId,
+      streamId: 0,
+      element,
+      controller,
+      scanLinks: scanVisible,
+    });
     return element;
   }
 
@@ -266,6 +291,17 @@ export class PaneHost {
 
   refreshLinks(): void {
     for (const pane of this.#panes.values()) pane.controller.refreshLinks();
+  }
+
+  /**
+   * Read every pane's visible rows for paths at once.
+   *
+   * Called the moment Command goes down, which is the one thing that always happens before a link
+   * is hovered. It closes the gap the settle leaves: a path printed a moment ago is confirmed
+   * while the hand is still moving toward it, rather than on a second pass over the same line.
+   */
+  scanForLinks(): void {
+    for (const pane of this.#panes.values()) pane.scanLinks();
   }
 
   /** Release every renderer, for a tab that has been hidden long enough to stop paying for one. */

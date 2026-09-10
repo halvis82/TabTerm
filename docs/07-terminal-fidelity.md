@@ -427,7 +427,27 @@ unmistakable which run of characters will open.
 provider answered for a line and asks again only when the pointer changes line. The first hover
 therefore arrived before the daemon had confirmed the path, was told there were no links, and
 that answer stuck until the pointer left the line and came back. The visible rows are scanned on
-render, debounced, so the answer is already in hand by the time anybody hovers.
+render, so the answer is already in hand by the time anybody hovers.
+
+That scan waited for the output to settle, and an agent never settles. It redraws its own screen
+several times a second for as long as it is working, so the pause the scan was waiting for never
+came and the scan was starved for the whole time: measured against a real transcript, the last
+scan ran while the screen was still filling and none ran after it. A path the agent had just
+printed stayed inert, and the hover could not rescue it because of the cache above. So there is a
+maximum wait as well as a settle, and holding Command scans every pane at once, which is worth
+doing because nothing here is a link until Command is down. That leaves the round trip to the
+daemon the time it takes to move a hand.
+
+**A path that does not exist is asked about again a few seconds later.** A path is printed before
+it exists more often than you would think: an agent names the file it is about to write, and the
+command that creates a file carries the path in the prompt line, where it is read and answered
+"no such path" before anything has been created. Keeping that answer meant the file never became
+clickable however long it sat on screen afterwards. A path that does exist is kept for good, since
+that is the answer we wanted and re-checking costs a round trip for nothing.
+
+`link-scan.ts` holds both timings, apart from any renderer, so they can be asserted directly. The
+browser check runs a program that draws its path a word at a time with absolute column moves and
+then keeps rendering, which is what the transcript that started this actually does.
 
 The modifier is recorded in the **capture** phase of `mousemove`. Bubbling ran after xterm had
 already asked its providers about the line under the pointer, so the first query on a line saw no
