@@ -249,6 +249,26 @@ export class PtyHostClient {
   static readonly HOLD_LIMIT_BYTES = 8 * 1024 * 1024;
 
   /**
+   * And what it is in practice, which is whatever the host's ring can hand back.
+   *
+   * The fixed bound was smaller than one session's ring at the larger scrollback settings, so a
+   * replay big enough to be worth having was guaranteed to overflow it. A hold that cannot hold a
+   * legitimate replay is not a safety net, it is the failure. Raised to follow the budget the host
+   * is given, and never lowered below the original bound.
+   */
+  #holdLimitBytes = PtyHostClient.HOLD_LIMIT_BYTES;
+
+  /**
+   * Sessions whose catch-up was cut short, so the hole can be owned up to.
+   *
+   * Releasing the hold early is not merely late, it loses the gap outright. Live frames go out
+   * first and carry this session's position past the replay, and every replayed byte then looks
+   * like something already seen and is dropped. Nobody downstream can tell that from a quiet
+   * session, which is the part that has to stop.
+   */
+  #cutShort = new Set<string>();
+
+  /**
    * Start catching up, and make sure it cannot last for ever.
    *
    * The timer is the safety net rather than the mechanism. `reconciled()` is called by the daemon
@@ -266,6 +286,7 @@ export class PtyHostClient {
     this.#reconcileTimer = setTimeout(() => {
       if (!this.#reconciling) return;
       warn('pty-host.reconcile-timeout', { heldBytes: this.#heldBytes });
+      this.#cutShortEveryHeldSession();
       this.reconciled();
     }, PtyHostClient.RECONCILE_DEADLINE_MS);
     this.#reconcileTimer.unref();
@@ -307,6 +328,7 @@ export class PtyHostClient {
      * was dropped is told either way.
      */
     this.#announceLostInput();
+    this.#announceCutShort();
   }
 
   /**
@@ -322,6 +344,31 @@ export class PtyHostClient {
    * person: it reaches the screen, the scrollback, and any tab that attaches later. Sequence zero
    * because it is not host output and must not move this session's position in the host's stream.
    */
+  /** Every session with output waiting when catching up was abandoned has lost its gap. */
+  #cutShortEveryHeldSession(): void {
+    for (const frame of this.#held) this.#cutShort.add(frame.sessionId);
+  }
+
+  /**
+   * Tell each affected terminal that part of its screen is missing.
+   *
+   * Same shape as the input notice and for the same reason: a person can put this right by asking
+   * for the screen again, and nobody can act on a line in a log. Sequence zero, because it is not
+   * host output and must not move this session's position in the host's stream.
+   */
+  #announceCutShort(): void {
+    for (const sessionId of this.#cutShort) {
+      warn('pty-host.reconcile-cut-short-announced', { sessionId });
+      const notice = Buffer.from(
+        '\r\n\u001b[33m[TabTerm: part of this screen could not be recovered after the terminal ' +
+          'service reconnected. Scrollback above this line may be incomplete.]\u001b[0m\r\n',
+        'utf8',
+      );
+      for (const fn of this.#dataListeners) fn(sessionId, notice, 0);
+    }
+    this.#cutShort.clear();
+  }
+
   #announceLostInput(): void {
     for (const sessionId of this.takeLostInput()) {
       warn('pty-host.input-lost-announced', { sessionId });
@@ -332,6 +379,16 @@ export class PtyHostClient {
       );
       for (const fn of this.#dataListeners) fn(sessionId, notice, 0);
     }
+  }
+
+  /** What the hold may actually grow to, which follows the host's budget. Read by the checks. */
+  get holdLimitBytes(): number {
+    return this.#holdLimitBytes;
+  }
+
+  /** Mark a session's catch-up as abandoned. Exists so the notice can be checked without a host. */
+  noteCutShortForTest(sessionId: string): void {
+    this.#cutShort.add(sessionId);
   }
 
   /** Where a session's output has reached, for a daemon deciding what to ask for. */
@@ -490,8 +547,12 @@ export class PtyHostClient {
           if (this.#reconciling) {
             this.#held.push({ sessionId: frame.frame.sessionId, data: buf, seq: frame.frame.seq });
             this.#heldBytes += buf.length;
-            if (this.#heldBytes > PtyHostClient.HOLD_LIMIT_BYTES) {
-              warn('pty-host.hold-overflow', { bytes: this.#heldBytes });
+            if (this.#heldBytes > this.#holdLimitBytes) {
+              warn('pty-host.hold-overflow', {
+                bytes: this.#heldBytes,
+                limit: this.#holdLimitBytes,
+              });
+              this.#cutShortEveryHeldSession();
               this.reconciled();
             }
             continue;
@@ -913,6 +974,8 @@ export class PtyHostClient {
 
   /** How much output to keep per session, in bytes. */
   setBudget(bytes: number): void {
+    // The hold has to be able to carry what the ring can serve, or a real replay cannot land.
+    this.#holdLimitBytes = Math.max(PtyHostClient.HOLD_LIMIT_BYTES, Math.floor(bytes));
     this.#send({ t: 'budget', bytes });
   }
 

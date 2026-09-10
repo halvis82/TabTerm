@@ -213,3 +213,47 @@ describe('two contenders that both decide the same lock is stale', () => {
     expect(readdirSync(dir)).toEqual(['alone.lock']);
   });
 });
+
+describe('three contenders inside one window', () => {
+  /**
+   * The case a two-contender check cannot reach, and the one a review cleared this function for.
+   *
+   * A judges the lock stale. B completes a takeover inside that decision, so the entry A then moves
+   * aside is B's **live** claim rather than the dead one. A goes to put it back, and in that window
+   * C claims the free name. The put-back fails, correctly, because the name is C's now.
+   *
+   * What must not happen next is A deleting the graveyard copy. That copy is the only remaining
+   * trace of B's claim, and removing it leaves B believing it owns a socket whose name belongs to
+   * C, with nothing anywhere recording that it happened.
+   */
+  it('never destroys the displaced claim when it cannot be put back', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tt-lock3-'));
+    const file = join(dir, 'contended.lock');
+    await writeFile(file, '999999');
+
+    let bWon = false;
+    let cWon = false;
+    const aWon = claimLockFile(file, {
+      beforeTakeover: () => {
+        if (bWon) return;
+        bWon = claimLockFile(file);
+      },
+      beforePutBack: () => {
+        // C takes the name that A has just freed by moving B's claim aside.
+        if (cWon) return;
+        cWon = claimLockFile(file);
+      },
+    });
+
+    expect(bWon, 'B should have taken the stale lock').toBe(true);
+    expect(cWon, 'C should have taken the name A freed').toBe(true);
+    expect(aWon, 'A must not end up owning anything').toBe(false);
+
+    // C holds the name.
+    expect(readFileSync(file, 'utf8')).toBe(String(process.pid));
+    // And B's displaced claim was kept rather than deleted.
+    const left = readdirSync(dir).filter((n) => n !== 'contended.lock');
+    expect(left.length, 'the displaced claim must not be deleted').toBe(1);
+    expect(left[0]).toContain('.stale.');
+  });
+});

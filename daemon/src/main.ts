@@ -666,10 +666,7 @@ async function main(): Promise<void> {
         for (const session of sessions.all) {
           if (!stillThere.has(session.id)) continue;
           try {
-            const { missingBytes } = await (ptyBackend as HostPtyBackend).replay(
-              session.id,
-              session.vt.seq,
-            );
+            const { missingBytes } = await (ptyBackend as HostPtyBackend).catchUp(session.id);
             /**
              * Output that happened while we were away and is no longer anywhere we can reach.
              *

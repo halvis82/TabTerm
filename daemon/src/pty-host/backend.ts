@@ -93,10 +93,31 @@ export class HostPtyBackend implements PtyBackend {
     this.#client.markPaneClosed(sessionId);
   }
 
-  /** Ask for everything after a sequence number, so a restarted daemon can rebuild a screen. */
   /** See `PtyHostClient.replay`. Reports how much of what was asked for could not be supplied. */
   replay(sessionId: string, fromSeq: number): Promise<{ missingBytes: number }> {
     return this.#client.replay(sessionId, fromSeq);
+  }
+
+  /**
+   * Ask for everything this daemon has not been given, so a reconnect rebuilds the gap exactly.
+   *
+   * The watermark is the host's own sequence for the last byte delivered here, and it has to be:
+   * that is the coordinate the host's ring is indexed by. The daemon's other counters are not the
+   * same number and cannot be substituted. `vt.seq` counts every byte written into the emulator,
+   * which includes text the daemon writes itself and the host never sent, such as the exit notice
+   * put into a session's own screen when a declared command finishes. One of those makes `vt.seq`
+   * larger than anything the host ever counted, so asking at it skips real output, silently, and
+   * reports a shortfall that did not happen.
+   *
+   * Asking here rather than at the call site so there is one answer to what the watermark is.
+   */
+  catchUp(sessionId: string): Promise<{ missingBytes: number }> {
+    return this.#client.replay(sessionId, this.#client.deliveredThrough(sessionId));
+  }
+
+  /** The host's sequence for the last byte handed to this daemon. Exposed for the checks. */
+  deliveredThrough(sessionId: string): number {
+    return this.#client.deliveredThrough(sessionId);
   }
 
   /**

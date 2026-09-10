@@ -17,7 +17,19 @@ import { paths } from './config.js';
  * The recovery is deliberately not a loop. One retry after removing a stale claim is enough: if
  * somebody else took it in between, they hold it, and this process is the one that should stop.
  */
-export function claimLockFile(file: string, hooks?: ClaimHooks): boolean {
+/**
+ * How many times a contender will start again before giving the name up.
+ *
+ * Losing the rename means somebody else is mid-takeover, and the honest answer is to look again at
+ * whatever is there now. That is a retry, and it was written as a tail call, which is a retry with
+ * no bound: a name being fought over hard enough would grow the stack until the process died,
+ * taking the daemon with it, which is the one outcome a lock exists to prevent. The number is
+ * generous because every turn of it requires another process to have completed a whole takeover.
+ */
+const CLAIM_ATTEMPTS = 20;
+
+export function claimLockFile(file: string, hooks?: ClaimHooks, attempt = 0): boolean {
+  if (attempt >= CLAIM_ATTEMPTS) return false;
   if (tryCreate(file)) return true;
 
   // Somebody has it. Whether they are still alive is the only question left.
@@ -59,7 +71,7 @@ export function claimLockFile(file: string, hooks?: ClaimHooks): boolean {
     renameSync(file, graveyard);
   } catch {
     // Somebody else moved it first. Start again: whatever is there now is theirs to answer for.
-    return claimLockFile(file, hooks);
+    return claimLockFile(file, hooks, attempt + 1);
   }
 
   /**
@@ -85,15 +97,29 @@ export function claimLockFile(file: string, hooks?: ClaimHooks): boolean {
    * permanent wall.
    */
   if (movedText !== ownerText) {
+    /**
+     * Put back, and only tidied up once it is genuinely back.
+     *
+     * What was moved is somebody else's **live** claim, so the copy in the graveyard is the only
+     * one of it left. Deleting that when the put-back failed destroyed a running process's lock and
+     * told nobody: it goes on believing it owns the socket while the name belongs to whoever won
+     * the race for it. Keeping the file leaks one entry in a case that needs three contenders
+     * inside one window, which is the cheaper of the two mistakes by a distance.
+     */
+    hooks?.beforePutBack?.();
+    let putBack = false;
     try {
       linkSync(graveyard, file);
+      putBack = true;
     } catch {
       /* somebody has the name now; it is theirs, and putting it back would take it from them */
     }
-    try {
-      unlinkSync(graveyard);
-    } catch {
-      /* nothing to tidy */
+    if (putBack) {
+      try {
+        unlinkSync(graveyard);
+      } catch {
+        /* the second name for a claim that is back where it belongs */
+      }
     }
     return false;
   }
@@ -116,6 +142,12 @@ export function claimLockFile(file: string, hooks?: ClaimHooks): boolean {
 export interface ClaimHooks {
   /** Called after this contender has judged the lock stale, before it does anything about it. */
   beforeTakeover?: () => void;
+  /**
+   * Called after a claim has been moved aside and found to be somebody else's, before putting it
+   * back. The window a third contender can claim the free name in, which is the case that used to
+   * end with a live claim being deleted.
+   */
+  beforePutBack?: () => void;
 }
 
 /**
