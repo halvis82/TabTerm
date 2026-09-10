@@ -19,8 +19,20 @@ Two pieces, and the split matters for this document:
 - **The companion program on your Mac**, which owns the actual terminal processes and everything
   written to disk
 
-The extension talks to the companion program over a loopback connection on your own machine. It
-talks to nothing else.
+The extension talks to the companion program over a loopback connection on your own machine.
+
+It also talks to other things listening on `localhost`, and only when you ask it to. Opening a local
+service from the start screen loads it in a tab, and confirming that one should be closed shows a
+small preview of it first. Those are ordinary requests to your own machine, made because you pressed
+something, and they go no further than it.
+
+There is no TabTerm server anywhere. Nothing you type, nothing your programs print, no command
+history, no clipboard contents and nothing about your projects is sent to any service TabTerm
+operates, because there is not one to send it to.
+
+Programs you run in a terminal reach the network on their own account, exactly as they would in any
+other terminal. `npm install` downloads packages and `curl` fetches a page. That traffic is theirs
+and it is not TabTerm sending your terminal anywhere.
 
 ---
 
@@ -101,6 +113,39 @@ Nothing is kept forever without you having asked for it.
 - **By hand**: delete `~/.local/state/tabterm/` and it is all gone
 - **Uninstalling**: `./scripts/uninstall.sh` in the repository removes the companion program.
   Removing the extension removes what Chrome stored for it
+
+---
+
+## Services listening on your own machine
+
+Development means running servers, so the start screen says which ones are running. This is part of
+working in a terminal rather than a separate feature: the thing you started in a pane a minute ago
+is the thing you want to open.
+
+TabTerm asks the operating system which ports are being listened on, and shows the port number and
+the name of the program holding each one. Servers started inside a TabTerm session are shown apart
+from everything else that happens to be listening, because more is known about the first kind.
+
+None of this leaves your machine, and none of it is stored. It is read when the start screen asks
+and it is gone when the list closes.
+
+What you can do with one:
+
+- **Open it**, which loads `http://localhost:<port>/` in a tab like any address
+- **Copy its address**
+- **Close it**, which ends the program holding the port
+
+Closing is the only one that acts on something outside TabTerm, so it is the careful one:
+
+- It always asks first, naming the program and the port
+- The confirmation shows a small preview of the page, loaded at that moment and never before. It is
+  sandboxed: it cannot submit forms, open windows, download anything, or navigate the page it sits in
+- TabTerm's own ports cannot be closed
+- Only ports above 1024 are eligible, which is where the operating system's own services are not
+- Whoever holds the port is looked up **again** at the moment you confirm, rather than trusting what
+  the list said a minute ago, because ports get reused and the wrong process must not be ended
+- It sends `SIGTERM`, which asks a program to stop and lets it save what it was doing, rather than
+  `SIGKILL`, which does not
 
 ---
 

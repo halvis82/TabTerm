@@ -63,8 +63,17 @@ export function renderMarkdown(source) {
     }
     if (line.startsWith('| ')) {
       flush();
+      /*
+       * Any row of the table, however it is written.
+       *
+       * This took `| ` with the space, and a separator written `|---|---|` has no space after
+       * the bar. So the run ended at the separator: the table kept its header and lost every
+       * row, the separator fell through to be rendered as a paragraph, and the next data row
+       * began a second table whose first row became a heading. One missing character, and all
+       * four of those symptoms.
+       */
       const rows = [];
-      while ((lines[i] ?? '').startsWith('| ')) {
+      while ((lines[i] ?? '').startsWith('|')) {
         rows.push(lines[i]);
         i += 1;
       }
@@ -73,9 +82,18 @@ export function renderMarkdown(source) {
           .split('|')
           .slice(1, -1)
           .map((c) => c.trim());
-      // The second row of a markdown table is the alignment rule, which is not data.
+      /*
+       * The alignment rule is found rather than assumed to be second.
+       *
+       * It always is second in practice, and leaning on that is how a separator this failed to
+       * consume became a paragraph. A row whose every cell is dashes is the rule, wherever it
+       * sits, and a table without one has a body starting at the second row like any other.
+       */
+      const isRule = (row) =>
+        cells(row).length > 0 && cells(row).every((c) => /^:?-{3,}:?$/.test(c));
+      const ruleAt = rows.findIndex(isRule);
       const header = cells(rows[0]);
-      const body = rows.slice(2).map(cells);
+      const body = rows.slice(ruleAt === -1 ? 1 : ruleAt + 1).map(cells);
       out.push('<table><thead><tr>');
       for (const cell of header) out.push(`<th>${inline(cell)}</th>`);
       out.push('</tr></thead><tbody>');

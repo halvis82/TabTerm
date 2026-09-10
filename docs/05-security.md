@@ -291,7 +291,19 @@ review failure.
 | `clipboardRead` | Paste into the terminal, on an explicit Paste |
 | `clipboardWrite` | Copy a selection out of the terminal, on an explicit Copy |
 | `alarms` | Re-report which tabs are open on a timer |
-| `commands` | Keyboard shortcuts |
+
+That is the whole of `permissions` in the manifest, and `manifest-permissions.test.ts` fails if this
+table and the manifest ever disagree in either direction.
+
+### `commands` is not one of them
+
+It used to be listed above, and it is not a permission. It is a separate top-level manifest key that
+declares keyboard shortcuts, and Chrome neither asks about it nor shows it to anybody installing the
+extension. Having it in a table headed "requested permissions" overstated what is being asked for,
+which is the wrong direction for a document whose whole job is to be exact about that.
+
+The shortcuts themselves are ordinary: they open a terminal and focus one. Nothing is granted by
+declaring them.
 
 No `<all_urls>`. No content scripts on arbitrary pages unless a specific feature justifies it, and
 none currently does.

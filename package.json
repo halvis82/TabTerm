@@ -1,6 +1,6 @@
 {
   "name": "tabterm",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "A macOS terminal system where local PTY sessions behave like native Chrome tabs",
