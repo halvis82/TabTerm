@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { warn } from '../log.js';
 import { connect, createServer, type Server, type Socket } from 'node:net';
-import { chmodSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { killPty, spawnPty, type PtyHandle, type PtyOptions } from '../pty-manager.js';
 import { controlFrame, decodeFrames, outputFrame } from './framing.js';
@@ -241,17 +241,34 @@ export class PtyHost {
    */
   async listen(): Promise<void> {
     mkdirSync(dirname(this.#socketPath), { recursive: true, mode: 0o700 });
-    if (existsSync(this.#socketPath)) {
-      if (await socketIsAnswering(this.#socketPath)) {
-        throw new Error('another host is already listening on this socket');
-      }
-      unlinkSync(this.#socketPath);
+    if (existsSync(this.#socketPath) && (await socketIsAnswering(this.#socketPath))) {
+      throw new Error('another host is already listening on this socket');
     }
+
+    /*
+     * Bound beside the name, then moved onto it, so the name is never absent.
+     *
+     * Removing a stale socket and binding the free name is two operations, and two hosts that both
+     * find the same stale socket both remove it: the second removal deletes the first's socket,
+     * which it has already bound and is already serving. That is the same shape as the lock race
+     * one layer down, and unlike the lock it can be closed here, because `rename` replaces a name
+     * in one operation that cannot be interleaved.
+     *
+     * The loser of a rename is left holding a socket with no name. Nothing can reach it, so nobody
+     * connects, and `leaveIfNothingLeft` ends it on its own a moment later. One host is serving
+     * either way and neither has destroyed anything.
+     */
+    // Unique per attempt, not per process: two hosts in one process would otherwise stage onto
+    // the same name and the second would bind a path the first is already using.
+    const staging = `${this.#socketPath}.${randomUUID().slice(0, 8)}.binding`;
+    if (existsSync(staging)) unlinkSync(staging);
     return await new Promise<void>((resolve, reject) => {
       this.#server.once('error', reject);
-      this.#server.listen(this.#socketPath, () => {
-        // Owner only. Anything that can open this socket can spawn a process as you.
-        chmodSync(this.#socketPath, 0o600);
+      this.#server.listen(staging, () => {
+        // Owner only, before it has a name anybody knows. Anything that can open this socket can
+        // spawn a process as you, so the mode is set while it is still unreachable.
+        chmodSync(staging, 0o600);
+        renameSync(staging, this.#socketPath);
         // A host nobody ever connects to is the third way one is left behind: a daemon that
         // spawned it and then died before saying hello.
         this.#leaveIfNothingLeft();

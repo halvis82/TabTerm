@@ -1,5 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
+import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -19,6 +21,20 @@ import { initLog } from '../log.js';
  * it is checked here rather than argued about there.
  */
 let dir = '';
+
+/** Whether anything accepts a connection at a path. */
+const connectable = (path: string): Promise<boolean> =>
+  new Promise((resolve) => {
+    const probe = connect(path);
+    probe.once('connect', () => {
+      probe.destroy();
+      resolve(true);
+    });
+    probe.once('error', () => {
+      probe.destroy();
+      resolve(false);
+    });
+  });
 
 beforeEach(async () => {
   initLog('error');
@@ -54,5 +70,38 @@ describe('a second host meeting a socket that already exists', () => {
     await second.listen();
     expect(existsSync(path)).toBe(true);
     await second.close();
+  });
+});
+
+describe('two hosts finding the same stale socket', () => {
+  it('leaves exactly one of them reachable, and neither destroys the other', async () => {
+    /*
+     * The narrower race under the one above. Removing a stale socket and binding the free name is
+     * two operations, so two hosts that both find the same stale socket both remove it, and the
+     * second removal deletes a socket the first has already bound and is already serving.
+     *
+     * Binding beside the name and renaming onto it makes that one operation. The loser of the
+     * rename holds a socket nothing can reach, which is harmless: nobody connects to it.
+     */
+    const path = join(dir, 'sock');
+    const first = new PtyHost(path, join(dir, 'scrollback-1'));
+    await first.listen();
+    await first.close();
+    // A socket file left behind by a host that is gone, which is what both racers will find.
+
+    const a = new PtyHost(path, join(dir, 'scrollback-a'));
+    const b = new PtyHost(path, join(dir, 'scrollback-b'));
+    await Promise.all([a.listen(), b.listen()]);
+
+    // The name exists and answers, whichever of them ended up holding it.
+    expect(existsSync(path)).toBe(true);
+    await expect(connectable(path)).resolves.toBe(true);
+
+    // And nothing was left staged behind either of them.
+    const staged = (await readdir(dir)).filter((n) => n.includes('.binding'));
+    expect(staged).toEqual([]);
+
+    await a.close();
+    await b.close();
   });
 });
