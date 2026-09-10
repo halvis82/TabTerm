@@ -11,13 +11,6 @@ import { MarkerRail } from './markers.js';
 import { HighlightLayer } from './highlights.js';
 import { closeColorPicker, openColorPicker } from './color-picker.js';
 import type { Highlight } from './highlight-anchor.js';
-import {
-  contentSpace,
-  measurable,
-  spaceChanged,
-  withinRendererNoise,
-  type FitSpace,
-} from './fit-space.js';
 
 export interface ControllerOptions {
   container: HTMLElement;
@@ -101,25 +94,6 @@ export class XtermController {
   readonly term: Terminal;
   readonly #fit: FitAddon;
   #webgl: WebglAddon | null = null;
-
-  /**
-   * The space the grid was last worked out against.
-   *
-   * A terminal's size must not depend on which renderer happens to be attached, and without this
-   * it does. `proposeDimensions` divides the box by the renderer's cell width, and the two
-   * renderers disagree: the DOM one reports the font's own advance, the WebGL one reports it
-   * snapped to whole device pixels. On a Retina screen that is 7.83 against 7.5, which is 187
-   * columns against 195 for the same box.
-   *
-   * The renderer changes on its own. It is given up while a tab is hidden, and Chrome takes the
-   * context away when another page wants one, so this is not a policy we can opt out of. Every one
-   * of those swaps was reaching the daemon as a resize, and a resize is the one thing an in-place
-   * renderer cannot survive: measured on a live agent as a table redrawn a column short on every
-   * row that held one, and fragments of earlier frames stranded between the current ones.
-   *
-   * So the question asked here is whether the space changed, not whether the proposal did.
-   */
-  #fittedTo: FitSpace | null = null;
 
   #undoText = '';
   readonly #serializer = new SerializeAddon();
@@ -622,61 +596,18 @@ export class XtermController {
    * nothing when the element has no box. Asking it is the difference between a measurement and
    * a default that looks like one.
    */
-  /** What the fit addon will divide: the parent's client box, less its padding. */
-  #availableSpace(): FitSpace | null {
-    const parent = this.term.element?.parentElement ?? this.#opts.container;
-    if (!parent) return null;
-    const style = window.getComputedStyle(parent);
-    const px = (value: string): number => Number.parseFloat(value) || 0;
-    return contentSpace(
-      { width: parent.clientWidth, height: parent.clientHeight },
-      {
-        left: px(style.paddingLeft),
-        right: px(style.paddingRight),
-        top: px(style.paddingTop),
-        bottom: px(style.paddingBottom),
-      },
-    );
-  }
-
   fit(): { cols: number; rows: number } | null {
-    const space = this.#availableSpace();
-    if (space === null || !measurable(space)) return null;
-    /*
-     * Unchanged space, unchanged size.
-     *
-     * Returning what the terminal is rather than what the addon now proposes. The proposal moves
-     * when the renderer does, and answering with it turns a renderer swap into a resize. The cost
-     * is that a grid worked out against one renderer keeps a little slack under the other, which
-     * is a few pixels of unused width. The alternative is resizing a running program to reclaim
-     * them.
-     */
     try {
       const proposed = this.#fit.proposeDimensions();
       if (!proposed || !Number.isFinite(proposed.cols) || !Number.isFinite(proposed.rows)) {
         return null;
       }
       if (proposed.cols < 2 || proposed.rows < 2) return null;
-      /*
-       * The same room, and a proposal that has only drifted: keep the size.
-       *
-       * This is the renderer having been swapped underneath a running program. Yielding to it
-       * resizes a terminal nobody asked to resize. A pane that is genuinely holding a different
-       * amount moves by more than this and is let through, which is what keeps an early bad
-       * measurement from becoming permanent.
-       */
-      if (
-        !spaceChanged(this.#fittedTo, space) &&
-        withinRendererNoise({ cols: this.term.cols, rows: this.term.rows }, proposed)
-      ) {
-        return { cols: this.term.cols, rows: this.term.rows };
-      }
       this.#fit.fit();
     } catch {
       // Not laid out yet. A size cannot be invented for it.
       return null;
     }
-    this.#fittedTo = space;
     return { cols: this.term.cols, rows: this.term.rows };
   }
 

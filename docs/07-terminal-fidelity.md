@@ -854,58 +854,6 @@ those measured activity rather than instability, and it showed within a day of t
 installed: an ordinary reattach reported a storm made of one deliberate repaint nudge and three
 requests for the size the pane already had.
 
-### A size follows the space, never the renderer
-
-`proposeDimensions` works a grid out by dividing the pane's box by the renderer's cell width, and
-the two renderers this product uses do not agree on that width. The DOM one reports the font's own
-advance. The WebGL one reports it snapped to whole device pixels. On a Retina screen at the font
-this terminal uses that is 7.83 against 7.5, so the same box proposes **187 columns under one and
-195 under the other**.
-
-Which renderer is attached is not something we get to hold still. A hidden tab gives its context up
-on purpose, and Chrome takes one away when another page wants one. Both of those were reaching the
-daemon as a resize, and a resize is the one thing an in-place renderer cannot survive. It is the
-whole of the nudge that scrambled an agent's screen, arriving by a different road.
-
-Read out of a real session's daemon log, after nine sessions were re-attached at once:
-
-```
-23:48:49  attach       width 1464  ->  187x44
-23:50:49  resize-pane  width 1463  ->  195x44
-```
-
-The box is the same. Only the cell moved. Seven sessions attached at 187 and were corrected as each
-tab was visited, which is why the corrections are spread across minutes rather than arriving on a
-timer: the correction is the renderer coming back when somebody looks at the tab.
-
-So the question asked before a resize is whether the **space** changed, and if it has not, whether
-the proposal has merely drifted. A renderer disagreeing about the cell moves a grid by a few
-percent: 7.83 against 7.5 is 187 columns against 195, a shade over four. A pane that is genuinely
-holding a different amount moves by a factor. The size is held against the first and always yields
-to the second.
-
-Holding it on the space alone was tried first and is wrong, because it makes an early bad
-measurement permanent. A pane measured while it was still the strip under a start screen proposed
-three rows, that was recorded as the truth, and the pane stayed three rows high after something was
-launched into it. Only the full browser suite caught it, and only under load: run on its own the
-same suite passed. Twice.
-
-`fit-space.ts` holds both halves of the rule on its own so they can be tested without a browser,
-which matters here because the fault cannot be reproduced in one. Headless Chrome's font has an
-advance that is already device-pixel aligned, so the two renderers agree there and the gap never
-opens. The evidence for the fault is the daemon log of a real session, and the evidence for the fix
-is the absence of a `resize-pane` after an attach in that same log.
-
-The cost is slack. A grid worked out under one renderer keeps a few pixels of unused width under
-the other, and in the direction where the cell grows the last column or two are clipped until the
-renderer comes back. That is a visible edge against a scrambled screen, and it is the right way
-round.
-
-This does not change when a renderer is released. A hidden tab still gives its context up promptly,
-for the reason recorded in docs/11-performance.md: a tab nobody is looking at holding one costs it
-to a tab somebody is. Keeping the context instead was tried on paper and abandoned, because a
-revoked context swaps the renderer anyway and the size would still have followed it.
-
 ### A size nobody measured is not allowed to move a terminal
 
 Reading that record for a day found the next fault, and it was on every tab open. The sequence per
