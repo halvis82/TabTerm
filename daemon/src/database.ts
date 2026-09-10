@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { paths } from './config.js';
 import { info, warn } from './log.js';
+import { safeError } from './safe-error.js';
 
 /**
  * Durable storage.
@@ -257,7 +258,7 @@ export class Database {
         info('db.migrated', { version: migration.version });
       } catch (e) {
         this.#db.exec('ROLLBACK');
-        warn('db.migration.failed', { version: migration.version, error: String(e) });
+        warn('db.migration.failed', { version: migration.version, error: safeError(e) });
         throw e;
       }
     }

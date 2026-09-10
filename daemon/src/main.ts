@@ -40,6 +40,7 @@ import { HOST_LOCK, HOST_POINTER, HOST_SOCKET } from './pty-host/paths.js';
 import { decideReconnect } from './host-reconnect.js';
 import { planAdoption, prunePanes } from './adopt.js';
 import { readUserSettings } from './user-settings.js';
+import { safeError } from './safe-error.js';
 
 /**
  * The daemon owns every PTY. No terminal process is ever tied to a Chrome page's lifetime,
@@ -68,7 +69,7 @@ async function main(): Promise<void> {
      * one produces an infinite restart loop. That is not hypothetical: it ran 18,538 times over
      * six days and wrote 6 MB of the identical line to stderr.
      */
-    info('daemon.already-running', { detail: String(e) });
+    info('daemon.already-running', { detail: safeError(e) });
     console.error(String(e));
     process.exit(0);
   }
@@ -572,7 +573,7 @@ async function main(): Promise<void> {
     } catch (e: unknown) {
       // Adoption is an optimization over "the session expired". Failing it must never stop the
       // daemon from serving, because then a bad row would cost you every terminal.
-      warn('adopt.failed', { error: String(e) });
+      warn('adopt.failed', { error: safeError(e) });
     }
   }
 
@@ -607,7 +608,7 @@ async function main(): Promise<void> {
            * seconds away. Nothing is lost by waiting and everything can be by not.
            */
           warn('pty-host.reconnect-unverified', {
-            error: String(e),
+            error: safeError(e),
             kept: decideReconnect(
               sessions.all.map((s) => s.id),
               null,
@@ -761,7 +762,7 @@ async function main(): Promise<void> {
    */
   if (process.platform === 'darwin' && !alreadyAsked()) {
     void askForFolders().catch((e: unknown) => {
-      warn('folders.ask-failed', { error: String(e) });
+      warn('folders.ask-failed', { error: safeError(e) });
     });
   }
   info('daemon.ready', { version: VERSION, protocol: PROTOCOL_VERSION, pid: process.pid });
@@ -815,7 +816,7 @@ async function main(): Promise<void> {
         restore.prune(RESTORE_RETENTION_MS);
         archive.prune({ olderThanMs: ARCHIVE_RETENTION_MS, maxTotalBytes: ARCHIVE_MAX_BYTES });
       } catch (e) {
-        warn('restore.snapshot.failed', { error: String(e) });
+        warn('restore.snapshot.failed', { error: safeError(e) });
       }
       await server.close();
       launcher.flush();
@@ -843,7 +844,7 @@ async function main(): Promise<void> {
       archive.prune({ olderThanMs: ARCHIVE_RETENTION_MS, maxTotalBytes: ARCHIVE_MAX_BYTES });
       launcher.pruneSessions(SESSION_META_RETENTION_MS);
     } catch (e) {
-      warn('maintenance.failed', { error: String(e) });
+      warn('maintenance.failed', { error: safeError(e) });
     }
   };
   const maintenanceTimer = setInterval(maintain, MAINTENANCE_INTERVAL_MS);
@@ -870,7 +871,7 @@ async function main(): Promise<void> {
     try {
       sessions.rescheduleIdleReaps();
     } catch (e) {
-      warn('reap.sweep.failed', { error: String(e) });
+      warn('reap.sweep.failed', { error: safeError(e) });
     }
   }, REAP_SWEEP_MS);
   reapSweep.unref();
@@ -886,11 +887,11 @@ async function main(): Promise<void> {
    * why. Recording it costs a line and turns an unexplained restart into a diagnosable one.
    */
   process.on('unhandledRejection', (reason) => {
-    error('daemon.unhandled-rejection', { reason: String(reason) });
+    error('daemon.unhandled-rejection', { reason: safeError(reason) });
   });
 
   process.on('uncaughtException', (e) => {
-    error('daemon.uncaught', { error: String(e), stack: e.stack });
+    error('daemon.uncaught', { error: safeError(e), stack: e.stack });
   });
 }
 

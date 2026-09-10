@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { join } from 'node:path';
 import { paths } from './config.js';
 import { warn } from './log.js';
+import { safeError } from './safe-error.js';
 
 /**
  * Preferences set from the interface, as opposed to configuration a person hand wrote.
@@ -48,7 +49,7 @@ export function writeUserSettings(next: Record<string, unknown>): void {
     writeFileSync(temporary, JSON.stringify(next, null, 2) + '\n', { mode: 0o600 });
     renameSync(temporary, FILE);
   } catch (e: unknown) {
-    warn('settings.write-failed', { error: String(e) });
+    warn('settings.write-failed', { error: safeError(e) });
     // The old file is still whole, which is the point. Leaving a half written temporary behind
     // would just be litter that the next write overwrites anyway.
     try {

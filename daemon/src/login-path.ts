@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { debug, warn } from './log.js';
+import { safeError } from './safe-error.js';
 
 /**
  * The PATH a person actually has, rather than the one launchd hands the daemon.
@@ -31,7 +32,7 @@ export function loginPath(shell = process.env['SHELL'] ?? '/bin/zsh'): string {
     });
     cached = out.trim() || fallback();
   } catch (e: unknown) {
-    warn('login-path.failed', { shell, error: String(e) });
+    warn('login-path.failed', { shell, error: safeError(e) });
     cached = fallback();
   }
   debug('login-path.resolved', { entries: cached.split(':').length });

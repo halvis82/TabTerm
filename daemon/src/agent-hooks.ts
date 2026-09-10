@@ -1,8 +1,10 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { writeFileAtomic } from './atomic-write.js';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { AgentHooksStatus, AgentHookTarget } from '@tabterm/shared';
 import { info, warn } from './log.js';
+import { safeError } from './safe-error.js';
 
 /**
  * Agent CLI hooks: install, remove, and report.
@@ -140,7 +142,8 @@ function writeSettings(path: string, settings: Settings): void {
     if (!existsSync(backup)) copyFileSync(path, backup);
   }
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(settings, null, 2) + '\n');
+  // An agent's own settings file, so it is replaced whole rather than truncated and refilled.
+  writeFileAtomic(path, JSON.stringify(settings, null, 2) + '\n', 0o644);
 }
 
 /**
@@ -228,7 +231,7 @@ export function setAgentHooks(enabled: boolean, lastEventAt?: number): AgentHook
       writeSettings(target.settingsPath, enabled ? withHooks(settings) : withoutHooks(settings));
       info('agent-hooks.changed', { target: target.id, enabled });
     } catch (e: unknown) {
-      warn('agent-hooks.write-failed', { path: target.settingsPath, error: String(e) });
+      warn('agent-hooks.write-failed', { path: target.settingsPath, error: safeError(e) });
     }
   }
   return agentHooksStatus(lastEventAt);

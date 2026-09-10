@@ -23,6 +23,7 @@ import { join } from 'node:path';
 import { existsSync, writeFileSync } from 'node:fs';
 import { paths } from './config.js';
 import { info, warn } from './log.js';
+import { safeError } from './safe-error.js';
 
 /** The folders macOS guards that a terminal is routinely pointed at. */
 const GUARDED = ['Desktop', 'Documents', 'Downloads'];
@@ -66,7 +67,7 @@ export async function askForFolders(): Promise<{ allowed: string[]; refused: str
     writeFileSync(MARKER(), new Date().toISOString(), { mode: 0o600 });
   } catch (e: unknown) {
     // Only means the question may be asked once more. Not worth failing a startup over.
-    warn('folders.marker-failed', { error: String(e) });
+    warn('folders.marker-failed', { error: safeError(e) });
   }
   info('folders.asked', { allowed: allowed.join(','), refused: refused.join(',') });
   return { allowed, refused };

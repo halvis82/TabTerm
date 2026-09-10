@@ -12,6 +12,7 @@ import { expandHome } from './complete-path.js';
 import { listeningPorts } from './server-detect.js';
 import { assertTransition } from './session-state.js';
 import { VtState } from './vt-state.js';
+import { safeError } from './safe-error.js';
 
 /**
  * How long after a command starts to look for a listening socket.
@@ -877,7 +878,7 @@ export class SessionManager {
       warn('session.terminate.unconfirmed', {
         sessionId: session.id,
         cause: cause.kind,
-        error: String(e),
+        error: safeError(e),
       });
       return { sessionId: session.id, outcome: 'unconfirmed' };
     }
@@ -955,7 +956,7 @@ export class SessionManager {
     try {
       this.#pty.resize(session.id, cols, rows);
     } catch (e) {
-      warn('session.resize.failed', { sessionId: session.id, error: String(e) });
+      warn('session.resize.failed', { sessionId: session.id, error: safeError(e) });
     }
     // Everybody attached is told, because this is the size their grid has to be, not the size
     // they asked for.

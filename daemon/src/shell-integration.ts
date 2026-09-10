@@ -1,8 +1,10 @@
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync } from 'node:fs';
+import { writeFileAtomic } from './atomic-write.js';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { ShellIntegrationStatus } from '@tabterm/shared';
 import { info, warn } from './log.js';
+import { safeError } from './safe-error.js';
 
 /**
  * Sourcing the shell integration, offered rather than assumed.
@@ -68,7 +70,7 @@ export function setShellIntegration(enabled: boolean, active = false): ShellInte
   try {
     text = existsSync(path) ? readFileSync(path, 'utf8') : '';
   } catch (e: unknown) {
-    warn('shell-integration.unreadable', { error: String(e) });
+    warn('shell-integration.unreadable', { error: safeError(e) });
     return shellIntegrationStatus(active);
   }
 
@@ -87,10 +89,11 @@ export function setShellIntegration(enabled: boolean, active = false): ShellInte
           .split('\n')
           .filter((line) => !line.includes(MARKER))
           .join('\n');
-    writeFileSync(path, next, { mode: 0o644 });
+    // Somebody else's file, so it is replaced whole rather than truncated and refilled.
+    writeFileAtomic(path, next, 0o644);
     info('shell-integration.changed', { enabled });
   } catch (e: unknown) {
-    warn('shell-integration.write-failed', { error: String(e) });
+    warn('shell-integration.write-failed', { error: safeError(e) });
   }
   return shellIntegrationStatus(active);
 }

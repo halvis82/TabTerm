@@ -3,6 +3,7 @@ import { error, info, initLog, warn } from '../log.js';
 import { PtyHost } from './host.js';
 import { HOST_LOCK, HOST_SOCKET } from './paths.js';
 import { paths } from '../config.js';
+import { safeError } from '../safe-error.js';
 
 /**
  * The PTY host, as a process.
@@ -48,10 +49,10 @@ async function main(): Promise<void> {
   process.on('uncaughtException', (e) => {
     // Staying up matters more here than anywhere else in the product: this process holds the
     // only handle to everybody's running work.
-    error('pty-host.uncaught', { error: String(e), stack: e.stack });
+    error('pty-host.uncaught', { error: safeError(e), stack: e.stack });
   });
   process.on('unhandledRejection', (reason) => {
-    error('pty-host.unhandled-rejection', { reason: String(reason) });
+    error('pty-host.unhandled-rejection', { reason: safeError(reason) });
   });
 
   if (!claimLock()) {
@@ -127,7 +128,7 @@ async function main(): Promise<void> {
  * released by a process that is already gone.
  */
 void main().catch((e: unknown) => {
-  error('pty-host.start-failed', { error: String(e) });
+  error('pty-host.start-failed', { error: safeError(e) });
   releaseLockFile(HOST_LOCK);
   process.exit(1);
 });

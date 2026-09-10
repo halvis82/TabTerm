@@ -109,7 +109,7 @@ describe('the mechanism that makes the pairing exact', () => {
     );
     // And an incoming reply is matched by it first, falling back to type only when absent.
     expect(source).toMatch(/msg\['requestId'\] === 'string'/);
-    expect(source).toMatch(/this\.#waiting\.has\(id\)/);
+    expect(source).toMatch(/this\.matchWaiter\(/);
   });
 
   it('and the host returns the id it was given, or nothing when given none', () => {

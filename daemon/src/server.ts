@@ -73,6 +73,7 @@ import { splitCommand } from './split-command.js';
 import { readUserSettings, updateUserSetting, writeUserSettings } from './user-settings.js';
 import { clampBudget, DEFAULT_SCROLLBACK_BYTES, linesForBytes } from './scrollback-budget.js';
 import { completePath } from './complete-path.js';
+import { safeError } from './safe-error.js';
 
 interface Client {
   id: string;
@@ -712,7 +713,7 @@ export class DaemonServer {
             'the terminal service could not be started, so no terminal was created',
           );
         } else {
-          warn('client.error', { error: String(e) });
+          warn('client.error', { error: safeError(e) });
           sendError(socket, 'internal', 'internal error');
         }
       }
@@ -982,7 +983,7 @@ export class DaemonServer {
           this.#attachWorkspace(client, msg.workspaceId, msg.cols, msg.rows);
           this.#broadcastLayout(msg.workspaceId);
         })().catch((e: unknown) => {
-          warn('workspace.split.failed', { error: String(e) });
+          warn('workspace.split.failed', { error: safeError(e) });
           sendError(client.socket, 'internal', causeOf(e));
         });
         return;
@@ -1340,7 +1341,7 @@ export class DaemonServer {
           this.#attachWorkspace(client, msg.workspaceId, 80, 24, true);
           this.#broadcastLayout(msg.workspaceId);
         } catch (e) {
-          warn('workspace.merge.failed', { error: String(e) });
+          warn('workspace.merge.failed', { error: safeError(e) });
           sendError(client.socket, 'session-attached-elsewhere', 'could not merge that session');
         }
         return;
@@ -1601,7 +1602,7 @@ export class DaemonServer {
             }),
           );
         })().catch((e: unknown) => {
-          warn('agent.launch.failed', { error: String(e) });
+          warn('agent.launch.failed', { error: safeError(e) });
           // The cause, not a category. "could not launch the agent" cannot be acted on; the
           // reason it could not usually names a missing command or an unreadable directory.
           sendError(client.socket, 'internal', causeOf(e));
@@ -1781,7 +1782,7 @@ export class DaemonServer {
 
       case 'create-layout': {
         void this.#createLayout(client, msg).catch((e: unknown) => {
-          warn('layout.create.failed', { error: String(e) });
+          warn('layout.create.failed', { error: safeError(e) });
           sendError(client.socket, 'path-not-found', causeOf(e));
         });
         return;
@@ -1789,7 +1790,7 @@ export class DaemonServer {
 
       case 'inspect-project': {
         void this.#inspectProject(client, msg.cwd).catch((e: unknown) => {
-          warn('project.inspect.failed', { error: String(e) });
+          warn('project.inspect.failed', { error: safeError(e) });
           send(client.socket, controlFrame({ t: 'project-config', cwd: msg.cwd, config: null }));
         });
         return;
@@ -1807,7 +1808,7 @@ export class DaemonServer {
 
       case 'launch-project-template': {
         void this.#launchProjectTemplate(client, msg).catch((e: unknown) => {
-          warn('project.launch.failed', { error: String(e) });
+          warn('project.launch.failed', { error: safeError(e) });
           sendError(client.socket, 'internal', causeOf(e));
         });
         return;
@@ -2004,7 +2005,7 @@ export class DaemonServer {
         try {
           this.#restoreWorkspace(client, msg);
         } catch (e: unknown) {
-          warn('restore.failed', { error: String(e) });
+          warn('restore.failed', { error: safeError(e) });
           sendError(client.socket, 'internal', 'could not restore that workspace');
         }
         return;

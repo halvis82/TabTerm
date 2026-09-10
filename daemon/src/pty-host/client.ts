@@ -5,6 +5,7 @@ import { connect, type Socket } from 'node:net';
 import { controlFrame, decodeFrames } from './framing.js';
 import { info, warn } from '../log.js';
 import { HOST_PROTOCOL } from './host.js';
+import { safeError } from '../safe-error.js';
 
 /**
  * The daemon's end of the PTY host.
@@ -391,6 +392,22 @@ export class PtyHostClient {
     this.#cutShort.add(sessionId);
   }
 
+  /**
+   * Which waiter a reply belongs to, given what is outstanding. Extracted so it can be checked.
+   *
+   * The rule is small and the consequence of getting it wrong is not: a reply handed to the wrong
+   * waiter answers a question nobody asked with information about something else. Public so the
+   * checks can reach it, since the interesting cases need no host and no socket.
+   */
+  matchWaiter(type: string, requestId: string, waiting: { key: string; expect: string }[]): string {
+    if (requestId !== '') {
+      const named = waiting.find((w) => w.key === requestId);
+      return named && named.expect === type ? named.key : '';
+    }
+    const oldest = waiting.find((w) => w.expect === type);
+    return oldest ? oldest.key : '';
+  }
+
   /** Where a session's output has reached, for a daemon deciding what to ask for. */
   deliveredThrough(sessionId: string): number {
     return this.#deliveredThrough.get(sessionId) ?? 0;
@@ -509,7 +526,7 @@ export class PtyHostClient {
       child.unref();
       info('pty-host.starting', { script: this.#hostScript });
     } catch (e: unknown) {
-      warn('pty-host.start-failed', { error: String(e) });
+      warn('pty-host.start-failed', { error: safeError(e) });
     }
   }
 
@@ -621,15 +638,11 @@ export class PtyHostClient {
          * same answer the single-slot map used to give.
          */
         const id = typeof msg['requestId'] === 'string' ? msg['requestId'] : '';
-        let key = id !== '' && this.#waiting.has(id) ? id : '';
-        if (key === '') {
-          for (const [candidate, waiter] of this.#waiting) {
-            if (waiter.expect === t) {
-              key = candidate;
-              break;
-            }
-          }
-        }
+        const key = this.matchWaiter(
+          t,
+          id,
+          [...this.#waiting].map(([k, w]) => ({ key: k, expect: w.expect })),
+        );
         const waiter = key === '' ? undefined : this.#waiting.get(key);
         if (waiter && waiter.expect === t) {
           this.#waiting.delete(key);

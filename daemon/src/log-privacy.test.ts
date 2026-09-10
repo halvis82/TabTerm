@@ -142,6 +142,39 @@ describe('what is left that could reach a log', () => {
 
     expect(offenders, 'each of these needs a reason, or a different field').toEqual([]);
   });
+
+  /**
+   * The other half, which the field names could not see.
+   *
+   * `error: String(e)` passes every check above: the field is called `error`, which is as innocuous
+   * a name as exists. The path is in the **value**. On a filesystem failure `String(e)` is
+   * `Error: ENOENT: no such file or directory, open '/Users/somebody/Projects/a-client/notes.md'`,
+   * so a scan of names was certifying something it had never looked at.
+   *
+   * An error is described by its kind and its code instead, which is what anybody diagnosing one
+   * reads, and the message is dropped rather than filtered: deciding whether a particular wording
+   * contains a path means guessing at every library that produces one.
+   */
+  it('never puts a raw error into a log line, since the message carries the path', () => {
+    const roots = ['daemon/src', 'daemon/src/pty-host'];
+    const raw = /\b(info|warn|error)\('[^']+',\s*\{[^}]*String\((e|err|error|reason|cause)\)/;
+    const offenders: string[] = [];
+
+    for (const root of roots) {
+      for (const name of readdirSync(join(repoRoot, root))) {
+        if (!name.endsWith('.ts') || name.includes('.test.')) continue;
+        const source = readFileSync(join(repoRoot, root, name), 'utf8');
+        for (const line of source.split('\n')) {
+          if (raw.test(line)) offenders.push(`${root}/${name}: ${line.trim().slice(0, 90)}`);
+        }
+      }
+    }
+
+    expect(
+      offenders,
+      'describe these with safeError, which keeps the code and drops the path',
+    ).toEqual([]);
+  });
 });
 
 /**

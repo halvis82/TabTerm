@@ -3,6 +3,7 @@ import { closePane, panes } from '@tabterm/shared';
 import { homedir } from 'node:os';
 import type { Database } from './database.js';
 import { debug, info, warn } from './log.js';
+import { safeError } from './safe-error.js';
 
 /**
  * What survives a macOS restart.
@@ -146,7 +147,7 @@ export class RestoreStore {
       }
       // Nothing is retried and nothing is thrown on. A snapshot that could not be written leaves
       // the previous coherent one in place, which is exactly the outcome this is protecting.
-      warn('restore.save-failed', { workspaceId: workspace.id, error: String(e) });
+      warn('restore.save-failed', { workspaceId: workspace.id, error: safeError(e) });
     }
   }
 
