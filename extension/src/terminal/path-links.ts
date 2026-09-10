@@ -244,11 +244,13 @@ function readWrappedLine(
 }
 
 /**
- * Color the cells a link occupies.
+ * Draw a box around the cells a link occupies.
  *
  * xterm paints links with an underline and a pointer on its own, but not with a color, and a
- * terminal already underlines plenty of things. The color is what makes it unmistakable that
- * this exact run of characters is the thing that will open.
+ * terminal already underlines plenty of things. Asked for directly as "outlined a bit when
+ * hovering and holding cmd ... like underscore and outlined somehow", so it is both: xterm's
+ * underline, and a tinted box around exactly the run of characters that will open. Two signals
+ * rather than one, because in a screen of colored agent output a color change alone is not one.
  *
  * One decoration per row, because a decoration is a rectangle and a link that wraps is not one.
  * Returns whatever was created, which may be nothing: decorations are refused while the
@@ -276,8 +278,32 @@ function paintRange(term: Terminal, range: IBufferRange, color: string): IDecora
       foregroundColor: color,
       layer: 'top',
     });
-    if (decoration) made.push(decoration);
-    else marker.dispose();
+    if (!decoration) {
+      marker.dispose();
+      continue;
+    }
+    /*
+     * The box itself, drawn on the decoration's own element.
+     *
+     * A decoration takes colors but not a border, and a border is what reads as "this exact
+     * thing". The rounded corners are only on the ends a wrapped link actually has, so a link
+     * split across two rows looks like one box rather than two.
+     */
+    const startsHere = y === range.start.y;
+    const endsHere = y === range.end.y;
+    decoration.onRender((element) => {
+      element.style.boxSizing = 'border-box';
+      element.style.border = `1px solid ${color}`;
+      element.style.borderLeftWidth = startsHere ? '1px' : '0';
+      element.style.borderRightWidth = endsHere ? '1px' : '0';
+      const l = startsHere ? '3px' : '0';
+      const rgt = endsHere ? '3px' : '0';
+      element.style.borderRadius = `${l} ${rgt} ${rgt} ${l}`;
+      element.style.background = `${color}22`;
+      // The box must never be the thing under the pointer, or hovering it would count as leaving.
+      element.style.pointerEvents = 'none';
+    });
+    made.push(decoration);
   }
   return made;
 }

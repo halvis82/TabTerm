@@ -23,7 +23,7 @@ import { openLabelForm } from './label-form.js';
 import { describeError } from './describe-error.js';
 import type { PaneMenuAction } from './xterm-controller.js';
 import { findCandidates } from './path-links.js';
-import { missHasExpired } from './link-scan.js';
+import { askHasLapsed, missHasExpired } from './link-scan.js';
 import { TypedBuffer, backspaces } from './hotstrings.js';
 import { chooseOpenAction, describeOpen } from './open-action.js';
 import { needsAttention, StatusMachine, titleStatus } from './status-machine.js';
@@ -664,7 +664,7 @@ let animTimer: number | undefined;
 const pathCache = new Map<string, ResolvedPath>();
 /** When a "no such path" answer arrived, so it can be asked about again. See `link-scan.ts`. */
 const pathMissAt = new Map<string, number>();
-const pathsInFlight = new Set<string>();
+const pathsInFlight = new Map<string, number>();
 let currentCwd = '';
 
 /** Links are inert unless Command is held, so ordinary text selection stays safe. */
@@ -2693,11 +2693,24 @@ function buildHosts(): void {
     },
     resolvePaths: (paneId, candidates) => {
       const pane = panesHost?.get(paneId);
-      if (!pane) return;
-      const fresh = candidates.filter((x) => !pathsInFlight.has(cacheKey(x)));
+      /*
+       * A question nobody can hear is not asked at all.
+       *
+       * The rows on screen are read as soon as there is a screen, which on a restored tab is
+       * before the socket is open and before the pane has been bound to its session. Sending
+       * into that and remembering it as asked left every path on the first screen marked as
+       * pending for the life of the page, so the one thing a restored tab shows you was the
+       * one thing that never became clickable.
+       */
+      if (!pane?.sessionId || !client) return;
+      const now = Date.now();
+      const fresh = candidates.filter((x) => {
+        const askedAt = pathsInFlight.get(cacheKey(x));
+        return askedAt === undefined || askHasLapsed(now, askedAt);
+      });
       if (fresh.length === 0) return;
-      for (const x of fresh) pathsInFlight.add(cacheKey(x));
-      client?.send({ t: 'resolve-paths', sessionId: pane.sessionId, candidates: fresh });
+      for (const x of fresh) pathsInFlight.set(cacheKey(x), now);
+      client.send({ t: 'resolve-paths', sessionId: pane.sessionId, candidates: fresh });
     },
     lookupPath,
     openPath: (paneId, resolved, event) => {
@@ -6118,7 +6131,7 @@ function installTestHook(): void {
         (x) => !pathCache.has(cacheKey(x)) && !pathsInFlight.has(cacheKey(x)),
       );
       if (unknown.length > 0 && pane) {
-        for (const x of unknown) pathsInFlight.add(cacheKey(x));
+        for (const x of unknown) pathsInFlight.set(cacheKey(x), Date.now());
         client?.send({ t: 'resolve-paths', sessionId: pane.sessionId, candidates: unknown });
       }
       return found;

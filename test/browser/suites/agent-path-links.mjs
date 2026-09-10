@@ -9,7 +9,7 @@
 // The first hover could not recover it either. xterm keeps what a link provider answered for a
 // line and asks again only when the pointer moves to a different line, so the answer that arrived
 // a moment later was never used, and the path stayed inert until the pointer left and came back.
-import { openTerminal, evaluate, sleep, type, press, finish, waitFor } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, type, press, ready, finish, waitFor } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -72,7 +72,56 @@ for (let waited = 0; waited < 3000 && !lit; waited += 200) {
 }
 r.ok('one pass of the pointer is enough to light it up', lit, 'no pointer');
 
+// Underlined and outlined, both. Asked for as "like underscore and outlined somehow".
+const marks = JSON.parse(
+  await evaluate(
+    client,
+    `(() => {
+      const box = [...document.querySelectorAll('.xterm-decoration')].find(
+        (d) => d.style.border && d.style.border !== 'none',
+      );
+      return JSON.stringify({
+        outlined: !!box,
+        tinted: !!box && box.style.background !== '',
+        underlined: !!document.querySelector('.xterm-decoration-top, .xterm-underline-1, .xterm-underline-2'),
+      });
+    })()`,
+  ),
+);
+r.ok(
+  'it is outlined while the pointer is on it',
+  marks.outlined && marks.tinted,
+  JSON.stringify(marks),
+);
+
 await press(client, 'c', 'KeyC', 2, 67); // Ctrl+C, so the redraw does not outlive the check
 await sleep(400);
+
+/*
+ * And again on a tab that was refreshed, which is the case that was actually broken.
+ *
+ * The rows on screen are read as soon as there is a screen, and on a restored tab that is before
+ * the socket is open and before the pane has been bound to its session. The question went nowhere
+ * and was remembered as asked, so every path on the first screen stayed pending for the life of
+ * the page. A restored tab is what you are looking at most of the time, so nothing was clickable.
+ */
+await evaluate(client, 'location.reload()');
+await sleep(1200);
+await ready(client);
+await waitFor(client, `window.__tabterm.readScreen().includes(${JSON.stringify(target)})`);
+await sleep(1500);
+
+const afterReload = String(
+  await evaluate(
+    client,
+    `JSON.stringify(window.__tabterm.resolvedPaths().filter((p) => p.candidate === ${JSON.stringify(target)}))`,
+  ),
+);
+r.ok(
+  'a path already on screen when the tab is restored is confirmed too',
+  afterReload.includes('"exists":true'),
+  afterReload,
+);
+
 await finish();
 r.done();

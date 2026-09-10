@@ -50,3 +50,24 @@ export const MISS_TTL_MS = 3000;
 export function missHasExpired(now: number, seenAt: number, ttlMs: number = MISS_TTL_MS): boolean {
   return now - seenAt >= ttlMs;
 }
+
+/** How long a question put to the daemon is assumed to still be on its way. */
+export const ASK_TIMEOUT_MS = 5000;
+
+/**
+ * Whether a candidate already asked about may be asked about again.
+ *
+ * Remembering what has been asked stops a screenful of paths turning into a request per frame. It
+ * also assumed every question gets an answer, and some do not: the socket may not be open yet when
+ * the first screen is drawn, the pane may not have been bound to its session, and the daemon caps
+ * how many candidates one message may carry. Any of those left the candidate marked as asked for
+ * the life of the page, and a path on the screen that was showing at the time never became
+ * clickable, which is exactly what a restored tab shows first.
+ */
+export function askHasLapsed(
+  now: number,
+  askedAt: number,
+  timeoutMs: number = ASK_TIMEOUT_MS,
+): boolean {
+  return now - askedAt >= timeoutMs;
+}

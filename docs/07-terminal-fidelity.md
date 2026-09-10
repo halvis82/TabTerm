@@ -438,8 +438,10 @@ so markers there could be seen and never clicked.
 **A path shows it is clickable only while the pointer is on it.** The cursor used to change for
 the whole screen the moment the modifier went down, which announced that something was clickable
 without saying what, and said it over blank space too. Pointer and underline are xterm's own and
-apply per link; the color is a decoration over the link's cells, which is what makes it
-unmistakable which run of characters will open.
+apply per link. On top of that the link's own cells are drawn as a tinted box with a border around
+them, one per row so a wrapped link is one box rather than two, and the box takes no pointer events
+of its own or hovering it would count as leaving the link. Underlined and outlined both, because in
+a screen of colored agent output a color change on its own is not a signal.
 
 **Paths are resolved as they are printed, not when one is hovered.** xterm caches what a link
 provider answered for a line and asks again only when the pointer changes line. The first hover
@@ -455,6 +457,15 @@ printed stayed inert, and the hover could not rescue it because of the cache abo
 maximum wait as well as a settle, and holding Command scans every pane at once, which is worth
 doing because nothing here is a link until Command is down. That leaves the round trip to the
 daemon the time it takes to move a hand.
+
+**A question that got no answer is asked again.** Remembering what has already been asked stops a
+screenful of paths becoming a request per frame, and it also assumed every question gets an answer.
+Three do not: the socket is not open yet when a restored tab draws its first screen, the pane has
+not been bound to its session at that moment either, and the daemon caps how many candidates one
+message may carry. Any of those left the candidate marked as pending for the life of the page, and a
+restored tab shows you its first screen for as long as you look at it, so nothing on it was ever
+clickable. A question is now only remembered once it has actually gone out, and it lapses after a
+few seconds if no answer arrives.
 
 **A path that does not exist is asked about again a few seconds later.** A path is printed before
 it exists more often than you would think: an agent names the file it is about to write, and the
