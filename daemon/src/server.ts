@@ -49,7 +49,7 @@ import {
   type AgentKind,
 } from './agent-resume.js';
 import { loginPath, resolveExecutable } from './login-path.js';
-import { listeningPorts } from './server-detect.js';
+import { listeningPorts, loopbackListeners } from './server-detect.js';
 import { applyMemoryMode, frontendSettings } from './memory-modes.js';
 import type { RestoreStore } from './restore-store.js';
 import type { OutputArchive } from './output-archive.js';
@@ -1907,8 +1907,19 @@ export class DaemonServer {
           .then((ports) => {
             const servers = this.#sessions.all
               .map((session) => {
-                const port = ports.get(session.pid) ?? session.listeningPort;
-                if (port === undefined) return null;
+                /*
+                 * What `lsof` says now, not what it once said.
+                 *
+                 * Falling back to the remembered port meant a server that had stopped stayed on
+                 * this list for ever, and kept the session it belonged to out of reach of the reap
+                 * policy with it. The remembered value is updated from the answer rather than
+                 * standing in for one.
+                 */
+                const port = ports.get(session.pid);
+                if (port === undefined) {
+                  delete session.listeningPort;
+                  return null;
+                }
                 session.listeningPort = port;
                 const workspace = this.#workspaces.findBySession(session.id);
                 return {
@@ -1921,7 +1932,30 @@ export class DaemonServer {
                 };
               })
               .filter((s): s is NonNullable<typeof s> => s !== null);
-            send(client.socket, controlFrame({ t: 'server-list', servers }));
+            /*
+             * And everything else listening on loopback, which is the rest of the answer.
+             *
+             * Measured on a working machine: 37 listening sockets, 22 of them on loopback above
+             * port 1024, and twelve of those twenty-two were the browser's own. So each row carries
+             * the name of the program holding it and the page shows this group folded, because a
+             * wall of somebody else's helper processes is worse than not answering at all.
+             *
+             * The daemon's own two are dropped here rather than in the page: they are the one pair
+             * this side knows for certain, and somebody asking what is running on their machine
+             * does not mean the thing they are looking at it with.
+             */
+            const ownPorts = new Set([this.#config.port, this.#config.agentBridgePort]);
+            const taken = new Set(servers.map((s) => s.port));
+            void loopbackListeners()
+              .then((listeners) => {
+                const others = listeners
+                  .filter((l) => !ownPorts.has(l.port) && !taken.has(l.port))
+                  .map((l) => ({ port: l.port, program: l.program }));
+                send(client.socket, controlFrame({ t: 'server-list', servers, others }));
+              })
+              .catch(() => {
+                send(client.socket, controlFrame({ t: 'server-list', servers }));
+              });
           })
           .catch(() => {
             send(client.socket, controlFrame({ t: 'server-list', servers: [] }));

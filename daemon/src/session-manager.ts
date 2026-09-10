@@ -748,7 +748,16 @@ export class SessionManager {
     void listeningPorts([session.pid])
       .then((ports) => {
         const port = ports.get(session.pid);
-        if (port !== undefined) session.listeningPort = port;
+        /*
+         * Forgotten when it is gone, not only remembered when it is there.
+         *
+         * This is a reap protection as well as a row on the start screen, so a port remembered
+         * after the server has stopped makes the session immortal: `cleanup` answers
+         * `server-listening` for anything holding a port and never reaps it. A terminal that
+         * ran a dev server once and stopped it was protected for the life of the daemon.
+         */
+        if (port === undefined) delete session.listeningPort;
+        else session.listeningPort = port;
       })
       .catch(() => {
         /* detection is best effort; without it the session just follows the normal policy */
@@ -1006,7 +1015,13 @@ export class SessionManager {
       void listeningPorts([session.pid])
         .then((ports) => {
           const port = ports.get(session.pid);
-          if (port === undefined || port === session.listeningPort) return;
+          // Gone is an answer too. Returning here is what let a stopped server keep its
+          // protection, since nothing else ever cleared it.
+          if (port === undefined) {
+            delete session.listeningPort;
+            return;
+          }
+          if (port === session.listeningPort) return;
           session.listeningPort = port;
           this.#events.onServerDetected?.(session, port);
         })

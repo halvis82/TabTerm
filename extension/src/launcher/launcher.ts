@@ -16,6 +16,7 @@ import type {
   LiveSession,
   LauncherState,
   LocalServer,
+  OtherLocalPort,
   RestorableSummary,
   ProjectConfigInfo,
   RecentDir,
@@ -71,6 +72,8 @@ export interface LauncherOptions {
   onCloseSession: (session: LiveSession) => void;
   onForgetRestorable: (workspaceId: string) => void;
   onOpenServer: (port: number) => void;
+  /** Put text on the clipboard. The page owns the clipboard, this does not. */
+  onCopyText?: (text: string) => void;
   onAttachServer: (server: LocalServer) => void;
   onStopServer: (server: LocalServer, restart: boolean) => void;
   onDismiss: () => void;
@@ -283,6 +286,15 @@ export class Launcher {
   /** Conversations that have been read, by session. Absent means "asked, not back yet". */
   readonly #transcripts = new Map<string, readonly { role: 'you' | 'agent'; text: string }[]>();
   #servers: readonly LocalServer[] = [];
+  /**
+   * Loopback ports nothing here started, and whether the list is open.
+   *
+   * Folded by default and it has to be. Counted on a working machine: 22 loopback ports above 1024
+   * and twelve of them the browser's own helper processes, so unfolded this is mostly a list of
+   * things nobody wants. Folded it is one line saying how many, which is the useful part.
+   */
+  #otherPorts: readonly OtherLocalPort[] = [];
+  #otherPortsOpen = false;
   #restorable: readonly RestorableSummary[] = [];
   #expandedRestore: string | null = null;
   /** Which server is asking for confirmation, and for what. */
@@ -1374,6 +1386,8 @@ export class Launcher {
     if (restorable) sections.push(restorable);
     const servers = this.#serverSection(state.home);
     if (servers) sections.push(servers);
+    const otherPorts = this.#otherPortsSection();
+    if (otherPorts) sections.push(otherPorts);
     const resume = this.#resumeSection(state.home);
     if (resume) sections.push(resume);
 
@@ -1862,8 +1876,9 @@ export class Launcher {
   }
 
   /** Local servers the daemon attributed to a session. */
-  setServers(servers: readonly LocalServer[]): void {
+  setServers(servers: readonly LocalServer[], others: readonly OtherLocalPort[] = []): void {
     this.#servers = servers;
+    this.#otherPorts = others;
     // A server that disappeared cannot still be waiting on a confirmation.
     if (this.#confirming && !servers.some((s) => s.sessionId === this.#confirming?.sessionId)) {
       this.#confirming = null;
@@ -1957,6 +1972,64 @@ export class Launcher {
     });
 
     return section('Running servers', rows);
+  }
+
+  /**
+   * Ports something else on this machine is listening on.
+   *
+   * Separate from the section above because what can honestly be done with one is different. These
+   * belong to processes this product did not start, so they can be opened and copied and that is
+   * all. Offering Stop here would mean killing a stranger's process from a button next to one that
+   * interrupts a terminal, which is the kind of neighbouring pair that gets hit by accident.
+   *
+   * The program's name is on every row, because that is what makes a port judgeable without
+   * opening it.
+   */
+  #otherPortsSection(): HTMLElement | null {
+    if (this.#otherPorts.length === 0) return null;
+
+    const rows: HTMLElement[] = [];
+    const header = document.createElement('button');
+    header.className = 'launcher-row';
+    header.append(
+      strong(
+        this.#otherPortsOpen
+          ? 'Other local ports'
+          : `Other local ports (${String(this.#otherPorts.length)})`,
+      ),
+      dim(this.#otherPortsOpen ? 'started outside TabTerm' : 'listening, started outside TabTerm'),
+    );
+    header.addEventListener('click', () => {
+      this.#otherPortsOpen = !this.#otherPortsOpen;
+      this.render();
+    });
+    rows.push(header);
+
+    if (this.#otherPortsOpen) {
+      for (const other of this.#otherPorts) {
+        const wrap = document.createElement('div');
+        wrap.className = 'launcher-row-wrap';
+
+        const main = document.createElement('button');
+        main.className = 'launcher-row';
+        main.append(strong(`localhost:${String(other.port)}`), dim(other.program));
+        main.addEventListener('click', () => this.#opts.onOpenServer(other.port));
+        wrap.append(main);
+
+        const copy = document.createElement('button');
+        copy.className = 'launcher-chip';
+        copy.textContent = 'Copy';
+        copy.title = 'Copy the address';
+        copy.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.#opts.onCopyText?.(`http://localhost:${String(other.port)}/`);
+        });
+        wrap.append(copy);
+        rows.push(wrap);
+      }
+    }
+
+    return section('Other local ports', rows);
   }
 
   /** Agent sessions that could be picked back up. Shown, never resumed automatically. */

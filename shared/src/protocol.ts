@@ -1000,7 +1000,7 @@ export type ServerMessage =
     }
   | { t: 'output-results'; results: readonly ArchivedOutputSummary[] }
   | { t: 'restorable-workspaces'; workspaces: readonly RestorableSummary[] }
-  | { t: 'server-list'; servers: readonly LocalServer[] }
+  | { t: 'server-list'; servers: readonly LocalServer[]; others?: readonly OtherLocalPort[] }
   | { t: 'resumable-sessions'; sessions: readonly ResumableAgentSession[] }
   | { t: 'error'; code: ServerErrorCode; message: string; context?: string };
 
@@ -1028,6 +1028,20 @@ export interface ArchivedOutputSummary {
   bytes: number;
   /** Head of the output. The full text is fetched only when someone opens it. */
   preview: string;
+}
+
+/**
+ * A loopback port that no session of this product accounts for.
+ *
+ * Separate from `LocalServer` because what can honestly be done with one is different. A server
+ * TabTerm started can be attached to, stopped and restarted, because the process is ours. One that
+ * was already listening can be opened and its address copied, and nothing else: stopping a process
+ * this product did not start, on a button a person can hit by accident, is not a thing to offer.
+ */
+export interface OtherLocalPort {
+  port: number;
+  /** The program holding it, so a row can be judged without opening it. */
+  program: string;
 }
 
 export interface LocalServer {

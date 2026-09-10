@@ -2839,6 +2839,11 @@ function buildLauncher(): void {
       client?.send({ t: 'forget-restorable', workspaceId });
       client?.send({ t: 'list-restorable' });
     },
+    onCopyText: (text) => {
+      void navigator.clipboard.writeText(text).catch(() => {
+        /* the page may not have focus; there is nothing useful to say about it */
+      });
+    },
     onOpenServer: (port) => {
       void chrome.runtime.sendMessage({ t: 'tabterm:open-local', port });
     },
