@@ -335,7 +335,21 @@ export class DaemonServer {
     if (storedMode === 'low' || storedMode === 'balanced' || storedMode === 'full') {
       Object.assign(this.#config, applyMemoryMode(this.#config, storedMode));
     }
-    this.#config.scrollbackLines = linesForBytes(this.#scrollbackBytes);
+    /*
+     * The budget overrules the mode's scrollback only when somebody chose a budget.
+     *
+     * These are two authorities over one field, and the config file already settles which
+     * wins: the mode supplies the baseline and an explicit figure beats it. Deriving from
+     * the budget unconditionally broke that. Low mode exists to keep two thousand lines,
+     * and the line after it was applied put ten thousand back, so the one field the mode is
+     * chosen for was the one it could not set, while the interface went on saying Low.
+     *
+     * Explicit means written down. `#scrollbackBytes` always holds a number because it
+     * falls back to a default, so the default must not be what overrules anything.
+     */
+    if (readUserSettings()['scrollbackBytes'] !== undefined) {
+      this.#config.scrollbackLines = linesForBytes(this.#scrollbackBytes);
+    }
     this.#sessions = sessions;
     this.#workspaces = workspaces;
     this.#launcher = launcher;
@@ -1905,6 +1919,16 @@ export class DaemonServer {
         // dashboard nobody is looking at costs nothing.
         void listeningPorts(this.#sessions.all.map((session) => session.pid))
           .then((ports) => {
+            /*
+             * Could not ask, so nothing is claimed either way.
+             *
+             * An empty answer here would drop every session's remembered port, and that memory is
+             * what keeps a terminal running a dev server from being reaped when its tab closes.
+             */
+            if (ports === null) {
+              send(client.socket, controlFrame({ t: 'server-list', servers: [] }));
+              return;
+            }
             const servers = this.#sessions.all
               .map((session) => {
                 /*
@@ -2006,17 +2030,34 @@ export class DaemonServer {
           return;
         }
         void holderOfLocalPort(wanted)
-          .then((pid) => {
-            if (pid === null) {
+          .then((holder) => {
+            if (holder === null) {
               warn('port.close-refused', { port: wanted, reason: 'nothing-listening' });
               return;
             }
-            if (pid === process.pid) {
+            /*
+             * The same program that was confirmed, or nothing happens.
+             *
+             * Looking the holder up again is what stops a stale list naming the wrong process. On its
+             * own it answers a different question, though: it ends whatever holds the port **now**,
+             * and a port freed and taken by something else between the question and the answer is
+             * exactly the case the re-lookup was added for. Both halves together are the check.
+             */
+            if (holder.program !== msg.program) {
+              warn('port.close-refused', {
+                port: wanted,
+                reason: 'holder-changed',
+                expected: msg.program,
+                found: holder.program,
+              });
+              return;
+            }
+            if (holder.pid === process.pid) {
               warn('port.close-refused', { port: wanted, reason: 'ours' });
               return;
             }
             try {
-              process.kill(pid, 'SIGTERM');
+              process.kill(holder.pid, 'SIGTERM');
               info('port.closed', { port: wanted });
             } catch (e: unknown) {
               warn('port.close-failed', { port: wanted, error: safeError(e) });
@@ -2035,6 +2076,10 @@ export class DaemonServer {
           // reference to. Reap timers read it when they next fire and scrollback is read on
           // the next write, so there is nothing to restart.
           Object.assign(this.#config, applyMemoryMode(this.#config, msg.mode));
+          // Same precedence as at startup: a budget somebody chose still beats the mode's.
+          if (readUserSettings()['scrollbackBytes'] !== undefined) {
+            this.#config.scrollbackLines = linesForBytes(this.#scrollbackBytes);
+          }
           this.#sessions.applyScrollback(this.#config.scrollbackLines);
           /*
            * Written down, like every other setting a person can choose.

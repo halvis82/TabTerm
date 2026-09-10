@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, normalize, resolve } from 'node:path';
 import type { OpenHow, ResolvedPath } from '@tabterm/shared';
 import { info, warn } from './log.js';
+import { safeError } from './safe-error.js';
 
 /**
  * Turning printed text into openable paths.
@@ -149,7 +150,14 @@ export async function openPath(
   await new Promise<void>((res, rej) => {
     execFile(command.file, command.args, { timeout: 10_000 }, (err) => {
       if (err) {
-        warn('path.open.failed', { how, error: err.message });
+        /*
+         * The kind and the code, never the message.
+         *
+         * `execFile` fails with the path it was asked to open inside the text, and this runs on
+         * whatever somebody asked to open, which is their work. The field is called `error`, so
+         * a scan of field names found nothing wrong with it for as long as it existed.
+         */
+        warn('path.open.failed', { how, error: safeError(err) });
         rej(new Error('open-failed'));
       } else {
         info('path.opened', { how });

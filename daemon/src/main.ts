@@ -520,6 +520,15 @@ async function main(): Promise<void> {
    * own view from what the host has and what the database remembers, and the tab reconnects to
    * the same terminal it had. See docs/adr/0017.
    */
+  /*
+   * The hold is sized before anything is adopted, not ninety lines afterwards.
+   *
+   * Catching up holds live output while the replay is fetched, and the bound on that hold
+   * follows the budget the host is given. Adoption is the largest replay this daemon ever
+   * asks for and it was running while the bound was still the 8 MB floor, which is the one
+   * moment the raised bound exists for.
+   */
+  if (usingHost) hostClient.setBudget(server.scrollbackBytes);
   if (usingHost) {
     try {
       const live = await ptyBackend.adoptable();

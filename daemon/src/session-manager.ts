@@ -747,6 +747,8 @@ export class SessionManager {
     // matters, so it is asked here rather than polled.
     void listeningPorts([session.pid])
       .then((ports) => {
+        // Could not ask. Whatever was known stands, rather than being read as "nothing there".
+        if (ports === null) return;
         const port = ports.get(session.pid);
         /*
          * Forgotten when it is gone, not only remembered when it is there.
@@ -1014,6 +1016,8 @@ export class SessionManager {
       delete session.serverCheckTimer;
       void listeningPorts([session.pid])
         .then((ports) => {
+          // Same here: a failed lookup is not evidence that a server stopped.
+          if (ports === null) return;
           const port = ports.get(session.pid);
           // Gone is an answer too. Returning here is what let a stopped server keep its
           // protection, since nothing else ever cleared it.

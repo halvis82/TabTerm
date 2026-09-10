@@ -345,10 +345,25 @@ export class PtyHostClient {
    * person: it reaches the screen, the scrollback, and any tab that attaches later. Sequence zero
    * because it is not host output and must not move this session's position in the host's stream.
    */
-  /** Every session with output waiting when catching up was abandoned has lost its gap. */
+  /**
+   * The sessions that actually lose something when catching up is abandoned.
+   *
+   * Not every session with output waiting. A replay that already arrived for a session leaves
+   * nothing missing, however the hold ends: releasing early only loses a gap that had not been
+   * filled yet. Marking every held session told people their screen was incomplete when it was
+   * whole, which is the same false loss notice finding 2 was about, in a different place.
+   *
+   * A session is at risk when the daemon is still waiting on a replay for it. `#replayPending`
+   * carries exactly that, set when one is asked for and cleared when it lands.
+   */
   #cutShortEveryHeldSession(): void {
-    for (const frame of this.#held) this.#cutShort.add(frame.sessionId);
+    for (const frame of this.#held) {
+      if (this.#replayPending.has(frame.sessionId)) this.#cutShort.add(frame.sessionId);
+    }
   }
+
+  /** Sessions a replay has been asked for and not yet delivered. */
+  #replayPending = new Set<string>();
 
   /**
    * Tell each affected terminal that part of its screen is missing.
@@ -390,6 +405,21 @@ export class PtyHostClient {
   /** Mark a session's catch-up as abandoned. Exists so the notice can be checked without a host. */
   noteCutShortForTest(sessionId: string): void {
     this.#cutShort.add(sessionId);
+  }
+
+  /** Put a frame in the hold, so what happens when the hold is abandoned can be checked. */
+  markHeldForTest(sessionId: string): void {
+    this.#held.push({ sessionId, data: Buffer.alloc(0), seq: 1 });
+  }
+
+  /** Say a replay is outstanding, which is what makes a session one that can lose a gap. */
+  markReplayPendingForTest(sessionId: string): void {
+    this.#replayPending.add(sessionId);
+  }
+
+  /** Run the marking the deadline and the overflow both run. */
+  cutShortForTest(): void {
+    this.#cutShortEveryHeldSession();
   }
 
   /**
@@ -1050,7 +1080,14 @@ export class PtyHostClient {
    * screen is rebuilt from what arrived is missing a piece in the middle.
    */
   async replay(sessionId: string, fromSeq: number): Promise<{ missingBytes: number }> {
-    const reply = await this.#request({ t: 'replay', sessionId, fromSeq }, 'replayed');
+    // Outstanding from here until the host answers, which is what makes a cut-short notice honest.
+    this.#replayPending.add(sessionId);
+    let reply;
+    try {
+      reply = await this.#request({ t: 'replay', sessionId, fromSeq }, 'replayed');
+    } finally {
+      this.#replayPending.delete(sessionId);
+    }
     const servableFrom = Number(reply?.['servableFrom']);
     if (!Number.isFinite(servableFrom)) return { missingBytes: 0 };
     return { missingBytes: Math.max(0, servableFrom - fromSeq) };

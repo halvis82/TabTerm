@@ -13,13 +13,22 @@ import { debug } from './log.js';
  * the answer changes anything. See docs/11-performance.md §6.
  */
 
-/** pid of the session leader -> the first listening port found beneath it. */
-export async function listeningPorts(pids: readonly number[]): Promise<Map<number, number>> {
+/**
+ * pid of the session leader -> the first listening port found beneath it.
+ *
+ * Null when the question could not be asked at all, which is not the same answer as an empty map
+ * and must not be treated like one. A listening port is a reap protection, so "nothing is
+ * listening" ends a terminal that a tab was closed on, and a subprocess that failed to run would
+ * have said exactly that. `lsof` can fail for reasons that have nothing to do with the session:
+ * the binary is missing, the fork failed, the machine is out of file descriptors.
+ */
+export async function listeningPorts(pids: readonly number[]): Promise<Map<number, number> | null> {
   const out = new Map<number, number>();
   if (pids.length === 0) return out;
 
   const lsof = await run('/usr/sbin/lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '-Fpn']);
-  if (!lsof) return out;
+  if (lsof === null) return null;
+  if (lsof === '') return out;
 
   // lsof -F emits records prefixed by field type: p<pid>, then n<addr> lines for that process.
   const byPid = new Map<number, number>();
@@ -122,10 +131,10 @@ export async function localListeners(): Promise<OtherListener[]> {
  * Above 1024, and answered from the same list, so the close cannot reach anything the list
  * would not show.
  */
-export async function holderOfLocalPort(port: number): Promise<number | null> {
+export async function holderOfLocalPort(port: number): Promise<OtherListener | null> {
   if (!Number.isInteger(port) || port <= 1024) return null;
   const listeners = await localListeners();
-  return listeners.find((l) => l.port === port)?.pid ?? null;
+  return listeners.find((l) => l.port === port) ?? null;
 }
 
 async function parentMap(): Promise<Map<number, number>> {

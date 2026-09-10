@@ -81,7 +81,7 @@ export interface LauncherOptions {
    * Optional, so a launcher built without it simply does not offer the button rather than offering
    * one that does nothing.
    */
-  onClosePort?: (port: number) => void;
+  onClosePort?: (port: number, program: string) => void;
   /** Put text on the clipboard. The page owns the clipboard, this does not. */
   onCopyText?: (text: string) => void;
   onAttachServer: (server: LocalServer) => void;
@@ -2225,7 +2225,7 @@ export class Launcher {
     go.textContent = 'Close it';
     go.addEventListener('click', () => {
       this.#closingPort = null;
-      this.#opts.onClosePort?.(other.port);
+      this.#opts.onClosePort?.(other.port, other.program);
     });
     // Both buttons leave `#closingPort` clear, which is what tells the key handler to let go.
     const cancel = document.createElement('button');
@@ -2259,7 +2259,7 @@ export class Launcher {
       document.removeEventListener('keydown', answer, true);
       const confirmed = e.key === 'Enter';
       this.#closingPort = null;
-      if (confirmed) this.#opts.onClosePort?.(other.port);
+      if (confirmed) this.#opts.onClosePort?.(other.port, other.program);
       else this.render();
     };
     // Capturing, so it is answered before the terminal or the input box sees the key.

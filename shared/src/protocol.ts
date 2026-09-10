@@ -599,6 +599,15 @@ export type ClientMessage =
        */
       t: 'close-port';
       port: number;
+      /**
+       * The program the person was shown and agreed to end.
+       *
+       * The holder is looked up again at the moment of the close, because the list is seconds old
+       * and ports are reused. That alone answers the wrong question: it ends whatever holds the
+       * port now, which may not be what was confirmed. Both halves are needed, and a mismatch is
+       * a refusal rather than a guess.
+       */
+      program: string;
     }
   | { t: 'set-memory-mode'; mode: MemoryModeName }
   | { t: 'get-memory-mode' }

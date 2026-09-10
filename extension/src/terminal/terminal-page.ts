@@ -2907,8 +2907,9 @@ function buildLauncher(): void {
      * The list is asked for again shortly afterwards, so the row goes when the process does
      * rather than sitting there naming something that has stopped.
      */
-    onClosePort: (port) => {
-      client?.send({ t: 'close-port', port });
+    onClosePort: (port, program) => {
+      // The program is carried so the daemon can refuse if the port has changed hands since.
+      client?.send({ t: 'close-port', port, program });
       setTimeout(() => client?.send({ t: 'list-servers' }), 1200);
     },
     onCopyText: (text) => {

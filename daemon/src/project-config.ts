@@ -3,6 +3,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { LayoutNode } from '@tabterm/shared';
 import { warn } from './log.js';
+import { safeError } from './safe-error.js';
 
 /**
  * Project-local configuration.
@@ -76,7 +77,8 @@ export async function findProjectConfig(root: string): Promise<LoadedProjectConf
          * with the path, because that is a screen they chose to open rather than a file that
          * accumulates. See docs/05-security.md.
          */
-        warn('project-config.rejected', { reason: e.message.slice(0, 200) });
+        // A parse failure names the file it was parsing, which is somebody's project.
+        warn('project-config.rejected', { reason: safeError(e) });
         return null;
       }
       // Absent or unreadable is the normal case, not an error worth reporting.

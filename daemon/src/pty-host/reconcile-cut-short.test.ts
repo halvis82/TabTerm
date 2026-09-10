@@ -48,6 +48,39 @@ describe('a catch-up that is cut short', () => {
     expect(notice?.seq).toBe(0);
   });
 
+  it('says nothing to a session whose replay had already arrived', () => {
+    /*
+     * Releasing the hold early loses a gap that was still being fetched. A session whose replay
+     * landed has no gap, however the hold ends, and telling it otherwise is the false loss notice
+     * from the watermark finding turning up somewhere new.
+     */
+    initLog('error');
+    const client = new PtyHostClient({ socketPath: '/nowhere', hostScript: '/nowhere' });
+    let notices = 0;
+    client.onData((_id, data) => {
+      if (data.toString('utf8').includes('could not be recovered')) notices++;
+    });
+    // Nothing outstanding for this session, so nothing was lost for it.
+    client.markHeldForTest('s-quiet');
+    client.cutShortForTest();
+    client.reconciled();
+    expect(notices).toBe(0);
+  });
+
+  it('says it to a session whose replay never arrived', () => {
+    initLog('error');
+    const client = new PtyHostClient({ socketPath: '/nowhere', hostScript: '/nowhere' });
+    let notices = 0;
+    client.onData((_id, data) => {
+      if (data.toString('utf8').includes('could not be recovered')) notices++;
+    });
+    client.markHeldForTest('s-waiting');
+    client.markReplayPendingForTest('s-waiting');
+    client.cutShortForTest();
+    client.reconciled();
+    expect(notices).toBe(1);
+  });
+
   it('says it once, not on every later reconcile', () => {
     initLog('error');
     const client = new PtyHostClient({ socketPath: '/nowhere', hostScript: '/nowhere' });

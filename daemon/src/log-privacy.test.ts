@@ -157,7 +157,16 @@ describe('what is left that could reach a log', () => {
    */
   it('never puts a raw error into a log line, since the message carries the path', () => {
     const roots = ['daemon/src', 'daemon/src/pty-host'];
-    const raw = /\b(info|warn|error)\('[^']+',\s*\{[^}]*String\((e|err|error|reason|cause)\)/;
+    /*
+     * Two ways to put an error's text in a log, and the audit only knew one.
+     *
+     * `String(e)` was caught. `e.message` was not, and it is the same sentence with the same path
+     * in it: `execFile` fails with the path it was asked to open. One live case survived the last
+     * pass because the pattern was written around the example that prompted it rather than around
+     * what it was guarding.
+     */
+    const raw =
+      /\b(info|warn|error)\('[^']+',\s*\{[^}]*(String\((e|err|error|reason|cause)\)|\b(e|err|error|reason|cause)\.message)/;
     const offenders: string[] = [];
 
     for (const root of roots) {
