@@ -2149,6 +2149,65 @@
    * product spends its effort not doing. See docs/07-terminal-fidelity.md.
    */
   /* Bottom right, out of the way of both the terminal and the find bar above it. */
+  /*
+   * The whole window as a drop target.
+   *
+   * A file dragged over any part of TabTerm can be let go anywhere, so the sign that says so is
+   * the window rather than a box inside it. Chrome's own answer to a dropped file is to leave the
+   * page and open the file, which is never what somebody dragging onto a terminal wanted.
+   */
+  #drop {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: grid;
+    place-items: center;
+    /* The drag is the pointer's; an overlay that took events would swallow the drop itself. */
+    pointer-events: none;
+    background: color-mix(in srgb, var(--accent, #79b8ff) 9%, transparent);
+    animation: drop-in 120ms ease-out;
+  }
+
+  #drop::before {
+    content: '';
+    position: absolute;
+    inset: 10px;
+    border: 2px dashed var(--accent, #79b8ff);
+    border-radius: 12px;
+  }
+
+  #drop span {
+    position: relative;
+    padding: 10px 16px;
+    border-radius: 8px;
+    background: var(--panel, #1b1d26);
+    border: 1px solid var(--line);
+    color: var(--fg);
+    font-size: 13px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    animation: drop-lift 160ms ease-out;
+  }
+
+  @keyframes drop-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @keyframes drop-lift {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.98);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #drop,
+    #drop span {
+      animation: none;
+    }
+  }
+
   #notice {
     position: fixed;
     bottom: 14px;
@@ -3442,6 +3501,11 @@
       Not a dialog and not a log: it answers a question that has only just been asked, such
       as why a drag stopped selecting, and then goes away on its own.
     -->
+  <!--
+    A file dragged anywhere over the window can be let go anywhere. The path is not in the drag,
+    so the daemon writes a copy and the path of the copy is what lands at the prompt.
+  -->
+  <div id="drop" hidden><span>Drop to put the file's path at the prompt</span></div>
   <div id="notice" hidden></div>
   <div id="find" hidden>
     <input

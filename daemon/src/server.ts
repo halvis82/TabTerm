@@ -1,4 +1,5 @@
 import { createServer, type Server } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { mkdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, resolve as resolvePath } from 'node:path';
@@ -29,6 +30,7 @@ import { debug, info, warn } from './log.js';
 import { expandHome } from './complete-path.js';
 import { plainText } from './plain-text.js';
 import { markerBlock } from './marker-block.js';
+import { MAX_DROP_BYTES, sweepDrops, writeDrop } from './dropped-files.js';
 import { openPath, resolvePaths } from './paths.js';
 import { processCwd } from './process-cwd.js';
 import type { LauncherData } from './launcher-data.js';
@@ -1505,6 +1507,53 @@ export class DaemonServer {
         if (!msg.sessionId) return;
         const session = this.#sessions.get(msg.sessionId);
         if (session) this.#sessions.setPinned(session, msg.pinned);
+        return;
+      }
+
+      case 'stage-file': {
+        /*
+         * A file dropped onto a window, turned into a path.
+         *
+         * The name arrives from a drag and is treated the way terminal output is treated: as a
+         * label to rebuild rather than a path to trust. `safeDropName` keeps only the last segment
+         * and only characters it allows, so nothing here can write outside the directory below.
+         */
+        const session = this.#sessions.get(msg.sessionId);
+        if (!session) return;
+        let bytes: Buffer;
+        try {
+          bytes = Buffer.from(msg.data, 'base64');
+        } catch {
+          sendError(client.socket, 'drop-failed', 'that file could not be read');
+          return;
+        }
+        if (bytes.length === 0 || bytes.length > MAX_DROP_BYTES) {
+          sendError(
+            client.socket,
+            'drop-failed',
+            `a dropped file may be up to ${String(Math.floor(MAX_DROP_BYTES / (1024 * 1024)))} MB`,
+          );
+          return;
+        }
+        void (async () => {
+          const now = Date.now();
+          const path = await writeDrop(
+            paths.dropped,
+            msg.name,
+            bytes,
+            now,
+            randomUUID().slice(0, 8),
+          );
+          send(
+            client.socket,
+            controlFrame({ t: 'file-staged', sessionId: session.id, name: msg.name, path }),
+          );
+          // Old copies go on the way past, so nothing has to remember to tidy up.
+          await sweepDrops(paths.dropped, now);
+        })().catch((err: unknown) => {
+          warn('drop.write-failed', { error: safeError(err) });
+          sendError(client.socket, 'drop-failed', 'that file could not be saved');
+        });
         return;
       }
 

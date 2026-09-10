@@ -228,6 +228,14 @@ export interface AuthMessage {
 export type ClientMessage =
   | AuthMessage
   | { t: 'create-session'; cwd?: string; command?: readonly string[]; cols: number; rows: number }
+  /**
+   * A file dropped onto the window, on its way to becoming a path.
+   *
+   * Chrome gives a page the bytes and the name of a dropped file and withholds where it came from,
+   * so there is no path to type. The daemon writes a copy and answers with the path of that.
+   * Base64 because a control frame is JSON, and capped well under the frame limit.
+   */
+  | { t: 'stage-file'; sessionId: string; name: string; data: string }
   | {
       t: 'attach';
       sessionId?: string;
@@ -770,6 +778,8 @@ export type ServerErrorCode =
   | 'undo-too-late'
   | 'workspace-invalid-layout'
   | 'path-not-found'
+  /** A file dropped onto a window that could not be turned into one. See `dropped-files.ts`. */
+  | 'drop-failed'
   | 'not-trusted'
   | 'rate-limited'
   /**
@@ -786,6 +796,7 @@ export type ServerMessage =
   | { t: 'auth-ok'; serverVersion: string; sessionCount: number }
   | { t: 'auth-fail'; code: ServerErrorCode }
   | { t: 'session-created'; sessionId: string; streamId: number; pid: number; workspaceId: string }
+  | { t: 'file-staged'; sessionId: string; name: string; path: string }
   | { t: 'snapshot'; snapshot: SessionSnapshot }
   | { t: 'cwd'; sessionId: string; cwd: string; gitRoot?: string }
   | { t: 'title'; sessionId: string; fields: TitleFields }

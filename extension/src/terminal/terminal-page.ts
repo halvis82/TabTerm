@@ -24,6 +24,7 @@ import { describeError } from './describe-error.js';
 import type { PaneMenuAction } from './xterm-controller.js';
 import { findCandidates } from './path-links.js';
 import { askHasLapsed, missHasExpired } from './link-scan.js';
+import { DragDepth, dragCarriesFiles, MAX_DROPPED_FILES } from './drop-zone.js';
 import { TypedBuffer, backspaces } from './hotstrings.js';
 import { chooseOpenAction, describeOpen } from './open-action.js';
 import { needsAttention, StatusMachine, titleStatus } from './status-machine.js';
@@ -2564,6 +2565,88 @@ function installModifierTracking(): void {
   });
 }
 
+/**
+ * A file dropped anywhere on the window becomes a path at the prompt.
+ *
+ * A native terminal is handed the path of a dragged file and types it. A web page is not: Chrome
+ * gives the page the bytes and the name and withholds where the file came from, on purpose. So the
+ * daemon writes a copy and answers with the path of that, which is what lands at the prompt.
+ *
+ * Without any of this Chrome does its own thing with a dropped file, which is to leave the page
+ * and open the file in the tab. That is never what somebody dragging onto a terminal wanted, and
+ * it takes their terminal off the screen to do it.
+ */
+function installDropTarget(): void {
+  const overlay = document.getElementById('drop');
+  const depth = new DragDepth();
+
+  const show = (on: boolean): void => {
+    if (overlay) overlay.hidden = !on;
+  };
+
+  window.addEventListener('dragenter', (e) => {
+    if (!dragCarriesFiles(e.dataTransfer?.types)) return;
+    e.preventDefault();
+    if (depth.enter()) show(true);
+  });
+
+  window.addEventListener('dragover', (e) => {
+    if (!dragCarriesFiles(e.dataTransfer?.types)) return;
+    // Both of these are required. Without them the drop never fires and Chrome opens the file.
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  });
+
+  window.addEventListener('dragleave', (e) => {
+    if (!dragCarriesFiles(e.dataTransfer?.types)) return;
+    if (depth.leave()) show(false);
+  });
+
+  window.addEventListener('drop', (e) => {
+    if (!dragCarriesFiles(e.dataTransfer?.types)) return;
+    e.preventDefault();
+    depth.end();
+    show(false);
+    void takeDroppedFiles([...(e.dataTransfer?.files ?? [])]);
+  });
+}
+
+/** Hand each dropped file to the daemon, which writes it and answers with its path. */
+async function takeDroppedFiles(files: File[]): Promise<void> {
+  const pane = panesHost?.get(splitView?.focused ?? panesHost.all[0]?.paneId ?? '');
+  if (!pane?.sessionId || !client) return;
+
+  const taking = files.slice(0, MAX_DROPPED_FILES);
+  if (taking.length < files.length) {
+    setStatus(`Taking the first ${String(MAX_DROPPED_FILES)} files`, 'warn');
+  }
+  for (const file of taking) {
+    let data: string;
+    try {
+      data = toBase64(new Uint8Array(await file.arrayBuffer()));
+    } catch {
+      setStatus(`${file.name} could not be read`, 'error');
+      continue;
+    }
+    client.send({ t: 'stage-file', sessionId: pane.sessionId, name: file.name, data });
+  }
+}
+
+/**
+ * Base64 without going through a string a character at a time.
+ *
+ * `btoa` takes a string, and building one with `String.fromCharCode(...bytes)` overflows the call
+ * stack somewhere around a hundred thousand arguments, which an image passes without trying.
+ */
+function toBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
 // ---------------------------------------------------------------------------
 // Panes and layout
 // ---------------------------------------------------------------------------
@@ -5072,6 +5155,24 @@ function onControl(msg: ServerMessage): void {
       return;
     }
 
+    case 'file-staged': {
+      /*
+       * The copy exists, so its path can be typed.
+       *
+       * Quoted, because the name came off a dragged file and may contain a space or worse, and
+       * with a trailing space rather than a newline so it is staged and not run. That is the same
+       * rule everything else that puts text at a prompt follows. See docs/05-security.md.
+       */
+      const target = [...(panesHost?.all ?? [])].find((p) => p.sessionId === msg.sessionId);
+      if (!target) return;
+      client?.write(target.streamId, new TextEncoder().encode(`${quotePath(msg.path)} `));
+      setStatus(`${msg.name} is at the prompt`, 'ok');
+      setTimeout(() => {
+        setStatus('', 'hidden');
+      }, 2200);
+      return;
+    }
+
     case 'paths-resolved': {
       if (msg.cwd && msg.cwd !== currentCwd) {
         currentCwd = msg.cwd;
@@ -6167,6 +6268,7 @@ async function start(): Promise<void> {
   buildCommandPanel();
   installTestHook();
   installModifierTracking();
+  installDropTarget();
   /**
    * Not awaited, because everything after it in this function is the terminal appearing.
    *

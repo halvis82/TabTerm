@@ -804,6 +804,35 @@ about the sessions TabTerm itself offers to open, where it can and does.
 
 ---
 
+## 6.7 Dropping a file on the window
+
+A native terminal is handed the path of a dragged file and types it. A web page is not, and this is
+deliberate on Chrome's part rather than an oversight: the page gets the bytes and the name, and
+never where the file came from. There is nothing to type.
+
+So the path is made rather than read. The bytes go to the daemon, it writes a copy under its own
+state directory, and the path of the copy is staged at the prompt of the focused pane. An agent
+then reads a real file off disk and cannot tell the difference. The rules for the copy and for what
+is staged are in `05-security.md` section 4.
+
+The whole window is the target rather than a box inside it, because a file dragged over any part of
+TabTerm can sensibly be let go anywhere. While a drag carrying files is over the window, the window
+is tinted and outlined with a dashed border and says what letting go will do. The overlay takes no
+pointer events of its own, or it would swallow the drop it is advertising.
+
+Three details that are easy to get wrong:
+
+- **`dragover` must call `preventDefault` on every event**, not only `dragenter`. Without it the
+  drop never fires at all and Chrome does its own thing, which is to leave the page and open the
+  file in the tab, taking the terminal off the screen to do it
+- **`dragleave` fires on every child boundary the pointer crosses**, and a window with a terminal
+  and a launcher in it is nothing but child boundaries. The highlight is therefore counted in and
+  out rather than set and cleared, or it flickers off in the middle of the window
+- **`dataTransfer.files` is empty during a drag** and only fills on the drop. What is being carried
+  is read from `types`, which is the only way to light the window up before the file is let go
+
+`drop-zone.ts` holds those decisions apart from the page, so they are asserted directly.
+
 ## 7. Notifications
 
 `chrome.notifications`, fired from the offscreen document so they work with every terminal tab

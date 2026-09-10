@@ -23,6 +23,7 @@ const SENTENCES: Record<ServerErrorCode, string> = {
   'session-attached-elsewhere': 'That session is open somewhere else and could not be moved.',
   'workspace-invalid-layout': 'That split could not be made.',
   'path-not-found': 'That folder does not exist.',
+  'drop-failed': 'That file could not be added. It may be larger than 8 MB.',
   // An offer that has gone stale. The tab is fine, so this must read as a small thing.
   'undo-too-late': 'That one cannot be brought back.',
   'not-trusted': 'That project has not been approved, so nothing from it was run.',

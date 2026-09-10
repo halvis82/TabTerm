@@ -38,6 +38,10 @@ export const paths = {
   get logs() {
     return join(this.state, 'logs');
   },
+  /** Copies of files dropped onto a window, so a drop can become a path. See `dropped-files.ts`. */
+  get dropped() {
+    return join(this.state, 'dropped');
+  },
   get lockFile() {
     return join(this.state, 'daemon.lock');
   },

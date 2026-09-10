@@ -134,6 +134,26 @@ The confirmation overlay renders the text with `textContent` into a `pre`, never
 says where it came from. Accepting removes the parameters from the URL, so a reload or a Chrome
 restore does not re-ask about something already answered.
 
+### Files dropped on the window
+
+A file dragged onto a TabTerm window becomes a path at the prompt. The path is not in the drag:
+Chrome hands a page the bytes and the name of a dropped file and withholds where it came from, on
+purpose. So the bytes go to the daemon, the daemon writes a copy under `~/.local/state/tabterm/
+dropped/`, and the path of the copy is what is staged.
+
+Everything about the drop is attacker-controlled in the same way terminal output is, because a
+webpage can start a drag and a file can be named anything a filesystem allows.
+
+| Guard | Why |
+|---|---|
+| The name is rebuilt, not cleaned | Only the last segment survives, and only characters on an allow list. A separator, a control character, or a leading dot cannot come through, so nothing written can land outside that directory |
+| A name that survives to nothing becomes `dropped-file` | An empty name is a directory write |
+| Prefixed with the time and a random salt | Two drops of the same name never collide, and one drop cannot overwrite another |
+| Written `0600` | A dropped file is as private as anything else a terminal touches |
+| 8 MB per file, 8 files per drop | A frame is capped at 16 MB and base64 costs a third on top. A drop is not a file transfer |
+| Copies older than seven days are swept on the next drop | Nothing has to remember to tidy up |
+| The path is shell-quoted, with a trailing space and never a newline | The same rule as everything else staged at a prompt. This is the whole difference between staging and running |
+
 **Detected local servers are offered, not opened.** A process binding a port is not a request
 for a browser tab. The offer appears in the tab that started it and fades on its own; accepting
 focuses an existing tab for that port rather than opening a second one, because a dev server
