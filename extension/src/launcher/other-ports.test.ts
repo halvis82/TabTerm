@@ -78,9 +78,16 @@ describe('the ports the daemon reports that no session accounts for', () => {
   it('answers the question from the keyboard, both ways', () => {
     const confirm = launcher.slice(
       launcher.indexOf('#closeConfirm(other: OtherLocalPort'),
-      launcher.indexOf('#closeConfirm(other: OtherLocalPort') + 4000,
+      launcher.indexOf('#closeConfirm(other: OtherLocalPort') + 6500,
     );
-    expect(confirm).toContain("e.key === 'Escape'");
+    expect(confirm).toContain("e.key !== 'Escape' && e.key !== 'Enter'");
     expect(confirm).toContain("e.key === 'Enter'");
+    /*
+     * On the document rather than on the box, because a handler on the box only fires once the box
+     * has focus, and focus is the part that can quietly not happen. Then Return does nothing and
+     * the only way out is the mouse, which is the opposite of what the shortcut is for.
+     */
+    expect(confirm).toContain("document.addEventListener('keydown', answer, true)");
+    expect(confirm).toContain("document.removeEventListener('keydown', answer, true)");
   });
 });

@@ -2235,6 +2235,7 @@ export class Launcher {
       this.#closingPort = null;
       this.#opts.onClosePort?.(other.port);
     });
+    // Both buttons leave `#closingPort` clear, which is what tells the key handler to let go.
     const cancel = document.createElement('button');
     cancel.className = 'launcher-chip';
     cancel.textContent = 'Cancel';
@@ -2244,17 +2245,33 @@ export class Launcher {
     });
     buttons.append(go, cancel);
 
-    box.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        this.#closingPort = null;
-        this.render();
-      } else if (e.key === 'Enter') {
-        e.stopPropagation();
-        this.#closingPort = null;
-        this.#opts.onClosePort?.(other.port);
+    /*
+     * Listened for on the document, not on the box.
+     *
+     * A handler on the box only fires once the box has focus, and focus is the part that can
+     * quietly not happen: something else on the screen takes it back, the render that drew this
+     * replaces the node, a click landed on a child. Then Return does nothing and the only way out
+     * is the mouse, which is the opposite of what a keyboard shortcut is for.
+     *
+     * Removed the moment the question is answered, and it answers only while this port is the one
+     * being asked about, so it cannot outlive its own confirmation.
+     */
+    const answer = (e: KeyboardEvent) => {
+      if (this.#closingPort !== other.port) {
+        document.removeEventListener('keydown', answer, true);
+        return;
       }
-    });
+      if (e.key !== 'Escape' && e.key !== 'Enter') return;
+      e.preventDefault();
+      e.stopPropagation();
+      document.removeEventListener('keydown', answer, true);
+      const confirmed = e.key === 'Enter';
+      this.#closingPort = null;
+      if (confirmed) this.#opts.onClosePort?.(other.port);
+      else this.render();
+    };
+    // Capturing, so it is answered before the terminal or the input box sees the key.
+    document.addEventListener('keydown', answer, true);
     box.tabIndex = -1;
 
     box.append(text, note, preview, status, buttons);

@@ -2171,7 +2171,7 @@
   .launcher-heading-fold:hover .launcher-heading {
     color: var(--fg);
   }
-  /* Rotated rather than swapped, so what moves is the direction of the fold. */
+  /* Rotated rather than swapped, so what moves is the direction of the fold: down open, up shut. */
   .launcher-fold-arrow {
     color: var(--dim);
     font-size: 9px;
@@ -2180,7 +2180,7 @@
     transform: rotate(0deg);
   }
   .launcher-heading-fold[aria-expanded='false'] .launcher-fold-arrow {
-    transform: rotate(-90deg);
+    transform: rotate(180deg);
   }
   .launcher-heading-fold:hover .launcher-fold-arrow {
     color: var(--fg);
