@@ -28,6 +28,8 @@ export interface PaneHostOptions {
   onColorUsed?: (color: string) => void;
   /** The browser took a pane's accelerated renderer away. See `XtermController`. */
   onRendererLost?: (paneId: string) => void;
+  /** The renderer that decides a pane's cell has arrived, so it can be measured properly. */
+  onRendererReady?: (paneId: string) => void;
   /** Whether a pane should answer a right click. See `shouldOpenMenu` on the controller. */
   shouldOpenMenu?: () => boolean;
 }

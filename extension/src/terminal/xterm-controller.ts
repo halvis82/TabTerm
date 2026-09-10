@@ -48,6 +48,8 @@ export interface ControllerOptions {
    * was written down it was invisible to everyone including the person feeling it.
    */
   onRendererLost?: () => void;
+  /** The renderer that decides the cell has arrived, so this pane can be measured properly. */
+  onRendererReady?: () => void;
   /**
    * Whether this pane should answer a right click at all.
    *
@@ -94,6 +96,22 @@ export class XtermController {
   readonly term: Terminal;
   readonly #fit: FitAddon;
   #webgl: WebglAddon | null = null;
+
+  /**
+   * How long a pane will wait for the renderer that decides its cell before trusting what it has.
+   *
+   * A grid is the room a pane has divided by the renderer's cell, and the two renderers disagree:
+   * 7.83 against 7.5, which is 187 columns against 195 for the same 1468 pixels. Attaching is when
+   * the WebGL one is most likely to be missing, because every tab re-attaches at once and they
+   * contend for a capped number of GPU contexts.
+   *
+   * Waiting rather than refusing, because a pane that never gets a context must still be able to
+   * follow the window. Generous, because while it waits the daemon's size rules and that is the
+   * right answer: a session that already has a size does not need this pane's opinion, and by the
+   * time the context arrives the two usually agree, so nothing is resized at all.
+   */
+  static readonly RENDERER_GRACE_MS = 10_000;
+  readonly #trustSizeAfter = Date.now() + XtermController.RENDERER_GRACE_MS;
 
   #undoText = '';
   readonly #serializer = new SerializeAddon();
@@ -575,6 +593,51 @@ export class XtermController {
    * what the browser actually drew. Used to estimate a size before any pane has been laid out,
    * where the alternative is a number chosen in 1978.
    */
+  /**
+   * What a size decision was actually made from.
+   *
+   * `cellSize` divides the screen box by the current grid, so it can only ever agree with itself.
+   * The numbers that decide a grid are the room the parent has and the cell the **renderer**
+   * believes in, and neither is visible from outside xterm. A size that moves without the window
+   * moving cannot be explained without them, so they are read here and reported.
+   */
+  metrics(): {
+    availWidth: number;
+    availHeight: number;
+    cellWidth: number;
+    cellHeight: number;
+    webgl: boolean;
+  } | null {
+    const parent = this.term.element?.parentElement;
+    if (!parent) return null;
+    const style = window.getComputedStyle(parent);
+    const px = (value: string): number => Number.parseFloat(value) || 0;
+    let cellWidth = 0;
+    let cellHeight = 0;
+    try {
+      const cell = (
+        this.term as unknown as {
+          _core?: {
+            _renderService?: {
+              dimensions?: { css?: { cell?: { width: number; height: number } } };
+            };
+          };
+        }
+      )._core?._renderService?.dimensions?.css?.cell;
+      cellWidth = cell?.width ?? 0;
+      cellHeight = cell?.height ?? 0;
+    } catch {
+      // Internals moved. The rest of the reading is still worth having.
+    }
+    return {
+      availWidth: Math.round(parent.clientWidth - px(style.paddingLeft) - px(style.paddingRight)),
+      availHeight: Math.round(parent.clientHeight - px(style.paddingTop) - px(style.paddingBottom)),
+      cellWidth: Math.round(cellWidth * 1000) / 1000,
+      cellHeight: Math.round(cellHeight * 1000) / 1000,
+      webgl: this.rendererAttached,
+    };
+  }
+
   cellSize(): { width: number; height: number } | null {
     const screen = this.term.element?.querySelector('.xterm-screen');
     if (!screen) return null;
@@ -637,6 +700,16 @@ export class XtermController {
     if (this.#webgl) return;
     this.#tryWebgl();
     this.term.refresh(0, this.term.rows - 1);
+  }
+
+  /**
+   * Whether a size measured now is worth moving a terminal for.
+   *
+   * False while the cell still comes from a renderer this pane is about to replace. Nothing is
+   * broken while this is false: the pane draws, and the daemon's size is the one that counts.
+   */
+  sizeIsTrustworthy(): boolean {
+    return this.rendererAttached || Date.now() > this.#trustSizeAfter;
   }
 
   get rendererAttached(): boolean {
@@ -747,6 +820,8 @@ export class XtermController {
       });
       this.term.loadAddon(addon);
       this.#webgl = addon;
+      // The cell is now the one this pane will keep, so a size measured from here is worth having.
+      this.#opts.onRendererReady?.();
     } catch {
       // No WebGL to be had right now. xterm draws without it, and this asks again shortly.
       this.#scheduleRendererRetry(attempt);

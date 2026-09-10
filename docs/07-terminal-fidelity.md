@@ -854,6 +854,56 @@ those measured activity rather than instability, and it showed within a day of t
 installed: an ordinary reattach reported a storm made of one deliberate repaint nudge and three
 requests for the size the pane already had.
 
+### A size measured before the renderer exists is offered, not applied
+
+A grid is the room a pane has divided by the cell the **renderer** believes in, and the two
+renderers do not agree on that cell. The DOM one reports the font's advance. The WebGL one reports
+it snapped to whole device pixels. Read off a real machine, 7.829 against 7.5, so 1468 pixels of
+room is 187 columns under the first and 195 under the second.
+
+Attaching is exactly when the WebGL one may not be there. Every tab re-attaches at once when the
+extension reloads or the daemon restarts, and they contend for a number of GPU contexts the browser
+caps. The panes that lose measure against the DOM cell, get 187, and correct themselves seconds
+later once a context frees up. That correction is a resize, and a resize is the one thing a program
+redrawing in place cannot survive: it overwrites its last frame by counting rows upward, so wrapping
+that moved underneath it puts every later frame on the wrong lines, and it has no way to notice.
+
+From the log of a real session:
+
+```
+attach   avail 1482x805   cell 7.829   webgl false   ->  187x44
+refit    avail 1482x805   cell 7.5     webgl true    ->  195x44
+```
+
+The room never changed. Only the cell did.
+
+So a pane that cannot yet trust its measurement draws at what it measured and tells the daemon
+nothing. The attach carries the size marked `estimated`, which the daemon already knows to ignore
+for a session that has one of its own, and refits are held back entirely. The pane asks again the
+moment the renderer arrives, and by then the two normally agree, so nothing is resized at all.
+
+Ten seconds of grace, after which an untrusted measurement is trusted anyway. A pane that never
+gets a context must still be able to follow the window, and while it waits the daemon's size is the
+right answer rather than a compromise.
+
+#### What this is not
+
+Two earlier attempts fixed the wrong thing, and both reached this machine before being caught.
+
+The first held a pane's size whenever its box had not changed. That is right for the fault and
+wrong in general, because it makes an early bad measurement permanent: a pane measured while it was
+still the strip under a start screen stayed three rows high afterwards.
+
+The second aimed at renderer swaps on tab switching. Measured on the machine that has the fault,
+switching tabs produces no resize at all: sixteen consecutive measurements, every one of them
+`want 195x44, have 195x44, cell 7.5, webgl true`. The theory was wrong and the fix made things
+worse, doubling the resizes per visit.
+
+Both were reasoned from the mechanism rather than read from the machine. The full browser suite
+passed on both, and cannot see any of this: headless Chrome's font advance is already device-pixel
+aligned, so its two renderers agree and the gap never opens. What the suite is for here is
+collateral damage, which is real and is how the three-row pane was found.
+
 ### A size nobody measured is not allowed to move a terminal
 
 Reading that record for a day found the next fault, and it was on every tab open. The sequence per

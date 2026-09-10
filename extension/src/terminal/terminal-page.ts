@@ -10,6 +10,7 @@ import type {
   TitleFields,
 } from '@tabterm/shared';
 import { linesWithContent } from './screen-content.js';
+import { trustMeasurement } from './measured-size.js';
 import { InputLine, rowsNeeded } from './input-line.js';
 import { DaemonClient, type ConnectionStatus } from '../transport/daemon-client.js';
 import { getToken } from '../transport/token.js';
@@ -2508,6 +2509,19 @@ function buildHosts(): void {
      * drawn and not shown, and a menu decision has to follow what is on screen.
      */
     shouldOpenMenu: () => launcher?.isShowing !== true,
+    /**
+     * Measure again now that the cell is the one this pane will keep.
+     *
+     * While the renderer was missing the pane measured 187 where the truth is 195 and said nothing,
+     * so the daemon's size stood. Asking now is what closes that: usually it matches what the
+     * daemon already has, and then nothing is resized at all.
+     */
+    onRendererReady: (paneId) => {
+      const size = panesHost?.fit(paneId);
+      if (!size) return;
+      reportBox('renderer-ready', paneId);
+      askForSize(paneId, size, 'renderer-ready');
+    },
     onRendererLost: (paneId) => {
       client?.send({
         t: 'note',
@@ -3155,7 +3169,11 @@ function repaintAfterRestore(paneId: string, screen: string): void {
  * not knowable from here, and two attempts to reason it out were both wrong, so the numbers are
  * recorded and the answer comes from a machine where it happens.
  */
-const lastBox = new Map<string, string>();
+
+/** What was last reported for a pane, so a pane holding still writes nothing. */
+const lastDecision = new Map<string, string>();
+/** And the last size asked for, for the same reason. */
+const lastAsked = new Map<string, string>();
 
 function reportBox(when: string, paneId: string): void {
   const pane = panesHost?.get(paneId);
@@ -3170,16 +3188,37 @@ function reportBox(when: string, paneId: string): void {
    * whenever a tab is focused, and a file full of a measurement that has not moved is a file whose
    * useful lines have rotated out. A box that is holding still writes nothing.
    */
-  const shape = `${String(Math.round(box.width))}x${String(Math.round(box.height))}`;
-  if (lastBox.get(paneId) === shape) return;
-  lastBox.set(paneId, shape);
+  /*
+   * Every one of these, rather than only the ones whose box moved.
+   *
+   * The filter was right while this was a check on a box holding still and is wrong for the thing
+   * being chased now: a grid that moves while the box does not is exactly the case it drops. The
+   * numbers that decide a grid are the room the parent has and the cell the renderer believes in,
+   * so those are what is reported, and the derived one is kept only to line the two up.
+   */
+  const m = pane?.controller.metrics();
+  /*
+   * Once per distinct decision, rather than once per measurement.
+   *
+   * The filter this replaces keyed on the box, which follows the grid and so agreed with whatever
+   * the grid already was: a size moving while the box held still was exactly what it dropped, and
+   * that is the fault it was hiding. Keyed on what a grid is actually worked out from instead, so
+   * a renderer arriving or a cell changing is always written down and a pane holding still is not.
+   */
+  const decision = `${when}|${m?.availWidth ?? 0}x${m?.availHeight ?? 0}|${m?.cellWidth ?? 0}|${String(m?.webgl ?? false)}|${String(pane?.controller.term.cols ?? 0)}x${String(pane?.controller.term.rows ?? 0)}`;
+  if (lastDecision.get(paneId) === decision) return;
+  lastDecision.set(paneId, decision);
   client?.send({
     t: 'note',
     event: `box.${when}`,
     detail: {
+      paneId: paneId.slice(0, 6),
       width: Math.round(box.width),
       height: Math.round(box.height),
-      cell: `${String(Math.round((cell?.width ?? 0) * 100) / 100)}x${String(Math.round((cell?.height ?? 0) * 100) / 100)}`,
+      avail: m ? `${String(m.availWidth)}x${String(m.availHeight)}` : '?',
+      cell: m ? `${String(m.cellWidth)}x${String(m.cellHeight)}` : '?',
+      derived: `${String(Math.round((cell?.width ?? 0) * 100) / 100)}`,
+      webgl: m?.webgl ?? false,
       grid: `${String(pane?.controller.term.cols ?? 0)}x${String(pane?.controller.term.rows ?? 0)}`,
       window: `${String(window.innerWidth)}x${String(window.innerHeight)}`,
     },
@@ -3203,11 +3242,20 @@ function attachSize(): { cols: number; rows: number; estimated?: true } {
    * marked so that a session which already has a size ignores it and waits for the measurement,
    * which follows within a second through `resize-pane`.
    */
-  const measured = panesHost?.all[0]?.controller.fit();
+  const first = panesHost?.all[0];
+  const measured = first?.controller.fit();
   if (measured && measured.cols > 1 && measured.rows > 1) {
-    const first = panesHost?.all[0];
     if (first) reportBox('attach', first.paneId);
-    return measured;
+    /*
+     * Offered rather than applied while the renderer that decides the cell is still missing.
+     *
+     * Every tab re-attaches at once when the extension reloads or the daemon restarts, and they
+     * contend for a capped number of GPU contexts. The ones that lose measure against the DOM
+     * renderer's cell, which is 7.83 where the WebGL one is 7.5, and 1468 pixels of room is 187
+     * columns under the first and 195 under the second. The daemon keeps the size the session
+     * has and tells this page, instead of resizing a program that is drawing in place.
+     */
+    return trustMeasurement(measured, first?.controller.sizeIsTrustworthy() ?? false);
   }
   // A cell from the terminal's own font metrics when there is one, and a sane default when not.
   const cell = panesHost?.all[0]?.controller.cellSize();
@@ -3257,6 +3305,35 @@ const nudgedPanes = new Set<string>();
  */
 function askForSize(paneId: string, size: { cols: number; rows: number }, why: string): void {
   if (!workspaceId) return;
+  /*
+   * Every size asked for, with what it was decided from.
+   *
+   * A terminal that resizes without the window moving cannot be explained from the outside: the
+   * box follows the grid, so it agrees with whatever the grid already is. What decides a grid is
+   * the room the parent has and the cell the renderer believes in, and the renderer changes on its
+   * own. Reported per pane and unconditionally, because the thing being chased is a sequence and
+   * the interesting entries are the ones a shape-based filter would drop.
+   */
+  const pane = panesHost?.get(paneId);
+  const m = pane?.controller.metrics();
+  const asked = `${why}|${String(size.cols)}x${String(size.rows)}|${String(pane?.controller.term.cols ?? 0)}|${m?.cellWidth ?? 0}|${String(m?.webgl ?? false)}`;
+  if (lastAsked.get(paneId) !== asked) {
+    lastAsked.set(paneId, asked);
+    client?.send({
+      t: 'note',
+      event: 'size.asked',
+      detail: {
+        paneId: paneId.slice(0, 6),
+        why,
+        want: `${String(size.cols)}x${String(size.rows)}`,
+        have: `${String(pane?.controller.term.cols ?? 0)}x${String(pane?.controller.term.rows ?? 0)}`,
+        avail: m ? `${String(m.availWidth)}x${String(m.availHeight)}` : '?',
+        cell: m ? `${String(m.cellWidth)}x${String(m.cellHeight)}` : '?',
+        webgl: m?.webgl ?? false,
+        window: `${String(window.innerWidth)}x${String(window.innerHeight)}`,
+      },
+    });
+  }
   requestedSizes.set(paneId, size);
   noticeResize(paneId, size, why);
   client?.send({ t: 'resize-pane', workspaceId, paneId, ...size });
@@ -3320,10 +3397,19 @@ function noticeResize(paneId: string, size: { cols: number; rows: number }, why:
 function refitAllPanes(): void {
   for (const pane of panesHost?.all ?? []) {
     const size = panesHost?.fit(pane.paneId);
-    if (size) {
-      reportBox('refit', pane.paneId);
-      askForSize(pane.paneId, size, 'refit');
-    }
+    if (!size) continue;
+    reportBox('refit', pane.paneId);
+    /*
+     * Measured, drawn, and not sent on.
+     *
+     * While the renderer that decides the cell is still missing, this grid is 187 where the
+     * settled one is 195, and asking for it resizes a program that is drawing in place. The pane
+     * keeps drawing at what it measured and the daemon's size is the one that counts, which is
+     * the arrangement `session-size` already exists for. The pane asks again the moment the
+     * renderer arrives, and by then the two usually agree, so nothing is resized at all.
+     */
+    if (!pane.controller.sizeIsTrustworthy()) continue;
+    askForSize(pane.paneId, size, 'refit');
   }
 }
 
