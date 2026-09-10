@@ -2192,6 +2192,23 @@
     letter-spacing: 0.04em;
   }
   /**
+   * A fold inside a section, which is a smaller thing than the section.
+   *
+   * Same arrow at the same weight said the two were the same kind of control, so a group
+   * of ports looked like a peer of the section holding it. The inner one is smaller and
+   * sits in from the edge, which is the whole of what makes a nested list read as nested.
+   */
+  .launcher-fold-inner {
+    padding-left: 2px;
+  }
+  .launcher-fold-inner .launcher-fold-arrow {
+    font-size: 6px;
+    opacity: 0.75;
+  }
+  .launcher-fold-inner .launcher-strong {
+    font-size: 12px;
+  }
+  /**
    * The page behind a port, shown only while its close is being confirmed.
    *
    * Small on purpose. It answers "what is this", which a port number cannot, and it is not

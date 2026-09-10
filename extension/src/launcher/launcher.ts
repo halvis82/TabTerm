@@ -12,7 +12,7 @@ const SHAPE_AS_TEXT: Record<string, string> = {
 };
 import { type LayoutTemplate } from './templates.js';
 import { loadFolded, portGroupKey, saveFolded, type FoldableSection } from './section-state.js';
-import { groupPorts } from './port-groups.js';
+import { groupPorts, worthGrouping } from './port-groups.js';
 import type {
   LayoutShape,
   LiveSession,
@@ -163,12 +163,12 @@ export function listWindow(
  */
 const MAX_RESUME = 6;
 /**
- * How many programs the ports section shows before the rest go behind a count.
+ * How many port rows the section shows before the rest go behind a count.
  *
- * Groups, not ports. Twenty six ports on a real machine were eight programs, and the programs are
- * what somebody is choosing between.
+ * Rows rather than programs, because rows are what fills a screen: one browser can hold a dozen
+ * ports by itself, and a cap counted in programs would let the whole dozen through.
  */
-const MAX_PORT_GROUPS = 5;
+const MAX_PORT_ROWS = 6;
 
 export class Launcher {
   readonly #opts: LauncherOptions;
@@ -2056,43 +2056,47 @@ export class Launcher {
   }
 
   /**
-   * Ports something else on this machine is listening on, gathered by what is holding them.
+   * Ports something on this machine is listening on, and what can be done about one.
    *
-   * Separate from the section above because what is known about one is different: these belong to
-   * processes this product did not start, so there is no session to focus and no command to run
-   * again. Open, copy, and close.
+   * Grouped only where grouping earns its place. A program holding several ports becomes a heading
+   * with them underneath, open, because the ports are the answer and the heading is only how they
+   * are sorted. A program holding one is drawn as that one row: a heading that hides a single row
+   * is worse than the row.
    *
-   * Close asks first, and asks with a picture. A port number is not enough to know what something
-   * is, and the question "are you sure" is unanswerable when the thing being closed is `python3.11
-   * on 8081`. The preview is loaded when the question is asked and never before: twenty six of them
-   * on every draw would be twenty six page loads nobody wanted.
+   * Capped by rows rather than by groups, because rows are what fills a screen. One browser can
+   * hold a dozen ports on its own, and a cap counted in programs would let that dozen through.
    */
   #otherPortsSection(): HTMLElement | null {
     if (this.#otherPorts.length === 0) return null;
 
     const groups = groupPorts(this.#otherPorts);
-    /*
-     * Capped like every other list on this screen, and counted in groups rather than in ports.
-     *
-     * A group is one program, which is the unit a person is choosing between here, and there are
-     * far fewer of them than there are ports: twenty six ports on a real machine were eight
-     * programs. The rest go behind the same count the folders and the conversations use.
-     */
-    const shown = this.#visibleCount('ports', groups.length, MAX_PORT_GROUPS);
+    const budget = this.#visibleCount('ports', this.#otherPorts.length, MAX_PORT_ROWS);
     const rows: HTMLElement[] = [];
+    let drawn = 0;
 
-    for (const group of groups.slice(0, shown)) {
+    for (const group of groups) {
+      if (drawn >= budget) break;
+
+      if (!worthGrouping(group)) {
+        const only = group.ports[0];
+        if (only) {
+          rows.push(this.#portRow(only));
+          drawn++;
+        }
+        continue;
+      }
+
       const key = portGroupKey(group.program);
-      // Closed unless this person has opened it. See `#isOpen`.
-      const open = this.#isOpen(key, false);
+      // Open unless this person has folded it. See `#isOpen`.
+      const open = this.#isOpen(key, true);
 
       const head = document.createElement('button');
-      head.className = 'launcher-heading-fold';
+      head.className = 'launcher-heading-fold launcher-fold-inner';
       head.setAttribute('aria-expanded', open ? 'true' : 'false');
       head.title = open ? `Collapse ${group.program}` : `Expand ${group.program}`;
       const arrow = document.createElement('span');
       arrow.className = 'launcher-fold-arrow';
-      arrow.textContent = '▼';
+      arrow.textContent = '\u25bc';
       arrow.setAttribute('aria-hidden', 'true');
       head.append(arrow, strong(group.program));
       const count = document.createElement('span');
@@ -2104,14 +2108,20 @@ export class Launcher {
       const wrapper = document.createElement('div');
       wrapper.className = 'launcher-port-group';
       wrapper.append(head);
-      if (open) for (const port of group.ports) wrapper.append(this.#portRow(port));
+      if (open) {
+        for (const port of group.ports) {
+          if (drawn >= budget) break;
+          wrapper.append(this.#portRow(port));
+          drawn++;
+        }
+      }
       rows.push(wrapper);
     }
 
-    const more = this.#moreRow('ports', groups.length, MAX_PORT_GROUPS);
+    const more = this.#moreRow('ports', this.#otherPorts.length, MAX_PORT_ROWS);
     if (more) rows.push(more);
 
-    return foldingSection('Other local ports', rows, {
+    return foldingSection('Local ports', rows, {
       open: !this.#folded.has('otherPorts'),
       hidden: this.#otherPorts.length,
       onToggle: () => this.#toggleFold('otherPorts'),
@@ -2182,9 +2192,39 @@ export class Launcher {
     preview.className = 'launcher-port-preview';
     preview.src = url;
     preview.title = `Preview of ${url}`;
-    // Nothing from a page this product did not write needs to reach anything here.
-    preview.setAttribute('sandbox', '');
+    /*
+     * Scripts allowed, because otherwise this shows nothing worth seeing.
+     *
+     * An empty sandbox was the first attempt and it is useless here: almost every page worth
+     * previewing draws itself with script, so the preview was a white rectangle for exactly the
+     * cases it exists for. Verified in a browser that framing a local server works under all four
+     * settings, so the choice is only about what the framed page may do.
+     *
+     * Forms, popups, downloads and navigating this page away are all still refused, which is the
+     * part that matters. Same-origin is granted only relative to the framed site, never to this
+     * extension: the frame's origin is the local server's, so it cannot reach anything here.
+     */
+    preview.setAttribute('sandbox', 'allow-scripts allow-same-origin');
     preview.setAttribute('referrerpolicy', 'no-referrer');
+
+    /*
+     * And a word about what a blank one means.
+     *
+     * Several of the things holding a loopback port are not web servers at all. A blank rectangle
+     * with no explanation reads as the preview being broken, so it says which it is. Whether the
+     * frame loaded is the only thing observable from here: its contents are another origin's.
+     */
+    const status = document.createElement('div');
+    status.className = 'launcher-dim';
+    status.textContent = 'Loading preview...';
+    let loaded = false;
+    preview.addEventListener('load', () => {
+      loaded = true;
+      status.remove();
+    });
+    setTimeout(() => {
+      if (!loaded) status.textContent = 'No page here. This port may not be a web server.';
+    }, 2500);
 
     const buttons = document.createElement('div');
     buttons.className = 'launcher-buttons';
@@ -2217,7 +2257,7 @@ export class Launcher {
     });
     box.tabIndex = -1;
 
-    box.append(text, note, preview, buttons);
+    box.append(text, note, preview, status, buttons);
     group.append(box);
     // Focused so Return and Escape reach it without anybody having to click first.
     queueMicrotask(() => box.focus());

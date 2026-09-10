@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupPorts } from './port-groups.js';
+import { groupPorts, worthGrouping } from './port-groups.js';
 
 /**
  * What the ports list looks like once it is readable.
@@ -38,5 +38,16 @@ describe('grouping ports by what is holding them', () => {
 
   it('answers nothing for nothing', () => {
     expect(groupPorts([])).toEqual([]);
+  });
+
+  it('does not consider one port a group', () => {
+    // A heading that hides a single row is worse than the row.
+    const groups = groupPorts([
+      { port: 37701, program: 'bun' },
+      { port: 9411, program: 'Google Chrome' },
+      { port: 9444, program: 'Google Chrome' },
+    ]);
+    expect(groups.filter(worthGrouping).map((g) => g.program)).toEqual(['Google Chrome']);
+    expect(groups.filter((g) => !worthGrouping(g)).map((g) => g.program)).toEqual(['bun']);
   });
 });

@@ -39,30 +39,46 @@ describe('the ports the daemon reports that no session accounts for', () => {
     expect(launcher).toContain('portGroupKey(group.program)');
   });
 
-  it('start with each program folded, so the section is a list of programs', () => {
-    // Twenty six ports on a real machine were eight programs. The ports are the detail behind one.
-    expect(launcher).toContain('this.#isOpen(key, false)');
+  it('show a program s ports rather than hiding them behind it', () => {
+    expect(launcher).toContain('this.#isOpen(key, true)');
   });
 
-  it('are capped like every other list on this screen', () => {
+  it('only make a group of a program holding more than one', () => {
+    // A heading that hides a single row is worse than the row.
+    expect(launcher).toContain('worthGrouping(group)');
+  });
+
+  it('are capped by rows, since rows are what fills a screen', () => {
+    // One browser can hold a dozen ports on its own, so a cap counted in programs lets it through.
     expect(launcher).toContain("this.#visibleCount('ports'");
     expect(launcher).toContain("this.#moreRow('ports'");
+    expect(launcher).toContain('MAX_PORT_ROWS');
+  });
+
+  it('tell a nested fold apart from the section it is inside', () => {
+    expect(launcher).toContain('launcher-fold-inner');
   });
 
   it('ask before ending a process this product did not start, and show it first', () => {
     expect(launcher).toContain('#closeConfirm');
     expect(launcher).toContain('launcher-port-preview');
     // The preview is built inside the confirmation, which is to say only when it is asked for.
-    const confirm = launcher.slice(launcher.indexOf('#closeConfirm('));
+    const confirm = launcher.slice(launcher.indexOf('#closeConfirm(other: OtherLocalPort'));
     expect(confirm.slice(0, 3000)).toContain("createElement('iframe')");
-    // And it can do nothing: no scripts, no forms, no same-origin.
-    expect(confirm.slice(0, 3000)).toContain("setAttribute('sandbox', '')");
+    /*
+     * Scripts allowed, because an empty sandbox previews a white rectangle for every page that
+     * draws itself with script, which is nearly all of them. Forms, popups, downloads and
+     * navigating this page away stay refused, which is the part that matters.
+     */
+    expect(confirm.slice(0, 3000)).toContain("'allow-scripts allow-same-origin'");
+    expect(confirm.slice(0, 3000)).not.toContain('allow-forms');
+    expect(confirm.slice(0, 3000)).not.toContain('allow-top-navigation');
   });
 
   it('answers the question from the keyboard, both ways', () => {
     const confirm = launcher.slice(
-      launcher.indexOf('#closeConfirm('),
-      launcher.indexOf('#closeConfirm(') + 3500,
+      launcher.indexOf('#closeConfirm(other: OtherLocalPort'),
+      launcher.indexOf('#closeConfirm(other: OtherLocalPort') + 4000,
     );
     expect(confirm).toContain("e.key === 'Escape'");
     expect(confirm).toContain("e.key === 'Enter'");

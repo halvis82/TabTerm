@@ -17,6 +17,16 @@ export interface PortGroup {
   ports: readonly OtherLocalPort[];
 }
 
+/**
+ * Whether a group is worth being a group.
+ *
+ * One port under a heading is a heading that hides one row, which is worse than the row. A program
+ * holding a single port is drawn as itself.
+ */
+export function worthGrouping(group: PortGroup): boolean {
+  return group.ports.length > 1;
+}
+
 export function groupPorts(ports: readonly OtherLocalPort[]): PortGroup[] {
   const byProgram = new Map<string, OtherLocalPort[]>();
   for (const port of ports) {
