@@ -11,6 +11,8 @@ const SHAPE_AS_TEXT: Record<string, string> = {
   quad: '(1+2)/(3+4)',
 };
 import { type LayoutTemplate } from './templates.js';
+import { loadFolded, portGroupKey, saveFolded, type FoldableSection } from './section-state.js';
+import { groupPorts } from './port-groups.js';
 import type {
   LayoutShape,
   LiveSession,
@@ -72,6 +74,13 @@ export interface LauncherOptions {
   onCloseSession: (session: LiveSession) => void;
   onForgetRestorable: (workspaceId: string) => void;
   onOpenServer: (port: number) => void;
+  /**
+   * Stop whatever is listening on a port this product did not start.
+   *
+   * Optional, so a launcher built without it simply does not offer the button rather than offering
+   * one that does nothing.
+   */
+  onClosePort?: (port: number) => void;
   /** Put text on the clipboard. The page owns the clipboard, this does not. */
   onCopyText?: (text: string) => void;
   onAttachServer: (server: LocalServer) => void;
@@ -153,6 +162,13 @@ export function listWindow(
  * agent keeps for the session, which is what makes six scannable rather than six to read.
  */
 const MAX_RESUME = 6;
+/**
+ * How many programs the ports section shows before the rest go behind a count.
+ *
+ * Groups, not ports. Twenty six ports on a real machine were eight programs, and the programs are
+ * what somebody is choosing between.
+ */
+const MAX_PORT_GROUPS = 5;
 
 export class Launcher {
   readonly #opts: LauncherOptions;
@@ -294,7 +310,33 @@ export class Launcher {
    * things nobody wants. Folded it is one line saying how many, which is the useful part.
    */
   #otherPorts: readonly OtherLocalPort[] = [];
-  #otherPortsOpen = false;
+  /**
+   * Which sections are folded, read once and written whenever one is toggled.
+   *
+   * Starts empty, so a section is open until storage says otherwise and a slow read shows the
+   * section rather than hiding it. The alternative is a start screen that changes shape a moment
+   * after it draws, which is worse than either state.
+   */
+  #folded = new Set<FoldableSection>();
+  /**
+   * Which port is being asked about, or none.
+   *
+   * One at a time. Two open confirmations, each with a page loading inside it, is two questions
+   * nobody asked and two pages nobody wanted.
+   */
+  #closingPort: number | null = null;
+
+  /**
+   * Whether something is open, given what it does when nobody has said.
+   *
+   * The stored set records departures from the default, not states. A section defaults open, so
+   * being in the set means folded. A group of ports defaults closed, because the section is a list
+   * of programs and the ports under one are the detail behind it, so being in the set means opened.
+   * One rule, applied to two different defaults, rather than two sets that can disagree.
+   */
+  #isOpen(key: FoldableSection, openByDefault: boolean): boolean {
+    return openByDefault ? !this.#folded.has(key) : this.#folded.has(key);
+  }
   #restorable: readonly RestorableSummary[] = [];
   #expandedRestore: string | null = null;
   /** Which server is asking for confirmation, and for what. */
@@ -1386,8 +1428,6 @@ export class Launcher {
     if (restorable) sections.push(restorable);
     const servers = this.#serverSection(state.home);
     if (servers) sections.push(servers);
-    const otherPorts = this.#otherPortsSection();
-    if (otherPorts) sections.push(otherPorts);
     const resume = this.#resumeSection(state.home);
     if (resume) sections.push(resume);
 
@@ -1396,8 +1436,24 @@ export class Launcher {
       const shown = this.#visibleCount('recent', state.recentDirs.length, MAX_RECENT);
       const dirRows = state.recentDirs.slice(0, shown).map((d) => this.#dirRow(d, state.home));
       const more = this.#moreRow('recent', state.recentDirs.length, MAX_RECENT);
-      sections.push(section('Recent folders', more ? [...dirRows, more] : dirRows));
+      sections.push(
+        foldingSection('Recent folders', more ? [...dirRows, more] : dirRows, {
+          open: !this.#folded.has('recentFolders'),
+          hidden: state.recentDirs.length,
+          onToggle: () => this.#toggleFold('recentFolders'),
+        }),
+      );
     }
+
+    /*
+     * Below the folders, because it answers a different question.
+     *
+     * Everything above this is somewhere to begin work. This is what is already running on
+     * the machine, which is worth knowing and is not a way to start anything, so it sits
+     * under the things that are.
+     */
+    const otherPorts = this.#otherPortsSection();
+    if (otherPorts) sections.push(otherPorts);
 
     // --- plugins ----------------------------------------------------------
     // Rendered only when there is something to render. An empty heading is noise.
@@ -1872,10 +1928,35 @@ export class Launcher {
       return group;
     });
 
-    return section('Reopen from before the restart', rows);
+    return foldingSection('Reopen from before the restart', rows, {
+      open: !this.#folded.has('reopenRestart'),
+      hidden: rows.length,
+      onToggle: () => this.#toggleFold('reopenRestart'),
+    });
   }
 
   /** Local servers the daemon attributed to a session. */
+  /** Read the folds once. Called by whoever builds the launcher, and safe to call again. */
+  async restoreFolds(): Promise<void> {
+    this.#folded = await loadFolded();
+    /*
+     * Drawn again only if this is already on screen.
+     *
+     * The read finishes whenever it finishes, and a tab that has not decided to show a start
+     * screen must not be given one by a storage callback. Rendering unconditionally here put a
+     * launcher over a terminal that was on its way to being a terminal, which is exactly the
+     * "shows a terminal first" fault the refresh checks exist for, arriving from the other side.
+     */
+    if (this.isShowing) this.render();
+  }
+
+  #toggleFold(name: FoldableSection): void {
+    if (this.#folded.has(name)) this.#folded.delete(name);
+    else this.#folded.add(name);
+    void saveFolded(this.#folded);
+    this.render();
+  }
+
   setServers(servers: readonly LocalServer[], others: readonly OtherLocalPort[] = []): void {
     this.#servers = servers;
     this.#otherPorts = others;
@@ -1975,61 +2056,172 @@ export class Launcher {
   }
 
   /**
-   * Ports something else on this machine is listening on.
+   * Ports something else on this machine is listening on, gathered by what is holding them.
    *
-   * Separate from the section above because what can honestly be done with one is different. These
-   * belong to processes this product did not start, so they can be opened and copied and that is
-   * all. Offering Stop here would mean killing a stranger's process from a button next to one that
-   * interrupts a terminal, which is the kind of neighbouring pair that gets hit by accident.
+   * Separate from the section above because what is known about one is different: these belong to
+   * processes this product did not start, so there is no session to focus and no command to run
+   * again. Open, copy, and close.
    *
-   * The program's name is on every row, because that is what makes a port judgeable without
-   * opening it.
+   * Close asks first, and asks with a picture. A port number is not enough to know what something
+   * is, and the question "are you sure" is unanswerable when the thing being closed is `python3.11
+   * on 8081`. The preview is loaded when the question is asked and never before: twenty six of them
+   * on every draw would be twenty six page loads nobody wanted.
    */
   #otherPortsSection(): HTMLElement | null {
     if (this.#otherPorts.length === 0) return null;
 
+    const groups = groupPorts(this.#otherPorts);
+    /*
+     * Capped like every other list on this screen, and counted in groups rather than in ports.
+     *
+     * A group is one program, which is the unit a person is choosing between here, and there are
+     * far fewer of them than there are ports: twenty six ports on a real machine were eight
+     * programs. The rest go behind the same count the folders and the conversations use.
+     */
+    const shown = this.#visibleCount('ports', groups.length, MAX_PORT_GROUPS);
     const rows: HTMLElement[] = [];
-    const header = document.createElement('button');
-    header.className = 'launcher-row';
-    header.append(
-      strong(
-        this.#otherPortsOpen
-          ? 'Other local ports'
-          : `Other local ports (${String(this.#otherPorts.length)})`,
-      ),
-      dim(this.#otherPortsOpen ? 'started outside TabTerm' : 'listening, started outside TabTerm'),
-    );
-    header.addEventListener('click', () => {
-      this.#otherPortsOpen = !this.#otherPortsOpen;
-      this.render();
-    });
-    rows.push(header);
 
-    if (this.#otherPortsOpen) {
-      for (const other of this.#otherPorts) {
-        const wrap = document.createElement('div');
-        wrap.className = 'launcher-row-wrap';
+    for (const group of groups.slice(0, shown)) {
+      const key = portGroupKey(group.program);
+      // Closed unless this person has opened it. See `#isOpen`.
+      const open = this.#isOpen(key, false);
 
-        const main = document.createElement('button');
-        main.className = 'launcher-row';
-        main.append(strong(`localhost:${String(other.port)}`), dim(other.program));
-        main.addEventListener('click', () => this.#opts.onOpenServer(other.port));
-        wrap.append(main);
+      const head = document.createElement('button');
+      head.className = 'launcher-heading-fold';
+      head.setAttribute('aria-expanded', open ? 'true' : 'false');
+      head.title = open ? `Collapse ${group.program}` : `Expand ${group.program}`;
+      const arrow = document.createElement('span');
+      arrow.className = 'launcher-fold-arrow';
+      arrow.textContent = '▼';
+      arrow.setAttribute('aria-hidden', 'true');
+      head.append(arrow, strong(group.program));
+      const count = document.createElement('span');
+      count.className = 'launcher-fold-count';
+      count.textContent = String(group.ports.length);
+      head.append(count);
+      head.addEventListener('click', () => this.#toggleFold(key));
 
-        const copy = document.createElement('button');
-        copy.className = 'launcher-chip';
-        copy.textContent = 'Copy';
-        copy.title = 'Copy the address';
-        copy.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this.#opts.onCopyText?.(`http://localhost:${String(other.port)}/`);
-        });
-        wrap.append(copy);
-        rows.push(wrap);
-      }
+      const wrapper = document.createElement('div');
+      wrapper.className = 'launcher-port-group';
+      wrapper.append(head);
+      if (open) for (const port of group.ports) wrapper.append(this.#portRow(port));
+      rows.push(wrapper);
     }
 
-    return section('Other local ports', rows);
+    const more = this.#moreRow('ports', groups.length, MAX_PORT_GROUPS);
+    if (more) rows.push(more);
+
+    return foldingSection('Other local ports', rows, {
+      open: !this.#folded.has('otherPorts'),
+      hidden: this.#otherPorts.length,
+      onToggle: () => this.#toggleFold('otherPorts'),
+    });
+  }
+
+  /** One port, with the three things that can honestly be done to something we did not start. */
+  #portRow(other: OtherLocalPort): HTMLElement {
+    const url = `http://localhost:${String(other.port)}/`;
+
+    if (this.#closingPort === other.port) return this.#closeConfirm(other, url);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'launcher-row-wrap';
+
+    const main = document.createElement('button');
+    main.className = 'launcher-row';
+    main.append(strong(`localhost:${String(other.port)}`), dim(other.program));
+    main.addEventListener('click', () => this.#opts.onOpenServer(other.port));
+    wrap.append(main);
+
+    const chip = (label: string, title: string, run: () => void) => {
+      const b = document.createElement('button');
+      b.className = 'launcher-chip';
+      b.textContent = label;
+      b.title = title;
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        run();
+      });
+      wrap.append(b);
+    };
+
+    chip('Copy', 'Copy the address', () => this.#opts.onCopyText?.(url));
+    chip('Close', 'Stop whatever is listening here', () => {
+      this.#closingPort = other.port;
+      this.render();
+    });
+    return wrap;
+  }
+
+  /**
+   * The question asked before closing something this product did not start.
+   *
+   * With the page in it, because a port number does not say what a thing is and nobody can answer
+   * for `python3.11 on 8081` without looking. The iframe is created here, which is to say when the
+   * question is asked, and goes away with the answer.
+   *
+   * Return confirms and Escape cancels, on the row rather than the window, so it cannot answer a
+   * question somebody has already navigated away from.
+   */
+  #closeConfirm(other: OtherLocalPort, url: string): HTMLElement {
+    const group = document.createElement('div');
+    group.className = 'launcher-row-group';
+
+    const box = document.createElement('div');
+    box.className = 'launcher-project';
+
+    const text = document.createElement('div');
+    text.className = 'launcher-project-warn';
+    text.textContent = `Close ${other.program} on port ${String(other.port)}?`;
+
+    const note = document.createElement('div');
+    note.className = 'launcher-dim';
+    note.textContent = 'TabTerm did not start this. Closing it ends the process holding the port.';
+
+    const preview = document.createElement('iframe');
+    preview.className = 'launcher-port-preview';
+    preview.src = url;
+    preview.title = `Preview of ${url}`;
+    // Nothing from a page this product did not write needs to reach anything here.
+    preview.setAttribute('sandbox', '');
+    preview.setAttribute('referrerpolicy', 'no-referrer');
+
+    const buttons = document.createElement('div');
+    buttons.className = 'launcher-buttons';
+    const go = document.createElement('button');
+    go.className = 'launcher-chip primary';
+    go.textContent = 'Close it';
+    go.addEventListener('click', () => {
+      this.#closingPort = null;
+      this.#opts.onClosePort?.(other.port);
+    });
+    const cancel = document.createElement('button');
+    cancel.className = 'launcher-chip';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', () => {
+      this.#closingPort = null;
+      this.render();
+    });
+    buttons.append(go, cancel);
+
+    box.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        this.#closingPort = null;
+        this.render();
+      } else if (e.key === 'Enter') {
+        e.stopPropagation();
+        this.#closingPort = null;
+        this.#opts.onClosePort?.(other.port);
+      }
+    });
+    box.tabIndex = -1;
+
+    box.append(text, note, preview, buttons);
+    group.append(box);
+    // Focused so Return and Escape reach it without anybody having to click first.
+    queueMicrotask(() => box.focus());
+    return group;
   }
 
   /** Agent sessions that could be picked back up. Shown, never resumed automatically. */
@@ -2189,7 +2381,11 @@ export class Launcher {
       return holder;
     });
     const more = this.#moreRow('resume', offered.length, MAX_RESUME);
-    return section('Resume an agent session', more ? [...rows, more] : rows);
+    return foldingSection('Resume an agent session', more ? [...rows, more] : rows, {
+      open: !this.#folded.has('resumeAgent'),
+      hidden: offered.length,
+      onToggle: () => this.#toggleFold('resumeAgent'),
+    });
   }
 
   /**
@@ -2413,6 +2609,49 @@ function section(title: string, rows: HTMLElement[]): HTMLElement {
   const wrap = document.createElement('div');
   wrap.className = 'launcher-section';
   wrap.append(heading(title), ...rows);
+  return wrap;
+}
+
+/**
+ * A section whose heading folds it.
+ *
+ * The arrow is the point. A title that can be pressed and does not say so is a title nobody
+ * presses, and every other heading on this screen is inert, so there is nothing to generalise from.
+ * The whole heading is the target rather than the arrow alone, because a nine pixel glyph is not a
+ * click target and the title is the thing a person is already looking at.
+ *
+ * The count is shown only while folded, and beside the name rather than instead of it: a heading
+ * that changes its words when you close it reads as a different section.
+ */
+function foldingSection(
+  title: string,
+  rows: HTMLElement[],
+  fold: { open: boolean; hidden: number; onToggle: () => void },
+): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'launcher-section';
+
+  const header = document.createElement('button');
+  header.className = 'launcher-heading-fold';
+  header.setAttribute('aria-expanded', fold.open ? 'true' : 'false');
+  header.title = fold.open ? `Collapse ${title}` : `Expand ${title}`;
+
+  const arrow = document.createElement('span');
+  arrow.className = 'launcher-fold-arrow';
+  arrow.textContent = '\u25bc';
+  arrow.setAttribute('aria-hidden', 'true');
+
+  header.append(arrow, heading(title));
+  if (!fold.open && fold.hidden > 0) {
+    const count = document.createElement('span');
+    count.className = 'launcher-fold-count';
+    count.textContent = String(fold.hidden);
+    header.append(count);
+  }
+  header.addEventListener('click', fold.onToggle);
+
+  wrap.append(header);
+  if (fold.open) wrap.append(...rows);
   return wrap;
 }
 

@@ -102,6 +102,22 @@ export async function loopbackListeners(): Promise<OtherListener[]> {
   return listeners;
 }
 
+/**
+ * Who is holding a loopback port, for a request to close it.
+ *
+ * Asked again at the moment of the close rather than trusted from the list. The list a person is
+ * looking at was built seconds ago, ports are reused, and the gap between "the row said 8081 was
+ * python" and "kill whatever has 8081 now" is exactly where the wrong process gets signalled.
+ *
+ * Loopback only, above 1024, same as the list. A port bound to every interface is not something a
+ * start screen should be able to end.
+ */
+export async function holderOfLoopbackPort(port: number): Promise<number | null> {
+  if (!Number.isInteger(port) || port <= 1024) return null;
+  const listeners = await loopbackListeners();
+  return listeners.find((l) => l.port === port)?.pid ?? null;
+}
+
 async function parentMap(): Promise<Map<number, number>> {
   const map = new Map<number, number>();
   const ps = await run('/bin/ps', ['-o', 'pid=,ppid=', '-ax']);

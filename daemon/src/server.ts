@@ -49,7 +49,7 @@ import {
   type AgentKind,
 } from './agent-resume.js';
 import { loginPath, resolveExecutable } from './login-path.js';
-import { listeningPorts, loopbackListeners } from './server-detect.js';
+import { holderOfLoopbackPort, listeningPorts, loopbackListeners } from './server-detect.js';
 import { applyMemoryMode, frontendSettings } from './memory-modes.js';
 import type { RestoreStore } from './restore-store.js';
 import type { OutputArchive } from './output-archive.js';
@@ -1984,6 +1984,47 @@ export class DaemonServer {
           }
         }
         delete target.listeningPort;
+        return;
+      }
+
+      case 'close-port': {
+        /*
+         * Ending a process this product did not start, which is the only place that happens.
+         *
+         * The holder is looked up again here rather than taken from the list the page was drawn
+         * from. That list is seconds old and ports are reused, and the gap between "the row said
+         * python" and "end whatever holds it now" is exactly where the wrong process gets
+         * signalled. Our own two ports are refused outright. The PTY host cannot appear here at
+         * all: it listens on a unix socket, so it is not a TCP listener.
+         *
+         * TERM rather than KILL. A close is somebody asking a program to stop, and a program
+         * with something to save should get the chance to.
+         */
+        const wanted = msg.port;
+        if (wanted === this.#config.port || wanted === this.#config.agentBridgePort) {
+          warn('port.close-refused', { port: wanted, reason: 'own-port' });
+          return;
+        }
+        void holderOfLoopbackPort(wanted)
+          .then((pid) => {
+            if (pid === null) {
+              warn('port.close-refused', { port: wanted, reason: 'nothing-listening' });
+              return;
+            }
+            if (pid === process.pid) {
+              warn('port.close-refused', { port: wanted, reason: 'ours' });
+              return;
+            }
+            try {
+              process.kill(pid, 'SIGTERM');
+              info('port.closed', { port: wanted });
+            } catch (e: unknown) {
+              warn('port.close-failed', { port: wanted, error: safeError(e) });
+            }
+          })
+          .catch(() => {
+            warn('port.close-failed', { port: wanted, reason: 'lookup' });
+          });
         return;
       }
 

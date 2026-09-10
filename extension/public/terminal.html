@@ -2149,6 +2149,69 @@
     font-weight: 600;
   }
   /**
+   * A heading that folds its own section.
+   *
+   * Still a heading, so it reads like the ones that do not fold, and a button, so it takes
+   * a click and a Return like everything else here. The arrow is the whole of the
+   * affordance: without it somebody has to discover that a title is pressable, which
+   * nothing else at this level is.
+   */
+  .launcher-heading-fold {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+    font: inherit;
+  }
+  .launcher-heading-fold:hover .launcher-heading {
+    color: var(--fg);
+  }
+  /* Rotated rather than swapped, so what moves is the direction of the fold. */
+  .launcher-fold-arrow {
+    color: var(--dim);
+    font-size: 9px;
+    line-height: 1;
+    transition: transform 120ms ease;
+    transform: rotate(0deg);
+  }
+  .launcher-heading-fold[aria-expanded='false'] .launcher-fold-arrow {
+    transform: rotate(-90deg);
+  }
+  .launcher-heading-fold:hover .launcher-fold-arrow {
+    color: var(--fg);
+  }
+  /** How many rows a folded group hides, said beside its name rather than in place of it. */
+  .launcher-fold-count {
+    color: var(--dim);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+  }
+  /**
+   * The page behind a port, shown only while its close is being confirmed.
+   *
+   * Small on purpose. It answers "what is this", which a port number cannot, and it is not
+   * a place to use the thing. Sandboxed with no permissions at all, because nothing from a
+   * page this product did not write has any business running here.
+   */
+  .launcher-port-preview {
+    width: 100%;
+    height: 180px;
+    margin: 6px 0;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: #fff;
+  }
+  /** A group of ports held by one program, indented under its own heading. */
+  .launcher-port-group .launcher-row-wrap,
+  .launcher-port-group .launcher-row {
+    margin-left: 10px;
+  }
+  /**
    * The rows of the start screen, evenly spaced.
    *
    * The folder list is inserted between the box and the buttons rather than being one of these

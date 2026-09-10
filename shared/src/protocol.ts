@@ -589,6 +589,17 @@ export type ClientMessage =
       /** Send the recorded start command again once it has stopped. */
       restart?: boolean;
     }
+  | {
+      /**
+       * End whatever is listening on a loopback port, which this product did not start.
+       *
+       * By port rather than by session, because there is no session: these are other people's
+       * processes. Confirmed in the page first, with the page behind the port shown, because a
+       * port number is not enough for anybody to answer the question.
+       */
+      t: 'close-port';
+      port: number;
+    }
   | { t: 'set-memory-mode'; mode: MemoryModeName }
   | { t: 'get-memory-mode' }
   // Completion notifications, and the agent CLI hooks that make agent turns visible at all.

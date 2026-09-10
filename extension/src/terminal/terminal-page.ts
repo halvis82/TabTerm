@@ -2839,6 +2839,16 @@ function buildLauncher(): void {
       client?.send({ t: 'forget-restorable', workspaceId });
       client?.send({ t: 'list-restorable' });
     },
+    /*
+     * Ask the daemon to end whatever holds a port. Confirmed in the launcher first.
+     *
+     * The list is asked for again shortly afterwards, so the row goes when the process does
+     * rather than sitting there naming something that has stopped.
+     */
+    onClosePort: (port) => {
+      client?.send({ t: 'close-port', port });
+      setTimeout(() => client?.send({ t: 'list-servers' }), 1200);
+    },
     onCopyText: (text) => {
       void navigator.clipboard.writeText(text).catch(() => {
         /* the page may not have focus; there is nothing useful to say about it */
@@ -2916,6 +2926,15 @@ function buildLauncher(): void {
       panesHost?.focus(splitView?.focused ?? '');
     },
   });
+
+  /*
+   * Which sections this person keeps folded, read once.
+   *
+   * Not awaited. The start screen draws with everything open and folds a moment later if
+   * storage says so, because a screen that is briefly complete is better than one that is
+   * briefly absent, and the read is a local one that normally lands before a frame.
+   */
+  void launcher.restoreFolds();
 
   palette = new Palette({
     root: overlay,
@@ -5223,7 +5242,7 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'server-list': {
-      launcher?.setServers(msg.servers);
+      launcher?.setServers(msg.servers, msg.others ?? []);
       return;
     }
 
