@@ -458,6 +458,15 @@ without one of four things: a pane the person closed, a tab the person closed, a
 inside its undo window, or a process that had already exited. It also checks the other direction,
 that pinned, persistent, attached and tab-open are absolute whatever else is true.
 
+Two of those four are reachable only over the protocol. `set-pin` and `set-persistence` are
+declared, handled, and correct, and nothing in the extension sends either, so in the product as
+shipped a session is protected by being attached or by its tab being open and never by the other
+two. They also live only in memory: a daemon restart adopts sessions from the host, which has no
+opinion about either flag, so anything pinned is unpinned by the next update. Written down because
+the reap policy reads as though four protections are available when two of them are, and because a
+reader deciding whether a terminal is safe should not have to find that out from the absence of a
+caller.
+
 **Never used means no evidence of any kind.** The short grace for an untouched pane is thirty
 seconds against a configured timeout of half an hour, so being wrong about which a session is
 costs the difference between the two. It required only that nothing had run and the directory had

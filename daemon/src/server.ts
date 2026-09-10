@@ -871,9 +871,17 @@ export class DaemonServer {
     return;
   }
   #onControl(client: Client, msg: ClientMessage): void {
-    /* eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check --
-       Deliberately partial: unimplemented control messages fall through to the default arm
-       and are logged, so protocol growth does not break an older daemon. */
+    /*
+     * Every control message this protocol declares now has an arm.
+     *
+     * The suppression that used to be here said the switch was deliberately partial, and it
+     * had become the cover under which six declared types nothing sent and nothing handled
+     * went unnoticed. With those gone the switch is exhaustive on its own, so the checker
+     * rather than a comment is what keeps it that way: a new message type cannot be added
+     * without either handling it or saying out loud that it is not handled.
+     *
+     * The default arm stays, because a daemon can still meet a client newer than itself.
+     */
     switch (msg.t) {
       case 'auth':
         return; // Already authenticated. Idempotent, ignore.

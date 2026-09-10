@@ -1067,6 +1067,35 @@ export class SessionManager {
   readonly #reporterSeen = new Map<string, Set<string>>();
 
   /**
+   * How many workspaces one browser profile is remembered as having held.
+   *
+   * The record is deliberately kept when a reporter goes away, because it says what that browser
+   * has held rather than what it holds now. Nothing ever removed an entry, so a profile that has
+   * opened and closed workspaces for months accumulates one line for every workspace it ever saw,
+   * for as long as the daemon runs. Bounded rather than swept, because there is no moment at which
+   * a workspace becomes provably gone for ever, and oldest-first because the recent ones are the
+   * ones a reconnecting browser will ask about. Far above any real number of workspaces.
+   */
+  static readonly SEEN_PER_PROFILE = 500;
+
+  /** Remember that a profile has held a workspace, without the record growing for ever. */
+  #rememberSeen(profile: string, workspaceId: string): boolean {
+    let seen = this.#reporterSeen.get(profile);
+    if (seen === undefined) {
+      seen = new Set<string>();
+      this.#reporterSeen.set(profile, seen);
+    }
+    if (seen.has(workspaceId)) return false;
+    seen.add(workspaceId);
+    while (seen.size > SessionManager.SEEN_PER_PROFILE) {
+      const oldest = seen.values().next().value;
+      if (oldest === undefined) break;
+      seen.delete(oldest);
+    }
+    return true;
+  }
+
+  /**
    * When each workspace was first judged to have gone to the background, and why.
    *
    * The daemon owns this rather than recomputing it from whatever the browser happens to be saying
@@ -1107,12 +1136,7 @@ export class SessionManager {
   ): void {
     for (const entry of entries) {
       if (entry.profile !== undefined) {
-        let seen = this.#reporterSeen.get(entry.profile);
-        if (seen === undefined) {
-          seen = new Set<string>();
-          this.#reporterSeen.set(entry.profile, seen);
-        }
-        seen.add(entry.workspaceId);
+        this.#rememberSeen(entry.profile, entry.workspaceId);
       }
       if (entry.backgroundSince !== undefined) {
         this.#backgroundSince.set(entry.workspaceId, {
@@ -1147,13 +1171,7 @@ export class SessionManager {
    */
   noteWorkspaceOwner(clientId: string, workspaceId: string): void {
     const profile = profileOf(clientId);
-    let seen = this.#reporterSeen.get(profile);
-    if (seen === undefined) {
-      seen = new Set<string>();
-      this.#reporterSeen.set(profile, seen);
-    }
-    if (!seen.has(workspaceId)) {
-      seen.add(workspaceId);
+    if (this.#rememberSeen(profile, workspaceId)) {
       this.rememberOwner?.(workspaceId, profile);
     }
   }
@@ -1207,15 +1225,8 @@ export class SessionManager {
     // Everything this browser has ever positively claimed, which is the only basis on which it may
     // later be believed about the same workspace being gone.
     const profile = profileOf(clientId);
-    let seen = this.#reporterSeen.get(profile);
-    if (seen === undefined) {
-      seen = new Set<string>();
-      this.#reporterSeen.set(profile, seen);
-    }
     for (const id of ids) {
-      if (seen.has(id)) continue;
-      seen.add(id);
-      this.rememberOwner?.(id, profile);
+      if (this.#rememberSeen(profile, id)) this.rememberOwner?.(id, profile);
     }
     // A session whose tab has come back must lose the clock it was put on, and one whose tab has
     // gone must be given one. Both are just the policy run again.

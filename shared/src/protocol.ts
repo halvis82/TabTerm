@@ -216,6 +216,15 @@ export interface AuthMessage {
   clientId: string;
 }
 
+/*
+ * Six message types were declared here that nothing sent and nothing handled.
+ *
+ * `merge-session`, `detach-pane`, `open-path-result`, `request-scrollback`, `list-workspaces` and
+ * `subscribe`. A protocol is a promise about what the other side will do, and a type in this union
+ * reads as one whether or not a `case` exists for it. The ones that were doing real work are named
+ * differently: a pane is moved to its own tab with `detach-pane-to-tab`, and `detach-pane` was only
+ * ever the id of the keyboard shortcut that sends it, which is how it survived a reading.
+ */
 export type ClientMessage =
   | AuthMessage
   | { t: 'create-session'; cwd?: string; command?: readonly string[]; cols: number; rows: number }
@@ -237,7 +246,6 @@ export type ClientMessage =
     }
   | { t: 'detach'; sessionId: string }
   | { t: 'resize'; sessionId: string; cols: number; rows: number }
-  | { t: 'request-scrollback'; sessionId: string; beforeSeq: number; maxLines: number }
   | { t: 'kill-session'; sessionId: string }
   | { t: 'set-pin'; sessionId?: string; workspaceId?: string; pinned: boolean }
   | { t: 'set-persistence'; sessionId: string; policyId?: string }
@@ -464,14 +472,6 @@ export type ClientMessage =
    * invisible to whatever is running.
    */
   | { t: 'resync-pane'; sessionId: string }
-  | {
-      t: 'merge-session';
-      sessionId: string;
-      workspaceId: string;
-      targetPaneId: string;
-      direction: 'horizontal' | 'vertical';
-    }
-  | { t: 'detach-pane'; workspaceId: string; paneId: string }
   | { t: 'resolve-paths'; sessionId: string; candidates: readonly string[] }
   | {
       t: 'open-path';
@@ -486,7 +486,6 @@ export type ClientMessage =
       path: string;
       how: OpenHow;
     }
-  | { t: 'open-path-result'; ok: boolean }
   | {
       /** Launch an agent CLI, in a new tab or beside the current pane. */
       t: 'launch-agent';
@@ -655,9 +654,7 @@ export type ClientMessage =
   | { t: 'set-archive-enabled'; enabled: boolean }
   | { t: 'search-output'; query?: string; command?: string; limit?: number }
   | { t: 'clear-output-archive' }
-  | { t: 'list-sessions' }
-  | { t: 'list-workspaces' }
-  | { t: 'subscribe'; topics: readonly string[] };
+  | { t: 'list-sessions' };
 
 /** What to do with a resolved path. Each maps to a specific structured spawn, never a shell string. */
 /**
