@@ -13,6 +13,7 @@ const SHAPE_AS_TEXT: Record<string, string> = {
 import { type LayoutTemplate } from './templates.js';
 import { loadFolded, portGroupKey, saveFolded, type FoldableSection } from './section-state.js';
 import { groupPorts, worthGrouping } from './port-groups.js';
+import { describeProgram } from './port-programs.js';
 import type {
   LayoutShape,
   LiveSession,
@@ -2091,6 +2092,14 @@ export class Launcher {
       count.className = 'launcher-fold-count';
       count.textContent = String(group.ports.length);
       head.append(count);
+      /*
+       * And what it is, where that is knowable.
+       *
+       * `rapportd` on three high ports looks like something worth investigating and is Apple doing
+       * its job. The list answers what is listening; this answers whether it is yours.
+       */
+      const what = describeProgram(group.program);
+      if (what !== '') head.append(dim(`(${what})`));
       head.addEventListener('click', () => this.#toggleFold(key));
 
       const wrapper = document.createElement('div');
@@ -2118,7 +2127,11 @@ export class Launcher {
 
     const main = document.createElement('button');
     main.className = 'launcher-row';
-    main.append(strong(`localhost:${String(other.port)}`), dim(other.program));
+    const what = describeProgram(other.program);
+    main.append(
+      strong(`localhost:${String(other.port)}`),
+      dim(what === '' ? other.program : `${other.program} (${what})`),
+    );
     main.addEventListener('click', () => this.#opts.onOpenServer(other.port));
     wrap.append(main);
 
