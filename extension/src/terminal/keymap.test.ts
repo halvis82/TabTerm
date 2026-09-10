@@ -124,8 +124,11 @@ describe('Return with a modifier held', () => {
       ...over,
     });
 
-  it('is a newline when Command is held', () => {
-    expect(press({ metaKey: true }).kind).toBe('newline');
+  it('is left to Chrome when Command is held', () => {
+    // A newline is Shift or Option and Return, which a program asks to be told about. Command and
+    // Return is not a terminal key at all, and giving it a meaning here would only make one
+    // terminal disagree with every other.
+    expect(press({ metaKey: true }).kind).toBe('browser');
   });
 
   it('is still the end of the input on its own', () => {

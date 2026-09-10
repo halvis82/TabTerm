@@ -17,15 +17,6 @@ export type KeyAction =
   | { kind: 'select-all' }
   | { kind: 'clear' }
   | { kind: 'search' }
-  /**
-   * A newline inside what is being typed, rather than the end of it.
-   *
-   * A program taking more than one line reads `ESC CR` as "another line" and a bare `CR` as "I
-   * have finished". Option and Return already produces the first, because Option is Meta here.
-   * Command and Return produced nothing at all: it fell through to the arm that hands a key back
-   * to Chrome, which has no use for it either.
-   */
-  | { kind: 'newline' }
   | { kind: 'browser' };
 
 export interface KeyInput {
@@ -56,15 +47,6 @@ export function classifyKey(e: KeyInput): KeyAction {
   if (e.metaKey) {
     const key = e.key.toLowerCase();
     switch (key) {
-      case 'enter':
-        /*
-         * The same thing Option and Return does, on the key people reach for.
-         *
-         * Both are worth having. Option is what a terminal has always used and what a program
-         * expects to be told; Command is what somebody moving from a chat window presses. The
-         * program cannot tell them apart, which is the point.
-         */
-        return { kind: 'newline' };
       case 'c':
         // With nothing selected there is nothing to copy, so let Chrome have it rather than
         // eating the keystroke. It never reaches the shell either way.

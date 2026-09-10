@@ -12,6 +12,7 @@ import { MarkerRail } from './markers.js';
 import { HighlightLayer } from './highlights.js';
 import { closeColorPicker, openColorPicker } from './color-picker.js';
 import { dragIsTakenByProgram, MOUSE_HINT } from './mouse-hint.js';
+import { encodeModifiedKey, modifyOtherKeysLevel } from './modified-keys.js';
 import type { Highlight } from './highlight-anchor.js';
 
 export interface ControllerOptions {
@@ -106,6 +107,15 @@ export class XtermController {
   #webgl: WebglAddon | null = null;
   /** Said once per pane. A program that keeps the mouse would otherwise say it on every click. */
   #saidMouseHint = false;
+
+  /**
+   * Whether a program has asked to be told which modifier was held, and how much.
+   *
+   * Zero until one asks. `CSI > 4 ; 2 m` is the request and the bare form turns it off again, so
+   * this follows the program rather than being a setting: a shell wants none of it and the prompt
+   * that replaces the shell for a while wants all of it.
+   */
+  #modifyOtherKeys = 0;
 
   /**
    * How long a pane will wait for the renderer that decides its cell before trusting what it has.
@@ -207,6 +217,19 @@ export class XtermController {
       true,
     );
 
+    /*
+     * Listen for a program asking to be told about modifiers.
+     *
+     * xterm.js parses this and does nothing with it, which is why an agent's Shift and Return
+     * arrived as a plain carriage return and was read as "send this". Returning false leaves the
+     * sequence to xterm's own handling as well, so nothing is taken away by watching it.
+     */
+    this.term.parser.registerCsiHandler({ prefix: '>', final: 'm' }, (params) => {
+      const level = modifyOtherKeysLevel(params.map((p) => (Array.isArray(p) ? (p[0] ?? 0) : p)));
+      if (level !== null) this.#modifyOtherKeys = level;
+      return false;
+    });
+
     this.term.open(opts.container);
     this.#tryWebgl();
 
@@ -251,6 +274,24 @@ export class XtermController {
         hasSelection: this.term.hasSelection(),
       });
 
+      /*
+       * A program that asked to be told about modifiers is told, before anything else decides.
+       *
+       * This is what makes Shift and Return mean a new line rather than "send this". The
+       * terminal cannot say it in its own alphabet, so a program asks for `modifyOtherKeys`
+       * and is then sent `CSI 27 ; modifier ; key ~`. Ahead of the table below because that
+       * table answers for Command, and a program that asked wants Command too.
+       */
+      const reported = encodeModifiedKey(
+        e.key,
+        { shift: e.shiftKey, alt: e.altKey, ctrl: e.ctrlKey, meta: e.metaKey },
+        this.#modifyOtherKeys,
+      );
+      if (reported !== null) {
+        e.preventDefault();
+        this.#opts.onData(reported);
+        return false;
+      }
       switch (action.kind) {
         case 'copy':
           e.preventDefault();
@@ -267,17 +308,6 @@ export class XtermController {
         case 'clear':
           e.preventDefault();
           this.clear();
-          return false;
-        case 'newline':
-          /*
-           * `ESC CR`, which is what a terminal sends for Option and Return.
-           *
-           * Written straight to the program rather than handed to xterm, because xterm sends a
-           * bare `CR` for Return whatever modifier is held, and a bare `CR` is the thing being
-           * avoided here: to a program taking more than one line it means "I have finished".
-           */
-          e.preventDefault();
-          this.#opts.onData('\u001b\r');
           return false;
         case 'search':
           /*

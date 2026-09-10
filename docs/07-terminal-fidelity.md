@@ -243,6 +243,30 @@ and all Vim and agent CLI controls pass through untouched.
 Interacts with Option-click file opening and Option-drag rectangular selection; resolution documented
 in `06-chrome-integration.md` §6.
 
+### A modifier that changes nothing about the character
+
+Return is one byte. A terminal has nowhere to put the fact that Shift was held with it, so Shift and
+Return has always arrived as a bare `CR`, indistinguishable from Return pressed alone. For a shell
+that is fine. For a program taking more than one line it is not, because a bare `CR` is how that
+program is told the input has finished, and so a request for a new line sent the prompt instead.
+
+`modifyOtherKeys` is how a program asks to be told anyway. It sends `CSI > 4 ; 2 m` to ask and the
+bare form to stop asking, and while it is asking, a key held with a modifier arrives as
+`CSI 27 ; modifier ; key ~` instead of its plain byte. The modifier is a bitfield offset by one:
+Shift adds 1, Alt 2, Control 4, Meta 8. So Shift and Return is `CSI 27 ; 2 ; 13 ~` and Option and
+Return is `CSI 27 ; 3 ; 13 ~`, and the program can finally tell the two of them from Return alone.
+
+xterm.js parses the request and does nothing with it, which is the whole defect: the program asked,
+was not refused, and was then never told. TabTerm watches for the request and answers it, in
+`extension/src/terminal/modified-keys.ts` for the encoding and the level, and in the key handler of
+`xterm-controller.ts` for the reply. The level follows the program rather than being a setting: a
+shell wants none of this and the prompt that replaces the shell for a while wants all of it, so it
+turns on and off underneath the same pane.
+
+The reply is only ever sent to a program that asked. Nothing is invented for a program that did not:
+Command and Return, for instance, has no terminal meaning and is handed back to Chrome, because
+giving it one here would only make this terminal disagree with every other.
+
 ### Copy, paste, selection
 
 Routing lives in `extension/src/terminal/keymap.ts`, kept pure so the policy is testable without
@@ -467,11 +491,20 @@ clamped menu sits under the cursor and covers the thing that was right-clicked.
 Clipboard access uses the `clipboardRead` and `clipboardWrite` permissions. A denial is
 swallowed: there is nothing useful to do about it, and failing loudly would be worse.
 
-`Cmd+F` is claimed but does nothing yet. Chrome's own find cannot see a WebGL-rendered buffer,
-so leaving the key to a find bar that would silently match nothing is worse than holding it.
+`Cmd+F` opens a find bar of TabTerm's own, because Chrome's cannot be made to work here and no
+amount of effort would change that. The terminal draws to a canvas, so the browser's find has
+nothing in the page to read, and drawing with elements instead would not fix it: xterm renders the
+rows in view and the scrollback is the part worth searching. So the search is asked of the emulator,
+which is the only thing holding all of it. The bar opens on the pane in front of you carrying the
+selection, so a word can be looked up without typing it again. Return and Shift Return step through
+the matches, Escape closes it and gives the keyboard back, and every match is lit with the current
+one in its own color. `extension/src/terminal/find-bar.ts` holds the part that has no renderer in
+it, so the policy is testable on its own.
 
 Mouse reporting mode conflicts with browser selection. When an application has enabled mouse
-reporting, a modifier override allows selection anyway, matching normal terminal convention.
+reporting, a modifier override allows selection anyway, matching normal terminal convention. Nobody
+arrives knowing that, so a drag with no modifier held says so once per pane rather than appearing
+to be a terminal that has stopped selecting.
 
 ---
 
