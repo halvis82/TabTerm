@@ -438,10 +438,27 @@ so markers there could be seen and never clicked.
 **A path shows it is clickable only while the pointer is on it.** The cursor used to change for
 the whole screen the moment the modifier went down, which announced that something was clickable
 without saying what, and said it over blank space too. Pointer and underline are xterm's own and
-apply per link. On top of that the link's own cells are drawn as a tinted box with a border around
-them, one per row so a wrapped link is one box rather than two, and the box takes no pointer events
-of its own or hovering it would count as leaving the link. Underlined and outlined both, because in
-a screen of colored agent output a color change on its own is not a signal.
+apply per link, and the link's own cells take a color on top of that.
+
+The color is chosen against the text rather than fixed: blue normally, red when the text is already
+blue. Agent output is full of color and a path an agent printed is very often blue, so a link that
+always went blue was invisible exactly where links matter most. The first cell of the link is read
+out of the buffer to decide, in `link-color.ts`.
+
+Weight is not available. The cells are drawn on a canvas by the renderer, and a decoration can be
+given colors but not attributes, so there is no way to make a run of existing cells bold without
+rewriting the buffer underneath the program. The underline and the color carry it instead.
+
+**A link is answered for whether or not the modifier is held.** xterm asks its link providers when
+the pointer moves to a different line and keeps that answer until it moves again. Answering
+"nothing here" while Command was up therefore meant that pressing Command afterwards changed
+nothing at all: the pointer was already on the line, so nothing asked again, and you had to move
+away and come back. Reported exactly that way.
+
+The provider now answers with a link that has no decorations and does nothing when clicked. xterm
+holds it, and a link it is holding is re-asked for when the rows under it are drawn, so a repaint
+on the way down is enough to light it up under a pointer that never moved. Nothing is visible and
+nothing opens until Command is actually held.
 
 **Paths are resolved as they are printed, not when one is hovered.** xterm caches what a link
 provider answered for a line and asks again only when the pointer changes line. The first hover

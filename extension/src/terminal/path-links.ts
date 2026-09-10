@@ -7,6 +7,7 @@ import type {
   ILinkProvider,
 } from '@xterm/xterm';
 import type { ResolvedPath } from '@tabterm/shared';
+import { linkColorFor } from './link-color.js';
 
 /**
  * Clickable file and directory paths.
@@ -41,13 +42,6 @@ export interface PathLinkOptions {
    * of accidental opens. Requiring Command matches how editors handle the same problem.
    */
   modifierHeld: () => boolean;
-  /**
-   * The color a link takes while the pointer is on it.
-   *
-   * Only `#RRGGBB` is accepted by xterm's decorations, so this is a plain hex string rather
-   * than anything the theme can express.
-   */
-  hoverColor?: string;
 }
 
 interface Candidate {
@@ -110,11 +104,20 @@ export function createPathLinkProvider(term: Terminal, opts: PathLinkOptions): I
 
   return {
     provideLinks(bufferLineNumber, callback) {
-      // Nothing is a link unless the modifier is down.
-      if (!opts.modifierHeld()) {
-        callback(undefined);
-        return;
-      }
+      /*
+       * Answered whether or not the modifier is down, and marked only when it is.
+       *
+       * xterm asks its link providers when the pointer moves to a different line, and keeps the
+       * answer for that line until it does. Answering "nothing here" while Command was up meant
+       * that pressing Command afterwards changed nothing: the pointer was already on the line, so
+       * nothing asked again, and you had to move away and come back. Reported exactly that way.
+       *
+       * Answering with a link that has no decorations and does nothing when clicked leaves xterm
+       * holding one, and a link it is holding is re-asked for when the rows under it are drawn.
+       * So `refreshLinks()` on the way down is enough to light it up under a pointer that never
+       * moved. Nothing is visible and nothing opens until Command is actually held.
+       */
+      const held = opts.modifierHeld();
 
       const line = readWrappedLine(term, bufferLineNumber);
       if (!line) {
@@ -156,10 +159,11 @@ export function createPathLinkProvider(term: Terminal, opts: PathLinkOptions): I
         // Pointer and underline are xterm's own, and they appear only while the pointer is
         // actually on the link. The cursor used to change for the whole screen the moment the
         // modifier went down, which said "something here is clickable" without saying what.
-        decorations: { pointerCursor: true, underline: true },
+        decorations: { pointerCursor: held, underline: held },
         hover: () => {
           clearHighlight();
-          highlight = paintRange(term, link.range, opts.hoverColor ?? '#79b8ff');
+          if (!held) return;
+          highlight = paintRange(term, link.range, colorFor(term, link.range));
         },
         leave: clearHighlight,
       });
@@ -172,7 +176,7 @@ export function createPathLinkProvider(term: Terminal, opts: PathLinkOptions): I
             text: u.text,
             range,
             activate: (event) => {
-              if (!isPrimaryClick(event)) return;
+              if (!held || !isPrimaryClick(event)) return;
               opts.openUrl(u.text);
             },
           }),
@@ -191,7 +195,9 @@ export function createPathLinkProvider(term: Terminal, opts: PathLinkOptions): I
             text: c.text,
             range,
             activate: (event) => {
-              if (!isPrimaryClick(event)) return;
+              // A link exists without the modifier so that pressing it later can light one up.
+              // Clicking one without it is an ordinary click in a terminal and stays that way.
+              if (!held || !isPrimaryClick(event)) return;
               opts.activate(resolved, event);
             },
           }),
@@ -200,6 +206,24 @@ export function createPathLinkProvider(term: Terminal, opts: PathLinkOptions): I
       callback(links.length > 0 ? links : undefined);
     },
   };
+}
+
+/**
+ * Read what the first character of a link is drawn in, and pick a color that will show against it.
+ *
+ * The first character rather than all of them, because a path is drawn in one color in practice
+ * and one decoration covers the row. A cell that cannot be read at all answers as ordinary text,
+ * which is the safe way round: blue on plain text is right far more often than red is.
+ */
+function colorFor(term: Terminal, range: IBufferRange): string {
+  const line = term.buffer.active.getLine(range.start.y - 1);
+  const cell = line?.getCell(range.start.x - 1);
+  if (!cell) return linkColorFor(null);
+  return linkColorFor({
+    isDefault: cell.isFgDefault(),
+    isPalette: cell.isFgPalette(),
+    color: cell.getFgColor(),
+  });
 }
 
 /**
@@ -244,13 +268,14 @@ function readWrappedLine(
 }
 
 /**
- * Draw a box around the cells a link occupies.
+ * The color a link takes while the pointer is on it.
  *
  * xterm paints links with an underline and a pointer on its own, but not with a color, and a
- * terminal already underlines plenty of things. Asked for directly as "outlined a bit when
- * hovering and holding cmd ... like underscore and outlined somehow", so it is both: xterm's
- * underline, and a tinted box around exactly the run of characters that will open. Two signals
- * rather than one, because in a screen of colored agent output a color change alone is not one.
+ * terminal already underlines plenty of things. A box was tried first and was too loud, so this is
+ * xterm's underline plus a color change on exactly the characters that will open.
+ *
+ * The color is chosen against the text rather than fixed, because agent output is full of color
+ * and a path an agent printed is very often already blue. See `link-color.ts`.
  *
  * One decoration per row, because a decoration is a rectangle and a link that wraps is not one.
  * Returns whatever was created, which may be nothing: decorations are refused while the
@@ -282,25 +307,8 @@ function paintRange(term: Terminal, range: IBufferRange, color: string): IDecora
       marker.dispose();
       continue;
     }
-    /*
-     * The box itself, drawn on the decoration's own element.
-     *
-     * A decoration takes colors but not a border, and a border is what reads as "this exact
-     * thing". The rounded corners are only on the ends a wrapped link actually has, so a link
-     * split across two rows looks like one box rather than two.
-     */
-    const startsHere = y === range.start.y;
-    const endsHere = y === range.end.y;
+    // The mark must never be the thing under the pointer, or hovering it would count as leaving.
     decoration.onRender((element) => {
-      element.style.boxSizing = 'border-box';
-      element.style.border = `1px solid ${color}`;
-      element.style.borderLeftWidth = startsHere ? '1px' : '0';
-      element.style.borderRightWidth = endsHere ? '1px' : '0';
-      const l = startsHere ? '3px' : '0';
-      const rgt = endsHere ? '3px' : '0';
-      element.style.borderRadius = `${l} ${rgt} ${rgt} ${l}`;
-      element.style.background = `${color}22`;
-      // The box must never be the thing under the pointer, or hovering it would count as leaving.
       element.style.pointerEvents = 'none';
     });
     made.push(decoration);

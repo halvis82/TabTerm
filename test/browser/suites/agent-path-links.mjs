@@ -72,27 +72,59 @@ for (let waited = 0; waited < 3000 && !lit; waited += 200) {
 }
 r.ok('one pass of the pointer is enough to light it up', lit, 'no pointer');
 
-// Underlined and outlined, both. Asked for as "like underscore and outlined somehow".
-const marks = JSON.parse(
-  await evaluate(
-    client,
-    `(() => {
-      const box = [...document.querySelectorAll('.xterm-decoration')].find(
-        (d) => d.style.border && d.style.border !== 'none',
-      );
-      return JSON.stringify({
-        outlined: !!box,
-        tinted: !!box && box.style.background !== '',
-        underlined: !!document.querySelector('.xterm-decoration-top, .xterm-underline-1, .xterm-underline-2'),
-      });
-    })()`,
-  ),
-);
+const marked = () => evaluate(client, `document.querySelectorAll('.xterm-decoration').length > 0`);
+r.ok('it is marked while the pointer is on it', await marked(), 'nothing was marked');
 r.ok(
-  'it is outlined while the pointer is on it',
-  marks.outlined && marks.tinted,
-  JSON.stringify(marks),
+  'and the mark is not a box',
+  !(await evaluate(
+    client,
+    `[...document.querySelectorAll('.xterm-decoration')].some((d) => d.style.border && d.style.border !== 'none')`,
+  )),
+  'a border is still being drawn',
 );
+
+/*
+ * And the one that was reported: Command pressed while the pointer is already there.
+ *
+ * xterm asks its link providers when the pointer moves to a different line and keeps that answer
+ * until it moves again, so pressing Command afterwards changed nothing and you had to move away
+ * and come back before it would light up.
+ */
+const at = async (modifiers) => {
+  await client.send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: Math.round(geo.left + col * geo.cellWidth),
+    y: Math.round(geo.top + (row - base) * geo.cellHeight + geo.cellHeight / 2),
+    modifiers,
+  });
+  await sleep(140);
+};
+// Off the line and back onto it with nothing held, so the pointer is already sitting on the path.
+await client.send('Input.dispatchMouseEvent', {
+  type: 'mouseMoved',
+  x: Math.round(geo.left + 2 * geo.cellWidth),
+  y: Math.round(geo.top + geo.cellHeight / 2),
+  modifiers: 0,
+});
+await sleep(300);
+await at(0);
+await at(0);
+await sleep(500);
+r.ok('nothing is marked before Command is held', !(await marked()), 'marked with no modifier');
+
+await client.send('Input.dispatchKeyEvent', {
+  type: 'rawKeyDown',
+  key: 'Meta',
+  code: 'MetaLeft',
+  modifiers: 4,
+  windowsVirtualKeyCode: 91,
+});
+let late = false;
+for (let waited = 0; waited < 2500 && !late; waited += 200) {
+  late = await marked();
+  if (!late) await sleep(200);
+}
+r.ok('holding Command marks it without moving the pointer', late, 'still nothing marked');
 
 await press(client, 'c', 'KeyC', 2, 67); // Ctrl+C, so the redraw does not outlive the check
 await sleep(400);
