@@ -18,12 +18,17 @@ import { describe, expect, it } from 'vitest';
 const here = dirname(fileURLToPath(import.meta.url));
 const server = readFileSync(join(here, 'server.ts'), 'utf8');
 /**
- * The background timeout is loaded in `main`, not in the server.
+ * The background timeout is loaded in `main`, and the memory mode in `config`, not in the server.
  *
- * Both files count as "the daemon reads it at startup", and pretending otherwise would mean either
- * a wrong answer in the table or moving working code to satisfy a test.
+ * All three count as "the daemon reads it at startup", and pretending otherwise would mean either
+ * a wrong answer in the table or moving working code to satisfy a test. The memory mode is the
+ * case that made this worth stating twice: it is read where the config is built, which is why an
+ * earlier review concluded there were only four settings and that none of them were missing.
  */
-const startup = server + readFileSync(join(here, 'main.ts'), 'utf8');
+const startup =
+  server +
+  readFileSync(join(here, 'main.ts'), 'utf8') +
+  readFileSync(join(here, 'config.ts'), 'utf8');
 const resetBlock = server.slice(
   server.indexOf("case 'reset-settings': {"),
   server.indexOf("case 'reset-everything': {"),
@@ -36,6 +41,14 @@ interface Setting {
   field: string;
   /** What Reset must put it back to, as it appears in the reset block. */
   resetTo: string;
+  /**
+   * For a setting Reset does not restore by assigning to a field.
+   *
+   * The memory mode is a group of values rather than one, so it is put back by applying the mode
+   * over the live config. Checked by the text that does it, since there is no `field = value` line
+   * to look for and inventing one would be describing the code rather than reading it.
+   */
+  resetContains?: string;
   /** The message every page is told about, so an open settings panel is not left stale. */
   broadcast: string;
 }
@@ -58,6 +71,13 @@ const SETTINGS: Setting[] = [
     field: 'this.#scrollbackBytes',
     resetTo: 'DEFAULT_SCROLLBACK_BYTES',
     broadcast: 'scrollback-budget',
+  },
+  {
+    key: 'memoryMode',
+    field: 'this.#config.memoryMode',
+    resetTo: '',
+    resetContains: 'applyMemoryMode(this.#config, DEFAULTS.memoryMode)',
+    broadcast: 'memory-mode',
   },
   {
     key: 'agentCommand',
@@ -87,7 +107,7 @@ describe('every setting that is stored', () => {
   it('is put back by Reset, in memory and not only on disk', () => {
     for (const setting of SETTINGS) {
       expect(resetBlock, `Reset must restore ${setting.key} now, not at the next start`).toContain(
-        `${setting.field} = ${setting.resetTo}`,
+        setting.resetContains ?? `${setting.field} = ${setting.resetTo}`,
       );
     }
   });

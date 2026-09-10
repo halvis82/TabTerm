@@ -64,7 +64,7 @@ import { checkShape } from '@tabterm/shared';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { paths } from './config.js';
+import { DEFAULTS, paths } from './config.js';
 import { agentHooksStatus, setAgentHooks } from './agent-hooks.js';
 import { setShellIntegration, shellIntegrationStatus } from './shell-integration.js';
 import { clampPolicy, decide, type Finished, type NotifyPolicy } from './notify-policy.js';
@@ -311,6 +311,30 @@ export class DaemonServer {
     plugins: PluginHost,
   ) {
     this.#config = config;
+    /*
+     * The budget a person chose reaches the sessions that have not been made yet.
+     *
+     * It was applied to the sessions that already existed whenever it changed, and to
+     * nothing else. Everything built afterwards took the fixed default out of the config,
+     * and a restart put every session back to it, so the setting appeared to work and
+     * then quietly undid itself. The byte budget is the authority here, because it is the
+     * one a person is shown and the one that is written down.
+     */
+    /*
+     * The memory mode is read from the same file it is written to.
+     *
+     * It is also read where the config is built, out of `config.json`, which is the file a
+     * person edits by hand. Everything else a person can change through the product lives in
+     * the settings file instead, and the mode was being written nowhere at all. Persisting it
+     * to the settings file and not reading it back there would have been the same bug with
+     * more code, so it is read here, and a mode set by hand in `config.json` still supplies
+     * the baseline underneath.
+     */
+    const storedMode = readUserSettings()['memoryMode'];
+    if (storedMode === 'low' || storedMode === 'balanced' || storedMode === 'full') {
+      Object.assign(this.#config, applyMemoryMode(this.#config, storedMode));
+    }
+    this.#config.scrollbackLines = linesForBytes(this.#scrollbackBytes);
     this.#sessions = sessions;
     this.#workspaces = workspaces;
     this.#launcher = launcher;
@@ -1928,6 +1952,15 @@ export class DaemonServer {
           // the next write, so there is nothing to restart.
           Object.assign(this.#config, applyMemoryMode(this.#config, msg.mode));
           this.#sessions.applyScrollback(this.#config.scrollbackLines);
+          /*
+           * Written down, like every other setting a person can choose.
+           *
+           * It was applied to the live config and nowhere else, so the next daemon read the
+           * mode out of the settings file and found whatever was there before. That file is
+           * already where this is read from at startup, which is what made the omission hard
+           * to see: a mode set by hand survived and a mode set through the protocol did not.
+           */
+          updateUserSetting('memoryMode', msg.mode);
           info('memory-mode.changed', { mode: msg.mode });
         }
         const mode = this.#config.memoryMode;
@@ -2029,6 +2062,17 @@ export class DaemonServer {
         this.#sessions.applyScrollback(linesForBytes(this.#scrollbackBytes));
         this.hostBudget?.(this.#scrollbackBytes);
         this.#agentCommand = [...this.#config.agentCommand];
+        /*
+         * And the memory mode, which is stored like the rest of them.
+         *
+         * Applied in place, because every subsystem holds a reference to this config object:
+         * reap timers read it when they next fire and scrollback on the next write. The budget
+         * is derived again afterwards so a reset cannot end with the two disagreeing about the
+         * same field.
+         */
+        Object.assign(this.#config, applyMemoryMode(this.#config, DEFAULTS.memoryMode));
+        this.#config.scrollbackLines = linesForBytes(this.#scrollbackBytes);
+        this.#sessions.applyScrollback(this.#config.scrollbackLines);
 
         info('settings.reset', {});
         this.broadcastAll({ t: 'notify-policy', policy: this.#notifyPolicy });
@@ -2038,6 +2082,11 @@ export class DaemonServer {
         });
         this.broadcastAll({ t: 'scrollback-budget', bytes: this.#scrollbackBytes });
         this.broadcastAll({ t: 'agent-command', command: this.#agentCommand.join(' ') });
+        this.broadcastAll({
+          t: 'memory-mode',
+          mode: this.#config.memoryMode,
+          ...frontendSettings(this.#config.memoryMode),
+        });
         return;
       }
 

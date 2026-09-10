@@ -1503,7 +1503,18 @@ export class SessionManager {
        * all, and erasing the clock there is what let a session outlive the timeout it was given.
        */
       if (disposition !== 'unknown' || workspaceId === undefined) {
-        if (workspaceId !== undefined) this.#backgroundSince.delete(workspaceId);
+        /*
+         * Forgotten on disk as well as in memory.
+         *
+         * The clock is authorization to end a terminal, and it is kept across restarts on
+         * purpose so that closing a laptop does not reset it. Dropping it from memory alone
+         * left the row behind, so the next daemon read an authorization that had already
+         * been withdrawn and a tab that was open again could be reaped on the strength of
+         * it. The sibling branch a few lines up has always cleared both.
+         */
+        if (workspaceId !== undefined && this.#backgroundSince.delete(workspaceId)) {
+          this.rememberBackgroundSince?.(workspaceId, null);
+        }
         delete session.reapDueAt;
         delete session.reapReason;
       }

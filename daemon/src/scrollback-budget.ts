@@ -13,13 +13,30 @@ export const MIN_SCROLLBACK_BYTES = 1024 * 1024;
 export const MAX_SCROLLBACK_BYTES = 50 * 1024 * 1024;
 
 /**
- * Bytes in an average line of terminal output, measured rather than guessed.
+ * What a line of scrollback actually costs, measured in the emulator that holds it.
  *
- * Sampled from real sessions in this project: prompts, build logs, test output and agent
- * conversations average close to this once escape sequences are counted, which they must be
- * since they occupy the same memory as text.
+ * The earlier number, 90, was the size of a line of output as text. That is not what a budget in
+ * megabytes is trying to bound: the emulator does not keep text, it keeps a row of cells with an
+ * attribute per cell, and it allocates that row whether or not anything was printed into it. So a
+ * budget denominated in the text was out by roughly six times, and the setting understated what it
+ * was spending by the same factor.
+ *
+ * Measured directly, at four widths, with a realistic mixture of short prompts and long coloured
+ * build lines, heap read either side of writing ten thousand lines and the emulator disposed
+ * between runs:
+ *
+ * | Columns | Per line |
+ * | --- | --- |
+ * | 80 | 504 B |
+ * | 120 | 492 B |
+ * | 187 | 537 B |
+ * | 240 | 578 B |
+ *
+ * Nearly flat, because the per-row overhead dominates the cells. 520 is the middle of it, and at
+ * the default budget it comes to 10,082 lines, which is what sessions were already getting from
+ * the old fixed default. So the setting starts telling the truth without anybody's memory moving.
  */
-const BYTES_PER_LINE = 90;
+const BYTES_PER_LINE = 520;
 
 export function clampBudget(bytes: number): number {
   if (!Number.isFinite(bytes)) return DEFAULT_SCROLLBACK_BYTES;

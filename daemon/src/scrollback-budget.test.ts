@@ -21,9 +21,19 @@ describe('the scrollback budget', () => {
     expect(clampBudget(Number.NaN)).toBe(DEFAULT_SCROLLBACK_BYTES);
   });
 
-  it('converts to lines, since that is what a terminal counts', () => {
-    // 5 MB at 90 bytes a line is tens of thousands of lines, well above the old 10000 default.
-    expect(linesForBytes(DEFAULT_SCROLLBACK_BYTES)).toBeGreaterThan(50_000);
+  it('converts to lines against what a line actually costs the emulator', () => {
+    /*
+     * The conversion used to be against the size of a line as text, 90 bytes, which is not what
+     * the budget bounds: the emulator keeps a row of cells with an attribute each and allocates
+     * the row whether or not anything was printed into it. Measured at four widths it is close to
+     * 520 bytes and nearly flat, so the setting was understating its own cost about six times.
+     *
+     * At the default budget that comes to a little over ten thousand lines, which is what sessions
+     * were already given by the old fixed default. Pinned here because the point of the change was
+     * to make the number honest without moving anybody's memory.
+     */
+    expect(linesForBytes(DEFAULT_SCROLLBACK_BYTES)).toBeGreaterThan(9_500);
+    expect(linesForBytes(DEFAULT_SCROLLBACK_BYTES)).toBeLessThan(11_000);
   });
 
   it('never converts to a uselessly short buffer', () => {
