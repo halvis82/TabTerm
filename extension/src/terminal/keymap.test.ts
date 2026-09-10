@@ -102,3 +102,43 @@ describe('what xterm is allowed to handle', () => {
     expect(kind({ key: 'c', metaKey: true, type: 'keyup', hasSelection: true })).toBe('to-pty');
   });
 });
+
+/**
+ * Return, and the difference between finishing and continuing.
+ *
+ * A program that takes more than one line reads `ESC CR` as another line and a bare `CR` as the end
+ * of the input. Option and Return has always produced the first, because Option is Meta here.
+ * Command and Return produced nothing: it fell to the arm that hands a key back to Chrome, and
+ * Chrome has no use for it either, so the keystroke went nowhere.
+ */
+describe('Return with a modifier held', () => {
+  const press = (over: Partial<Parameters<typeof classifyKey>[0]>) =>
+    classifyKey({
+      key: 'Enter',
+      metaKey: false,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+      type: 'keydown',
+      hasSelection: false,
+      ...over,
+    });
+
+  it('is a newline when Command is held', () => {
+    expect(press({ metaKey: true }).kind).toBe('newline');
+  });
+
+  it('is still the end of the input on its own', () => {
+    // The one that must not change. A bare Return is how anything is ever run.
+    expect(press({}).kind).toBe('to-pty');
+  });
+
+  it('is left to the program when Option is held, which already sends the escape', () => {
+    // Option is Meta in this terminal, so xterm produces `ESC CR` without help from here.
+    expect(press({ altKey: true }).kind).toBe('to-pty');
+  });
+
+  it('is left to the shell when Control is held', () => {
+    expect(press({ ctrlKey: true }).kind).toBe('to-pty');
+  });
+});

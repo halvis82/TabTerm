@@ -2140,6 +2140,78 @@
     background: var(--hover);
   }
   /* Quiet. A heading here is a label, not a banner. */
+  /**
+   * The find bar, over the terminal rather than beside it.
+   *
+   * Top right, where a browser puts its own, so it lands where somebody expects to look
+   * for it. It floats rather than taking a row, because taking a row resizes the terminal,
+   * and resizing a terminal under a program that redraws in place is the one thing this
+   * product spends its effort not doing. See docs/07-terminal-fidelity.md.
+   */
+  /* Bottom right, out of the way of both the terminal and the find bar above it. */
+  #notice {
+    position: fixed;
+    bottom: 14px;
+    right: 14px;
+    z-index: 40;
+    max-width: 320px;
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel, #1b1d26);
+    color: var(--fg);
+    font-size: 12px;
+    line-height: 1.35;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  }
+  #find {
+    position: fixed;
+    top: 8px;
+    right: 14px;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 6px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel, #1b1d26);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  }
+  #find-input {
+    width: 200px;
+    padding: 4px 6px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--bg, #12131a);
+    color: var(--fg);
+    font: inherit;
+    font-size: 12px;
+  }
+  #find-input:focus {
+    outline: 1px solid #5f7bb0;
+  }
+  /* Kept a fixed width so the buttons do not move as the number of matches changes. */
+  #find-count {
+    min-width: 62px;
+    text-align: right;
+    color: var(--dim);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  #find button {
+    background: none;
+    border: 0;
+    color: var(--dim);
+    cursor: pointer;
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-size: 11px;
+  }
+  #find button:hover {
+    color: var(--fg);
+    background: rgba(255, 255, 255, 0.06);
+  }
   .launcher-heading {
     font-size: 10px;
     text-transform: uppercase;
@@ -3358,6 +3430,35 @@
 <body>
   <div id="status" hidden></div>
   <div id="terminal"></div>
+  <!--
+      Finding text in the terminal, which the browser cannot do.
+  
+      Chrome's find reads the page and the terminal is a canvas, so its bar opens and matches
+      nothing. This one asks the emulator, which is the only thing holding the scrollback.
+    -->
+  <!--
+      A sentence, when something a person just did needs one.
+  
+      Not a dialog and not a log: it answers a question that has only just been asked, such
+      as why a drag stopped selecting, and then goes away on its own.
+    -->
+  <div id="notice" hidden></div>
+  <div id="find" hidden>
+    <input
+      id="find-input"
+      type="text"
+      placeholder="Find in terminal"
+      spellcheck="false"
+      autocomplete="off"
+      aria-label="Find in terminal"
+    />
+    <span id="find-count" aria-live="polite"></span>
+    <button id="find-prev" title="Previous match (Shift Return)" aria-label="Previous match">
+      &#9650;
+    </button>
+    <button id="find-next" title="Next match (Return)" aria-label="Next match">&#9660;</button>
+    <button id="find-close" title="Close (Escape)" aria-label="Close find">&times;</button>
+  </div>
   <div id="overlays"></div>
   <div id="recovery" hidden>
     <h1 id="recovery-reason">This terminal session expired.</h1>

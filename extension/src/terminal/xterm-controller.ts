@@ -2,6 +2,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { SerializeAddon } from '@xterm/addon-serialize';
+import { SearchAddon } from '@xterm/addon-search';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { installCurrentWidths } from '@tabterm/shared';
 import type { ILinkProvider } from '@xterm/xterm';
@@ -10,6 +11,7 @@ import { placeMenu } from './menu-position.js';
 import { MarkerRail } from './markers.js';
 import { HighlightLayer } from './highlights.js';
 import { closeColorPicker, openColorPicker } from './color-picker.js';
+import { dragIsTakenByProgram, MOUSE_HINT } from './mouse-hint.js';
 import type { Highlight } from './highlight-anchor.js';
 
 export interface ControllerOptions {
@@ -50,6 +52,12 @@ export interface ControllerOptions {
   onRendererLost?: () => void;
   /** The renderer that decides the cell has arrived, so this pane can be measured properly. */
   onRendererReady?: () => void;
+  /** Somebody asked to find something here. The selection travels, so a word can be looked up. */
+  onFind?: (selected: string) => void;
+  /** Something worth saying to the person, briefly. Not an error and never a dialog. */
+  onNotice?: (text: string) => void;
+  /** How many matches were found, once the emulator has counted them. */
+  onFindResults?: (results: { resultIndex: number; resultCount: number } | undefined) => void;
   /**
    * Whether this pane should answer a right click at all.
    *
@@ -96,6 +104,8 @@ export class XtermController {
   readonly term: Terminal;
   readonly #fit: FitAddon;
   #webgl: WebglAddon | null = null;
+  /** Said once per pane. A program that keeps the mouse would otherwise say it on every click. */
+  #saidMouseHint = false;
 
   /**
    * How long a pane will wait for the renderer that decides its cell before trusting what it has.
@@ -115,6 +125,15 @@ export class XtermController {
 
   #undoText = '';
   readonly #serializer = new SerializeAddon();
+  /**
+   * Finding text in this terminal, which the browser cannot do for us.
+   *
+   * Chrome's find reads the page, and this terminal is a canvas, so there is nothing there for it
+   * to read. Even drawn as elements it would only ever see the rows in view: xterm renders the
+   * viewport, and the scrollback is the part worth searching. So the search belongs to the
+   * emulator, which is the only thing that has all of it.
+   */
+  readonly #search = new SearchAddon();
   /** Landmarks in the scrollback, and the rail beside the scrollbar that finds them. */
   #markers: MarkerRail | null = null;
   #markerTimer = 0;
@@ -161,6 +180,32 @@ export class XtermController {
     this.term.loadAddon(this.#fit);
     // Only ever read, and only when a clear is undone. It holds no state of its own.
     this.term.loadAddon(this.#serializer);
+    this.term.loadAddon(this.#search);
+    // Counting is asynchronous, so the bar is told rather than asking.
+    this.#search.onDidChangeResults((r) => this.#opts.onFindResults?.(r));
+
+    /*
+     * Say why the mouse stopped selecting, once, at the moment somebody tries.
+     *
+     * While a program holds the mouse a drag goes to it rather than selecting, which is what every
+     * terminal does and what nobody is born knowing. Reported as text that could not be selected in
+     * one tab while typing worked and Command+A worked, and it was an agent that had turned mouse
+     * reporting on and left it on.
+     *
+     * On the way down and not preventing anything: the drag still belongs to the program. This only
+     * answers the question it raises.
+     */
+    opts.container.addEventListener(
+      'mousedown',
+      (e) => {
+        if (this.#saidMouseHint) return;
+        const mode = this.term.modes.mouseTrackingMode;
+        if (!dragIsTakenByProgram(mode, { alt: e.altKey, shift: e.shiftKey })) return;
+        this.#saidMouseHint = true;
+        this.#opts.onNotice?.(MOUSE_HINT);
+      },
+      true,
+    );
 
     this.term.open(opts.container);
     this.#tryWebgl();
@@ -223,9 +268,25 @@ export class XtermController {
           e.preventDefault();
           this.clear();
           return false;
+        case 'newline':
+          /*
+           * `ESC CR`, which is what a terminal sends for Option and Return.
+           *
+           * Written straight to the program rather than handed to xterm, because xterm sends a
+           * bare `CR` for Return whatever modifier is held, and a bare `CR` is the thing being
+           * avoided here: to a program taking more than one line it means "I have finished".
+           */
+          e.preventDefault();
+          this.#opts.onData('\u001b\r');
+          return false;
         case 'search':
-          // Chrome's own find cannot see a WebGL-rendered buffer, so claiming the key without
-          // offering a replacement would be worse than leaving it alone.
+          /*
+           * Chrome's own find cannot see a WebGL-rendered buffer, and would only ever see the
+           * rows in view even if it could. So the key is claimed and answered here instead. The
+           * page owns the bar, because one per pane would be four of them.
+           */
+          e.preventDefault();
+          this.#opts.onFind?.(this.term.getSelection());
           return false;
         case 'browser':
           return false;
@@ -672,6 +733,48 @@ export class XtermController {
       return null;
     }
     return { cols: this.term.cols, rows: this.term.rows };
+  }
+
+  /**
+   * Look for something, and light up every place it appears.
+   *
+   * `decorations` is what makes a result readable: the match under the cursor is one colour and
+   * the others another, so the answer to "how many of these are there" is the screen rather than a
+   * count nobody can place. The colours are the theme's own selection and highlight, so a match
+   * looks like something selected rather than like an error.
+   */
+  find(term: string, opts: { back?: boolean; caseSensitive?: boolean } = {}): boolean {
+    if (term === '') {
+      this.#search.clearDecorations();
+      return false;
+    }
+    const options = {
+      caseSensitive: opts.caseSensitive === true,
+      decorations: {
+        matchBackground: '#3a4a6b',
+        matchBorder: '#5f7bb0',
+        matchOverviewRuler: '#5f7bb0',
+        activeMatchBackground: '#7a6a2f',
+        activeMatchBorder: '#c2a94a',
+        activeMatchColorOverviewRuler: '#c2a94a',
+      },
+    };
+    return opts.back === true
+      ? this.#search.findPrevious(term, options)
+      : this.#search.findNext(term, options);
+  }
+
+  /** Put the terminal back the way it looked before anybody searched it. */
+  clearFind(): void {
+    this.#search.clearDecorations();
+    this.term.clearSelection();
+  }
+
+  /** How many matches there are and which one is current, when the addon has counted them. */
+  onFindResults(
+    fn: (results: { resultIndex: number; resultCount: number } | undefined) => void,
+  ): void {
+    this.#search.onDidChangeResults(fn);
   }
 
   focus(): void {

@@ -10,6 +10,7 @@ import type {
   TitleFields,
 } from '@tabterm/shared';
 import { linesWithContent } from './screen-content.js';
+import { FindBar } from './find-bar.js';
 import { trustMeasurement } from './measured-size.js';
 import { InputLine, rowsNeeded } from './input-line.js';
 import { DaemonClient, type ConnectionStatus } from '../transport/daemon-client.js';
@@ -113,6 +114,7 @@ let connectedPort = 0;
 let panesHost: PaneHost | null = null;
 let splitView: SplitView | null = null;
 let launcher: Launcher | null = null;
+let findBar: FindBar | null = null;
 let palette: Palette | null = null;
 let savedItems: SavedItem[] = [];
 let mergeable: MergeableSession[] = [];
@@ -2013,6 +2015,25 @@ function folderItems(path: string): ShellItem[] {
  * menu a right click on that card opens. Two copies of this would drift, and the rules in
  * it are the ones that decide whether a tab is taken over or left alone.
  */
+/**
+ * Say one thing, briefly, and take it away again.
+ *
+ * For answers to questions somebody has just asked by doing something, such as why a drag stopped
+ * selecting text. A later notice replaces an earlier one rather than stacking, because two of these
+ * on screen at once is a log, and nobody reads a log in the corner of a terminal.
+ */
+let noticeTimer = 0;
+function showNotice(text: string): void {
+  const el = document.getElementById('notice');
+  if (!el) return;
+  el.textContent = text;
+  el.hidden = false;
+  clearTimeout(noticeTimer);
+  noticeTimer = window.setTimeout(() => {
+    el.hidden = true;
+  }, 6000);
+}
+
 async function openLiveSession(session: LiveSession): Promise<void> {
   /**
    * Go to the session, wherever it is.
@@ -2578,6 +2599,9 @@ function buildHosts(): void {
      * so the daemon's size stood. Asking now is what closes that: usually it matches what the
      * daemon already has, and then nothing is resized at all.
      */
+    onFind: (selected) => findBar?.show(selected),
+    onNotice: (text) => showNotice(text),
+    onFindResults: (results) => findBar?.showResults(results),
     onRendererReady: (paneId) => {
       const size = panesHost?.fit(paneId);
       if (!size) return;
@@ -2998,6 +3022,25 @@ function buildLauncher(): void {
    * briefly absent, and the read is a local one that normally lands before a frame.
    */
   void launcher.restoreFolds();
+
+  /*
+   * The find bar, built once and pointed at whichever pane has focus.
+   *
+   * The pane is asked for at the moment of searching rather than held, because panes are split,
+   * closed and swapped underneath this and a held one goes stale in every one of those cases.
+   */
+  findBar = new FindBar({
+    target: () => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
+      return pane ? pane.controller : null;
+    },
+    root: document.getElementById('find') as HTMLElement,
+    input: document.getElementById('find-input') as HTMLInputElement,
+    count: document.getElementById('find-count') as HTMLElement,
+    next: document.getElementById('find-next') as HTMLElement,
+    previous: document.getElementById('find-prev') as HTMLElement,
+    close: document.getElementById('find-close') as HTMLElement,
+  });
 
   palette = new Palette({
     root: overlay,

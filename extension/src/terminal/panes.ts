@@ -30,6 +30,12 @@ export interface PaneHostOptions {
   onRendererLost?: (paneId: string) => void;
   /** The renderer that decides a pane's cell has arrived, so it can be measured properly. */
   onRendererReady?: (paneId: string) => void;
+  /** Somebody asked to find something in a pane. The selection travels with the request. */
+  onFind?: (selected: string) => void;
+  /** Something worth saying to the person about a pane, briefly. */
+  onNotice?: (text: string) => void;
+  /** How many matches a pane found, so the bar can say which one is showing. */
+  onFindResults?: (results: { resultIndex: number; resultCount: number } | undefined) => void;
   /** Whether a pane should answer a right click. See `shouldOpenMenu` on the controller. */
   shouldOpenMenu?: () => boolean;
 }
@@ -93,6 +99,10 @@ export class PaneHost {
       highlightRecents: () => this.#opts.highlightRecents?.() ?? [],
       onColorUsed: (color) => this.#opts.onColorUsed?.(color),
       onRendererLost: () => this.#opts.onRendererLost?.(paneId),
+      onRendererReady: () => this.#opts.onRendererReady?.(paneId),
+      onFind: (selected) => this.#opts.onFind?.(selected),
+      onNotice: (text) => this.#opts.onNotice?.(text),
+      onFindResults: (results) => this.#opts.onFindResults?.(results),
       shouldOpenMenu: () => this.#opts.shouldOpenMenu?.() !== false,
     });
 
