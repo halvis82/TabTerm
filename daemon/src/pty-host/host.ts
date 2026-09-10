@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { warn } from '../log.js';
-import { createServer, type Server, type Socket } from 'node:net';
+import { connect, createServer, type Server, type Socket } from 'node:net';
 import { chmodSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { killPty, spawnPty, type PtyHandle, type PtyOptions } from '../pty-manager.js';
@@ -138,6 +138,28 @@ const IDLE_EXIT_MS = 120_000;
  */
 const SLOW_PEER_BYTES = 16 * 1024 * 1024;
 
+/**
+ * Whether anything is listening on a unix socket path.
+ *
+ * A connection that is accepted means a live process on the other end. `ECONNREFUSED` means the
+ * file is what a host that died left behind, which is the case this is distinguishing. Any other
+ * error is treated as answering, because the safe reading of "I could not tell" is not to delete
+ * somebody's socket.
+ */
+async function socketIsAnswering(path: string): Promise<boolean> {
+  return await new Promise<boolean>((resolve) => {
+    const probe = connect(path);
+    const done = (answering: boolean) => {
+      probe.destroy();
+      resolve(answering);
+    };
+    probe.once('connect', () => done(true));
+    probe.once('error', (e: NodeJS.ErrnoException) => done(e.code !== 'ECONNREFUSED'));
+    // A socket that neither connects nor refuses is not one to delete either.
+    setTimeout(() => done(true), 1000).unref();
+  });
+}
+
 export class PtyHost {
   readonly #sessions = new Map<string, Live>();
   /** Per session, set by the daemon from the user's setting. */
@@ -200,12 +222,32 @@ export class PtyHost {
 
   #pruneTimer: NodeJS.Timeout | undefined;
 
-  listen(): Promise<void> {
+  /**
+   * Take the socket, and never take it from a host that is still answering.
+   *
+   * This used to remove whatever was at the path, on the reasoning that the lock guarantees two
+   * hosts cannot reach this line at once. The lock does not guarantee that. Taking over a stale
+   * claim means moving it aside to look at it, and for that moment the name is free, so a third
+   * contender can take it while the second still believes it holds it. Both then arrive here and
+   * the second one deletes the first's socket, which is every terminal on the machine becoming
+   * unreachable at once.
+   *
+   * So the socket is asked rather than assumed about. A path that answers a connection belongs to
+   * a live host and is never removed: this process stops instead, which is the safe end of that
+   * argument. A path that refuses is what a dead host leaves behind and is cleared as before.
+   *
+   * This is not the lock being fixed. It is the one outcome that cannot be allowed to happen while
+   * it is not, and it holds whatever the lock decided.
+   */
+  async listen(): Promise<void> {
     mkdirSync(dirname(this.#socketPath), { recursive: true, mode: 0o700 });
-    // A socket left by a host that died is not a host. Removing it is safe precisely because
-    // the lock is held elsewhere: two hosts cannot reach this line at once.
-    if (existsSync(this.#socketPath)) unlinkSync(this.#socketPath);
-    return new Promise((resolve, reject) => {
+    if (existsSync(this.#socketPath)) {
+      if (await socketIsAnswering(this.#socketPath)) {
+        throw new Error('another host is already listening on this socket');
+      }
+      unlinkSync(this.#socketPath);
+    }
+    return await new Promise<void>((resolve, reject) => {
       this.#server.once('error', reject);
       this.#server.listen(this.#socketPath, () => {
         // Owner only. Anything that can open this socket can spawn a process as you.

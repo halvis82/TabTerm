@@ -74,12 +74,45 @@ export class RestoreStore {
    */
   noteOwner(workspaceId: string, profile: string): void {
     try {
+      /*
+       * Added to the set, not written over the last one.
+       *
+       * `owner_profile` holds whichever browser wrote most recently, and a workspace open in two
+       * of them has two owners. That distinction decides whether a terminal is ended: one profile
+       * that held a workspace and no longer lists it is enough to call it closed, so a second
+       * profile that also held it and happens to be disconnected must be knowable. Overwriting
+       * made its claim not merely unknown but gone.
+       *
+       * The old column is still written, because `tabterm doctor` and anything else reading the
+       * workspaces table has not moved over and one of two owners is better there than none.
+       */
+      this.#db.handle
+        .prepare('INSERT OR IGNORE INTO workspace_owners (workspace_id, profile) VALUES (?, ?)')
+        .run(workspaceId, profile);
       this.#db.handle
         .prepare('UPDATE workspaces SET owner_profile = ? WHERE id = ?')
         .run(profile, workspaceId);
     } catch {
       /* provenance is an optimization over asking again; never a reason to fail a request */
     }
+  }
+
+  /** Every browser known to have held each workspace, for the rule that reads a browser's silence. */
+  allOwners(): Map<string, Set<string>> {
+    const out = new Map<string, Set<string>>();
+    try {
+      const rows = this.#db.handle
+        .prepare('SELECT workspace_id, profile FROM workspace_owners')
+        .all() as { workspace_id: string; profile: string }[];
+      for (const row of rows) {
+        const seen = out.get(row.workspace_id) ?? new Set<string>();
+        seen.add(row.profile);
+        out.set(row.workspace_id, seen);
+      }
+    } catch {
+      /* an unreadable table means no provenance, which is the same as a fresh machine */
+    }
+    return out;
   }
 
   /** When a workspace went to the background, or null when it came back. */
@@ -94,7 +127,13 @@ export class RestoreStore {
   }
 
   /** What was remembered about every workspace, for seeding a daemon that has just started. */
-  provenance(): { workspaceId: string; profile?: string; backgroundSince?: number }[] {
+  provenance(): {
+    workspaceId: string;
+    profile?: string;
+    /** Every browser known to have held it. `profile` is one of these, kept for older readers. */
+    profiles?: string[];
+    backgroundSince?: number;
+  }[] {
     try {
       const rows = this.#db.handle
         .prepare(
@@ -102,11 +141,31 @@ export class RestoreStore {
            WHERE owner_profile IS NOT NULL OR background_since IS NOT NULL`,
         )
         .all() as { id: string; owner_profile: string | null; background_since: number | null }[];
-      return rows.map((r) => ({
-        workspaceId: r.id,
-        ...(r.owner_profile === null ? {} : { profile: r.owner_profile }),
-        ...(r.background_since === null ? {} : { backgroundSince: r.background_since }),
-      }));
+      /*
+       * Every owner of a workspace, not the last one recorded against it.
+       *
+       * The row carries one profile and a workspace can have several. Restoring only that one put
+       * a daemon back with an incomplete idea of who had held what, which is the state that lets a
+       * single ex-owner's silence end a terminal another browser still has open.
+       */
+      const owners = this.allOwners();
+      const known = new Set(rows.map((r) => r.id));
+      for (const id of owners.keys()) known.add(id);
+      const byId = new Map(rows.map((r) => [r.id, r]));
+
+      return [...known].map((id) => {
+        const row = byId.get(id);
+        const all = [...(owners.get(id) ?? [])];
+        const primary = row?.owner_profile ?? all[0];
+        return {
+          workspaceId: id,
+          ...(primary === undefined || primary === null ? {} : { profile: primary }),
+          ...(all.length === 0 ? {} : { profiles: all }),
+          ...(row === undefined || row.background_since === null
+            ? {}
+            : { backgroundSince: row.background_since }),
+        };
+      });
     } catch {
       return [];
     }

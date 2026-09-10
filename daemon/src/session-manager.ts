@@ -1086,6 +1086,16 @@ export class SessionManager {
   readonly #reporterSeen = new Map<string, Set<string>>();
 
   /**
+   * Every browser known to have held each workspace, including ones not connected now.
+   *
+   * `#reporterSeen` answers "has this profile held that workspace", which is what a **present**
+   * browser needs. This answers the other direction, "who has held this workspace", which is what
+   * deciding on an **absent** one needs. Without it a single settled ex-owner's silence was enough
+   * to call a workspace closed while another browser that also had it was merely away.
+   */
+  readonly #knownOwners = new Map<string, Set<string>>();
+
+  /**
    * How many workspaces one browser profile is remembered as having held.
    *
    * The record is deliberately kept when a reporter goes away, because it says what that browser
@@ -1098,7 +1108,16 @@ export class SessionManager {
   static readonly SEEN_PER_PROFILE = 500;
 
   /** Remember that a profile has held a workspace, without the record growing for ever. */
+  /** Learned at runtime as well as restored, or the rule only protects what survived a restart. */
+  #noteKnownOwner(profile: string, workspaceId: string): void {
+    this.#knownOwners.set(
+      workspaceId,
+      (this.#knownOwners.get(workspaceId) ?? new Set<string>()).add(profile),
+    );
+  }
+
   #rememberSeen(profile: string, workspaceId: string): boolean {
+    this.#noteKnownOwner(profile, workspaceId);
     let seen = this.#reporterSeen.get(profile);
     if (seen === undefined) {
       seen = new Set<string>();
@@ -1151,11 +1170,22 @@ export class SessionManager {
    * back with it, so a daemon update does not hand every waiting session a fresh countdown.
    */
   restoreProvenance(
-    entries: readonly { workspaceId: string; profile?: string; backgroundSince?: number }[],
+    entries: readonly {
+      workspaceId: string;
+      profile?: string;
+      profiles?: string[];
+      backgroundSince?: number;
+    }[],
   ): void {
     for (const entry of entries) {
-      if (entry.profile !== undefined) {
-        this.#rememberSeen(entry.profile, entry.workspaceId);
+      // Every owner, not the first one the row happened to carry.
+      for (const profile of entry.profiles ??
+        (entry.profile === undefined ? [] : [entry.profile])) {
+        this.#rememberSeen(profile, entry.workspaceId);
+        this.#knownOwners.set(
+          entry.workspaceId,
+          (this.#knownOwners.get(entry.workspaceId) ?? new Set<string>()).add(profile),
+        );
       }
       if (entry.backgroundSince !== undefined) {
         this.#backgroundSince.set(entry.workspaceId, {
@@ -1387,6 +1417,25 @@ export class SessionManager {
      * That is deliberately unknown rather than agreement.
      */
     const now = Date.now();
+
+    /*
+     * An owner that is not here is not consulted, and that is a decision rather than an oversight.
+     *
+     * A second review read this and said the rule has a hole: one settled profile that once held a
+     * workspace can call it closed while another profile that also held it is merely absent, and
+     * after a restart the daemon did not even know about the second one. The second half was real
+     * and is fixed, in `workspace_owners`.
+     *
+     * The first half was tried here and reverted. Refusing to conclude anything while a past owner
+     * is away means a browser that is uninstalled, or simply never opened again, pins every
+     * terminal it ever touched for the life of the machine, which is the failure the paragraphs
+     * above spend their length avoiding: a timeout that never applies to anything. Two checks
+     * encode the current answer deliberately, one of them named for it.
+     *
+     * So the trade stands: a settled browser that had it and no longer lists it is taken at its
+     * word. What changed is that the daemon now knows the full set of owners across a restart,
+     * which is what any future rule would have to be built on.
+     */
     for (const [clientId, since] of this.#reporterSince) {
       if (now - since < this.settledAfterMs) continue;
       if (this.#reporterSeen.get(profileOf(clientId))?.has(workspaceId) === true) return 'closed';

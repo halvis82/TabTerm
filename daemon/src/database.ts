@@ -208,6 +208,29 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       ALTER TABLE workspaces ADD COLUMN background_since INTEGER;
     `,
   },
+  {
+    version: 11,
+    sql: `
+      -- Every browser that has held a workspace, rather than the last one to say so.
+      --
+      -- owner_profile is one column, so a workspace open in two browsers kept whichever wrote
+      -- last. That matters because provenance is what lets a browser's silence mean anything:
+      -- one profile that once held a workspace and no longer lists it is enough to call it
+      -- closed, and if a second profile also held it and is simply not connected, its claim
+      -- was not merely unknown, it had been overwritten.
+      --
+      -- The old column is left in place. It is still written and still read by anything that
+      -- has not moved over, and dropping a column in SQLite means rebuilding the table.
+      CREATE TABLE IF NOT EXISTS workspace_owners (
+        workspace_id TEXT NOT NULL,
+        profile      TEXT NOT NULL,
+        PRIMARY KEY (workspace_id, profile)
+      );
+      -- What is already known, carried over rather than lost.
+      INSERT OR IGNORE INTO workspace_owners (workspace_id, profile)
+        SELECT id, owner_profile FROM workspaces WHERE owner_profile IS NOT NULL;
+    `,
+  },
 ];
 
 export class Database {

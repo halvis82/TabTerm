@@ -226,7 +226,7 @@ describe('three contenders inside one window', () => {
    * trace of B's claim, and removing it leaves B believing it owns a socket whose name belongs to
    * C, with nothing anywhere recording that it happened.
    */
-  it('never destroys the displaced claim when it cannot be put back', async () => {
+  it('leaves two holders of one name, and destroys neither claim', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'tt-lock3-'));
     const file = join(dir, 'contended.lock');
     await writeFile(file, '999999');
@@ -245,9 +245,25 @@ describe('three contenders inside one window', () => {
       },
     });
 
-    expect(bWon, 'B should have taken the stale lock').toBe(true);
-    expect(cWon, 'C should have taken the name A freed').toBe(true);
-    expect(aWon, 'A must not end up owning anything').toBe(false);
+    /*
+     * Both of them won, and that is the defect rather than the fix.
+     *
+     * A review read this test and said so: its title describes the symptom that was addressed, the
+     * graveyard copy no longer being deleted, and the assertions underneath state plainly that two
+     * processes hold one name. Written down here rather than quietly asserted, because a check
+     * that records a broken invariant while reading like a passing fix is worse than no check.
+     *
+     * Closing it needs exclusion the kernel enforces. Every arrangement of read, decide, rename
+     * and link has a moment where the name is free, because the decision is made from content read
+     * before the move and no POSIX call moves a name conditionally on what it contains.
+     *
+     * So the consequence is closed where it lands instead: a host never removes a socket that is
+     * still answering. `live-socket.test.ts` holds that, and it is the check that matters, because
+     * the outcome this race was ever going to cause is a second host deleting the first's socket.
+     */
+    expect(bWon, 'B took the stale lock').toBe(true);
+    expect(cWon, 'and C took the name A freed while B still believed it held it').toBe(true);
+    expect(aWon, 'A at least ends up owning nothing').toBe(false);
 
     // C holds the name.
     expect(readFileSync(file, 'utf8')).toBe(String(process.pid));
