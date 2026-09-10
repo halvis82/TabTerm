@@ -2013,7 +2013,7 @@ function folderItems(path: string): ShellItem[] {
  * menu a right click on that card opens. Two copies of this would drift, and the rules in
  * it are the ones that decide whether a tab is taken over or left alone.
  */
-function openLiveSession(session: LiveSession): void {
+async function openLiveSession(session: LiveSession): Promise<void> {
   /**
    * Go to the session, wherever it is.
    *
@@ -2081,7 +2081,38 @@ function openLiveSession(session: LiveSession): void {
    * policy that clears untouched panes away takes it in its own time.
    */
   const spare = thisTabIsUnused();
-  if (!session.attached && spare) {
+  /*
+   * Whether a tab has it is asked of Chrome, not inferred from `attached`.
+   *
+   * `attached` is the daemon saying a socket is open. A tab in a window that is not on screen can
+   * be frozen or discarded by Chrome, which closes its socket while the tab plainly still exists,
+   * so a session open in another window reported itself as unattached and this branch showed it
+   * here as well. One session, two windows, which is the thing being fixed.
+   *
+   * The worker answers exactly, because the workspace is in the tab's URL. Only when it says there
+   * is no such tab does this one show the session itself.
+   */
+  const found = (await chrome.runtime
+    .sendMessage({
+      t: 'tabterm:focus-workspace',
+      workspaceId: session.workspaceId,
+      attachHere: false,
+    })
+    .catch(() => undefined)) as { focused?: boolean } | undefined;
+
+  if (found?.focused === true) {
+    /*
+     * The tab that was clicked in goes, but only when nobody has used it.
+     *
+     * Leaving it would show its own empty terminal the moment focus moved away, which reads as a
+     * second copy of the session. Closing it answers that better: there is no tab left to be
+     * confused by.
+     */
+    if (spare) setTimeout(() => window.close(), 120);
+    return;
+  }
+
+  if (spare) {
     location.href = chrome.runtime.getURL(`terminal.html?workspace=${session.workspaceId}`);
     return;
   }
@@ -2094,16 +2125,18 @@ function openLiveSession(session: LiveSession): void {
    * second copy of the session. Closing it answers that better: there is no tab left to be
    * confused by. Only ever a tab nobody has used.
    */
+  /*
+   * Nothing has it and this tab is in use, so it is opened in a tab of its own.
+   *
+   * Taking it over here would replace work somebody is in the middle of, and attaching it beside
+   * that work is what `merge-into` above is for when a session belongs to no workspace at all.
+   */
   void chrome.runtime.sendMessage({
     t: 'tabterm:focus-workspace',
     workspaceId: session.workspaceId,
-    attachHere: !session.attached,
+    attachHere: true,
   });
-  if (!session.attached) launcher?.dismiss();
-  if (spare) {
-    // After the focus message, so the tab being switched to is already in front.
-    setTimeout(() => window.close(), 120);
-  }
+  launcher?.dismiss();
 }
 /** Where the last menu was opened, so a confirmation can take its place rather than move. */
 let lastMenuAt = { x: 0, y: 0 };
@@ -2154,7 +2187,36 @@ function sessionItems(session: LiveSession): ShellItem[] {
   };
   const where = session.cwd === '' ? 'this session' : shortPath(session.cwd, launcherHome);
   return [
-    { label: 'Open session', run: () => openLiveSession(session) },
+    { label: 'Open session', run: () => void openLiveSession(session) },
+    {
+      /**
+       * Move a session into this tab, wherever it is now.
+       *
+       * `Open session` goes to the tab that already has it, which is right almost always and
+       * exactly wrong when what you wanted was this window. This is the other answer, asked
+       * for deliberately rather than arrived at by clicking in the wrong place.
+       *
+       * The old tab is let go first and this one takes the workspace immediately after. That
+       * order matters for the state that decides whether a terminal is ended: closing a tab is
+       * recorded as closed, and the daemon clears that the moment a tab reports the workspace
+       * open again, which this one does as it attaches. The other order leaves two tabs holding
+       * one workspace, and closing either of them then means guessing which was meant.
+       */
+      label: 'Bring here',
+      run: () => {
+        if (!session.workspaceId) {
+          void openLiveSession(session);
+          return;
+        }
+        const wanted = session.workspaceId;
+        void chrome.runtime
+          .sendMessage({ t: 'tabterm:release-workspace-tab', workspaceId: wanted })
+          .catch(() => undefined)
+          .then(() => {
+            location.href = chrome.runtime.getURL(`terminal.html?workspace=${wanted}`);
+          });
+      },
+    },
     {
       label: 'Kill session',
       danger: true,
@@ -2813,7 +2875,7 @@ function buildLauncher(): void {
     },
     onCompletePath: (partial) => client?.send({ t: 'complete-path', partial }),
     onOpenSession: (session) => {
-      openLiveSession(session);
+      void openLiveSession(session);
     },
     onCloseSession: (session) => {
       client?.send({ t: 'kill-session', sessionId: session.sessionId });

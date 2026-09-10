@@ -716,19 +716,59 @@ async function closeOtherTerminalTabs(keep?: number): Promise<void> {
   if (ids.length > 0) await chrome.tabs.remove(ids);
 }
 
-async function focusOrOpenWorkspace(workspaceId: string, attachHere: boolean): Promise<void> {
+/**
+ * Which tab, if any, is showing a workspace.
+ *
+ * Asked of Chrome rather than of the daemon, because they answer different questions. The daemon
+ * knows whether a socket is attached, and a tab in a window that is not on screen can be frozen or
+ * discarded, which closes its socket while the tab plainly still exists. A page that decided where
+ * to show a session from the daemon's answer therefore opened a second copy of it.
+ *
+ * The workspace is written into the tab's URL when it is adopted, so this is exact.
+ */
+async function tabShowingWorkspace(workspaceId: string): Promise<chrome.tabs.Tab | undefined> {
   const base = chrome.runtime.getURL('terminal.html');
   const tabs = await chrome.tabs.query({ url: `${base}*` });
-  const existing = tabs.find((t) => t.url?.includes(workspaceId));
+  return tabs.find((t) => t.url?.includes(workspaceId));
+}
+
+/**
+ * Go to the tab holding a workspace, and say whether there was one.
+ *
+ * The answer is the point. Its caller has to know whether to show the session itself, and guessing
+ * that from anything else is what put one session in two windows.
+ */
+async function focusOrOpenWorkspace(
+  workspaceId: string,
+  attachHere: boolean,
+): Promise<{ focused: boolean }> {
+  const existing = await tabShowingWorkspace(workspaceId);
   if (existing?.id !== undefined) {
     await chrome.tabs.update(existing.id, { active: true });
     if (existing.windowId !== undefined) {
       await chrome.windows.update(existing.windowId, { focused: true });
     }
-    return;
+    return { focused: true };
   }
-  if (!attachHere) return;
-  await chrome.tabs.create({ url: `${base}?workspace=${workspaceId}`, active: true });
+  if (!attachHere) return { focused: false };
+  await chrome.tabs.create({ url: `${base(workspaceId)}`, active: true });
+  return { focused: true };
+}
+
+const base = (workspaceId: string): string =>
+  `${chrome.runtime.getURL('terminal.html')}?workspace=${workspaceId}`;
+
+/**
+ * Close the tab holding a workspace, so it can be shown somewhere else.
+ *
+ * Never the tab that asked. Bringing a session here and closing the tab you are in is a way of
+ * losing it, and the sender is the one tab that certainly must survive this.
+ */
+async function releaseWorkspaceTab(workspaceId: string, exceptTabId?: number): Promise<boolean> {
+  const existing = await tabShowingWorkspace(workspaceId);
+  if (existing?.id === undefined || existing.id === exceptTabId) return false;
+  await chrome.tabs.remove(existing.id);
+  return true;
 }
 
 chrome.runtime.onMessage.addListener((msg: NotifyMessage, _sender, sendResponse) => {
@@ -798,10 +838,35 @@ chrome.runtime.onMessage.addListener((msg: NotifyMessage, _sender, sendResponse)
   }
 
   if (msg.t === 'tabterm:focus-workspace' && msg.workspaceId) {
-    // Only the worker can move between tabs, so the page asks it to.
-    void focusOrOpenWorkspace(msg.workspaceId, msg.attachHere === true);
-    sendResponse({ ok: true });
-    return false;
+    /*
+     * Answered rather than acknowledged.
+     *
+     * The page has to know whether a tab was actually found, because the alternative is showing
+     * the session itself, and a page that assumed one way or the other put one session in two
+     * windows. `true` is returned from the listener so the channel stays open for the reply.
+     */
+    const wanted = msg.workspaceId;
+    const attachHere = msg.attachHere === true;
+    void focusOrOpenWorkspace(wanted, attachHere).then(
+      (r) => sendResponse({ ok: true, focused: r.focused }),
+      () => sendResponse({ ok: false, focused: false }),
+    );
+    return true;
+  }
+
+  /*
+   * Let go of the tab holding a workspace, so this one can take it over.
+   *
+   * The sender is never closed. Bringing a session here and closing the tab you are in is a way of
+   * losing it, and this is the one tab that must survive the operation.
+   */
+  if (msg.t === 'tabterm:release-workspace-tab' && msg.workspaceId) {
+    const wanted = msg.workspaceId;
+    void releaseWorkspaceTab(wanted, _sender.tab?.id).then(
+      (closed) => sendResponse({ ok: true, closed }),
+      () => sendResponse({ ok: false, closed: false }),
+    );
+    return true;
   }
 
   // A bare ping exists only to wake this worker, which is a side effect of any message.
