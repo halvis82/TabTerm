@@ -32,6 +32,15 @@ const survey = async () =>
            rows: s.querySelectorAll('.launcher-row-wrap').length,
            control: more ? more.textContent : null,
            open: more ? more.getAttribute('aria-expanded') : null,
+           /*
+            * Whether this section shortens itself some other way.
+            *
+            * A flat list has only one way to stay short, which is to cap what it draws and offer
+            * the rest behind a count. A section whose contents are themselves foldable already
+            * has a bound, and giving it a count as well is two controls for one decision, with
+            * the count sitting underneath the rows it is meant to be hiding.
+            */
+           folds: s.querySelectorAll('.launcher-heading-fold').length > 1,
          };
        }))`,
     ),
@@ -42,9 +51,16 @@ const before = await survey();
 // No section may ever draw more than the collapsed cap while closed. True on any machine,
 // including one with nothing stored, so it is checked before anything that needs a long list.
 r.ok(
-  'no section draws more than six while closed',
-  before.every((s) => s.rows <= COLLAPSED),
-  JSON.stringify(before.map((s) => `${s.heading}:${s.rows}`)),
+  'no flat section draws more than six while closed',
+  before.every((s) => s.folds || s.rows <= COLLAPSED),
+  JSON.stringify(before.filter((s) => !s.folds).map((s) => `${s.heading}:${s.rows}`)),
+);
+
+// And a section that folds does not also carry a count, which would be the second control.
+r.ok(
+  'a section that folds its own contents is not also given a show more',
+  before.every((s) => !s.folds || s.control === null),
+  JSON.stringify(before.filter((s) => s.folds).map((s) => `${s.heading}:${String(s.control)}`)),
 );
 
 const target = before.find((s) => s.control !== null);

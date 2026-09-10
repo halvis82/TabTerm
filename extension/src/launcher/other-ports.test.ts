@@ -48,11 +48,15 @@ describe('the ports the daemon reports that no session accounts for', () => {
     expect(launcher).toContain('worthGrouping(group)');
   });
 
-  it('are capped by rows, since rows are what fills a screen', () => {
-    // One browser can hold a dozen ports on its own, so a cap counted in programs lets it through.
-    expect(launcher).toContain("this.#visibleCount('ports'");
-    expect(launcher).toContain("this.#moreRow('ports'");
-    expect(launcher).toContain('MAX_PORT_ROWS');
+  it('are shortened by folding and not also by a count', () => {
+    /*
+     * Every other list here caps what it draws and offers the rest behind a count, because a flat
+     * list has no other way to stay short. This one folds twice over: the section folds, and each
+     * program inside it folds. A count as well is two controls for one decision, and it sat under
+     * the rows it was meant to be hiding.
+     */
+    expect(launcher).not.toContain("this.#visibleCount('ports'");
+    expect(launcher).not.toContain("this.#moreRow('ports'");
   });
 
   it('tell a nested fold apart from the section it is inside', () => {

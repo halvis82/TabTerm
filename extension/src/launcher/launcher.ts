@@ -162,13 +162,6 @@ export function listWindow(
  * agent keeps for the session, which is what makes six scannable rather than six to read.
  */
 const MAX_RESUME = 6;
-/**
- * How many port rows the section shows before the rest go behind a count.
- *
- * Rows rather than programs, because rows are what fills a screen: one browser can hold a dozen
- * ports by itself, and a cap counted in programs would let the whole dozen through.
- */
-const MAX_PORT_ROWS = 6;
 
 export class Launcher {
   readonly #opts: LauncherOptions;
@@ -2063,26 +2056,21 @@ export class Launcher {
    * are sorted. A program holding one is drawn as that one row: a heading that hides a single row
    * is worse than the row.
    *
-   * Capped by rows rather than by groups, because rows are what fills a screen. One browser can
-   * hold a dozen ports on its own, and a cap counted in programs would let that dozen through.
+   * No show-more here. Every other list on this screen caps itself and offers the rest behind a
+   * count, because a flat list has no other way to stay short. This one folds: the section folds,
+   * and inside it each program folds. Two ways of shortening the same list is a choice nobody
+   * wants to make twice, and the count sat under the rows it was supposed to be hiding.
    */
   #otherPortsSection(): HTMLElement | null {
     if (this.#otherPorts.length === 0) return null;
 
     const groups = groupPorts(this.#otherPorts);
-    const budget = this.#visibleCount('ports', this.#otherPorts.length, MAX_PORT_ROWS);
     const rows: HTMLElement[] = [];
-    let drawn = 0;
 
     for (const group of groups) {
-      if (drawn >= budget) break;
-
       if (!worthGrouping(group)) {
         const only = group.ports[0];
-        if (only) {
-          rows.push(this.#portRow(only));
-          drawn++;
-        }
+        if (only) rows.push(this.#portRow(only));
         continue;
       }
 
@@ -2108,18 +2096,9 @@ export class Launcher {
       const wrapper = document.createElement('div');
       wrapper.className = 'launcher-port-group';
       wrapper.append(head);
-      if (open) {
-        for (const port of group.ports) {
-          if (drawn >= budget) break;
-          wrapper.append(this.#portRow(port));
-          drawn++;
-        }
-      }
+      if (open) for (const port of group.ports) wrapper.append(this.#portRow(port));
       rows.push(wrapper);
     }
-
-    const more = this.#moreRow('ports', this.#otherPorts.length, MAX_PORT_ROWS);
-    if (more) rows.push(more);
 
     return foldingSection('Local ports', rows, {
       open: !this.#folded.has('otherPorts'),
