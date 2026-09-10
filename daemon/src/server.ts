@@ -49,7 +49,7 @@ import {
   type AgentKind,
 } from './agent-resume.js';
 import { loginPath, resolveExecutable } from './login-path.js';
-import { holderOfLoopbackPort, listeningPorts, loopbackListeners } from './server-detect.js';
+import { holderOfLocalPort, listeningPorts, localListeners } from './server-detect.js';
 import { applyMemoryMode, frontendSettings } from './memory-modes.js';
 import type { RestoreStore } from './restore-store.js';
 import type { OutputArchive } from './output-archive.js';
@@ -1946,7 +1946,7 @@ export class DaemonServer {
              */
             const ownPorts = new Set([this.#config.port, this.#config.agentBridgePort]);
             const taken = new Set(servers.map((s) => s.port));
-            void loopbackListeners()
+            void localListeners()
               .then((listeners) => {
                 const others = listeners
                   .filter((l) => !ownPorts.has(l.port) && !taken.has(l.port))
@@ -2005,7 +2005,7 @@ export class DaemonServer {
           warn('port.close-refused', { port: wanted, reason: 'own-port' });
           return;
         }
-        void holderOfLoopbackPort(wanted)
+        void holderOfLocalPort(wanted)
           .then((pid) => {
             if (pid === null) {
               warn('port.close-refused', { port: wanted, reason: 'nothing-listening' });

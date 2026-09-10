@@ -60,20 +60,24 @@ export interface OtherListener {
 }
 
 /**
- * Every loopback port on the machine, and what is holding it.
+ * Every port on this machine that answers on localhost, and what is holding it.
  *
  * The same `lsof` the session attribution already runs. It has never been filtered by pid: the
  * whole machine's listening sockets are fetched and everything not under a session is discarded,
  * so answering this costs the walk and nothing else.
  *
- * Loopback only, deliberately. A port bound to every interface is either a system service or
- * something a person configured on purpose, and neither belongs on a start screen. Above 1024 for
- * the same reason.
+ * A wildcard bind counts. This was loopback only at first, on the reasoning that a port bound to
+ * every interface is a system service or something configured deliberately, and that was simply
+ * wrong: a great many development servers bind `0.0.0.0` by default and are reached at localhost
+ * like any other. Reported as a server on port 8300 that plainly answered and was not on the list.
  *
- * Nothing is excluded by name here. What to hide is a question about what a person is looking at,
- * which the page knows and this does not, so it is answered there.
+ * What it costs on a real machine is five rows of Apple's own services, which the page gathers
+ * under the two programs holding them. That is the right trade for not hiding somebody's server.
+ *
+ * Above 1024 still, and nothing is excluded by name here. What to hide is a question about what a
+ * person is looking at, which the page knows and this does not, so it is answered there.
  */
-export async function loopbackListeners(): Promise<OtherListener[]> {
+export async function localListeners(): Promise<OtherListener[]> {
   const lsof = await run('/usr/sbin/lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '-Fpcn']);
   if (!lsof) return [];
 
@@ -88,8 +92,14 @@ export async function loopbackListeners(): Promise<OtherListener[]> {
       program = line.slice(1);
     } else if (line.startsWith('n') && pid !== null) {
       const address = line.slice(1);
-      const loopback = address.startsWith('127.0.0.1:') || address.startsWith('[::1]:');
-      if (!loopback) continue;
+      // Loopback explicitly, or a wildcard bind, which answers on loopback as well.
+      const onLocalhost =
+        address.startsWith('127.0.0.1:') ||
+        address.startsWith('[::1]:') ||
+        address.startsWith('*:') ||
+        address.startsWith('0.0.0.0:') ||
+        address.startsWith('[::]:');
+      if (!onLocalhost) continue;
       const port = Number(/:(\d+)$/.exec(address)?.[1]);
       if (!Number.isFinite(port) || port <= 1024) continue;
       // One row per port. The same server often listens on both stacks.
@@ -98,23 +108,23 @@ export async function loopbackListeners(): Promise<OtherListener[]> {
   }
 
   const listeners = [...found.values()].sort((a, b) => a.port - b.port);
-  debug('servers.loopback', { count: listeners.length });
+  debug('servers.local', { count: listeners.length });
   return listeners;
 }
 
 /**
- * Who is holding a loopback port, for a request to close it.
+ * Who is holding a local port, for a request to close it.
  *
  * Asked again at the moment of the close rather than trusted from the list. The list a person is
  * looking at was built seconds ago, ports are reused, and the gap between "the row said 8081 was
  * python" and "kill whatever has 8081 now" is exactly where the wrong process gets signalled.
  *
- * Loopback only, above 1024, same as the list. A port bound to every interface is not something a
- * start screen should be able to end.
+ * Above 1024, and answered from the same list, so the close cannot reach anything the list
+ * would not show.
  */
-export async function holderOfLoopbackPort(port: number): Promise<number | null> {
+export async function holderOfLocalPort(port: number): Promise<number | null> {
   if (!Number.isInteger(port) || port <= 1024) return null;
-  const listeners = await loopbackListeners();
+  const listeners = await localListeners();
   return listeners.find((l) => l.port === port)?.pid ?? null;
 }
 

@@ -20,7 +20,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 const ports = { value: new Map<number, number>() };
 vi.mock('./server-detect.js', () => ({
   listeningPorts: () => Promise.resolve(ports.value),
-  loopbackListeners: () => Promise.resolve([]),
+  localListeners: () => Promise.resolve([]),
 }));
 
 const { SessionManager } = await import('./session-manager.js');
