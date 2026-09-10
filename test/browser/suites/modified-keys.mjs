@@ -34,7 +34,13 @@ await press(client, 'Enter', 'Enter', SHIFT, 13);
 await sleep(400);
 const plain = String(await screen());
 r.ok(
-  'Shift and Return stays a bare carriage return while nothing has asked',
+  'Shift and Return sends the escape a new line is asked for with',
+  // `cat -v` prints an escape as ^[, and the carriage return after it starts a fresh line.
+  plain.includes('^['),
+  plain.slice(-120),
+);
+r.ok(
+  'and not the reporting form, since nothing has asked for it',
   !plain.includes('27;2;13'),
   plain.slice(-120),
 );

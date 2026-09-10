@@ -267,6 +267,24 @@ The reply is only ever sent to a program that asked. Nothing is invented for a p
 Command and Return, for instance, has no terminal meaning and is handed back to Chrome, because
 giving it one here would only make this terminal disagree with every other.
 
+**Almost nothing asks.** Counted across roughly a thousand real session transcripts on this machine,
+an agent enabled `modifyOtherKeys` four times and disabled it a hundred and two, which is what a
+program does on the way out whether or not it ever turned the thing on. It asks for the kitty
+keyboard protocol about as rarely, and only after deciding from the terminal's name that the
+protocol is there, which is a decision no amount of correct behavior here can influence. So
+answering the request is right but it is not the answer.
+
+**Shift and Return sends `ESC CR`, asked for or not.** That is what the ecosystem settled on, and it
+is not a guess: Claude Code's own `/terminal-setup` installs exactly this sequence for Shift and
+Return in VS Code, in Alacritty and in Zed. Option and Return already produced it here, because
+Option is Meta, so the two now agree. A program that has asked to be told about modifiers still gets
+the precise report instead, since it asked.
+
+At a shell prompt this is not a loss. zsh binds `^[^M` to `self-insert-unmeta`, so Shift and Return
+puts a real newline in the command line rather than running it, which is what someone holding Shift
+meant. The cost is that Shift held by accident no longer runs the command, and every terminal set up
+for an agent has made the same trade.
+
 ### Copy, paste, selection
 
 Routing lives in `extension/src/terminal/keymap.ts`, kept pure so the policy is testable without

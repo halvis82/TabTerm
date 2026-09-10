@@ -309,6 +309,17 @@ export class XtermController {
           e.preventDefault();
           this.clear();
           return false;
+        case 'newline':
+          /*
+           * `ESC CR`, written straight to the program.
+           *
+           * Not handed to xterm, because xterm sends a bare `CR` for Return whatever modifier is
+           * held, and a bare `CR` is the thing being avoided: to a program taking more than one
+           * line it means the input has finished.
+           */
+          e.preventDefault();
+          this.#opts.onData('\u001b\r');
+          return false;
         case 'search':
           /*
            * Chrome's own find cannot see a WebGL-rendered buffer, and would only ever see the

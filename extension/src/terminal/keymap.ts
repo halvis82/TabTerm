@@ -17,6 +17,16 @@ export type KeyAction =
   | { kind: 'select-all' }
   | { kind: 'clear' }
   | { kind: 'search' }
+  /**
+   * A new line inside what is being typed, rather than the end of it.
+   *
+   * `ESC CR`. Return is one byte and a modifier that does not change the character has nowhere to
+   * go, so a terminal has always sent a bare `CR` for Shift and Return, which to a program taking
+   * more than one line means "I have finished". `ESC CR` is what the ecosystem settled on instead:
+   * it is exactly what Claude Code's own terminal setup installs for Shift and Return in VS Code,
+   * Alacritty and Zed, and what Option and Return has always produced here because Option is Meta.
+   */
+  | { kind: 'newline' }
   | { kind: 'browser' };
 
 export interface KeyInput {
@@ -76,6 +86,20 @@ export function classifyKey(e: KeyInput): KeyAction {
         return { kind: 'browser' };
     }
   }
+
+  /*
+   * Shift and Return means another line, not "run it".
+   *
+   * A program that asks to be told which modifier was held is answered precisely, before this,
+   * in `modified-keys.ts`. Almost nothing asks: counted across a thousand real sessions, an agent
+   * enabled that reporting four times and turned it off a hundred and two. So this is the answer
+   * for everything that did not ask, and it is the same answer every other terminal has been
+   * configured to give.
+   *
+   * Option and Return already produces these bytes, because Option is Meta here, and goes to the
+   * PTY untouched.
+   */
+  if (e.key === 'Enter' && e.shiftKey && !e.altKey) return { kind: 'newline' };
 
   return { kind: 'to-pty' };
 }

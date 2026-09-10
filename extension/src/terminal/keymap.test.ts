@@ -124,6 +124,18 @@ describe('Return with a modifier held', () => {
       ...over,
     });
 
+  it('is a new line when Shift is held', () => {
+    // The one the report was about. A bare CR is how a program is told the input has finished, so
+    // Shift and Return submitted the prompt instead of continuing it.
+    expect(press({ shiftKey: true }).kind).toBe('newline');
+  });
+
+  it("is still the shell's when Option is held", () => {
+    // Option is Meta here, so xterm already sends ESC CR for it. Claiming it would be two owners
+    // for one key, and the second owner would send the same bytes the first already sends.
+    expect(press({ altKey: true }).kind).toBe('to-pty');
+  });
+
   it('is left to Chrome when Command is held', () => {
     // A newline is Shift or Option and Return, which a program asks to be told about. Command and
     // Return is not a terminal key at all, and giving it a meaning here would only make one
