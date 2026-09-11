@@ -55,6 +55,8 @@ export class PaneHost {
   readonly #opts: PaneHostOptions;
   readonly #panes = new Map<string, Pane>();
   readonly #byStream = new Map<number, string>();
+  /** Callbacks waiting for a pane to say something. See `onceOutput`. */
+  readonly #awaitingOutput = new Map<string, () => void>();
 
   constructor(opts: PaneHostOptions) {
     this.#opts = opts;
@@ -196,7 +198,34 @@ export class PaneHost {
   write(streamId: number, data: Uint8Array, ack: (bytes: number) => void): void {
     const pane = this.paneForStream(streamId);
     pane?.controller.write(data, ack);
-    if (pane && data.length > 0) this.#sawOutput(pane.paneId);
+    if (pane && data.length > 0) {
+      this.#sawOutput(pane.paneId);
+      const waiting = this.#awaitingOutput.get(pane.paneId);
+      if (waiting) {
+        this.#awaitingOutput.delete(pane.paneId);
+        waiting();
+      }
+    }
+  }
+
+  /**
+   * Call back the first time this pane says anything, or after the wait runs out.
+   *
+   * Used after an image is pasted: a pane that has printed something has acted on the key, which
+   * is the nearest thing to being told the clipboard has been read. Reading a clipboard leaves no
+   * trace, so there is nothing better to wait for, and the timeout is there because a program that
+   * says nothing at all must not leave the clipboard replaced for good.
+   */
+  onceOutput(paneId: string, timeoutMs: number, done: () => void): void {
+    let finished = false;
+    const once = (): void => {
+      if (finished) return;
+      finished = true;
+      this.#awaitingOutput.delete(paneId);
+      done();
+    };
+    this.#awaitingOutput.set(paneId, once);
+    setTimeout(once, timeoutMs);
   }
 
   /**

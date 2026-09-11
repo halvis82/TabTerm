@@ -151,3 +151,95 @@ export async function copyImageToClipboard(
     `set the clipboard to (read (POSIX file ${JSON.stringify(png)}) as \u00abclass PNGf\u00bb)`,
   ]);
 }
+
+/**
+ * What was on the clipboard before an image took its place, kept so it can be put back.
+ *
+ * An AppleScript record cannot outlive the script that made it, so what is kept is the script that
+ * would recreate it. Text and an image are the two that matter and both survive the round trip
+ * exactly, measured rather than assumed. Anything else is left alone: the drop still works, the
+ * clipboard is simply not restored, which is no worse than before any of this existed.
+ */
+export type ClipboardBackup = { restore: string } | null;
+
+/** Read the clipboard into something that can put it back later. */
+export async function saveClipboard(dir: string): Promise<ClipboardBackup> {
+  const png = join(dir, 'clipboard-backup.png');
+  const text = join(dir, 'clipboard-backup.txt');
+  await mkdir(dir, { recursive: true });
+
+  // An image first, because a clipboard holding one usually holds a text flavor as well and the
+  // image is the one that would be lost.
+  try {
+    await run('/usr/bin/osascript', [
+      '-e',
+      'set png_data to (the clipboard as \u00abclass PNGf\u00bb)',
+      '-e',
+      `set fp to open for access POSIX file ${JSON.stringify(png)} with write permission`,
+      '-e',
+      'write png_data to fp',
+      '-e',
+      'close access fp',
+    ]);
+    return {
+      restore: `set the clipboard to (read (POSIX file ${JSON.stringify(png)}) as \u00abclass PNGf\u00bb)`,
+    };
+  } catch {
+    /* no image on the clipboard, which is the ordinary case */
+  }
+
+  try {
+    const out = await capture('/usr/bin/pbpaste', []);
+    if (out.length === 0) return null;
+    await writeFile(text, out, { mode: 0o600 });
+    return {
+      restore: `set the clipboard to (read (POSIX file ${JSON.stringify(text)}) as \u00abclass utf8\u00bb)`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Put the clipboard back, but only if the image we put there is still the thing on it.
+ *
+ * Copying something in the moment between a drop and its restore is rare and undoing it would be
+ * infuriating, so the size of the image on the clipboard is compared with the size of the one that
+ * was put there. A clipboard holding anything else, or a different image, is left as it is.
+ */
+export async function restoreClipboard(backup: ClipboardBackup, ourSize: number): Promise<boolean> {
+  if (!backup) return false;
+  let size: number;
+  try {
+    // `clipboard info` answers with the flavors and their sizes, which is the cheapest way to ask
+    // "is this still ours" without reading the whole image back out.
+    const info = await capture('/usr/bin/osascript', [
+      '-e',
+      'try',
+      '-e',
+      // `clipboard info` answers as flavor, size pairs, so the second item is the size in bytes.
+      'return (item 2 of (item 1 of (clipboard info for \u00abclass PNGf\u00bb)))',
+      '-e',
+      'on error',
+      '-e',
+      'return 0',
+      '-e',
+      'end try',
+    ]);
+    size = Number.parseInt(info.toString('utf8').trim(), 10);
+  } catch {
+    return false;
+  }
+  if (size !== ourSize) return false;
+  await run('/usr/bin/osascript', ['-e', backup.restore]);
+  return true;
+}
+
+function capture(command: string, args: string[]): Promise<Buffer> {
+  return new Promise<Buffer>((resolve, reject) => {
+    execFile(command, args, { timeout: 10000, encoding: 'buffer' }, (err, stdout) => {
+      if (err) reject(new Error(`${command} failed: ${err.message}`));
+      else resolve(stdout);
+    });
+  });
+}

@@ -153,6 +153,8 @@ webpage can start a drag and a file can be named anything a filesystem allows.
 | 8 MB per file, 8 files per drop | A frame is capped at 16 MB and base64 costs a third on top. A drop is not a file transfer |
 | Copies older than seven days are swept on the next drop | Nothing has to remember to tidy up |
 | The path is shell-quoted, with a trailing space and never a newline | The same rule as everything else staged at a prompt. This is the whole difference between staging and running |
+| A drop into a text field is left to the field | The window takes drops so a file can be let go anywhere, and a field that already takes drops is the better target. Both running put the same text at a prompt nobody could see |
+| Nothing is staged into a pane that is not on screen | Text put into a hidden pane waits there to be carried along by whatever is typed next |
 
 **Detected local servers are offered, not opened.** A process binding a port is not a request
 for a browser tab. The offer appears in the tab that started it and fades on its own; accepting

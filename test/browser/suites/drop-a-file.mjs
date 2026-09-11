@@ -113,5 +113,39 @@ r.ok(
 );
 r.ok('and it is staged rather than run', !afterText.includes('command not found'), 'it ran');
 
+/*
+ * A drop on the launcher's path box belongs to the box, not to the window.
+ *
+ * Reported: dropping a path there put it in the box and staged the same text at the prompt of the
+ * pane behind the start screen, where it waited to be carried along by the next thing typed. What
+ * came out was `/Users/halvis82cd ~/Downloads/`.
+ */
+const onTheBox = await evaluate(
+  client,
+  `(() => {
+    const input = document.querySelector('.launcher-input');
+    if (!input) return JSON.stringify({ value: 'no path box' });
+    const before = window.__tabterm.readScreen();
+    const dt = new DataTransfer();
+    dt.setData('text/plain', '/Users/somebody/a-dropped-path');
+    for (const type of ['dragenter', 'dragover', 'drop']) {
+      input.dispatchEvent(new DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true }));
+    }
+    return JSON.stringify({ value: input.value });
+  })()`,
+);
+await sleep(900);
+const parsed = JSON.parse(String(onTheBox));
+r.ok('the path box takes the drop', parsed.value.includes('a-dropped-path'), String(parsed.value));
+const afterBox = String(await evaluate(client, 'window.__tabterm.readScreen() ?? ""'));
+r.ok(
+  'and the terminal behind it is left alone',
+  !afterBox.includes('a-dropped-path'),
+  afterBox
+    .split(String.fromCharCode(10))
+    .filter((l) => l.trim())
+    .slice(-1)[0] ?? '',
+);
+
 await finish();
 r.done();

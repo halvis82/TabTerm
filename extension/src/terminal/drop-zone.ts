@@ -36,6 +36,22 @@ export function whatIsCarried(types: readonly string[] | undefined): Carried | n
   return has.includes('text/plain') || has.includes('text/uri-list') ? 'text' : null;
 }
 
+/**
+ * Whether something inside the window is a better target for this drop than the window is.
+ *
+ * The launcher's path box takes a dropped path itself, and did so before any of this existed. The
+ * window listens on the way up, so both ran: the box took the path **and** the same text was staged
+ * at the prompt of the pane behind the start screen, where it sat until the next thing typed there
+ * carried it along. That produced `/Users/halvis82cd ~/Downloads/` and is exactly the kind of
+ * failure a window-wide handler invites. A text field is a drop target already, and a better one.
+ */
+export function hasItsOwnDropTarget(
+  target: { closest(selector: string): unknown } | null,
+): boolean {
+  if (!target) return false;
+  return target.closest('input, textarea, [contenteditable="true"]') !== null;
+}
+
 /** What the window says letting go will do. */
 export const DROP_LABEL: Record<Carried, string> = {
   files: 'Drop to add the file',

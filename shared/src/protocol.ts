@@ -236,6 +236,14 @@ export type ClientMessage =
    * Base64 because a control frame is JSON, and capped well under the frame limit.
    */
   | { t: 'stage-file'; sessionId: string; name: string; type: string; data: string }
+  /**
+   * The pasted image has been taken, so what was on the clipboard can go back.
+   *
+   * Sent once the pane has reacted to the paste key, which is the agent having acted on it rather
+   * than a guess about how long that takes. Nothing tells us a clipboard has been read: reading one
+   * leaves no trace, so this is the nearest thing to being told.
+   */
+  | { t: 'restore-clipboard'; sessionId: string }
   | {
       t: 'attach';
       sessionId?: string;

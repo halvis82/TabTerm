@@ -851,8 +851,23 @@ key is invented.
 
 Only into an agent, which the daemon knows because a session running one has an `agentState`. In a
 shell that key means "take the next character literally" and a shell has no use for an image, so
-there a path is still what lands. **A drop of an image does replace what is on the system
-clipboard**, which is the price of the mechanism being the clipboard.
+there a path is still what lands.
+
+**What was on the clipboard goes back afterwards.** It is saved before the image takes its place and
+restored once the drop has been taken. Text and an image both survive that round trip exactly, which
+was measured rather than assumed. Two things make it safe:
+
+- **When.** Nothing tells us a clipboard has been read, because reading one leaves no trace on
+  macOS, so putting it back too early would hand the agent the old clipboard instead of the image.
+  The page waits until the pane has printed something, which is the agent having acted on the key
+  rather than a guess about how long that takes, and caps that wait so a program that says nothing
+  never leaves the clipboard replaced for good
+- **Whether.** The restore only happens if the image we put there is still the thing on the
+  clipboard, compared by size through `clipboard info`. Copying something in that moment is never
+  undone
+
+A clipboard holding something that is neither text nor an image is left alone rather than restored
+badly, which is no worse than before any of this existed.
 
 Dragged text is staged as text, under the same rules as a selection sent from a page. Files win
 over text when a drag carries both, because a file dragged out of Finder carries its name as text

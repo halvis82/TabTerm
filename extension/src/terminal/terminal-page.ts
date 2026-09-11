@@ -28,6 +28,7 @@ import {
   DragDepth,
   DROP_LABEL,
   droppedText,
+  hasItsOwnDropTarget,
   MAX_DROPPED_FILES,
   whatIsCarried,
 } from './drop-zone.js';
@@ -2591,9 +2592,13 @@ function installDropTarget(): void {
     if (overlay) overlay.hidden = !on;
   };
 
+  /** Whether this drag belongs to something inside the window rather than to the window. */
+  const notOurs = (e: DragEvent): boolean =>
+    hasItsOwnDropTarget(e.target instanceof Element ? e.target : null) || e.defaultPrevented;
+
   window.addEventListener('dragenter', (e) => {
     const carried = whatIsCarried(e.dataTransfer?.types);
-    if (!carried) return;
+    if (!carried || notOurs(e)) return;
     e.preventDefault();
     if (depth.enter()) {
       if (label) label.textContent = DROP_LABEL[carried];
@@ -2603,6 +2608,12 @@ function installDropTarget(): void {
 
   window.addEventListener('dragover', (e) => {
     if (!whatIsCarried(e.dataTransfer?.types)) return;
+    if (notOurs(e)) {
+      // Over a field that takes its own drops. Put the window's own sign away while it is there.
+      depth.end();
+      show(false);
+      return;
+    }
     // Both of these are required, on every event and not only the first. Without them the drop
     // never fires at all and Chrome does its own thing, which is to open the file in the tab.
     e.preventDefault();
@@ -2610,16 +2621,16 @@ function installDropTarget(): void {
   });
 
   window.addEventListener('dragleave', (e) => {
-    if (!whatIsCarried(e.dataTransfer?.types)) return;
+    if (!whatIsCarried(e.dataTransfer?.types) || notOurs(e)) return;
     if (depth.leave()) show(false);
   });
 
   window.addEventListener('drop', (e) => {
     const carried = whatIsCarried(e.dataTransfer?.types);
-    if (!carried) return;
-    e.preventDefault();
     depth.end();
     show(false);
+    if (!carried || notOurs(e)) return;
+    e.preventDefault();
     if (carried === 'files') {
       void takeDroppedFiles([...(e.dataTransfer?.files ?? [])]);
       return;
@@ -2638,17 +2649,44 @@ function installDropTarget(): void {
   });
 }
 
-/** Put text at the prompt of the focused pane, staged and never run. */
-function stageAtPrompt(text: string): void {
+/**
+ * The pane a drop should land in, or nothing when no pane is on screen.
+ *
+ * A pane nobody can see is not a place to put anything. The start screen keeps the previous pane
+ * behind it, and staging into that one put text where it could not be seen, waiting to be carried
+ * along by whatever was typed next.
+ */
+function paneForDrop(): { streamId: number; sessionId: string } | undefined {
   const pane = panesHost?.get(splitView?.focused ?? panesHost.all[0]?.paneId ?? '');
-  if (!pane) return;
+  if (!pane) return undefined;
+  return pane.element.getBoundingClientRect().height > 4 ? pane : undefined;
+}
+
+/** Say a drop had nowhere to go, where a drop was made. */
+function noPaneForDrop(): void {
+  setStatus('Open a terminal first', 'warn');
+  setTimeout(() => {
+    setStatus('', 'hidden');
+  }, 2200);
+}
+
+/** Put text at the prompt of the pane in front, staged and never run. */
+function stageAtPrompt(text: string): void {
+  const pane = paneForDrop();
+  if (!pane) {
+    noPaneForDrop();
+    return;
+  }
   client?.write(pane.streamId, new TextEncoder().encode(text));
 }
 
 /** Hand each dropped file to the daemon, which writes it and answers with what to do about it. */
 async function takeDroppedFiles(files: File[]): Promise<void> {
-  const pane = panesHost?.get(splitView?.focused ?? panesHost.all[0]?.paneId ?? '');
-  if (!pane?.sessionId || !client) return;
+  const pane = paneForDrop();
+  if (!pane?.sessionId || !client) {
+    noPaneForDrop();
+    return;
+  }
 
   const taking = files.slice(0, MAX_DROPPED_FILES);
   if (taking.length < files.length) {
@@ -5209,6 +5247,20 @@ function onControl(msg: ServerMessage): void {
          */
         client?.write(target.streamId, new Uint8Array([0x16]));
         setStatus(`${msg.name} pasted`, 'ok');
+        /*
+         * And then what was on the clipboard goes back.
+         *
+         * Once the pane has said something, which is the agent having acted on the key. Nothing
+         * tells us a clipboard has been read, because reading one leaves no trace, so a pane that
+         * has printed is the nearest thing to being told. The wait is capped so a program that
+         * says nothing never leaves the clipboard replaced for good, and the daemon puts it back
+         * only if our image is still the thing sitting on it.
+         */
+        panesHost?.onceOutput(target.paneId, 4000, () => {
+          setTimeout(() => {
+            client?.send({ t: 'restore-clipboard', sessionId: msg.sessionId });
+          }, 600);
+        });
       } else {
         /*
          * Quoted, because the name came off a dragged file and may hold a space or worse, and

@@ -34,8 +34,11 @@ import {
   MAX_DROP_BYTES,
   copyImageToClipboard,
   isImage,
+  restoreClipboard,
+  saveClipboard,
   sweepDrops,
   writeDrop,
+  type ClipboardBackup,
 } from './dropped-files.js';
 import { openPath, resolvePaths } from './paths.js';
 import { processCwd } from './process-cwd.js';
@@ -279,6 +282,14 @@ export class DaemonServer {
   readonly #wss: WebSocketServer;
   readonly #config: Config;
   readonly #sessions: SessionManager;
+
+  /**
+   * What was on the clipboard before a dropped image took its place.
+   *
+   * One at a time, because a person drops one image at a time and a second drop before the
+   * first has been taken would have nothing sensible to put back anyway.
+   */
+  #clipboardBackup: { backup: ClipboardBackup; size: number } | undefined;
   readonly #workspaces: WorkspaceStore;
   readonly #launcher: LauncherData;
   readonly #trust: ProjectTrust;
@@ -1516,6 +1527,16 @@ export class DaemonServer {
         return;
       }
 
+      case 'restore-clipboard': {
+        const pending = this.#clipboardBackup;
+        if (!pending) return;
+        this.#clipboardBackup = undefined;
+        void restoreClipboard(pending.backup, pending.size).catch((err: unknown) => {
+          warn('drop.clipboard-restore-failed', { error: safeError(err) });
+        });
+        return;
+      }
+
       case 'stage-file': {
         /*
          * A file dropped onto a window, turned into a path.
@@ -1563,7 +1584,21 @@ export class DaemonServer {
            * and a shell has no use for an image anyway, so a path is the useful answer there.
            */
           const toClipboard = isImage(msg.type, msg.name) && session.agentState !== undefined;
-          if (toClipboard) await copyImageToClipboard(path, msg.type, msg.name);
+          if (toClipboard) {
+            /*
+             * What was on the clipboard is kept so it can go back.
+             *
+             * Asked for, and it works: text and an image both survive the round trip byte for
+             * byte, measured rather than assumed. Put back when the page says the pane has
+             * reacted, and only if our image is still the thing on the clipboard, so copying
+             * something in that moment is never undone.
+             */
+            this.#clipboardBackup = {
+              backup: await saveClipboard(paths.dropped),
+              size: bytes.length,
+            };
+            await copyImageToClipboard(path, msg.type, msg.name);
+          }
           send(
             client.socket,
             controlFrame({

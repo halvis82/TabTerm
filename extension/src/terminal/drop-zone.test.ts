@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { dragCarriesFiles, droppedText, whatIsCarried, DragDepth } from './drop-zone.js';
+import {
+  dragCarriesFiles,
+  droppedText,
+  whatIsCarried,
+  hasItsOwnDropTarget,
+  DragDepth,
+} from './drop-zone.js';
 
 const ESC = String.fromCharCode(27);
 
@@ -76,5 +82,22 @@ describe('what is worth taking from a drag', () => {
   it('takes nothing from a drag carrying neither', () => {
     expect(whatIsCarried(['application/x-moz-nativeimage'])).toBeNull();
     expect(whatIsCarried([])).toBeNull();
+  });
+});
+
+describe('a drop that something inside the window already handles', () => {
+  const on = (matches: string[]) => ({
+    closest: (selector: string) => (matches.includes(selector) ? {} : null),
+  });
+
+  it('leaves a text field to itself', () => {
+    // The launcher's path box takes a dropped path already. The window taking it as well put the
+    // same text at the prompt of the pane behind the start screen.
+    expect(hasItsOwnDropTarget(on(['input, textarea, [contenteditable="true"]']))).toBe(true);
+  });
+
+  it('takes a drop on anything else', () => {
+    expect(hasItsOwnDropTarget(on([]))).toBe(false);
+    expect(hasItsOwnDropTarget(null)).toBe(false);
   });
 });
