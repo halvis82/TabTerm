@@ -438,7 +438,9 @@ so markers there could be seen and never clicked.
 **A path shows it is clickable only while the pointer is on it.** The cursor used to change for
 the whole screen the moment the modifier went down, which announced that something was clickable
 without saying what, and said it over blank space too. Pointer and underline are xterm's own and
-apply per link, and the link's own cells take a color on top of that.
+apply per link. The underline is TabTerm's own rather than xterm's, because xterm draws its link
+underline in the cell's existing color and so disagreed with the color the link was being drawn in.
+Both now come from one place, so the line under a path is always the color of the path.
 
 The color is chosen against the text rather than fixed: blue normally, red when the text is already
 blue. Agent output is full of color and a path an agent printed is very often blue, so a link that

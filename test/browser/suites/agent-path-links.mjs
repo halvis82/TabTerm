@@ -74,6 +74,21 @@ r.ok('one pass of the pointer is enough to light it up', lit, 'no pointer');
 
 const marked = () => evaluate(client, `document.querySelectorAll('.xterm-decoration').length > 0`);
 r.ok('it is marked while the pointer is on it', await marked(), 'nothing was marked');
+// The underline and the text are one color. It used to be underlined in whatever the cell was.
+const underline = String(
+  await evaluate(
+    client,
+    `(() => {
+      const d = [...document.querySelectorAll('.xterm-decoration')][0];
+      return d ? d.style.borderBottom : '';
+    })()`,
+  ),
+);
+r.ok(
+  'the underline is drawn in the link color',
+  /rgb\(78, *161, *255\)|rgb\(255, *95, *95\)/.test(underline),
+  underline,
+);
 r.ok(
   'and the mark is not a box',
   !(await evaluate(

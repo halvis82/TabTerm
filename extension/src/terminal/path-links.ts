@@ -156,10 +156,16 @@ export function createPathLinkProvider(term: Terminal, opts: PathLinkOptions): I
 
       const hoverable = (link: ILink): ILink => ({
         ...link,
-        // Pointer and underline are xterm's own, and they appear only while the pointer is
-        // actually on the link. The cursor used to change for the whole screen the moment the
-        // modifier went down, which said "something here is clickable" without saying what.
-        decorations: { pointerCursor: held, underline: held },
+        /*
+         * The pointer is xterm's. The underline is not.
+         *
+         * xterm draws its link underline in the cell's own color, which is not the color the link
+         * is being drawn in, so the two disagreed. Ours is drawn with the mark below, from one
+         * color, and appears only while the pointer is actually on the link. The cursor used to
+         * change for the whole screen the moment the modifier went down, which said "something
+         * here is clickable" without saying what.
+         */
+        decorations: { pointerCursor: held, underline: false },
         hover: () => {
           clearHighlight();
           if (!held) return;
@@ -277,6 +283,9 @@ function readWrappedLine(
  * The color is chosen against the text rather than fixed, because agent output is full of color
  * and a path an agent printed is very often already blue. See `link-color.ts`.
  *
+ * The underline comes from here too rather than from xterm, which draws its own in the cell's
+ * color and so disagreed with the color the link was being drawn in.
+ *
  * One decoration per row, because a decoration is a rectangle and a link that wraps is not one.
  * Returns whatever was created, which may be nothing: decorations are refused while the
  * alternate screen is active, and a link inside a full-screen program is not worth chasing.
@@ -307,8 +316,10 @@ function paintRange(term: Terminal, range: IBufferRange, color: string): IDecora
       marker.dispose();
       continue;
     }
-    // The mark must never be the thing under the pointer, or hovering it would count as leaving.
     decoration.onRender((element) => {
+      // The underline, in the same color as the text rather than in the color the text used to be.
+      element.style.borderBottom = `1px solid ${color}`;
+      // The mark must never be the thing under the pointer, or hovering it would count as leaving.
       element.style.pointerEvents = 'none';
     });
     made.push(decoration);
