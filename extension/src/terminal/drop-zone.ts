@@ -31,10 +31,22 @@ export type Carried = 'files' | 'text';
  * Taking the text there would put a bare filename at the prompt instead of a usable path.
  */
 export function whatIsCarried(types: readonly string[] | undefined): Carried | null {
-  if (dragCarriesFiles(types)) return 'files';
+  /*
+   * A pane being dragged onto another pane is not a drop this window has any business in.
+   *
+   * It carries its own type and nothing else, so it is refused here rather than being matched
+   * as text further down. Without this, dragging a pane across the window lit the whole window
+   * up as a drop target and letting go staged something at a prompt, which is the same failure
+   * the path box produced and is the reason this function exists at all.
+   */
   const has = types ?? [];
+  if (has.includes(PANE_DRAG_TYPE)) return null;
+  if (dragCarriesFiles(types)) return 'files';
   return has.includes('text/plain') || has.includes('text/uri-list') ? 'text' : null;
 }
+
+/** Kept here as well as in the split view, so this module depends on nothing that draws. */
+export const PANE_DRAG_TYPE = 'application/x-tabterm-pane';
 
 /**
  * Whether something inside the window is a better target for this drop than the window is.

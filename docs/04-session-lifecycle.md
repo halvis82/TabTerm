@@ -621,6 +621,24 @@ ended rather than left running, because it is in no layout and nothing can reach
 Keeping the pane id matters beyond tidiness: the split ratios around a pane are recorded against
 it, so a replacement leaves the rest of the arrangement exactly as it was.
 
+### Panes change places by dragging one onto another
+
+A pane's **bar** is the handle. The terminal is not: a drag that starts on a terminal is a text
+selection, and trading that away to gain reordering would be a bad bargain.
+
+It is a **swap**, not a free rearrangement, and that is what makes it cheap. The split ratios belong
+to the positions in the tree rather than to the panes, so two panes exchanging places leaves every
+ratio and every split exactly as it was. Dropping onto an edge to re-split would move the boundaries
+too, and is a different thing.
+
+The drag carries its own type, `application/x-tabterm-pane`, and every decision is made from that
+rather than from anything the page remembers starting. A drag carrying that type is refused by the
+window-wide file handler, which would otherwise light the whole window up and stage something at a
+prompt when it was let go.
+
+The new arrangement goes to the daemon like every other layout change, so a second view of the same
+workspace follows it and a reload finds it.
+
 ### The recovery screen takes a late answer
 
 It asks two things at once and they come back at different speeds. What this workspace was is a

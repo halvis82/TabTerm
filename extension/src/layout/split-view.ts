@@ -1,4 +1,5 @@
 import type { LayoutNode } from '@tabterm/shared';
+import { PANE_DRAG_TYPE } from '../terminal/drop-zone.js';
 
 /**
  * Renders a layout tree as nested flex boxes, with draggable dividers.
@@ -26,6 +27,8 @@ export interface SplitViewOptions {
   onClosePane?: (paneId: string) => void;
   /** The pane's own menu, at a point, from the dots on its bar. */
   onPaneMenu?: (paneId: string, x: number, y: number) => void;
+  /** Two panes exchanging places, from a bar dragged onto another pane. */
+  onSwapPanes?: (a: string, b: string) => void;
 }
 
 export class SplitView {
@@ -257,6 +260,7 @@ export class SplitView {
       wrapper.dataset['paneId'] = paneId;
       wrapper.append(this.#titleBar(paneId), this.#opts.paneElement(paneId, sessionId));
       wrapper.addEventListener('pointerdown', () => this.focus(paneId));
+      this.#armDropTarget(wrapper, paneId);
       this.#wrappers.set(paneId, wrapper);
       this.#resizeObserver.observe(wrapper);
     }
@@ -311,7 +315,71 @@ export class SplitView {
     });
 
     bar.append(menu, close);
+    this.#armDrag(bar, paneId);
     return bar;
+  }
+
+  /**
+   * Dragging a pane's bar onto another pane exchanges the two.
+   *
+   * The bar rather than the terminal, because a drag that starts on the terminal is a text
+   * selection, and a pane you cannot select text in to gain one you can reorder is a bad trade.
+   * The bar is furniture and has nothing else to do with a press.
+   *
+   * A swap rather than a free rearrangement, which is what was asked for and is also the cheap
+   * operation: the sizes belong to the positions rather than to the panes, so two panes changing
+   * places leaves every ratio in the tree exactly as it was. Dropping onto an edge to re-split
+   * would move the boundaries as well, and is a different feature.
+   */
+  #armDrag(bar: HTMLElement, paneId: string): void {
+    bar.draggable = true;
+    bar.addEventListener('dragstart', (e) => {
+      e.dataTransfer?.setData(PANE_DRAG_TYPE, paneId);
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+    });
+    bar.addEventListener('dragend', () => this.#clearDropMarks());
+  }
+
+  #clearDropMarks(): void {
+    for (const wrapper of this.#wrappers.values()) wrapper.classList.remove('is-swap-target');
+  }
+
+  /**
+   * A pane accepts another pane dropped on it, and nothing else.
+   *
+   * `dragover` has to `preventDefault` on **every** event rather than only on entering, or the
+   * drop never fires. And the highlight is set from the wrapper the pointer is actually over
+   * rather than counted in and out, because `dragleave` fires on every child boundary and a pane
+   * is nothing but child boundaries. See `drop-zone.ts`, which learned both the hard way.
+   */
+  #armDropTarget(wrapper: HTMLElement, paneId: string): void {
+    /*
+     * Decided from what the drag is carrying, never from what this object remembers starting.
+     *
+     * `types` is readable while a drag is in flight and the data itself is not, which is the
+     * browser's rule and is enough: a drag carrying this type is a pane. Reading it from a field
+     * set by `dragstart` would have been the same answer in the ordinary case and no answer at
+     * all for a drag that began somewhere this object is not, which includes every way of
+     * driving one that is not a hand.
+     */
+    wrapper.addEventListener('dragover', (e) => {
+      const carried = e.dataTransfer;
+      if (!(carried?.types ?? []).includes(PANE_DRAG_TYPE)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (carried) carried.dropEffect = 'move';
+      this.#clearDropMarks();
+      wrapper.classList.add('is-swap-target');
+    });
+    wrapper.addEventListener('drop', (e) => {
+      const from = e.dataTransfer?.getData(PANE_DRAG_TYPE) ?? '';
+      this.#clearDropMarks();
+      if (from === '' || from === paneId) return;
+      // Ours, so the window-wide file drop handler never sees it. See `drop-zone.ts`.
+      e.preventDefault();
+      e.stopPropagation();
+      this.#opts.onSwapPanes?.(from, paneId);
+    });
   }
 
   /** Refresh what every bar says, which changes as sessions are named and processes come and go. */

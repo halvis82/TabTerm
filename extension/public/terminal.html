@@ -48,6 +48,16 @@
     flex: 1 1 100%;
   }
 
+  /* The pane a dragged pane would change places with. Its own outline rather than the focus one,
+     since the two mean different things and can be true at the same moment. */
+  .pane.is-swap-target {
+    outline: 2px dashed var(--accent);
+    outline-offset: -3px;
+  }
+  .pane-bar[draggable='true'] {
+    cursor: grab;
+  }
+
   .pane {
     position: relative;
     min-width: 0;

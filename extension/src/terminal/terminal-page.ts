@@ -2963,6 +2963,17 @@ function buildHosts(): void {
      * with a list that is already right.
      */
     onPaneMenu: (paneId, x, y) => panesHost?.get(paneId)?.controller.openMenuAt(x, y),
+    /**
+     * Two panes exchanging places, from one bar dragged onto the other pane.
+     *
+     * Sent to the daemon rather than rearranged here, for the same reason every other layout
+     * change is: the layout is the daemon's, a second tab looking at this workspace has to see
+     * it too, and a reload has to find it. The tree comes back on `workspace-updated`.
+     */
+    onSwapPanes: (a, b) => {
+      if (!workspaceId) return;
+      client?.send({ t: 'swap-panes', workspaceId, a, b });
+    },
     onPaneResized: (paneId) => {
       const size = panesHost?.fit(paneId);
       if (size && workspaceId && attached) {

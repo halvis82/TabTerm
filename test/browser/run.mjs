@@ -232,8 +232,15 @@ const COVERS = [
   ['daemon/src/notify', ['notifications']],
   ['daemon/src/launcher-data', ['command-panel', 'folder-picker', 'palette', 'menu-aftermath']],
   ['extension/src/launcher/panel-view', ['command-panel', 'panel-focus', 'panel-in-view']],
-  ['extension/src/layout/split-view', ['pane-bar', 'layout', 'workspace', 'multi-pane-sweep']],
-  ['shared/src/layout', ['always-typeable', 'layout', 'workspace', 'undo-close', 'pane-close']],
+  [
+    'extension/src/layout/split-view',
+    ['pane-bar', 'layout', 'workspace', 'multi-pane-sweep', 'pane-swap'],
+  ],
+  ['extension/src/terminal/drop-zone', ['drop-a-file', 'pane-swap']],
+  [
+    'shared/src/layout',
+    ['always-typeable', 'layout', 'workspace', 'undo-close', 'pane-close', 'pane-swap'],
+  ],
   ['daemon/src/workspace-store', ['always-typeable', 'layout', 'workspace', 'undo-close']],
   ['daemon/src/pty-backend', ['terminal', 'survives-restart', 'resilience', 'sessions']],
   ['daemon/src/cleanup', ['sessions', 'tab-persistence']],

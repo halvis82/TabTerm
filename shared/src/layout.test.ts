@@ -106,6 +106,58 @@ describe('layout tree', () => {
     expect(isValidLayout(swapped)).toBe(true);
   });
 
+  /**
+   * The property that makes a swap the cheap operation, and the reason it is what was asked for.
+   *
+   * The sizes belong to the positions rather than to the panes, so two panes changing places must
+   * leave every ratio and every split exactly where it was. If it did not, reordering panes would
+   * quietly resize them, and a swap would be a rearrangement with a surprise in it.
+   */
+  it('leaves the shape and every ratio untouched', () => {
+    let t = splitPane(root(), 'p1', 'horizontal', 'p2', 's2');
+    t = splitPane(t, 'p2', 'vertical', 'p3', 's3');
+    t = setRatio(t, 'p1', 0.3);
+    const shape = (node: LayoutNode): string =>
+      node.type === 'terminal'
+        ? 'T'
+        : `(${node.direction}:${node.ratio.toFixed(3)} ${shape(node.children[0])} ${shape(node.children[1])})`;
+    expect(shape(swapPanes(t, 'p1', 'p3'))).toBe(shape(t));
+  });
+
+  it('carries a name and a color with the pane, since both belong to the terminal in it', () => {
+    const named: LayoutNode = {
+      type: 'split',
+      direction: 'horizontal',
+      ratio: 0.5,
+      children: [
+        {
+          type: 'terminal',
+          paneId: 'p1',
+          sessionId: 's1',
+          label: 'left one',
+          labelColor: '#aabbcc',
+        },
+        { type: 'terminal', paneId: 'p2', sessionId: 's2' },
+      ],
+    };
+    const swapped = swapPanes(named, 'p1', 'p2');
+    expect(panes(swapped).map((p) => p.paneId)).toEqual(['p2', 'p1']);
+    const moved = findPane(swapped, 'p1');
+    expect(moved?.type === 'terminal' ? moved.label : '').toBe('left one');
+    expect(moved?.type === 'terminal' ? moved.labelColor : '').toBe('#aabbcc');
+  });
+
+  it('refuses a pane that is not there rather than dropping one', () => {
+    const t = splitPane(root(), 'p1', 'horizontal', 'p2', 's2');
+    expect(() => swapPanes(t, 'p1', 'nope')).toThrow();
+    expect(paneCount(t)).toBe(2);
+  });
+
+  it('is a no-op when both are the same pane', () => {
+    const t = splitPane(root(), 'p1', 'horizontal', 'p2', 's2');
+    expect(swapPanes(t, 'p1', 'p1')).toBe(t);
+  });
+
   it('keeps every session attached to its pane through a split', () => {
     let t = splitPane(root(), 'p1', 'horizontal', 'p2', 's2');
     t = splitPane(t, 'p1', 'vertical', 'p3', 's3');
