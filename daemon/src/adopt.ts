@@ -1,6 +1,7 @@
 import type { LayoutNode } from '@tabterm/shared';
 import type { Database } from './database.js';
 import { info, warn } from './log.js';
+import { safeError } from './safe-error.js';
 
 /**
  * Taking over sessions that were already running when this daemon started.
@@ -143,4 +144,96 @@ export function prunePanes(layout: LayoutNode, alive: ReadonlySet<string>): Layo
   const second = prunePanes(layout.children[1], alive);
   if (first && second) return { ...layout, children: [first, second] };
   return first ?? second;
+}
+
+/**
+ * What adoption needs, and nothing else.
+ *
+ * Structural on purpose: the real ones are the session manager, the workspace store, the host
+ * backend and the host client, and naming only the four calls that are made keeps this testable
+ * with plain objects rather than a daemon.
+ */
+export interface AdoptionDeps {
+  /** What the host says is still running. */
+  adoptable(): Promise<readonly AdoptableSession[]>;
+  /**
+   * Ask the host for a session's output from a position, so the screen can be rebuilt.
+   *
+   * What it answers with is the caller's business. The host reports how much it could not hand
+   * back, and the daemon turns that into a line in the session itself; adoption only has to wait
+   * for it, because the bytes have to land in a VT that exists.
+   */
+  replay(sessionId: string, from: number): Promise<unknown>;
+  /** Take a running process over, and say which session it became. */
+  adopt(entry: AdoptionPlan['sessions'][number] & { cols: number; rows: number }): {
+    id: string;
+  };
+  /** Put a workspace back, with the panes that survived. */
+  hydrate(workspace: { id: string; layout: LayoutNode }): void;
+  /** Say that catching up is finished, so held output is delivered. */
+  reconciled(): void;
+}
+
+/**
+ * Take over everything that was already running, and say so when it is done.
+ *
+ * Extracted from the daemon's startup because of what was missing rather than for tidiness. The
+ * call that says catching up is over sat inside `if (live.length > 0)`, so a daemon that started
+ * with nothing to adopt never said it, which is every first start after a reboot, after a Reset,
+ * and every browser run.
+ *
+ * Two things followed, and the second is the one that reached a person:
+ *
+ * - A warning on every healthy start. A log that cries wolf on a normal morning is a log nobody
+ *   reads on the morning it matters
+ * - **Five seconds of held output.** A connection holds live frames until it is told it has caught
+ *   up, so a terminal opened inside that window drew nothing until the safety net fired. The
+ *   daemon and Chrome race at login by design, which is exactly when somebody opens the first one
+ *
+ * So it is said on every path out of here, including the failing one. Saying it twice is harmless
+ * and saying it never is not.
+ */
+export async function adoptEverything(
+  deps: AdoptionDeps,
+  db: Database,
+  defaultShell: string,
+): Promise<{ sessions: number; workspaces: number }> {
+  try {
+    const live = await deps.adoptable();
+    if (live.length === 0) return { sessions: 0, workspaces: 0 };
+
+    const plan = planAdoption(live, db, defaultShell);
+    const adopted = new Set<string>();
+    for (const entry of plan.sessions) {
+      /**
+       * Adopted at the size it is really running at, not at eighty by twenty-four.
+       *
+       * The screen is rebuilt by replaying the host's output into a fresh emulator, and an
+       * emulator of the wrong width wraps every line in the wrong place. Every restart used to
+       * rebuild every screen at eighty columns while the terminals themselves carried on at
+       * whatever they were, so a reattaching tab was handed a folded-up copy of its own screen
+       * and a full-screen program had to be resized before it looked right again.
+       */
+      const session = deps.adopt({ ...entry, cols: entry.cols ?? 80, rows: entry.rows ?? 24 });
+      adopted.add(session.id);
+    }
+    for (const workspace of plan.workspaces) {
+      const layout = prunePanes(workspace.layout, adopted);
+      if (layout) deps.hydrate({ id: workspace.id, layout });
+    }
+    // Replay after the sessions exist, so the bytes land in a VT that is listening.
+    for (const entry of plan.sessions) await deps.replay(entry.sessionId, 0);
+
+    info('adopt.complete', { sessions: adopted.size, workspaces: plan.workspaces.length });
+    return { sessions: adopted.size, workspaces: plan.workspaces.length };
+  } catch (e: unknown) {
+    // Adoption is an optimization over "the session expired". Failing it must never stop the
+    // daemon from serving, because then a bad row would cost you every terminal.
+    warn('adopt.failed', { error: safeError(e) });
+    return { sessions: 0, workspaces: 0 };
+  } finally {
+    // The first connection has caught up too: adoption is the same situation as a reconnect,
+    // with the whole history as the gap. Nothing to adopt is still caught up.
+    deps.reconciled();
+  }
 }

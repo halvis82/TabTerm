@@ -145,6 +145,15 @@ released in order, because a screen missing bytes is visible and recoverable whi
 has run out of memory is not. And it is released anyway after five seconds, so a daemon that never
 finishes catching up produces a late terminal rather than a silent one.
 
+**A start with nothing to adopt is still caught up, and says so.** The five second release is a
+safety net and must never be the ordinary way out of the hold. When the daemon says nothing,
+because the host held no sessions or because reading them failed, every terminal opened in the
+next five seconds draws nothing until the net fires, and a warning about an abandoned catch-up
+lands in the log of an entirely healthy start. Both were true of every first start after a
+restart, which is also the moment the daemon and the browser race each other at login. The daemon
+therefore reports that it has caught up on every path out of adoption, including the failing one:
+saying it twice is harmless and saying it never is not.
+
 ## A consumer that stops reading is dropped, not queued
 
 This process holds every PTY master on the machine, and it is the one thing here that cannot be

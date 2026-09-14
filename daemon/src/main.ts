@@ -38,7 +38,7 @@ import { HOST_LOCK, HOST_POINTER, HOST_SOCKET } from './pty-host/paths.js';
 
 /** The shortest the settings panel will offer. Anything under it was never chosen by a person. */
 import { decideReconnect } from './host-reconnect.js';
-import { planAdoption, prunePanes } from './adopt.js';
+import { adoptEverything } from './adopt.js';
 import { readUserSettings } from './user-settings.js';
 import { safeError } from './safe-error.js';
 
@@ -530,60 +530,20 @@ async function main(): Promise<void> {
    */
   if (usingHost) hostClient.setBudget(server.scrollbackBytes);
   if (usingHost) {
-    try {
-      const live = await ptyBackend.adoptable();
-      if (live.length > 0) {
-        const plan = planAdoption(live, db, config.shell);
-        const adopted = new Set<string>();
-        for (const entry of plan.sessions) {
-          /**
-           * Adopted at the size it is really running at, not at eighty by twenty-four.
-           *
-           * The screen is rebuilt by replaying the host's output into a fresh emulator, and an
-           * emulator of the wrong width wraps every line in the wrong place. Every restart used
-           * to rebuild every screen at eighty columns while the terminals themselves carried on
-           * at whatever they were, so a reattaching tab was handed a folded-up copy of its own
-           * screen and a full-screen program had to be resized before it looked right again.
-           *
-           * The host has held the true size all along; it was being discarded one call earlier.
-           */
-          const session = sessions.adopt({
-            ...entry,
-            cols: entry.cols ?? 80,
-            rows: entry.rows ?? 24,
-          });
-          adopted.add(session.id);
-        }
-        for (const workspace of plan.workspaces) {
-          const layout = prunePanes(workspace.layout, adopted);
-          if (layout) {
-            const now = Date.now();
-            workspaces.hydrate({
-              id: workspace.id,
-              layout,
-              pinned: true,
-              createdAt: now,
-              updatedAt: now,
-            });
-          }
-        }
-        // Replay after the sessions exist, so the bytes land in a VT that is listening.
-        for (const entry of plan.sessions) {
-          await (ptyBackend as HostPtyBackend).replay(entry.sessionId, 0);
-        }
-        // And the first connection has caught up too: adoption is the same situation as a
-        // reconnect, with the whole history as the gap.
-        hostClient.reconciled();
-        info('adopt.complete', {
-          sessions: adopted.size,
-          workspaces: plan.workspaces.length,
-        });
-      }
-    } catch (e: unknown) {
-      // Adoption is an optimization over "the session expired". Failing it must never stop the
-      // daemon from serving, because then a bad row would cost you every terminal.
-      warn('adopt.failed', { error: safeError(e) });
-    }
+    await adoptEverything(
+      {
+        adoptable: () => ptyBackend.adoptable(),
+        replay: (sessionId, from) => (ptyBackend as HostPtyBackend).replay(sessionId, from),
+        adopt: (entry) => sessions.adopt(entry),
+        hydrate: ({ id, layout }) => {
+          const now = Date.now();
+          workspaces.hydrate({ id, layout, pinned: true, createdAt: now, updatedAt: now });
+        },
+        reconciled: () => hostClient.reconciled(),
+      },
+      db,
+      config.shell,
+    );
   }
 
   if (usingHost) {

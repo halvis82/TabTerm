@@ -225,6 +225,8 @@ const COVERS = [
   ['daemon/src/pty-host/', ['survives-restart', 'resilience']],
   ['daemon/src/pty-manager', ['survives-restart', 'resilience', 'terminal']],
   ['daemon/src/restore-store', ['reattach']],
+  // Taking over what the host still holds, which is only visible across a daemon restart.
+  ['daemon/src/adopt', ['survives-restart', 'resilience', 'reattach', 'sessions']],
   ['daemon/src/project-', ['project-trust', 'launched-pane']],
   ['daemon/src/notify', ['notifications']],
   ['daemon/src/launcher-data', ['command-panel', 'folder-picker', 'palette', 'menu-aftermath']],
