@@ -212,5 +212,71 @@ await evaluate(client, "document.querySelector('.term-menu')?.remove()");
   );
 }
 
+/**
+ * The keys that do the same thing, printed beside the entry.
+ *
+ * A menu is where somebody looks the first few times and the shortcut is how they stop needing
+ * to, and the two never met. Read from the same stored list the bindings come from, so the menu
+ * cannot promise a combination that was rebound.
+ */
+{
+  await openMenu(60, 60);
+  const shown = JSON.parse(
+    await evaluate(
+      client,
+      `JSON.stringify([...document.querySelectorAll('.term-menu-item')]
+         .filter(b => b.dataset.keys)
+         .map(b => ({ label: b.textContent, keys: b.dataset.keys })))`,
+    ),
+  );
+  const splitRight = shown.find((e) => e.label === 'Split right');
+  r.ok(
+    'the menu prints the keys bound to splitting right',
+    splitRight?.keys === '⇧⌘D',
+    JSON.stringify(shown),
+  );
+  /*
+   * And the label is still only the label.
+   *
+   * Drawn from an attribute for exactly this: a child element would land inside `textContent`,
+   * which is what every check and every helper finds an entry by.
+   */
+  r.ok('and the entry is still found by its own name', splitRight?.label === 'Split right');
+  r.ok(
+    'and does it for more than one entry',
+    shown.length >= 3,
+    shown.map((e) => `${e.label}=${e.keys}`).join(' | '),
+  );
+  await evaluate(client, "document.querySelector('.term-menu')?.remove()");
+
+  // And follows a rebind, because the menu is built when it opens rather than once.
+  await evaluate(
+    client,
+    `(async () => {
+       await chrome.storage.local.set({ 'tabterm.pageShortcuts': [{ id: 'split-right', keys: 'Control+Alt+9' }] });
+     })()`,
+  );
+  await waitFor(
+    client,
+    `(async () => {
+       const held = await chrome.storage.local.get('tabterm.pageShortcuts');
+       return (held['tabterm.pageShortcuts'] ?? []).some(k => k.id === 'split-right');
+     })()`,
+  );
+  await sleep(400);
+  await openMenu(60, 60);
+  const rebound = await evaluate(
+    client,
+    `[...document.querySelectorAll('.term-menu-item')]
+       .find(b => b.textContent === 'Split right')?.dataset.keys ?? ''`,
+  );
+  r.ok('and follows a rebind without a reload', rebound === '⌃⌥9', rebound);
+  await evaluate(client, "document.querySelector('.term-menu')?.remove()");
+  await evaluate(
+    client,
+    `(async () => { await chrome.storage.local.remove('tabterm.pageShortcuts'); })()`,
+  );
+}
+
 await finish();
 r.done();

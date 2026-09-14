@@ -1429,6 +1429,22 @@
     font-size: 13px;
     cursor: pointer;
   }
+  /* The keys that do the same thing, pushed right and drawn quieter than the label. Drawn from
+     an attribute so the label stays the whole of the entry's textContent, which is what it is
+     matched by everywhere. An entry with no shortcut carries no attribute and is untouched. */
+  .term-menu-item[data-keys] {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+  }
+  .term-menu-item[data-keys]::after {
+    content: attr(data-keys);
+    color: var(--dim);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
   /* An entry that carries its color beside it. The label takes the width so the swatch stays
      on the right edge, where it reads as a setting for the entry rather than a second entry. */
   .term-menu-item.is-toggle {

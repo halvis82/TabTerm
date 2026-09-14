@@ -65,4 +65,39 @@ describe('what a tab is called', () => {
   it('never produces an empty title, even knowing nothing at all', () => {
     expect(composeTitle({})).not.toBe('');
   });
+
+  /**
+   * A name somebody typed goes in front of what the tab would have been called anyway.
+   *
+   * It is the one part of a title that was chosen rather than derived, and a tab strip is read
+   * from the left, so it has to be the half that survives being cut off.
+   */
+  describe('a session somebody named', () => {
+    const fields = { cwd: '/Users/someone/code/eeg', process: 'claude' };
+
+    it('puts the name first and keeps the rest', () => {
+      expect(composeTitle(fields, undefined, 'training run')).toBe('training run — claude — eeg');
+    });
+
+    it('keeps the status on the end where it always was', () => {
+      expect(composeTitle(fields, 'waiting', 'training run')).toBe(
+        'training run — claude — eeg · waiting',
+      );
+    });
+
+    it('goes in front even when all the tab can say is that it is a shell', () => {
+      expect(composeTitle({}, undefined, 'scratch')).toBe('scratch — zsh');
+    });
+
+    it('ignores a name that is only spaces', () => {
+      // The form trims before it stores, and a title is not the place to find out it did not.
+      expect(composeTitle(fields, undefined, '   ')).toBe('claude — eeg');
+    });
+
+    it('is absent when the tab holds more than one pane', () => {
+      // Decided by the caller, which only passes a name for a tab that is one session. Asserted
+      // here so the rule is written down where the composition is.
+      expect(composeTitle({ cwd: '/Users/someone/code/eeg', paneCount: 3 })).toBe('3 panes — eeg');
+    });
+  });
 });

@@ -688,6 +688,19 @@ function setStatus(text: string, tone: 'ok' | 'warn' | 'error' | 'hidden'): void
   statusEl.hidden = tone === 'hidden';
 }
 
+/**
+ * The name on this tab's only pane, when it has exactly one.
+ *
+ * A name somebody typed is the best thing a tab can be called, and it belongs to the tab only
+ * while the tab is that one session. The moment a second pane exists the name is one of several
+ * and the tab goes back to describing itself.
+ */
+function soleLabel(): string | undefined {
+  if (!layout || layout.type !== 'terminal') return undefined;
+  const label = layout.label?.trim();
+  return label === undefined || label === '' ? undefined : label;
+}
+
 function refreshTitle(status?: string): void {
   const count = layout ? collectPanes(layout).length : 1;
   /**
@@ -704,7 +717,7 @@ function refreshTitle(status?: string): void {
     ...(lastCommandHere ? { lastCommand: lastCommandHere } : {}),
   };
   // With several panes the interesting thing is what needs attention, not the pane count.
-  document.title = composeTitle(fields, status ?? titleStatus(paneStatus, count));
+  document.title = composeTitle(fields, status ?? titleStatus(paneStatus, count), soleLabel());
 }
 
 /**
@@ -1999,10 +2012,24 @@ function wayOutItems(separated: boolean): ShellItem[] {
  * menu is one thing with two states, so the row follows the state it is in. Right-clicking inside
  * the panel already said "Close menu"; everywhere else went on offering to open what was open.
  */
+/**
+ * The keys bound to an action, as a keyboard shows them, or undefined when it has none.
+ *
+ * Read from the same list the shortcuts are stored in rather than written beside each entry,
+ * because two lists of keys is how a menu comes to promise a combination that was rebound. A
+ * menu is built when it opens, so a rebind is reflected without a reload and without anything
+ * here having to be told about it.
+ */
+function keysFor(shortcutId: string): string {
+  const keys = pageShortcuts.find((k) => k.id === shortcutId)?.keys;
+  return keys === undefined || keys === '' ? '' : prettyKeys(keys);
+}
+
 function menuToggleItem(): ShellItem {
+  const keys = keysFor('command-menu');
   return commandPanel?.isOpen === true
-    ? { label: 'Close menu', run: () => commandPanel?.close() }
-    : { label: 'Open menu', run: () => commandPanel?.open() };
+    ? { label: 'Close menu', keys, run: () => commandPanel?.close() }
+    : { label: 'Open menu', keys, run: () => commandPanel?.open() };
 }
 
 /**
@@ -4332,11 +4359,21 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
         });
       },
     },
-    { label: 'Split right', separated: true, run: target(() => splitFocused('horizontal')) },
-    { label: 'Split down', run: target(() => splitFocused('vertical')) },
+    {
+      label: 'Split right',
+      separated: true,
+      keys: keysFor('split-right'),
+      run: target(() => splitFocused('horizontal')),
+    },
+    {
+      label: 'Split down',
+      keys: keysFor('split-down'),
+      run: target(() => splitFocused('vertical')),
+    },
     {
       label: 'Move to its own tab',
       enabled: hasSiblings,
+      keys: keysFor('detach-pane'),
       run: target(() => detachFocused()),
     },
     /**
@@ -4385,6 +4422,7 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
        * terminal in it.
        */
       label: 'Close session',
+      keys: keysFor('close-pane'),
       run: target(() => (hasSiblings ? closeFocused() : window.close())),
     },
     {

@@ -214,6 +214,33 @@ tests — failed
 Updates are rate-limited. Chrome truncates long titles; the format puts the distinguishing token
 first.
 
+**A name somebody gave a session goes in front of all of it**, when that session is the only one in
+the tab:
+
+```
+training run — claude — eeg-analysis
+```
+
+It is the one part of a title that was chosen rather than derived, and a tab strip is read from the
+left, so it has to be the half that survives being cut off. Only for a tab holding one pane: with
+several there are several names, and taking the focused pane's would make the tab rename itself as
+somebody clicked between them, which is a worse title than none.
+
+### The keys an entry is also bound to
+
+A right-click menu entry that has a keyboard shortcut prints it on the right, as a keyboard shows
+it. A menu is where somebody looks the first few times and the shortcut is how they stop needing to,
+and the two had never met.
+
+It is read from the same stored list the bindings come from rather than written beside each entry,
+so a menu cannot promise a combination that has been rebound, and because a menu is built when it
+opens a rebind shows up without a reload.
+
+Drawn from a `data-keys` attribute through CSS rather than as a child element, which is not a
+detail: an entry's `textContent` is what it is matched by everywhere, including by the checks that
+drive these menus with a real press, and an entry that silently became `Split right⇧⌘D` would be
+unfindable by all of them.
+
 **A pinned Chrome tab renders only the favicon, no title text.** So for pinned sessions the favicon
 carries everything. See `10-limitations.md` tier 1.6.
 

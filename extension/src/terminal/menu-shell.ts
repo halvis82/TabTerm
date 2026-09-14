@@ -63,6 +63,15 @@ export interface ShellItem {
   enabled?: boolean;
   separated?: boolean;
   danger?: boolean;
+  /**
+   * The keys that do the same thing, as a keyboard shows them.
+   *
+   * A menu is where somebody looks the first few times, and the shortcut is how they stop needing
+   * to. Printing it here is the only place the two ever meet. Absent rather than "not bound" for
+   * an entry with no key, because a menu is not a settings screen and a column of "not bound" is
+   * noise on every line that has nothing to say.
+   */
+  keys?: string;
 }
 
 /** Fill a shell from a list. The terminal builds its own, because its entries are richer. */
@@ -77,6 +86,12 @@ export function fillMenu(menu: HTMLElement, items: readonly ShellItem[]): void {
     button.className = 'term-menu-item';
     if (entry.danger === true) button.classList.add('is-danger');
     button.textContent = entry.label;
+    /*
+     * An attribute drawn by CSS rather than a child element, so the label stays the whole of
+     * `textContent`. That is what an entry is matched by everywhere, including by the checks that
+     * drive this menu with a real press.
+     */
+    if (entry.keys !== undefined && entry.keys !== '') button.dataset['keys'] = entry.keys;
     button.disabled = entry.enabled === false;
     button.addEventListener('click', () => {
       menu.remove();

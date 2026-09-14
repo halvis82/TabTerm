@@ -90,6 +90,14 @@ export interface PaneMenuAction {
   /** Draws a rule above this entry, to separate destructive actions from ordinary ones. */
   separated?: boolean;
   danger?: boolean;
+  /**
+   * The keys that do the same thing, as a keyboard shows them.
+   *
+   * The same field `ShellItem` carries, because this menu and the one the rest of the product
+   * draws are the same menu to the person using them, and an entry that shows its shortcut in
+   * one place and not the other is worse than neither.
+   */
+  keys?: string;
 }
 
 /**
@@ -386,11 +394,26 @@ export class XtermController {
     const menu = document.createElement('div');
     menu.className = 'term-menu';
 
-    const item = (label: string, enabled: boolean, run: () => void, checked?: boolean) => {
+    const item = (
+      label: string,
+      enabled: boolean,
+      run: () => void,
+      checked?: boolean,
+      keys?: string,
+    ) => {
       const b = document.createElement('button');
       b.className = 'term-menu-item';
       b.textContent = label;
       b.disabled = !enabled;
+      /*
+       * An attribute drawn by CSS rather than a child element.
+       *
+       * A child would land inside `textContent`, and the label is what everything matches an
+       * entry by, including the checks that drive this menu with a real press. An entry whose
+       * name silently became `Split right⇧⌘D` would be unfindable by every one of them, which
+       * is a lot of breakage to accept for a visual hint.
+       */
+      if (keys !== undefined && keys !== '') b.dataset['keys'] = keys;
       if (checked !== undefined) {
         // A tick on the right, so a toggle reads as one rather than as an action that happens
         // to be reversible.
@@ -506,7 +529,7 @@ export class XtermController {
         menu.append(rule);
       }
       const before = menu.lastElementChild;
-      item(action.label, action.enabled !== false, action.run, action.checked);
+      item(action.label, action.enabled !== false, action.run, action.checked, action.keys);
       if (action.danger === true) {
         (before?.nextElementSibling ?? menu.lastElementChild)?.classList.add('is-danger');
       }

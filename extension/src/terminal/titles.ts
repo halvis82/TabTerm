@@ -28,11 +28,20 @@ export function shortenPath(path: string): string {
  *   an agent                  claude — eeg-analysis
  *   a template                review — eeg-analysis
  *   panes that match nothing  3 panes — eeg-analysis
+ *   a session somebody named  training run — claude — eeg-analysis
+ *
+ * A name goes first, in front of everything the tab would have been called anyway, because it is
+ * the one part of a title that was chosen rather than derived. A tab strip is read from the left,
+ * so the name has to be the half that survives being cut off.
+ *
+ * Only when the name belongs to the whole tab, which is a tab holding one pane. With several
+ * panes there are several names, and the one on the focused pane would make the tab title change
+ * as somebody clicked between them, which is a worse title than none.
  */
-export function composeTitle(fields: TitleFields, status?: string): string {
+export function composeTitle(fields: TitleFields, status?: string, label?: string): string {
   const where = fields.cwd ? basename(shortenPath(fields.cwd)) : (fields.repo ?? '');
   const what = describeWhat(fields);
-  const parts = [what, where].filter(Boolean);
+  const parts = [label?.trim(), what, where].filter(Boolean);
   const base = parts.join(' — ');
   return status ? `${base} · ${status}` : base || 'TabTerm';
 }
