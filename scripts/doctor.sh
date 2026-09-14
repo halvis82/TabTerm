@@ -306,6 +306,20 @@ $stale_grant_note        Read what that grants first: Full Disk Access is broad,
   fi
 fi
 
+# Said always, because there is nothing to detect. macOS keeps Local Network grants outside the
+# TCC database this script can read, so the only honest thing is to say what the symptom looks
+# like and where to look. See docs/10-limitations.md.
+note "reaching another machine on your network asks once, in TabTerm's name: macOS requires
+        Local Network permission, and it goes to the application that started your shell,
+        which is TabTerm. Until it is allowed, a connection to an address on your own network
+        fails as an ordinary network error rather than as a permission one. Observed here as:
+
+          ssh: connect to host 192.168.1.x port 22: No route to host
+
+        If ssh, curl or a dev server on another machine fails once and works after you allow
+        a prompt, that was this and nothing is wrong. To check or change it:
+          System Settings > Privacy & Security > Local Network"
+
 echo
 if [ "$fails" -eq 0 ]; then
   echo "  Everything checks out. Open a terminal with Option+Shift+T."

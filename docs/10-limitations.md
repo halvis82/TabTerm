@@ -408,7 +408,30 @@ Chrome holds no grant for `~/Documents`, `~/Desktop`, or `~/Downloads`. A native
 placed there fails to launch with `Operation not permitted`, reported to the extension only as
 `Native host has exited`. Install helper binaries outside those folders.
 
-### 2.13 node-pty spawn-helper loses its executable bit
+### 2.13 Reaching your own network is a permission, and it does not fail like one
+macOS requires Local Network permission to reach an address on the local network, and it is
+attributed to the application responsible for the process making the connection. For a shell
+started by TabTerm that is TabTerm, the same way the Full Disk Access prompt carries its name in
+2.1, so the grant a person has already given their old terminal does not carry over.
+
+Until it is granted, the connection does not fail as a permission error. It fails as an ordinary
+network error, which is the part worth knowing. Observed on macOS 26.5.1: a first
+`ssh user@192.168.1.x` from a TabTerm shell reported
+
+```
+ssh: connect to host 192.168.1.168 port 22: No route to host
+```
+
+and the same command succeeded immediately after the prompt was allowed. Nothing distinguishes that
+message from a machine that is genuinely asleep, so the first attempt reads as a network problem
+and the second as a coincidence.
+
+There is nothing to detect. macOS keeps these grants outside the TCC database, so a process cannot
+read whether it holds one, and there is no API to ask. `doctor.sh` therefore says what the symptom
+looks like rather than reporting a state, and the setting is under
+`System Settings > Privacy & Security > Local Network`.
+
+### 2.14 node-pty spawn-helper loses its executable bit
 The npm tarball extraction does not preserve the executable bit on node-pty's `spawn-helper` binary
 on macOS, so every PTY spawn fails with a bare `posix_spawnp failed` that names no file. Reproduces
 on every fresh install. Repaired by a postinstall step. See `13-packaging.md`.
