@@ -297,6 +297,17 @@ session the run created.
 suites sharing one fight over which tab that is and keystrokes land in another suite's terminal.
 Two suites crashed in parallel that passed alone.
 
+### A suite may not spend somebody's money or need their credentials
+
+A check that drove a real agent CLI answered a question exactly once and was then deleted rather
+than kept. It needed the machine's own credentials, it sent a real request on every run, and a
+suite that does either is one nobody can run.
+
+What stayed is the part that does not: a fixture that reads keys the way an agent does, in raw mode
+with focus reporting enabled, and prints every byte it was sent. The question the agent answered
+was about a feature. The question the fixture answers is about this terminal, which is the half
+worth keeping a check for.
+
 ### Wait for the condition, never for a duration
 
 `openTerminal` polls until a prompt is actually on screen. `waitFor(client, expression)` asks the
