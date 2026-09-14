@@ -463,7 +463,7 @@ async function main(): Promise<void> {
   const agentBridge = new AgentBridge({
     port: config.agentBridgePort,
     verifyToken,
-    onEvent: ({ sessionId, state, detail }) => {
+    onEvent: ({ sessionId, state, detail, hook }) => {
       const session = sessions.get(sessionId);
       if (!session) return;
       const previous = session.agentState;
@@ -498,8 +498,8 @@ async function main(): Promise<void> {
         );
       }
 
-      // A turn, bounded by the hooks that report its ends. See agent-turns.ts.
-      const turn = turns.observe(sessionId, state, previous, Date.now());
+      // A turn, timed from the prompt and ended by the hook that reports it. See agent-turns.ts.
+      const turn = turns.observe(sessionId, state, previous, Date.now(), hook);
       if (turn) {
         const where = workspaces.findBySession(sessionId);
         server.notifyFinished(

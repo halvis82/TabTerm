@@ -39,12 +39,25 @@ agent CLI hook fires
 
 | Hook event | Derived state | Surfaced as |
 |---|---|---|
-| User prompt submitted | `working` | Running favicon, elapsed timer starts |
+| User prompt submitted | `working` | Running favicon, and the only hook that starts a turn's clock |
 | Tool use pending approval | `approval` | Approval favicon, **critical notification**, title status |
 | Notification | `waiting` | Waiting favicon until the tab is looked at, important notification |
 | Stop | `idle` | Idle favicon, completion notification if past the duration threshold |
 | Session start | `starting` | Title switches to the agent form |
 | Non-zero completion | `failed` | Failure favicon, critical notification |
+
+**A turn is timed from the prompt, and the hook name is what says so.** Two hooks derive `working`
+and only one of them means a turn began, so the hook's own name travels with the state it mapped
+to. Reading the start from the state instead meant a turn was restarted by its own interruptions:
+`Notification` is a rest, so the tool call after a permission prompt was indistinguishable from the
+beginning of new work, and an hour of it reported as the seconds since the last approval. A turn
+that never asked anything was right, which is how it went unnoticed.
+
+The number therefore includes the time a person spent answering, because "an agent finished, took
+four minutes" is read as four minutes since they asked. Subtracting their thinking time gives a
+defensible number that is not the one that sentence claims. A turn whose prompt was never seen,
+after a daemon restart or hooks switched on mid-session, reports nothing at all rather than a
+duration measured from whatever was seen first.
 
 **A state is news when it is entered, not while it lasts.** Reported as five desktop
 notifications in five seconds, all of them "an agent is waiting for you", from tabs where nothing

@@ -18,6 +18,15 @@ export interface AgentEvent {
   sessionId: string;
   state: AgentState;
   detail?: string;
+  /**
+   * The hook's own name, carried alongside the state it mapped to.
+   *
+   * Two hooks map to `working` and only one of them means a turn began, so a consumer that has
+   * only the state cannot tell the start of a turn from its resumption after a question. See
+   * `agent-turns.ts`, where reading that from the state made every interrupted turn report the
+   * time since its last approval.
+   */
+  hook: string;
 }
 
 export interface AgentBridgeOptions {
@@ -121,6 +130,7 @@ export class AgentBridge {
       this.#opts.onEvent({
         sessionId,
         state,
+        hook,
         ...(typeof parsed.detail === 'string' ? { detail: parsed.detail.slice(0, 500) } : {}),
       });
       res.writeHead(204);
