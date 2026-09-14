@@ -4265,6 +4265,77 @@ function paneActionsForMenu(target: (run: () => void) => () => void): PaneMenuAc
   }));
 }
 
+/**
+ * The pane operations that belong in more than one place, defined once.
+ *
+ * "make marker and name session and whatever should show up in both, right?" is right, and the
+ * way to make it stay right is for the two surfaces to call the same function rather than to hold
+ * two copies of the same closure that agree today. These are named here and used by the pane's own
+ * menu and by the command menu's Actions page.
+ */
+function renameSession(paneId: string): void {
+  splitView?.focus(paneId);
+  const pane = panesHost?.get(paneId);
+  if (!pane || !workspaceId) return;
+  const named = paneLabel(paneId);
+  openLabelForm({
+    container: pane.element,
+    placeholder: 'Name this session',
+    current: named.label,
+    recents: recentColors.title,
+    ...(named.color ? { currentColor: named.color } : {}),
+    // Drawn as it is typed. Only in this tab: nothing is sent until Save, so an abandoned form
+    // leaves no trace anywhere else and Escape genuinely cancels.
+    onPreview: (label, color) => splitView?.previewLabel(paneId, label, color),
+    onSubmit: (label, color) => {
+      document.querySelector('.pane-label-form')?.remove();
+      if (label !== '') useColor('title', color);
+      client?.send({ t: 'set-pane-label', workspaceId, paneId, label, color });
+      requestAnimationFrame(() => pane.controller.focus());
+    },
+    onCancel: () => {
+      document.querySelector('.pane-label-form')?.remove();
+      requestAnimationFrame(() => pane.controller.focus());
+    },
+  });
+}
+
+function addMarker(paneId: string): void {
+  splitView?.focus(paneId);
+  const pane = panesHost?.get(paneId);
+  if (!pane) return;
+  openLabelForm({
+    container: pane.element,
+    placeholder: 'What is this marker for',
+    current: '',
+    recents: recentColors.marker,
+    currentColor: recentColors.marker[0] ?? DEFAULT_COLOR.marker,
+    onSubmit: (label, color) => {
+      document.querySelector('.pane-label-form')?.remove();
+      useColor('marker', color);
+      // Its own width, because the daemon's copy can be stale after a restart.
+      client?.send({
+        t: 'insert-marker',
+        sessionId: pane.sessionId,
+        label,
+        color,
+        cols: pane.controller.term.cols,
+      });
+      requestAnimationFrame(() => pane.controller.focus());
+    },
+    onCancel: () => {
+      document.querySelector('.pane-label-form')?.remove();
+      requestAnimationFrame(() => pane.controller.focus());
+    },
+  });
+}
+
+/** Whether marking a place in this pane would land in a program rather than in a transcript. */
+function canMarkHere(paneId: string): boolean {
+  const session = panesHost?.get(paneId)?.sessionId ?? '';
+  return session !== '' && !markerWouldLandInAProgram(paneId);
+}
+
 function paneMenuActions(paneId: string): PaneMenuAction[] {
   const paneCount = layout ? collectPanes(layout).length : 1;
   const hasSiblings = paneCount > 1;
@@ -4291,31 +4362,7 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
       // A group of its own: naming a terminal and marking a place in it are the same kind of
       // act, and neither belongs with the clipboard or with closing things.
       separated: true,
-      run: () => {
-        splitView?.focus(paneId);
-        const pane = panesHost?.get(paneId);
-        if (!pane || !workspaceId) return;
-        openLabelForm({
-          container: pane.element,
-          placeholder: 'Name this session',
-          current: named.label,
-          recents: recentColors.title,
-          ...(named.color ? { currentColor: named.color } : {}),
-          // Drawn as it is typed. Only in this tab: nothing is sent until Save, so an abandoned
-          // form leaves no trace anywhere else and Escape genuinely cancels.
-          onPreview: (label, color) => splitView?.previewLabel(paneId, label, color),
-          onSubmit: (label, color) => {
-            document.querySelector('.pane-label-form')?.remove();
-            if (label !== '') useColor('title', color);
-            client?.send({ t: 'set-pane-label', workspaceId, paneId, label, color });
-          },
-          onCancel: () => {
-            document.querySelector('.pane-label-form')?.remove();
-            // Put back whatever the name actually is, since the preview only ever drew here.
-            splitView?.previewLabel(paneId, named.label, named.color ?? '');
-          },
-        });
-      },
+      run: () => renameSession(paneId),
     },
     {
       /**
@@ -4354,48 +4401,8 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
        * Greyed rather than hidden, so the menu keeps its shape and the entry says the offer
        * exists but not here.
        */
-      enabled: session !== '' && !markerWouldLandInAProgram(paneId),
-      run: () => {
-        splitView?.focus(paneId);
-        const pane = panesHost?.get(paneId);
-        if (!pane) return;
-        openLabelForm({
-          container: pane.element,
-          placeholder: 'What is this marker for',
-          current: '',
-          recents: recentColors.marker,
-          currentColor: recentColors.marker[0] ?? DEFAULT_COLOR.marker,
-          onSubmit: (label, color) => {
-            document.querySelector('.pane-label-form')?.remove();
-            useColor('marker', color);
-            // Its own width, because the daemon's copy can be stale after a restart.
-            client?.send({
-              t: 'insert-marker',
-              sessionId: pane.sessionId,
-              label,
-              color,
-              cols: pane.controller.term.cols,
-            });
-            /**
-             * And the keyboard goes back to the terminal, visibly.
-             *
-             * The form took it to be typed into, and removing the form leaves it nowhere. Typing
-             * still reached the shell, because a keystroke with nowhere better to go is handed to
-             * the focused pane, but the cursor was drawn hollow: the screen said the keyboard was
-             * elsewhere while it was here.
-             *
-             * On the next frame, because the form is still being taken out of the document on
-             * this one and focusing something that is about to be removed hands it straight back.
-             */
-            requestAnimationFrame(() => pane.controller.focus());
-          },
-          onCancel: () => {
-            document.querySelector('.pane-label-form')?.remove();
-            // The same on the way out. Cancelling should leave things as they were found.
-            requestAnimationFrame(() => pane.controller.focus());
-          },
-        });
-      },
+      enabled: canMarkHere(paneId),
+      run: () => addMarker(paneId),
     },
     {
       label: 'Split right',
@@ -4539,6 +4546,15 @@ function paletteActions(): PaletteAction[] {
     return bound === '' ? {} : { keys: prettyKeys(bound) };
   };
 
+  /**
+   * The pane this page would act on, which is what makes a pane action offerable here at all.
+   *
+   * The command menu is not attached to a pane the way the pane's own menu is, so the focused one
+   * is the answer, and with nothing focused these are left out rather than offered and doing
+   * nothing.
+   */
+  const focused = splitView?.focused ?? '';
+
   const actions: PaletteAction[] = [
     {
       id: 'split-right',
@@ -4546,6 +4562,25 @@ function paletteActions(): PaletteAction[] {
       ...pageKey('split-right'),
       run: () => splitFocused('horizontal'),
     },
+    /**
+     * The pane operations, in the other place somebody looks for them.
+     *
+     * They were only ever on the pane's own menu, and the two surfaces overlapped enough that
+     * their difference read as an oversight rather than a rule. They call the same functions the
+     * menu calls, so the two cannot drift into disagreeing about what naming a session does.
+     */
+    ...(focused === ''
+      ? []
+      : [
+          {
+            id: 'name-session',
+            title: paneLabel(focused).label === '' ? 'Name session' : 'Rename session',
+            run: () => renameSession(focused),
+          },
+          ...(canMarkHere(focused)
+            ? [{ id: 'add-marker', title: 'Add a marker here', run: () => addMarker(focused) }]
+            : []),
+        ]),
     {
       id: 'split-down',
       title: 'Split down',
@@ -5997,6 +6032,13 @@ declare global {
       /** What the daemon said could be resumed, before the launcher trims it for display. */
       resumable: () => { sessionId: string; cwd: string; agent: string; summary?: string }[];
       /**
+       * What the command menu's Actions page is offering right now.
+       *
+       * So a check can ask whether the two surfaces that offer pane actions agree, which is the
+       * only way that agreement stays true as either of them grows.
+       */
+      actions: () => { id: string; title: string }[];
+      /**
        * Put the recovery screen up in the state it is really reached in, and ask again.
        *
        * Reproduces the order the two answers arrive in rather than a tidy one: what this
@@ -6187,6 +6229,7 @@ function installTestHook(): void {
     },
     reconnect: () => client?.connect(),
     setBackgroundTimeout: (seconds) => client?.send({ t: 'set-background-timeout', seconds }),
+    actions: () => paletteActions().map((a) => ({ id: a.id, title: a.title })),
     recoveryRaceForTest: (cwd) => {
       resumableSessions = [];
       recoveryEl.hidden = false;

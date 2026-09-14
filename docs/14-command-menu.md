@@ -8,6 +8,22 @@ blind, arrow-up walks backwards one at a time, and neither shows you what a comm
 
 ---
 
+
+## The Actions page and a pane's own menu offer the same things
+
+A pane can be acted on from two places, and which things each one offered had drifted: naming a
+session and marking a place in it were only ever on the pane's own menu, though both are ordinary
+actions and the surfaces overlap in everything else.
+
+They are now on both, and the way that stays true is that both call the same function. Two copies
+of the same closure agree on the day they are written and not much longer, and the difference shows
+up as one surface quietly doing something slightly different from the other.
+
+A pane action needs a pane. The command menu is not attached to one the way a pane's menu is, so it
+acts on the focused pane, and with nothing focused these are left out rather than offered and doing
+nothing. `menu-aftermath` asserts the two surfaces agree, and fails the moment one of them grows a
+pane action the other does not have.
+
 ## 1. Shape
 
 Opened from a button in the top right of a terminal tab, or with `Command+K`.

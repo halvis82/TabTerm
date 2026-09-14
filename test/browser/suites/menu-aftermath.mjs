@@ -139,5 +139,44 @@ r.ok(
 );
 
 await rm(MADE, { recursive: true, force: true });
+
+/**
+ * The pane's menu and the command menu's Actions page agree about what can be done to a pane.
+ *
+ * "some things overlap a lot. and stuff like make marker and name session and whatever should
+ * show up in both, right?" They do now, and they call the same functions rather than holding two
+ * copies of the same closure that agree today. This check fails the moment one surface grows one
+ * of them and the other does not.
+ */
+{
+  await evaluate(client, "document.querySelector('.term-menu')?.remove()");
+  await openPaneMenu(client, 60, 60);
+  const inMenu = JSON.parse(
+    await evaluate(
+      client,
+      `JSON.stringify([...document.querySelectorAll('.term-menu-item')].map((b) => b.textContent))`,
+    ),
+  );
+  await evaluate(client, "document.querySelector('.term-menu')?.remove()");
+
+  const inActions = JSON.parse(
+    await evaluate(client, `JSON.stringify(window.__tabterm.actions().map((a) => a.title))`),
+  );
+
+  const shared = ['Name session', 'Add a marker here'];
+  for (const title of shared) {
+    r.ok(
+      `"${title}" is on the pane menu`,
+      inMenu.some((t) => (t ?? '').startsWith(title)),
+      inMenu.join(' | '),
+    );
+    r.ok(
+      `and "${title}" is on the Actions page`,
+      inActions.some((t) => (t ?? '').startsWith(title)),
+      inActions.join(' | '),
+    );
+  }
+}
+
 await finish();
 r.done();
