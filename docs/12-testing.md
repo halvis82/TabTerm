@@ -189,6 +189,12 @@ for everything.
 | 4 | `npm run verify` | ~40 s | Before a commit |
 | 5 | `npm run verify:full` | ~9 min | Before closing a work package, and after anything shared |
 
+Every one of these picks a Node that has `node:sqlite` rather than trusting `PATH`, by the same
+rule the installer uses. See `13-packaging.md`. A flag needs the separator npm insists on,
+`npm run t -- --dry`, because npm keeps anything starting with `--` for itself and the runner then
+sees no arguments at all, which means every suite. A bare suite name needs nothing:
+`npm run t highlights`.
+
 Tier 3 existed before and was useless: the six files that change most were not in its coverage
 table, so it answered "run everything" every time. Measured on a real commit afterwards: 14
 suites, 152 checks, **53 seconds**, against 56 suites, 570 checks, **422 seconds**.

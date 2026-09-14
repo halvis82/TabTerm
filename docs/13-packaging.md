@@ -171,6 +171,13 @@ The installer selects a Node that actually has `node:sqlite` rather than trustin
 `command -v node` returns first. Picking the wrong one produces a daemon that starts, listens, and
 then fails only when it opens its database, which is a long way from the cause.
 
+Every script that runs the code makes the same choice, through `scripts/pick-node.mjs`: the test
+runner and the unit suites go through `scripts/with-node.mjs`, which puts the chosen runtime first
+on `PATH` for the command it runs. The installer made this choice from the beginning and nothing
+else did, so a machine whose `PATH` began with Node 20 failed twenty suites at collection and
+spawned a test daemon that died opening its database, neither of which names the runtime as the
+cause. A candidate is asked by running it, never by reading a version out of its path.
+
 ### The node-pty spawn-helper permission
 
 node-pty shells out to a small `spawn-helper` binary to set up the controlling terminal. The npm
