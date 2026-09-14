@@ -621,6 +621,22 @@ ended rather than left running, because it is in no layout and nothing can reach
 Keeping the pane id matters beyond tidiness: the split ratios around a pane are recorded against
 it, so a replacement leaves the rest of the arrangement exactly as it was.
 
+### The recovery screen takes a late answer
+
+It asks two things at once and they come back at different speeds. What this workspace was is a
+database read. What can be resumed is a walk over the agent CLIs' own session files, which is
+slower every time.
+
+So the screen is drawn before the second answer exists, and it redraws its offers when that answer
+arrives. Without that the offer to resume an agent was in the code and almost never on the screen,
+while the command to do it by hand was, which reads as a missing button rather than as a race.
+
+The directory is matched allowing for a trailing slash, because the two ends of the comparison come
+from different places: one from the daemon's record of the workspace, the other from an agent's own
+session file, and neither controls which form the other writes.
+
+Nothing on this screen runs by itself. The offer is a button.
+
 ### What leaves the tab it came from, and what that tab does next
 
 A session lives in exactly one workspace, so bringing one here always **moves** it, and the only

@@ -1195,13 +1195,32 @@ function showSetupNeeded(): void {
   actions.append(link);
 }
 
-function renderRecoveryActions(recall: {
+/** The last thing the daemon recalled about this workspace, so the offers can be drawn again. */
+type WorkspaceRecall = {
   found: boolean;
   cwd?: string;
   lastCommand?: string;
   lastSeenAt?: number;
   lastScreen?: readonly string[];
-}): void {
+};
+let lastRecall: WorkspaceRecall | null = null;
+
+/**
+ * Draw the offers again, now that what can be offered may have changed.
+ *
+ * The recovery screen asks two questions at once and they are answered at different speeds: what
+ * this workspace was is a database read, and what can be resumed is a walk over the agents' own
+ * session files. The screen was drawn from whichever arrived first and never again, so the offer
+ * to resume an agent existed in the code and was almost never on the screen. The command to do it
+ * by hand was, which is what made it look like a missing button rather than a race.
+ */
+function refreshRecoveryOffers(): void {
+  if (recoveryEl.hidden || lastRecall === null) return;
+  renderRecoveryActions(lastRecall);
+}
+
+function renderRecoveryActions(recall: WorkspaceRecall): void {
+  lastRecall = recall;
   const detail = document.getElementById('recovery-detail') as HTMLElement;
   const actions = document.getElementById('recovery-actions') as HTMLElement;
   detail.replaceChildren();
@@ -1277,7 +1296,15 @@ function renderRecoveryActions(recall: {
 
     // If an agent was working here, picking that conversation back up is usually what someone
     // wants after an expiry. Offered, never done automatically.
-    const resumable = resumableSessions.find((r) => r.cwd === cwd);
+    /*
+     * Matched on the directory, allowing for the ways the same one is written.
+     *
+     * A trailing slash is the difference between "offered" and "not offered" otherwise, and
+     * neither end of this controls which form it gets: one comes from the daemon's record of the
+     * workspace and the other from an agent's own session file.
+     */
+    const sameDir = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
+    const resumable = resumableSessions.find((r) => sameDir(r.cwd, cwd));
     if (resumable) {
       button(`Resume the agent session here`, () => {
         recoveryEl.hidden = true;
@@ -5629,6 +5656,9 @@ function onControl(msg: ServerMessage): void {
     case 'resumable-sessions': {
       resumableSessions = msg.sessions;
       launcher?.setResumable(msg.sessions);
+      // The recovery screen may already be up and drawn without these, since it asks for them at
+      // the same moment it asks what this workspace was and they do not arrive together.
+      refreshRecoveryOffers();
       return;
     }
 
@@ -5956,6 +5986,16 @@ declare global {
       /** What the daemon said could be resumed, before the launcher trims it for display. */
       resumable: () => { sessionId: string; cwd: string; agent: string; summary?: string }[];
       /**
+       * Put the recovery screen up in the state it is really reached in, and ask again.
+       *
+       * Reproduces the order the two answers arrive in rather than a tidy one: what this
+       * workspace was is a database read and what can be resumed is a walk over the agents'
+       * own session files, so the screen is always drawn before the second one lands. Forgetting
+       * the list and asking for it again is exactly that, and it is the only way to check that
+       * the screen takes a late answer.
+       */
+      recoveryRaceForTest: (cwd: string) => void;
+      /**
        * Drop the socket without closing the tab, which is what a discarded tab, a slept
        * machine and a dead service worker all look like from the daemon.
        */
@@ -6136,6 +6176,13 @@ function installTestHook(): void {
     },
     reconnect: () => client?.connect(),
     setBackgroundTimeout: (seconds) => client?.send({ t: 'set-background-timeout', seconds }),
+    recoveryRaceForTest: (cwd) => {
+      resumableSessions = [];
+      recoveryEl.hidden = false;
+      root.style.display = 'none';
+      renderRecoveryActions({ found: true, cwd });
+      client?.send({ t: 'list-resumable', limit: 15 });
+    },
     resumable: () =>
       resumableSessions.map((r) => ({
         sessionId: r.sessionId,

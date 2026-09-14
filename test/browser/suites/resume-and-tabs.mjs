@@ -318,5 +318,43 @@ r.ok(
     tabsBefore + 1,
 );
 
+/**
+ * The recovery screen offers to resume an agent, and takes a late answer.
+ *
+ * It asks two questions at once and they are answered at different speeds: what this workspace
+ * was is a database read, and what can be resumed is a walk over the agents' own session files.
+ * The screen was drawn from whichever arrived first and never again, so the offer existed in the
+ * code and was almost never on the screen. The command to do it by hand was, which is what made
+ * it look like a missing button rather than a race.
+ */
+{
+  const known = JSON.parse(
+    await evaluate(a.client, 'JSON.stringify(window.__tabterm.resumable())'),
+  );
+  const cwd = known[0]?.cwd ?? '';
+  r.ok('there is a resumable session to offer', cwd !== '', String(known.length));
+
+  // Forgets the list, draws the screen, and asks again: the real order, not a tidy one.
+  await evaluate(a.client, `window.__tabterm.recoveryRaceForTest(${JSON.stringify(cwd)})`);
+  const buttonsNow = String(
+    await evaluate(
+      a.client,
+      `JSON.stringify([...document.querySelectorAll('#recovery-actions .launcher-chip')].map(b => b.textContent))`,
+    ),
+  );
+  r.ok(
+    'the offer is not there yet, because the answer has not arrived',
+    !buttonsNow.includes('Resume the agent'),
+    buttonsNow,
+  );
+
+  const appeared = await waitFor(
+    a.client,
+    `[...document.querySelectorAll('#recovery-actions .launcher-chip')].some(b => (b.textContent ?? '').includes('Resume the agent'))`,
+    15000,
+  );
+  r.ok('and appears once it does, without the screen being rebuilt by hand', appeared === true);
+}
+
 await finish();
 r.done();
