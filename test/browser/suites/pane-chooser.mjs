@@ -215,5 +215,75 @@ r.ok(
   `${String(launcherBack)} start screens after reload`,
 );
 
+/**
+ * Taking a session out of a tab that has others leaves that tab open and one pane lighter.
+ *
+ * The case above is the source tab holding nothing else, where the tab closes. This is the other
+ * one, and it was asked about directly: "what if it's in a tab with other sessions? then it
+ * should still be removed from that original tab if brought in."
+ */
+{
+  const c = await openTerminal();
+  await waitFor(c.client, "document.querySelector('.launcher-input')");
+  await type(c.client, 'echo DONOR-TAB\r');
+  await sleep(1500);
+  // Two panes, both used, so neither is an untouched shell the chooser would leave out.
+  await evaluate(c.client, "window.__tabterm.split('horizontal')");
+  await sleep(3000);
+  await type(c.client, 'echo DONOR-SECOND\r');
+  await sleep(1500);
+  const donorWorkspace = String(await evaluate(c.client, 'window.__tabterm.workspaceId()'));
+  const donorPanes = Number(await evaluate(c.client, 'window.__tabterm.paneIds().length'));
+  r.ok('the donor tab has two panes to begin with', donorPanes === 2, String(donorPanes));
+
+  const taker = await openTerminal();
+  await waitFor(taker.client, "document.querySelector('.launcher-input')");
+  await type(taker.client, 'echo TAKER-TAB\r');
+  await sleep(1500);
+  await evaluate(taker.client, "window.__tabterm.split('horizontal')");
+  await sleep(3500);
+  await waitFor(
+    taker.client,
+    "document.querySelectorAll('.pane-chooser-session').length > 0",
+    20000,
+  );
+
+  // The heading says what the list is a list of, so a short one is not read as a broken one.
+  const heading = String(
+    await evaluate(
+      taker.client,
+      "document.querySelector('.pane-chooser-heading')?.textContent ?? ''",
+    ),
+  );
+  r.ok(
+    'the list says whether what is in it is in a tab or in the background',
+    /in a tab|in the background/.test(heading),
+    heading,
+  );
+
+  // Take one of the donor tab's two sessions.
+  const took = String(
+    await evaluate(
+      taker.client,
+      `(() => {
+         const rows = [...document.querySelectorAll('.pane-chooser-session')];
+         const row = rows.find((x) => (x.textContent ?? '').includes('DONOR') || true);
+         if (!row) return '';
+         row.click();
+         return row.dataset.session ?? '';
+       })()`,
+    ),
+  );
+  await sleep(700);
+  // It is open in a tab, so it asks first. Confirmed with a real press.
+  await realClick(taker.client, '.pane-chooser-session.is-confirming');
+  await sleep(4000);
+
+  const stillOpen = (await listTargets()).filter((t) => t.url.includes(donorWorkspace));
+  r.ok('the donor tab is still open, because it had another pane', stillOpen.length === 1, took);
+  const left = Number(await evaluate(c.client, 'window.__tabterm.paneIds().length'));
+  r.ok('and it is one pane lighter', left === 1, String(left));
+}
+
 await finish();
 r.done();

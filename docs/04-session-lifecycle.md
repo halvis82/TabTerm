@@ -621,6 +621,25 @@ ended rather than left running, because it is in no layout and nothing can reach
 Keeping the pane id matters beyond tidiness: the split ratios around a pane are recorded against
 it, so a replacement leaves the rest of the arrangement exactly as it was.
 
+### What leaves the tab it came from, and what that tab does next
+
+A session lives in exactly one workspace, so bringing one here always **moves** it, and the only
+question is what the tab it left is holding afterwards.
+
+| The source tab held | What happens to it |
+|---|---|
+| Only that session | Its workspace is gone. It is told it was **taken over**, not that the session expired, so it can close rather than offering to restore something that is alive in another tab |
+| That session and others | It stays open and redraws one pane lighter. Nothing else in it is disturbed |
+
+Taking a session that a tab is currently showing asks first. That is somebody else's window
+changing because of a click in this one, and it is the only case here where a person could be
+surprised by the result.
+
+The list offers every session in another workspace, whether its tab is open or it is running in
+the background. It leaves out shells nobody has typed into: taking one gains nothing and costs
+whoever opened it their tab. The heading says which kinds are in it, so a short list is not
+mistaken for a broken one.
+
 ### Detach
 
 `detach-pane { workspaceId, paneId }` returns the session's stable URL.

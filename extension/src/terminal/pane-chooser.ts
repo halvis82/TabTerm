@@ -17,9 +17,17 @@ import { buildSessionCard } from '../launcher/sessions-view.js';
  * same principle as the start screen: the shell underneath is already running and already has
  * the keyboard, so typing goes straight to it and this goes away on the first command.
  *
- * Bringing a session here **moves** it. A session lives in exactly one workspace, so the tab it
- * came from is left with nothing, and that is said before it happens rather than discovered
- * afterwards.
+ * Bringing a session here **moves** it, and that is the whole of the rule. A session lives in
+ * exactly one workspace, so it leaves wherever it was, whether that tab held it alone or beside
+ * others. A tab that loses one of several panes redraws without it; a tab that loses its only one
+ * is told it was taken over rather than that its session expired, so it can close instead of
+ * offering to restore something that is alive in another tab. Taking one that a tab is currently
+ * showing asks first, because that is somebody else's window changing from a click in this one.
+ *
+ * The list holds every session in another tab, attached or in the background, and leaves out
+ * shells nobody has typed into: taking one of those gains nothing and costs whoever opened it
+ * their tab. The heading says which kinds are in it, so a short list is not mistaken for a
+ * broken one.
  */
 
 export interface PaneChooserOptions {
@@ -51,8 +59,14 @@ export interface PaneChooserOptions {
   onDismiss?: (paneId: string) => void;
 }
 
-/** A shortlist, not an inventory. A pane is a small place to read one. */
-const MAX_SESSIONS = 4;
+/**
+ * A shortlist, not an inventory, but a longer one than it was.
+ *
+ * Four was chosen when the box was half this size. The box now takes what the pane can spare and
+ * the list inside it scrolls, so the bound is about how much is worth reading rather than how
+ * much fits.
+ */
+const MAX_SESSIONS = 8;
 
 export class PaneChooser {
   readonly #opts: PaneChooserOptions;
@@ -173,7 +187,23 @@ export class PaneChooser {
     if (cards.length > 0) {
       const heading = document.createElement('div');
       heading.className = 'pane-chooser-heading';
-      heading.textContent = 'Or bring a session here';
+      /**
+       * What the list is a list of, said rather than left to be worked out.
+       *
+       * It holds every session in another tab, whether that tab is open or the session is running
+       * in the background, and leaves out shells nobody has typed into: taking one of those gains
+       * nothing and costs whoever opened it their tab. Somebody looking at a short list needs to
+       * know whether it is short because there is little, or short because it was filtered.
+       */
+      const inTabs = cards.filter((c) => c.attached).length;
+      const background = cards.length - inTabs;
+      const parts = [];
+      if (inTabs > 0) parts.push(`${String(inTabs)} in a tab`);
+      if (background > 0) parts.push(`${String(background)} in the background`);
+      heading.textContent =
+        parts.length > 0
+          ? `Or bring a session here (${parts.join(', ')})`
+          : 'Or bring a session here';
       body.append(heading);
 
       const grid = document.createElement('div');
