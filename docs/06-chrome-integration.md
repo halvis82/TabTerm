@@ -889,6 +889,31 @@ hidden or discarded.
 | Shell command failed | Critical | Duration threshold |
 | A pane's process failed | Important | Not ended by TabTerm, and the policy is on |
 
+### What a notification does, and how long it lasts
+
+Clicking one focuses the tab that holds its workspace, raising that window if the browser was not
+in front, and opens the workspace in a new tab if none is showing it. It has always done this and
+said nothing about it, so the notification now carries the line `Click to open this tab`.
+
+**It stays until its tab has actually been reached.** Withdrawn on a click, when its tab becomes the
+active one, when the window that tab is already active in comes forward, or when the tab is closed.
+Those are the moments the thing it was about stops being news, and they are all the moments there
+are.
+
+They used to be withdrawn eight seconds after being raised, which was right about a day of finished
+commands becoming a list to clear and wrong about the case the feature exists for: something
+finishing while somebody is in another application produced a notice that was gone before they
+looked, so the thing they were told about was never told to them at all.
+
+A notification with no workspace to open keeps the eight second timer, because none of those moments
+can ever happen to it and nothing else would take it away.
+
+The listeners for this are registered at the top level of the service worker, which is what makes it
+work at all: the worker is usually dead by the time somebody switches tabs, and only a listener
+registered before it slept will wake it. For the same reason the record of which workspace each
+notification points at lives in session storage rather than in memory. A notification that outlives
+the worker would otherwise lose the only thing that makes clicking it useful.
+
 **The threshold is enforced in the daemon**, not in the page. The duration is authoritative there,
 and a discarded tab has nothing left to make the decision with. Default 60 seconds, clamped to
 between 5 seconds and 10 minutes so a stored value cannot make it notify about `ls` or about

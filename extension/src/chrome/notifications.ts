@@ -21,8 +21,74 @@ export interface NotifyRequest {
   suppressIfVisible?: boolean;
 }
 
-/** Click targets, kept so a click focuses the right tab rather than guessing. */
-const targets = new Map<string, { workspaceId?: string; paneId?: string }>();
+/**
+ * Click targets, kept so a click focuses the right tab rather than guessing.
+ *
+ * In session storage rather than in a map, because this runs in the service worker and the worker
+ * dies after about thirty seconds of quiet. A notification that outlives it would otherwise lose
+ * the only record of where it points, and clicking it would do nothing. That is the same shape as
+ * the background deadline that was erased every time the worker slept, and it matters more now
+ * that a notification is meant to sit there until its tab is looked at.
+ */
+const TARGETS_KEY = 'tabterm.notifyTargets';
+
+type NotifyTarget = { workspaceId?: string; paneId?: string };
+
+async function readTargets(): Promise<Record<string, NotifyTarget>> {
+  try {
+    const held = (await chrome.storage.session.get(TARGETS_KEY)) as Record<string, unknown>;
+    const value = held[TARGETS_KEY];
+    return typeof value === 'object' && value !== null
+      ? (value as Record<string, NotifyTarget>)
+      : {};
+  } catch {
+    // Storage can refuse mid-shutdown. An empty map means a click does nothing, which is the
+    // harmless direction: the alternative is throwing inside a notification handler.
+    return {};
+  }
+}
+
+async function rememberTarget(id: string, target: NotifyTarget): Promise<void> {
+  try {
+    const all = await readTargets();
+    all[id] = target;
+    await chrome.storage.session.set({ [TARGETS_KEY]: all });
+  } catch {
+    /* See readTargets. */
+  }
+}
+
+async function forgetTarget(id: string): Promise<void> {
+  try {
+    const all = await readTargets();
+    if (!(id in all)) return;
+    delete all[id];
+    await chrome.storage.session.set({ [TARGETS_KEY]: all });
+  } catch {
+    /* See readTargets. */
+  }
+}
+
+/**
+ * Take back every notification that was pointing at this workspace.
+ *
+ * Called when its tab is looked at or goes away, which are the two ways the thing the
+ * notification was about stops being news.
+ */
+export async function clearNotificationsFor(workspaceId: string): Promise<void> {
+  const all = await readTargets();
+  const mine = Object.keys(all).filter((id) => all[id]?.workspaceId === workspaceId);
+  if (mine.length === 0) return;
+  for (const id of mine) {
+    delete all[id];
+    void chrome.notifications.clear(id);
+  }
+  try {
+    await chrome.storage.session.set({ [TARGETS_KEY]: all });
+  } catch {
+    /* See readTargets. */
+  }
+}
 
 /**
  * Low-priority events never become desktop notifications.
@@ -40,7 +106,21 @@ export async function notify(req: NotifyRequest, paneIsVisible = false): Promise
   if (!shouldNotify(req, paneIsVisible)) return null;
 
   const id = `tabterm:${String(Date.now())}:${Math.random().toString(36).slice(2, 8)}`;
-  if (req.target) targets.set(id, req.target);
+  /**
+   * A notification that can take you somewhere stays until it has.
+   *
+   * It used to be withdrawn after eight seconds, on the reasoning that a notification exists to
+   * interrupt once and a day of finished commands should not become a list to clear. The cost of
+   * that was the case it was meant to serve: an agent finishing while somebody is in another
+   * application produced a notice that was gone before they looked, so the thing they were told
+   * about was never told to them at all.
+   *
+   * So it is kept, and taken back at the moment it stops being news: its tab is looked at, or its
+   * tab is gone, or somebody clicks it. A notification with nowhere to go has none of those
+   * moments, so it keeps the timer, because nothing else would ever remove it.
+   */
+  const canBeVisited = typeof req.target?.workspaceId === 'string';
+  if (req.target) await rememberTarget(id, req.target);
 
   const created = await new Promise<boolean>((resolve) => {
     try {
@@ -52,7 +132,10 @@ export async function notify(req: NotifyRequest, paneIsVisible = false): Promise
           title: req.title,
           message: req.body,
           priority: req.priority === 'critical' ? 2 : 1,
-          requireInteraction: req.priority === 'critical',
+          requireInteraction: canBeVisited || req.priority === 'critical',
+          // Said rather than assumed. Clicking has always opened the tab and nothing on the
+          // notification admitted it, so the useful half of it went unused.
+          ...(canBeVisited ? { contextMessage: 'Click to open this tab' } : {}),
         },
         () => resolve(chrome.runtime.lastError === undefined),
       );
@@ -64,30 +147,20 @@ export async function notify(req: NotifyRequest, paneIsVisible = false): Promise
   if (!created) {
     // An icon that failed to load, or notifications denied at the OS level. Neither is worth
     // breaking anything over, and there is no way to ask in advance whether they are allowed.
-    targets.delete(id);
+    await forgetTarget(id);
     return null;
   }
 
   /**
-   * Taken back after it has been seen, so a day of finished commands is not a list to clear.
-   *
-   * A notification exists to interrupt once. Chrome has no option for "show it but do not keep
-   * it", so the nearest thing is to withdraw it, which is what somebody clicking it would do.
-   * Whether the operating system keeps its own record after that is the operating system's
-   * business, and on macOS it is a per-application setting rather than anything an extension can
-   * reach. See `docs/10-limitations.md`.
-   *
-   * Never for a critical one: those are already marked as needing interaction, which means they
-   * stay until somebody deals with them, and taking one away on a timer would defeat the only
-   * thing that distinguishes them.
+   * The timer is only for a notification nobody can ever visit.
    *
    * A timer rather than an alarm, because the shortest alarm Chrome allows is thirty seconds and
    * this is about eight. The worker can die first, and then the notification simply stays, which
-   * is exactly what happened to every one of them before this existed.
+   * is the same outcome as one that points somewhere.
    */
-  if (req.priority !== 'critical') {
+  if (!canBeVisited && req.priority !== 'critical') {
     setTimeout(() => {
-      targets.delete(id);
+      void forgetTarget(id);
       void chrome.notifications.clear(id);
     }, AUTO_CLEAR_MS);
   }
@@ -122,14 +195,94 @@ export async function workspaceIsOnScreen(workspaceId: string | undefined): Prom
 
 export function installClickHandler(): void {
   chrome.notifications.onClicked.addListener((id) => {
-    const target = targets.get(id);
-    targets.delete(id);
-    void chrome.notifications.clear(id);
-    if (!target?.workspaceId) return;
-    void focusWorkspaceTab(target.workspaceId);
+    void (async () => {
+      const target = (await readTargets())[id];
+      await forgetTarget(id);
+      void chrome.notifications.clear(id);
+      if (!target?.workspaceId) return;
+      await focusWorkspaceTab(target.workspaceId);
+    })();
   });
 
-  chrome.notifications.onClosed.addListener((id) => targets.delete(id));
+  chrome.notifications.onClosed.addListener((id) => {
+    void forgetTarget(id);
+  });
+
+  /**
+   * And taken back when its tab is reached some other way.
+   *
+   * Registered at the top level so the worker is woken for them, which is the whole reason this
+   * can work at all: the worker is usually dead by the time somebody switches tabs, and a
+   * listener added later would never run.
+   *
+   * Three ways a tab stops being unread. Switching to it, which is `onActivated`. Bringing
+   * forward the window it is already the active tab of, which `onActivated` does not fire for.
+   * And closing it, which means whatever it was going to say is moot.
+   */
+  chrome.tabs.onActivated.addListener(({ tabId }) => {
+    void clearForTab(tabId);
+  });
+
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    void clearForTab(tabId, closedTabs.get(tabId));
+    closedTabs.delete(tabId);
+  });
+
+  /*
+   * A removed tab cannot be read, so its workspace is remembered while it is still there.
+   *
+   * `onUpdated` is where a terminal tab first gets its URL, and it is the only chance to learn
+   * which workspace a tab holds before the tab is gone.
+   */
+  chrome.tabs.onUpdated.addListener((tabId, _change, tab) => {
+    const workspaceId = workspaceOf(tab.url);
+    if (workspaceId) closedTabs.set(tabId, workspaceId);
+  });
+
+  chrome.windows.onFocusChanged.addListener((windowId) => {
+    if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+    void (async () => {
+      try {
+        const [active] = await chrome.tabs.query({ active: true, windowId });
+        if (active?.id !== undefined) await clearForTab(active.id);
+      } catch {
+        /* A window that went away between the event and the query. */
+      }
+    })();
+  });
+}
+
+/** Which workspace a terminal tab is showing, or null when it is not one of ours. */
+function workspaceOf(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (!parsed.pathname.endsWith('terminal.html')) return null;
+    return parsed.searchParams.get('workspace');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The last workspace each terminal tab was known to hold.
+ *
+ * Only for `onRemoved`, which is handed an id and nothing else. Lost when the worker dies, and
+ * that is acceptable here in a way it is not for the targets: the cost is a notification for a
+ * closed tab surviving until somebody dismisses it, rather than a click that goes nowhere.
+ */
+const closedTabs = new Map<number, string>();
+
+async function clearForTab(tabId: number, known?: string): Promise<void> {
+  let workspaceId = known ?? null;
+  if (!workspaceId) {
+    try {
+      workspaceId = workspaceOf((await chrome.tabs.get(tabId)).url);
+    } catch {
+      return;
+    }
+  }
+  if (workspaceId) await clearNotificationsFor(workspaceId);
 }
 
 /** Focus the tab that already owns a workspace rather than opening a second view of it. */

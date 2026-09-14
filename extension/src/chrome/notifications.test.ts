@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { notify, shouldNotify, type NotifyRequest } from './notifications.js';
+import {
+  clearNotificationsFor,
+  notify,
+  shouldNotify,
+  type NotifyRequest,
+} from './notifications.js';
 
 const req = (over: Partial<NotifyRequest> = {}): NotifyRequest => ({
   priority: 'important',
@@ -84,5 +89,91 @@ describe('taking a notification back', () => {
       expect(cleared).toHaveLength(0);
       return Promise.resolve();
     });
+  });
+});
+
+/**
+ * A notification that can take you somewhere stays until it has.
+ *
+ * The eight second withdrawal was right about a day of finished commands becoming a list, and
+ * wrong about the case it was there for: an agent finishing while somebody is in another
+ * application produced a notice that was gone before they looked, so the thing they were told
+ * about was never told to them at all.
+ */
+describe('a notification that points at a tab', () => {
+  /** Enough of Chrome to answer the three questions these checks ask. */
+  const fakeChrome = () => {
+    const cleared: string[] = [];
+    const options: Record<string, unknown>[] = [];
+    let stored: Record<string, unknown> = {};
+    (globalThis as unknown as { chrome: unknown }).chrome = {
+      runtime: { getURL: (p: string) => p, lastError: undefined },
+      notifications: {
+        create: (_id: string, opts: Record<string, unknown>, done: () => void) => {
+          options.push(opts);
+          done();
+        },
+        clear: (id: string) => cleared.push(id),
+      },
+      storage: {
+        session: {
+          get: (key: string) => Promise.resolve({ [key]: stored[key] }),
+          set: (values: Record<string, unknown>) => {
+            stored = { ...stored, ...values };
+            return Promise.resolve();
+          },
+        },
+      },
+    };
+    return { cleared, options };
+  };
+
+  const target = { workspaceId: 'ws-1' };
+
+  it('is not withdrawn on a timer', async () => {
+    const { cleared } = fakeChrome();
+    vi.useFakeTimers();
+    try {
+      await notify({ priority: 'important', title: 'Agent', body: 'done', target });
+      vi.advanceTimersByTime(300_000);
+      expect(cleared).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('is withdrawn when its workspace is reached', async () => {
+    const { cleared } = fakeChrome();
+    await notify({ priority: 'important', title: 'Agent', body: 'done', target });
+    await clearNotificationsFor('ws-1');
+    expect(cleared).toHaveLength(1);
+  });
+
+  it('leaves other workspaces alone', async () => {
+    const { cleared } = fakeChrome();
+    await notify({ priority: 'important', title: 'Agent', body: 'done', target });
+    await clearNotificationsFor('ws-2');
+    expect(cleared).toEqual([]);
+  });
+
+  it('says that clicking opens the tab', async () => {
+    // Clicking has always done this and nothing on the notification admitted it.
+    const { options } = fakeChrome();
+    await notify({ priority: 'important', title: 'Agent', body: 'done', target });
+    expect(options[0]?.['contextMessage']).toBe('Click to open this tab');
+    expect(options[0]?.['requireInteraction']).toBe(true);
+  });
+
+  it('keeps the timer for one nobody can visit', async () => {
+    // Nothing would ever take it back otherwise, and it would sit there for the day.
+    const { cleared } = fakeChrome();
+    vi.useFakeTimers();
+    try {
+      await notify({ priority: 'important', title: 'Terminal', body: 'done' });
+      vi.advanceTimersByTime(30_000);
+      expect(cleared).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
