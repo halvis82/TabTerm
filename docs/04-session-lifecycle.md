@@ -403,8 +403,13 @@ otherwise:
 **Workspaces are pinned by default** (ADR-0012). If you close a three-pane workspace tab and come
 back an hour later, the panes are still there. Only unnamed scratch shells get reaped on a timer.
 
-Before reaping, the daemon emits `session-expiring` with a deadline. Any attach before the deadline
-cancels the reap. Every reap is logged with the matched rule.
+Every reap is logged with the matched rule, and any attach before the deadline cancels it.
+
+**There is no grace warning.** `session-expiring` is defined in the protocol and nothing sends it.
+It is reserved for a daemon that announces an impending reap so a tab can show it, and until that
+exists a client must not wait for one: the first thing a client hears about a reap is
+`session-expired`. Said here because this page described the warning as behavior for long enough
+that somebody could have built against it.
 
 **A timer means "look again", never "act on what I decided when I set it."** When it fires, the
 policy is asked again with everything known now, and a session whose reason to go has gone away

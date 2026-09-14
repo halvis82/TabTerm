@@ -23,17 +23,25 @@ export async function getToken(): Promise<string | null> {
       return reply.token;
     }
   } catch {
-    /* Host not installed. Fall through to the manual pairing path. */
+    /*
+     * Host not installed, which is the one thing a page cannot fix for itself. The caller shows
+     * the onboarding screen, and the recovery is to run the installer again.
+     */
   }
 
-  // Fallback: a code pasted into the options page once. This must work, because it is the
-  // recovery path when the native host breaks.
-  const manual = await chrome.storage.local.get('tabterm.pairedToken');
-  const paired = manual['tabterm.pairedToken'] as string | undefined;
-  if (typeof paired === 'string' && paired.length === 64) {
-    await chrome.storage.session.set({ [KEY]: paired });
-    return paired;
-  }
+  /*
+   * There is no manual pairing fallback, and there used to be half of one.
+   *
+   * A read of `tabterm.pairedToken` out of `chrome.storage.local` sat here, against a documented
+   * `tabterm pair` command and an extension options page. Neither was ever built: nothing in this
+   * repository writes that key and the manifest has no options page, so the read could only ever
+   * return nothing.
+   *
+   * It is removed rather than left harmless because of where it read from. Local storage is
+   * exactly where this token may never be, by the rule four lines up and in docs/05-security.md,
+   * and a path that would have accepted one from there is worth deleting before somebody
+   * implements the other half and makes it real.
+   */
   return null;
 }
 

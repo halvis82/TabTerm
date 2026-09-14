@@ -121,7 +121,7 @@ Both fields are optional, so an older extension still reports and is simply not 
 | `agent-state` | `sessionId`, `state`, `detail?` | Hook bridge, see `09-agent-integration.md` |
 | `session-exited` | `sessionId`, `exitCode`, `signal?` | |
 | `session-detached` | `sessionId`, `remainingClients` | |
-| `session-expiring` | `sessionId`, `expiresAt`, `reason` | Grace warning |
+| `session-expiring` | `sessionId`, `expiresAt`, `reason` | **Reserved. Nothing sends it.** See `04-session-lifecycle.md` |
 | `session-expired` | `sessionId` | |
 | `workspace-updated` | `workspaceId`, `layout` | Another client changed it |
 | `server-detected` | `sessionId`, `port`, `proto` | |

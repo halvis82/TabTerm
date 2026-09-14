@@ -38,7 +38,8 @@ Any local process can send `Origin: chrome-extension://<our-id>` on a WebSocket 
 header is client-supplied. We check and log it as defense in depth and for diagnostics. We never
 make an authorization decision on it.
 
-**The token is the boundary.** Requirements, all enforced and tested:
+**The token is the boundary.** Requirements 1 to 6 and 8 are enforced and tested. 7 is not built,
+and says so:
 
 1. 256 bits from a CSPRNG. Hex-encoded.
 2. Stored at `~/.local/state/tabterm/token`, mode **0600**. The daemon refuses to start if the mode
@@ -47,7 +48,10 @@ make an authorization decision on it.
 4. No other frame is processed before `auth-ok`.
 5. Constant-time comparison.
 6. Per-source exponential backoff on failure.
-7. Rotatable. Rotation invalidates every live connection and triggers re-bootstrap.
+7. **Not built.** Rotation would invalidate every live connection and require every client to
+   bootstrap again. There is no rotation in the daemon, so a token lives until the file is replaced
+   by hand and every client is re-paired. Listed rather than deleted because it is the right
+   behavior to build, and because a requirement quietly removed reads as one nobody wanted.
 8. Never logged. Never written to `chrome.storage.local`. Held in `chrome.storage.session` only.
 
 The daemon binds `127.0.0.1` explicitly, never `0.0.0.0`, never `::`. A test asserts that a
@@ -75,10 +79,20 @@ extension → caches in chrome.storage.session, connects the WebSocket
 The host does nothing else. It does not proxy terminal data, does not spawn processes, and does not
 accept commands. Its entire surface is one message.
 
-### Fallback: manual pairing
+### When the native host is missing
 
-`tabterm pair` prints a one-time code. The user pastes it into the extension options page. Used when
-the native host is not installed. Must work, because it is the recovery path when the host breaks.
+There is no manual pairing fallback. This section once described a `tabterm pair` command and an
+extension options page, and neither exists: nothing writes a pasted token and the manifest has no
+options page.
+
+It is described here as absent rather than deleted, because the gap is real. When the host is not
+installed the extension cannot read the token at all, and the only recovery is to run the installer
+again, which stages the host and its manifest. The extension says so on its onboarding screen
+instead of failing silently.
+
+A pairing path, if it is ever built, may not put the token in `chrome.storage.local`. That is the
+one place this document forbids it, and the half-built read that took a token from there has been
+removed.
 
 ---
 
