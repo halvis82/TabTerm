@@ -473,11 +473,24 @@ async function main(): Promise<void> {
       // invisible and a report of it misbehaving had nothing behind it to look at.
       debug('agent.state', { sessionId, from: previous ?? 'none', to: state });
 
+      /**
+       * The turn is recorded before the state goes out, not after.
+       *
+       * The message carries when the turn began, and the event that begins one is the same event
+       * that announces it. Observing afterwards meant the prompt that started a turn was sent
+       * with no start time on it, so a pane had nothing to count from until the next tool call.
+       */
+      // A turn, timed from the prompt and ended by the hook that reports it. See agent-turns.ts.
+      const turn = turns.observe(sessionId, state, previous, Date.now(), hook);
+      const turnStartedAt = turns.startedAt(sessionId);
       server.notifySession(session, {
         t: 'agent-state',
         sessionId,
         state,
         ...(detail ? { detail } : {}),
+        // How long somebody has been waiting, which is the one number a pane running an agent
+        // can usefully show and the one it did not have.
+        ...(turnStartedAt === undefined ? {} : { turnStartedAt }),
       });
 
       /**
@@ -498,8 +511,6 @@ async function main(): Promise<void> {
         );
       }
 
-      // A turn, timed from the prompt and ended by the hook that reports it. See agent-turns.ts.
-      const turn = turns.observe(sessionId, state, previous, Date.now(), hook);
       if (turn) {
         const where = workspaces.findBySession(sessionId);
         server.notifyFinished(

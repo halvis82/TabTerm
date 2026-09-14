@@ -840,7 +840,19 @@ export type ServerMessage =
       completedAt: number;
       interrupted: boolean;
     }
-  | { t: 'agent-state'; sessionId: string; state: AgentState; detail?: string }
+  | {
+      t: 'agent-state';
+      sessionId: string;
+      state: AgentState;
+      detail?: string;
+      /**
+       * When the turn this session is in began, which is when the person asked.
+       *
+       * Absent between turns, and absent for a turn whose prompt was never seen, which happens
+       * after a daemon restart. A view counts up from it rather than being sent a ticking clock.
+       */
+      turnStartedAt?: number;
+    }
   | { t: 'session-exited'; sessionId: string; exitCode: number; signal?: string }
   | { t: 'session-detached'; sessionId: string; remainingClients: number }
   | { t: 'session-expiring'; sessionId: string; expiresAt: number; reason: string }

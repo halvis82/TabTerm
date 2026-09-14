@@ -9,6 +9,44 @@ blind, arrow-up walks backwards one at a time, and neither shows you what a comm
 ---
 
 
+## Stats answers three questions, and says which is which
+
+The page held one list of numbers about commands, and the line in the corner of a pane held a
+running command's elapsed time. In a pane running an agent both were about the wrong thing: the
+command that is running **is** the agent CLI, which started when the session did, so the corner
+said `running 47m` about a process nobody is waiting on and the page counted one command that never
+ends.
+
+Three groups now, each under a heading that says what it is about.
+
+| Group | What it answers |
+|---|---|
+| Agent | How many answers, how long the last one took, the longest, and the total time spent waiting on it. Absent until a turn has finished, because a session with no agent in it has nothing to say here and a row of zeroes is worse than nothing |
+| Commands | What was run, how many failed, the typical duration, and the time spent in them |
+| This session | Memory of its process tree, and how long it has been open |
+
+A turn is the unit for the first group and no command boundary can see it, so it comes from the
+daemon, which bounds a turn with the hooks that report its ends. See `09-agent-integration.md`.
+
+**Memory is the daemon's side only.** A tab showing a session costs more in a Chrome renderer, and
+that is not measurable from an extension outside the dev channel, so it is left out rather than
+guessed at.
+
+### The line in the corner of a pane answers one question at a time
+
+Whichever question that pane is actually about, in this order:
+
+| When | What it says |
+|---|---|
+| An agent is answering | `answering 1m 14s`, timed from the prompt |
+| An agent is blocked on you | `waiting for you · 30s`, because the thing holding it up is you |
+| An agent has just answered | `answered in 1m 35s · 10s ago` |
+| A command is running | `running 5s` |
+| Otherwise | What the last command did, and how long the session has been open |
+
+The clock is one timestamp sent once and counted up in the page. Streaming a ticking clock over the
+wire would be continuous traffic to say something the receiver can work out for itself.
+
 ## The Actions page and a pane's own menu offer the same things
 
 A pane can be acted on from two places, and which things each one offered had drifted: naming a

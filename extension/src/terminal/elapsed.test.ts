@@ -113,3 +113,49 @@ describe('how long the session has been open', () => {
     expect(said).not.toContain('open');
   });
 });
+
+/**
+ * A pane running an agent answers the question that pane is about.
+ *
+ * Every other line in it is about the wrong thing: the command that is running is the agent CLI,
+ * which started with the session, so the strip said "running 47m" about a process nobody is
+ * waiting on. It was the reported uselessness of this line, and the fix is not a better format.
+ */
+describe('a pane running an agent', () => {
+  const at = 1_000_000;
+
+  it('says how long the answer has taken, not how long the CLI has been up', () => {
+    expect(
+      describeTime(
+        {
+          sessionStartedAt: at - 3_600_000,
+          commandStartedAt: at - 3_600_000,
+          agentTurnStartedAt: at - 74_000,
+          agentState: 'working',
+        },
+        at,
+      ),
+    ).toBe('answering 1m 14s');
+  });
+
+  it('says a turn blocked on a person is blocked on them', () => {
+    // The clock is still running and the number is still true. What somebody glancing at the
+    // pane needs to know is that the thing holding it up is them.
+    expect(describeTime({ agentTurnStartedAt: at - 30_000, agentState: 'waiting' }, at)).toBe(
+      'waiting for you · 30s',
+    );
+    expect(describeTime({ agentTurnStartedAt: at - 30_000, agentState: 'approval' }, at)).toBe(
+      'needs approval · 30s',
+    );
+  });
+
+  it('says what the last answer cost once it is over', () => {
+    expect(
+      describeTime({ lastTurnMs: 95_000, lastTurnEndedAt: at - 10_000, agentState: 'idle' }, at),
+    ).toBe('answered in 1m 35s · 10s ago');
+  });
+
+  it('goes back to the command line when there is no agent in it', () => {
+    expect(describeTime({ commandStartedAt: at - 5_000 }, at)).toBe('running 5s');
+  });
+});

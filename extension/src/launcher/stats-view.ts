@@ -1,4 +1,5 @@
 import { formatDuration, formatTime, type SessionStats } from './session-stats.js';
+import { formatBytes } from './sessions-view.js';
 
 /**
  * The Stats tab.
@@ -6,11 +7,69 @@ import { formatDuration, formatTime, type SessionStats } from './session-stats.j
  * What this session has run, how long each took, and when. Reading a session back is most useful
  * when something was slow, so duration and time are the two columns that never get truncated.
  */
-export function buildStats(stats: SessionStats): HTMLElement {
+/** What this session costs the machine, which only the daemon can measure. */
+export interface SessionCost {
+  memoryBytes?: number;
+  /** Bytes of scrollback held for this session, when the daemon has said. */
+  scrollbackBytes?: number;
+}
+
+export function buildStats(stats: SessionStats, cost: SessionCost = {}): HTMLElement {
   const wrap = document.createElement('div');
   wrap.className = 'cmd-stats';
 
   const summary = stats.summarize();
+  const turns = stats.turns();
+
+  /** One group of figures under a heading that says what they are about. */
+  const group = (heading: string, figures: [string, string][]): void => {
+    if (figures.length === 0) return;
+    const title = document.createElement('div');
+    title.className = 'cmd-stats-heading';
+    title.textContent = heading;
+    wrap.append(title);
+    const grid = document.createElement('div');
+    grid.className = 'cmd-figures';
+    for (const [label, value] of figures) {
+      const cell = document.createElement('div');
+      cell.className = 'cmd-figure';
+      const big = document.createElement('div');
+      big.className = 'cmd-figure-value';
+      big.textContent = value;
+      const small = document.createElement('div');
+      small.className = 'cmd-figure-label';
+      small.textContent = label;
+      cell.append(big, small);
+      grid.append(cell);
+    }
+    wrap.append(grid);
+  };
+
+  /**
+   * What an agent in this session has been asked, which no command boundary can see.
+   *
+   * A pane running one is a single command that runs all day, so every figure below says the same
+   * thing about it: one command, still running. Only shown once a turn has finished, because a
+   * session with no agent in it has nothing to say here and a row of zeroes is worse than nothing.
+   */
+  if (turns.count > 0) {
+    group('Agent', [
+      ['Answers', String(turns.count)],
+      ['Last answer', turns.lastMs === null ? '' : formatDuration(turns.lastMs)],
+      ['Longest', formatDuration(turns.longestMs)],
+      ['Time waiting', formatDuration(turns.totalMs)],
+    ]);
+  }
+
+  /** What this session costs, which is the daemon's side of it and is said rather than guessed. */
+  const costFigures: [string, string][] = [];
+  if (cost.memoryBytes !== undefined && cost.memoryBytes > 0) {
+    costFigures.push(['Memory', formatBytes(cost.memoryBytes)]);
+  }
+  if (cost.scrollbackBytes !== undefined && cost.scrollbackBytes > 0) {
+    costFigures.push(['Scrollback held', formatBytes(cost.scrollbackBytes)]);
+  }
+  costFigures.push(['Session open', formatDuration(Date.now() - summary.startedAt)]);
   /**
    * Labels that say what the number is.
    *
@@ -27,24 +86,10 @@ export function buildStats(stats: SessionStats): HTMLElement {
     // commands, which is exactly what an average does.
     ['Typical command', formatDuration(summary.medianMs)],
     ['Time in commands', formatDuration(summary.totalMs)],
-    ['Session open', formatDuration(Date.now() - summary.startedAt)],
   ];
 
-  const grid = document.createElement('div');
-  grid.className = 'cmd-figures';
-  for (const [label, value] of figures) {
-    const cell = document.createElement('div');
-    cell.className = 'cmd-figure';
-    const big = document.createElement('div');
-    big.className = 'cmd-figure-value';
-    big.textContent = value;
-    const small = document.createElement('div');
-    small.className = 'cmd-figure-label';
-    small.textContent = label;
-    cell.append(big, small);
-    grid.append(cell);
-  }
-  wrap.append(grid);
+  group('Commands', figures);
+  group('This session', costFigures);
 
   /**
    * What is counted, said plainly.

@@ -118,7 +118,7 @@ Both fields are optional, so an older extension still reports and is simply not 
 | `process-state` | `sessionId`, `state`, `foreground?` | |
 | `command-start` | `sessionId`, `commandId`, `command`, `cwd`, `startedAt` | OSC 133 |
 | `command-end` | `sessionId`, `commandId`, `exitCode`, `completedAt`, `interrupted` | OSC 133 |
-| `agent-state` | `sessionId`, `state`, `detail?` | Hook bridge, see `09-agent-integration.md` |
+| `agent-state` | `sessionId`, `state`, `detail?`, `turnStartedAt?` | Hook bridge, see `09-agent-integration.md`. `turnStartedAt` is when the person asked, absent between turns and absent for a turn whose prompt was never seen |
 | `session-exited` | `sessionId`, `exitCode`, `signal?` | |
 | `session-detached` | `sessionId`, `remainingClients` | |
 | `session-expiring` | `sessionId`, `expiresAt`, `reason` | **Reserved. Nothing sends it.** See `04-session-lifecycle.md` |

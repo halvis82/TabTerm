@@ -88,6 +88,18 @@ export class TurnTracker {
     return { durationMs: now - startedAt, failed: state === 'failed' };
   }
 
+  /**
+   * When the turn a session is in began, or undefined when it is not in one.
+   *
+   * Sent to the page so a pane can say how long somebody has been waiting, counted up there from
+   * one timestamp rather than streamed. The alternative is the number this replaces: a terminal
+   * that said how long the agent CLI itself had been running, which is how long ago the session
+   * was opened and is never the question.
+   */
+  startedAt(sessionId: string): number | undefined {
+    return this.#startedAt.get(sessionId);
+  }
+
   forget(sessionId: string): void {
     this.#startedAt.delete(sessionId);
   }

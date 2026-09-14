@@ -168,6 +168,8 @@ let startScreenDecided = !reattaching;
 let pendingTemplate: LayoutTemplate | null = null;
 /** Everything running that this tab is not already showing, for the start screen and the panes. */
 let liveElsewhere: readonly LiveSession[] = [];
+/** This tab's own sessions as the daemon reports them, which is where their cost comes from. */
+let liveHere: readonly LiveSession[] = [];
 /** Actions somebody made, which sit in the command menu beside the ones that ship. */
 let customActions: CustomAction[] = [];
 /** The keys this page answers to, which are settings rather than facts about the code. */
@@ -4864,7 +4866,17 @@ function buildCommandPanel(): void {
         onChangeShellIntegration: (enabled) =>
           client?.send({ t: 'set-shell-integration', enabled }),
       }),
-    stats: () => buildStats(sessionStats),
+    stats: () => {
+      /**
+       * What this tab costs, summed over its panes.
+       *
+       * Measured by the daemon over each session's process tree. Chrome's own side of it is not
+       * measurable from an extension, so it is left out rather than guessed at, and the note
+       * under the figures says so.
+       */
+      const memoryBytes = liveHere.reduce((sum, s) => sum + (s.memoryBytes || 0), 0);
+      return buildStats(sessionStats, memoryBytes > 0 ? { memoryBytes } : {});
+    },
   });
 
   openSettingsIfAsked();
@@ -5647,6 +5659,9 @@ function onControl(msg: ServerMessage): void {
        */
       const mine = new Set((panesHost?.all ?? []).map((p) => p.sessionId));
       liveElsewhere = msg.sessions.filter((s) => !mine.has(s.sessionId));
+      // And this tab's own, which the list above deliberately drops. The Stats page needs them:
+      // what a session costs is measured by the daemon and cannot be worked out here.
+      liveHere = msg.sessions.filter((s) => mine.has(s.sessionId));
       launcher?.setLiveSessions(liveElsewhere);
       // A pane offering to take one draws the same cards, so it redraws when they change.
       for (const chooser of paneChoosers.values()) chooser.render();
@@ -5862,6 +5877,28 @@ function onControl(msg: ServerMessage): void {
         setFavicon(paneStatus.effective());
         titleFields = { ...titleFields, status: msg.state };
         refreshTitle();
+
+        /**
+         * What the pane says about time, which in an agent pane is about the turn.
+         *
+         * The clock comes from the daemon as one timestamp and is counted up here, the same way
+         * a running command is. A turn that has ended leaves how long it took, because that is
+         * the thing worth knowing next and it outlives the turn.
+         */
+        const time = timeStateFor(pane.paneId);
+        time.agentState = msg.state;
+        if (msg.turnStartedAt === undefined) {
+          const wasIn = time.agentTurnStartedAt;
+          delete time.agentTurnStartedAt;
+          if (wasIn !== undefined && (msg.state === 'idle' || msg.state === 'failed')) {
+            time.lastTurnMs = Date.now() - wasIn;
+            time.lastTurnEndedAt = Date.now();
+            sessionStats.turnFinished(time.lastTurnMs, time.lastTurnEndedAt);
+          }
+        } else {
+          time.agentTurnStartedAt = msg.turnStartedAt;
+        }
+        startTimeTicking();
       }
       return;
     }

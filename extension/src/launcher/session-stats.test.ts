@@ -98,3 +98,43 @@ describe('formatting', () => {
     expect(formatTime(new Date(2026, 0, 1, 9, 5, 3).getTime())).toBe('09:05:03');
   });
 });
+
+/**
+ * Turns, which no command boundary can see.
+ *
+ * A pane running an agent is one long command, so everything counted from command boundaries says
+ * the same thing about it all day: one command, still running. What happened in that pane is a
+ * number of answers and how long each took.
+ */
+describe('what an agent was asked', () => {
+  it('says nothing at all before a turn has finished', () => {
+    const stats = new SessionStats();
+    expect(stats.turns()).toEqual({
+      count: 0,
+      totalMs: 0,
+      longestMs: 0,
+      lastMs: null,
+      lastEndedAt: null,
+    });
+  });
+
+  it('counts finished turns and keeps the longest and the last', () => {
+    const stats = new SessionStats();
+    stats.turnFinished(30_000, 1_000);
+    stats.turnFinished(90_000, 2_000);
+    stats.turnFinished(10_000, 3_000);
+    const turns = stats.turns();
+    expect(turns.count).toBe(3);
+    expect(turns.totalMs).toBe(130_000);
+    expect(turns.longestMs).toBe(90_000);
+    expect(turns.lastMs).toBe(10_000);
+    expect(turns.lastEndedAt).toBe(3_000);
+  });
+
+  it('refuses a duration that is not one, rather than counting a turn of NaN', () => {
+    const stats = new SessionStats();
+    stats.turnFinished(Number.NaN);
+    stats.turnFinished(-5);
+    expect(stats.turns().count).toBe(0);
+  });
+});

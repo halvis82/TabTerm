@@ -13,6 +13,16 @@ export interface CommandRecord {
   exitCode?: number;
 }
 
+/** What an agent has been asked and how long the answers took, per session. */
+export interface TurnSummary {
+  /** Turns that finished. A turn in flight is counted when it ends, never before. */
+  count: number;
+  totalMs: number;
+  longestMs: number;
+  lastMs: number | null;
+  lastEndedAt: number | null;
+}
+
 export interface SessionSummary {
   total: number;
   failed: number;
@@ -30,6 +40,37 @@ export class SessionStats {
   readonly #records: CommandRecord[] = [];
   readonly #open = new Map<string, CommandRecord>();
   readonly #startedAt = Date.now();
+  /**
+   * Finished turns, which no command boundary can see.
+   *
+   * A pane running an agent is one long command, so everything counted below says the same thing
+   * about it all day: one command, still running. What actually happened in that pane is a number
+   * of answers and how long each took, and the daemon is the only thing that can bound them.
+   */
+  #turns: { totalMs: number; longestMs: number; lastMs: number; lastEndedAt: number } | null = null;
+  #turnCount = 0;
+
+  /** Record a turn the daemon has said is over. Never called for one still in flight. */
+  turnFinished(durationMs: number, endedAt = Date.now()): void {
+    if (!Number.isFinite(durationMs) || durationMs < 0) return;
+    this.#turnCount += 1;
+    this.#turns = {
+      totalMs: (this.#turns?.totalMs ?? 0) + durationMs,
+      longestMs: Math.max(this.#turns?.longestMs ?? 0, durationMs),
+      lastMs: durationMs,
+      lastEndedAt: endedAt,
+    };
+  }
+
+  turns(): TurnSummary {
+    return {
+      count: this.#turnCount,
+      totalMs: this.#turns?.totalMs ?? 0,
+      longestMs: this.#turns?.longestMs ?? 0,
+      lastMs: this.#turns?.lastMs ?? null,
+      lastEndedAt: this.#turns?.lastEndedAt ?? null,
+    };
+  }
 
   begin(key: string, command: string, startedAt: number): void {
     const record: CommandRecord = { command, startedAt };

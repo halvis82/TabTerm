@@ -1045,6 +1045,18 @@
     gap: 8px;
     padding: 8px;
   }
+  /* Says what the figures under it are about, so three groups do not read as one long list of
+     numbers with no relationship to each other. */
+  .cmd-stats-heading {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-top: 4px;
+  }
+  .cmd-stats-heading:first-child {
+    margin-top: 0;
+  }
   .cmd-figures {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
