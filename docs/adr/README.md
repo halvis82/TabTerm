@@ -27,3 +27,6 @@ reverse-engineer from the code. This is part of the definition of done.
 | [0013](0013-defer-plugin-api.md) | Defer the plugin API until the seams are known | Accepted |
 | [0014](0014-cut-finder-drag.md) | Cut drag-from-Finder path insertion | Accepted |
 | [0015](0015-node-sqlite-over-native.md) | Node's built-in SQLite, and Node 22 or newer | Accepted |
+| [0016](0016-an-absent-exit-code-is-not-zero.md) | An absent exit code is not a zero | Accepted |
+| [0017](0017-a-pty-host-that-outlives-the-daemon.md) | A PTY host process that outlives the daemon | Accepted |
+| [0018](0018-built-from-source-rather-than-signed-for-download.md) | Built from source, not shipped as a signed download | Accepted |

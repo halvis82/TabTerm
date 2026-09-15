@@ -93,8 +93,15 @@ The consequence is that the entry stays listed in System Settings while no longe
 adding the app again does nothing until the stale entry is removed. `scripts/doctor.sh`
 distinguishes the two states and says which one the machine is in.
 
-The real fix is a Developer ID certificate, which would let the requirement name the identifier
-instead of the hash. Until then, any change to the bundle's contents costs the grant.
+A Developer ID certificate would fix that, by letting the requirement name the identifier instead
+of the hash. **There will not be one:** TabTerm is distributed as source and built on the machine
+it runs on, and a certificate needs a paid Apple Developer account for a project whose install path
+is already a `git clone`. See `adr/0018`.
+
+So any change to the bundle's contents costs the grant, permanently rather than until something
+arrives. That is affordable because the grant is optional: it exists only so an agent probing
+another application's data directory does not produce a prompt in TabTerm's name, and refusing that
+prompt costs nothing but the agent's organization plugins.
 
 **So the installer says when it happens.** It records the signature before it writes the bundle and
 compares afterwards, and when they differ and the machine has a Full Disk Access row for
@@ -124,8 +131,10 @@ enough for macOS to have a stable identity to attach privacy grants to. Verified
 rejects the bundle, as it rejects any ad-hoc signature, and the daemon starts, serves an
 authenticated client, and spawns PTYs regardless, because that assessment is not on the path.
 
-A Developer ID and notarization are needed **only to ship a prebuilt `.app` for download**,
-where the quarantine attribute does apply. Both need an Apple Developer account:
+A Developer ID and notarization are needed **only to ship a prebuilt `.app` for download**, where
+the quarantine attribute does apply. There is no such download and there is not going to be one,
+which is a decision rather than a gap: see `adr/0018`. The commands stay here because anybody who
+does have an account can produce a signed bundle for themselves, and nothing prevents that:
 
 ```
 node scripts/build-app-bundle.mjs --sign "Developer ID Application: NAME (TEAMID)"
