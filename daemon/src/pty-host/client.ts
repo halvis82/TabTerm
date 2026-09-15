@@ -392,6 +392,33 @@ export class PtyHostClient {
   /** Sessions a replay has been asked for and not yet delivered. */
   #replayPending = new Set<string>();
 
+  /** What one session's ring can serve, which is what one replay can be worth. */
+  #replayBudgetBytes = 0;
+
+  /**
+   * What the hold may carry right now, which depends on how much replay has been asked for.
+   *
+   * The fixed limit was sized for one ring, and the comment beside it says so. A reconnect does
+   * not replay one session: it replays **every** session the daemon is adopting, all at once, and
+   * every one of those frames is held here until the catch-up finishes. Eight sessions against a
+   * five megabyte budget is forty megabytes of replay arriving into an eight megabyte hold, which
+   * cannot fit by construction.
+   *
+   * Measured on a real machine, three times in one day, every time the daemon restarted: the hold
+   * crossed eight megabytes, the sessions with a replay still in flight were cut short, and the
+   * output between the watermark and the live frames was lost from the daemon's emulator for good.
+   * Reloading the tab does not bring it back, because the snapshot a tab is given is built from
+   * the emulator that has the hole.
+   *
+   * So the allowance grows with what has actually been requested, and shrinks again as each reply
+   * lands. It is demand, not a guess: a daemon holding one session is allowed one ring, and a
+   * daemon adopting eight is allowed eight. A hold that overflows past that is a genuine runaway
+   * and is still cut short, which is what the notice exists for.
+   */
+  get holdAllowanceBytes(): number {
+    return this.#holdLimitBytes + this.#replayPending.size * this.#replayBudgetBytes;
+  }
+
   /**
    * Tell each affected terminal that part of its screen is missing.
    *
@@ -621,10 +648,13 @@ export class PtyHostClient {
           if (this.#reconciling) {
             this.#held.push({ sessionId: frame.frame.sessionId, data: buf, seq: frame.frame.seq });
             this.#heldBytes += buf.length;
-            if (this.#heldBytes > this.#holdLimitBytes) {
+            if (this.#heldBytes > this.holdAllowanceBytes) {
               warn('pty-host.hold-overflow', {
                 bytes: this.#heldBytes,
-                limit: this.#holdLimitBytes,
+                limit: this.holdAllowanceBytes,
+                base: this.#holdLimitBytes,
+                replaysPending: this.#replayPending.size,
+                sessions: new Set(this.#held.map((f) => f.sessionId)).size,
               });
               this.#cutShortEveryHeldSession();
               this.reconciled();
@@ -1061,6 +1091,7 @@ export class PtyHostClient {
   setBudget(bytes: number): void {
     // The hold has to be able to carry what the ring can serve, or a real replay cannot land.
     this.#holdLimitBytes = Math.max(PtyHostClient.HOLD_LIMIT_BYTES, Math.floor(bytes));
+    this.#replayBudgetBytes = Math.max(0, Math.floor(bytes));
     this.#send({ t: 'budget', bytes });
   }
 

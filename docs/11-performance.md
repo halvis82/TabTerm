@@ -213,6 +213,23 @@ Acking on queue would defeat the whole mechanism.
 Suspension is safe and cheap because the daemon holds authoritative state. Discarding a renderer
 costs one snapshot on return.
 
+### The hold is sized by the replay that was asked for
+
+Live output is held back while a reconnecting daemon catches up, so a replay and the live frames
+that overlap it can be merged in the host's own order. The replay frames are held too, because they
+arrive the same way, so the hold has to be able to contain every replay in flight.
+
+It was a flat eight megabytes, which is one session's ring. A reconnect does not replay one
+session: it replays every session being adopted. Eight sessions against a five megabyte budget is
+forty megabytes arriving into an eight megabyte hold, which cannot fit, and what follows an
+overflow is the watermark moving past output that never arrived. That gap is permanent in the
+daemon's emulator, so reloading the tab does not recover it: the snapshot a tab is given is built
+from the emulator that has the gap.
+
+The allowance now grows by one ring for each replay actually requested and shrinks as each reply
+lands, so it is demand rather than a guess. A hold that overflows past that is a genuine runaway,
+and is still cut short with a notice.
+
 A handback that is already waiting is never restarted. The daemon tells every open tab what the
 memory mode is whenever any setting changes, and a hidden tab schedules a handback each time it
 hears one. Clearing the timer and starting it again on each message meant a tab told often enough
