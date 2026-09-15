@@ -194,5 +194,40 @@ r.ok(
   String(await barsShown()),
 );
 
+/**
+ * And the names are still there after a refresh, which they were not.
+ *
+ * The daemon pushes a title when one **changes**, so a page that had just attached had never been
+ * told any. Every bar in a reattached tab stayed blank until a directory or a process changed, and
+ * refreshing a tab full of named panes emptied all of them at once, which reads as the names
+ * having been lost rather than as never having arrived.
+ */
+{
+  const before = (await bars()).map((b) => b.name);
+  r.ok(
+    'every pane bar says what its pane is',
+    before.every((n) => n !== ''),
+    JSON.stringify(before),
+  );
+
+  await client.send('Page.reload');
+  await waitFor(client, 'window.__tabterm?.paneIds().length > 0', 25000);
+  // Waits for the bars themselves rather than for a duration: they are drawn when the attach
+  // lands, and a fixed sleep here is the difference between a check and a coin toss.
+  const filled = await waitFor(
+    client,
+    `[...document.querySelectorAll('.pane-bar-name')].length > 0 &&
+     [...document.querySelectorAll('.pane-bar-name')].every((n) => (n.textContent ?? '') !== '')`,
+    20000,
+  );
+  const after = (await bars()).map((b) => b.name);
+  r.ok('and still does after a refresh', filled === true, JSON.stringify(after));
+  r.ok(
+    'with the same names, not a different set',
+    JSON.stringify(after.slice().sort()) === JSON.stringify(before.slice().sort()),
+    `${JSON.stringify(before)} -> ${JSON.stringify(after)}`,
+  );
+}
+
 await finish();
 r.done();

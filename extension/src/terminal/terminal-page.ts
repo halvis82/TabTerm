@@ -5260,8 +5260,19 @@ function onControl(msg: ServerMessage): void {
         // And whether anything has ever been run in it, which the screen cannot answer for a
         // pane whose snapshot has not arrived. See `panesUsed`.
         if (p.hasRun === true) panesUsed.add(p.paneId);
+        /*
+         * What each pane is, so its bar can say so immediately.
+         *
+         * The daemon pushes a title when one changes, so a page that has just attached had never
+         * been told any, and every bar in a reattached tab stayed blank until a directory or a
+         * process changed. Refreshing a tab emptied all of them, which reads as the names having
+         * been lost rather than as never having arrived.
+         */
+        if (p.title) sessionTitles.set(p.sessionId, p.title);
       }
       applyLayout(msg.layout);
+      // Drawn after the layout, because the bars do not exist until the panes do.
+      splitView?.refreshTitleBars();
       attached = true;
 
       /**
@@ -5574,7 +5585,17 @@ function onControl(msg: ServerMessage): void {
         'hidden-resumes',
       ]);
       launcher?.setState(msg.state);
+      const homeWasUnknown = launcherHome === '';
       launcherHome = msg.state.home;
+      /*
+       * The bars again, now that home is known.
+       *
+       * A pane in the home directory is called `~` and every other is called by its folder, and
+       * that comparison needs home. Launcher state arrives after the attach, so the bars are drawn
+       * once before it: a pane in home read `halvis82` for a moment and then became `~`, which is
+       * a name changing under somebody for no reason they can see.
+       */
+      if (homeWasUnknown && launcherHome !== '') splitView?.refreshTitleBars();
       savedItems = [...msg.state.saved];
       palette?.setSaved(savedItems);
       commandPanel?.setFavorites(savedItems);

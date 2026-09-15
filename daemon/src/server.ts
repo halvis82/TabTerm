@@ -22,6 +22,7 @@ import {
   type ServerErrorCode,
   type ServerMessage,
   type StatsReport,
+  type WorkspacePane,
 } from '@tabterm/shared';
 import { authDelayMs, recordFailure, recordSuccess, verifyToken } from './auth.js';
 import type { PanePlace } from '@tabterm/shared';
@@ -2594,14 +2595,9 @@ export class DaemonServer {
     const workspace = this.#workspaces.get(workspaceId);
     if (!workspace) return;
 
-    const entries: {
-      paneId: string;
-      sessionId: string;
-      streamId: number;
-      startedWithCommand?: boolean;
-      hasInput?: boolean;
-      atHome?: boolean;
-    }[] = [];
+    // The shape `workspace-attached` carries, written out because it is assembled in two places
+    // below and a missing field in one of them is a pane that comes back missing something.
+    const entries: WorkspacePane[] = [];
     const toAttach: { sessionId: string; streamId: number }[] = [];
 
     for (const { paneId, sessionId } of panes(workspace.layout)) {
@@ -2626,6 +2622,9 @@ export class DaemonServer {
       const atHome = session.cwd === homedir();
       // What the page cannot see yet: a restored pane has no screen at the moment it decides.
       const hasRun = session.hasRun === true;
+      // What this pane is, so its bar says so before anything changes. The title is otherwise
+      // only ever pushed on a change, so a reattached tab had blank bars until one happened.
+      const title = session.titleFields;
 
       const existing = client.streams.get(sessionId);
       if (existing !== undefined) {
@@ -2637,6 +2636,7 @@ export class DaemonServer {
           ...(typed ? { hasInput: true } : {}),
           ...(atHome ? { atHome: true } : {}),
           ...(hasRun ? { hasRun: true } : {}),
+          title,
         });
         continue;
       }
@@ -2650,6 +2650,7 @@ export class DaemonServer {
         ...(typed ? { hasInput: true } : {}),
         ...(atHome ? { atHome: true } : {}),
         ...(hasRun ? { hasRun: true } : {}),
+        title,
       });
       toAttach.push({ sessionId, streamId });
     }

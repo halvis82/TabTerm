@@ -747,6 +747,18 @@ export interface WorkspacePane {
    */
   atHome?: boolean;
   /**
+   * What this pane is, so its bar can say so before anything changes.
+   *
+   * The title is pushed when it **changes**, which means a page that has just attached has never
+   * been told one. Every pane bar in a reattached tab was therefore blank until something moved:
+   * a directory change, a command, anything. Refreshing a tab full of named panes emptied all of
+   * their bars, which reads as the names having been lost.
+   *
+   * Sent with the attach for the same reason as the three fields below it. The page is being asked
+   * a question about a session before it has any of the session.
+   */
+  title?: TitleFields;
+  /**
    * Something has actually been run in this session.
    *
    * The same question as `hasRun` on a session card, sent with the attach because the page needs

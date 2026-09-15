@@ -638,6 +638,21 @@ the shape, the directions, the ratios and any names survive. A pane nothing was 
 pruned rather than left naming a session that does not exist, and a tree that matches nothing at
 all is reported rather than replaced with a guess.
 
+### A pane's own name arrives with the attach, not on the next change
+
+A pane bar says what its pane is: the folder, and what is running there when that is worth saying.
+That comes from the session's title fields, and those were only ever pushed **when they changed**.
+
+So a page that had just attached had never been told any. Every bar in a reattached tab stayed blank
+until a directory or a process changed, and refreshing a tab full of panes emptied all of them at
+once, which reads as the names having been lost rather than as never having arrived.
+
+The attach payload carries each pane's title now, beside the other facts it carries for the same
+reason. The bars are drawn once the layout exists, and again when launcher state arrives, because a
+pane sitting in the home directory is called `~` and that comparison needs to know where home is.
+Without the second pass the bar read `halvis82` for a moment and then became `~`, which is a name
+changing under somebody for no reason they can see.
+
 ### Whether a pane is in use is a fact, not a count of its rows
 
 The folder picker and the list of sessions to bring here belong over a pane with nothing in it.
