@@ -206,23 +206,53 @@ r.ok(
   await sleep(1500);
 
   const was = [await linesIn(ids[0]), await linesIn(ids[1])];
-  for (const [width, height] of [
-    [1150, 800],
-    [960, 700],
-    [1240, 840],
-    [880, 660],
-    [1200, 800],
-  ]) {
-    await client.send('Emulation.setDeviceMetricsOverride', {
-      width,
-      height,
-      deviceScaleFactor: 1,
-      mobile: false,
-    });
-    await sleep(450);
+  const sentBefore = Number(await evaluate(client, 'window.__tabterm.sizesSentForTest()'));
+  /*
+   * Fast, and many, which is what a drag is.
+   *
+   * Five resizes with half a second between them is five settled sizes, and it passed while the
+   * reported fault was real: it only appeared under a full run, where everything is slower and a
+   * resize produces more intermediate sizes. A drag is what produces them, so this drags. Measured
+   * on the run that caught it: five window resizes became twenty one distinct sizes for one
+   * session, and the shell redrew its prompt for each.
+   */
+  for (let step = 0; step < 4; step++) {
+    for (const [width, height] of [
+      [1150, 800],
+      [1080, 760],
+      [1010, 720],
+      [960, 700],
+      [1040, 740],
+      [1120, 780],
+      [1200, 800],
+    ]) {
+      await client.send('Emulation.setDeviceMetricsOverride', {
+        width,
+        height,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await sleep(40);
+    }
   }
+  await sleep(600);
   await client.send('Emulation.clearDeviceMetricsOverride');
   await sleep(1500);
+
+  /**
+   * How many sizes the shell was told about, which is the thing being fixed.
+   *
+   * The stack of prompt lines only appears when the machine is loaded enough for a resize to
+   * produce many intermediate sizes, so a check for the lines alone passes on a quiet machine
+   * whether or not the fault is there. This does not: 28 frames of a drag are 28 frames, and a
+   * terminal that turns each of them into a `SIGWINCH` is the whole of what went wrong.
+   */
+  const sentAfter = Number(await evaluate(client, 'window.__tabterm.sizesSentForTest()'));
+  r.ok(
+    'a drag of 28 frames is not 28 sizes for the shell to redraw at',
+    sentAfter - sentBefore <= 12,
+    `${String(sentAfter - sentBefore)} sizes sent for 28 frames across 2 panes`,
+  );
 
   const now = [await linesIn(ids[0]), await linesIn(ids[1])];
   for (const i of [0, 1]) {

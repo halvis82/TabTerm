@@ -3003,13 +3003,53 @@ function buildHosts(): void {
       if (!workspaceId) return;
       client?.send({ t: 'swap-panes', workspaceId, a, b });
     },
-    onPaneResized: (paneId) => {
+    onPaneResized: (paneId) => sendSizeWhenItSettles(paneId),
+  });
+}
+
+/**
+ * Tell the shell the size once it has stopped changing, rather than on every frame of a drag.
+ *
+ * A `ResizeObserver` fires for every intermediate size, and each one used to go straight to the
+ * pty as a `SIGWINCH`. Measured on a real run: five window resizes produced **twenty one**
+ * distinct sizes for one session, and the shell redrew its prompt for every one of them. On a
+ * screen that has scrolled each redraw lands a line lower, so dragging a window left a stack of
+ * prompt lines under the output. That is a transcript nobody typed, and it is what somebody keeps.
+ *
+ * A native terminal does not do this: it sends the size the window settled on. So does this now.
+ *
+ * The delay is short enough to be invisible and long enough to cover a drag's frames. Only the
+ * last size is sent, because the intermediate ones are not sizes anybody asked for. xterm keeps
+ * redrawing locally throughout, so nothing on screen waits for this.
+ */
+const SETTLE_MS = 140;
+const sizeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/**
+ * How many sizes have actually been sent, which is the thing the coalescing changes.
+ *
+ * The symptom, a stack of prompt lines, only appears when the machine is loaded enough for a
+ * resize to produce many intermediate sizes, so a check for it passes on a quiet machine whether
+ * or not the fault is there. The count does not: a drag is a drag, and the number of sizes it
+ * turns into is the whole of what was wrong.
+ */
+let sizesSent = 0;
+
+function sendSizeWhenItSettles(paneId: string): void {
+  clearTimeout(sizeTimers.get(paneId));
+  sizeTimers.set(
+    paneId,
+    setTimeout(() => {
+      sizeTimers.delete(paneId);
+      // Measured when it fires, not when it was scheduled: the size at the end of the drag is
+      // the answer, and anything measured earlier is one of the frames being coalesced away.
       const size = panesHost?.fit(paneId);
       if (size && workspaceId && attached) {
+        sizesSent += 1;
         client?.send({ t: 'resize-pane', workspaceId, paneId, cols: size.cols, rows: size.rows });
       }
-    },
-  });
+    }, SETTLE_MS),
+  );
 }
 
 /**
@@ -6124,6 +6164,8 @@ declare global {
       selection: () => string;
       /** What the daemon said could be resumed, before the launcher trims it for display. */
       resumable: () => { sessionId: string; cwd: string; agent: string; summary?: string }[];
+      /** How many sizes this page has sent to the daemon. See `sendSizeWhenItSettles`. */
+      sizesSentForTest: () => number;
       /**
        * What the command menu's Actions page is offering right now.
        *
@@ -6322,6 +6364,7 @@ function installTestHook(): void {
     },
     reconnect: () => client?.connect(),
     setBackgroundTimeout: (seconds) => client?.send({ t: 'set-background-timeout', seconds }),
+    sizesSentForTest: () => sizesSent,
     actions: () => paletteActions().map((a) => ({ id: a.id, title: a.title })),
     recoveryRaceForTest: (cwd) => {
       resumableSessions = [];

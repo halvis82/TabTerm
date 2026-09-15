@@ -230,9 +230,10 @@ await evaluate(client, "document.querySelector('.term-menu')?.remove()");
     ),
   );
   const splitRight = shown.find((e) => e.label === 'Split right');
+  // ⇧⌘S, not ⇧⌘D: that one is Chrome's Bookmark All Tabs and was moved off it. See WP-113.
   r.ok(
     'the menu prints the keys bound to splitting right',
-    splitRight?.keys === '⇧⌘D',
+    splitRight?.keys === '⇧⌘S',
     JSON.stringify(shown),
   );
   /*

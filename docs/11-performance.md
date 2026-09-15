@@ -5,6 +5,25 @@ It is not automatically true of the system.
 
 ---
 
+
+## A size reaches the shell once the window has settled, not once a frame
+
+A `ResizeObserver` fires for every intermediate size during a drag, and each one used to go
+straight to the pty as a `SIGWINCH`. Measured on a real run: five window resizes became **twenty
+one** distinct sizes for one session, and a drag of 28 frames across two panes produced **58**
+messages.
+
+That is not only waste. A shell redraws its prompt for every `SIGWINCH`, and on a screen that has
+scrolled each redraw lands a line lower, so dragging a window left a stack of prompt lines under
+the output: a transcript nobody typed, in the scrollback somebody keeps.
+
+The size is now sent once the pane has stopped changing, 140 ms after the last frame, and only the
+last one is sent. A native terminal does the same. Nothing on screen waits for it, because the
+renderer reflows locally throughout.
+
+The symptom needed a loaded machine to appear, which is why it survived: on a quiet one a resize
+settles in fewer frames. The count does not need load, so that is what the check asserts.
+
 ## What a byte waits for on its way to the screen
 
 A terminal in a browser has more between the process and the pixel than one that owns its own PTY,
