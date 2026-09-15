@@ -112,6 +112,8 @@ r.ok(
  * between two polls, which is what a full run actually produced, reported as `visibility hidden,
  * renderers [true,true]`. The count cannot come back down.
  */
+const handbacks = async () =>
+  Number(await evaluate(client, 'window.__tabterm.rendererHandbacksForTest()'));
 const releases = async () =>
   JSON.parse(
     String(
@@ -121,15 +123,25 @@ const releases = async () =>
       ),
     ),
   );
-const releasesBefore = await releases();
-const wasReleased = await waitUntil(
-  async () => (await releases()).some((n, i) => n > (releasesBefore[i] ?? 0)),
-  25000,
-);
+const handbacksBefore = await handbacks();
+/*
+ * And told the memory mode throughout, which is what a busy daemon does.
+ *
+ * It broadcasts that to every open tab on any settings change and on a reset, and the page
+ * schedules a handback each time it hears it while hidden. Restarting the timer on every message
+ * meant a tab told often enough never handed anything back: measured in a full run at 205
+ * schedules and zero handbacks. Nothing here is synthetic except the messenger, and the page
+ * cannot tell the difference.
+ */
+const nagging = setInterval(() => {
+  void evaluate(client, 'window.__tabterm.scheduleRendererReleaseForTest()');
+}, 700);
+const wasReleased = await waitUntil(async () => (await handbacks()) > handbacksBefore, 25000);
+clearInterval(nagging);
 r.ok(
-  'the hidden tab gave its renderers back, so this is the case it exists for',
+  'the hidden tab handed its renderers back, so this is the case it exists for',
   wasReleased,
-  `visibility ${String(await evaluate(client, 'document.visibilityState'))}, releases ${JSON.stringify(releasesBefore)} -> ${JSON.stringify(await releases())}`,
+  `visibility ${String(await evaluate(client, 'document.visibilityState'))}, handbacks ${String(handbacksBefore)} -> ${String(await handbacks())}, scheduled ${String(await evaluate(client, 'window.__tabterm.rendererHandbacksScheduledForTest()'))}, per pane ${JSON.stringify(await releases())}, frozen ${String(await evaluate(client, 'String(document.wasDiscarded) + " " + String(navigator.userActivation?.isActive)'))}`,
 );
 
 // 2. And it comes back, which is when the context is asked for again and the cell changes back.

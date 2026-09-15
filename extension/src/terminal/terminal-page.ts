@@ -3552,11 +3552,49 @@ let lookedAtTab: () => void = () => undefined;
  */
 const RENDERER_HANDBACK_MS = 4000;
 
+/**
+ * How many times this tab has handed its renderers back, which is what a check can ask about.
+ *
+ * Counted here rather than per pane, because a pane only counts a handback when it had something
+ * to hand back. A browser that never gave this page a context at all, which is what a machine
+ * under memory pressure does, would then look identical to a tab that ignored being hidden. What
+ * is being observed is the tab doing the thing, not whether the browser had given it anything.
+ */
+let rendererHandbacks = 0;
+
+/**
+ * How many times one was scheduled, which is a different question from how many happened.
+ *
+ * A hidden tab is a tab a browser is allowed to throttle and eventually freeze, and a timer that
+ * never runs looks exactly like a listener that never fired. Keeping both numbers is the
+ * difference between knowing which of those it was and guessing.
+ */
+let rendererHandbacksScheduled = 0;
+
 function scheduleRendererRelease(): void {
-  clearTimeout(rendererTimer);
+  /**
+   * A handback already waiting is left alone rather than restarted.
+   *
+   * This is called whenever the daemon says what the memory mode is, and it says so to every open
+   * tab at once on any settings change and on a reset. Each call used to clear the timer and start
+   * it again, so a tab told often enough never handed anything back at all: measured at 205
+   * reschedules and zero handbacks across half a minute of being hidden.
+   *
+   * Which defeats the only thing this exists for. Contexts are capped, and a hidden tab holding
+   * one costs a tab somebody is actually looking at. Postponing the handback every time somebody
+   * changes an unrelated setting is the opposite of the intent.
+   *
+   * Cancelling is `lookedAtTab`'s job, and it is the only thing that should cancel one: the tab
+   * being looked at again is the one event that means the contexts are wanted here.
+   */
+  if (rendererTimer !== undefined) return;
+  rendererHandbacksScheduled += 1;
   const wait = Math.min(memorySettings.rendererUnloadMs, RENDERER_HANDBACK_MS);
   rendererTimer = setTimeout(() => {
-    if (document.visibilityState === 'hidden') panesHost?.releaseRenderers();
+    rendererTimer = undefined;
+    if (document.visibilityState !== 'hidden') return;
+    panesHost?.releaseRenderers();
+    rendererHandbacks += 1;
   }, wait);
 }
 
@@ -6367,6 +6405,17 @@ declare global {
       rendererAttachedFor: (paneId: string) => boolean;
       /** How many times this pane has handed its renderer back, which is an event, not a state. */
       rendererReleasesFor: (paneId: string) => number;
+      /** How many times this tab has handed its renderers back. See `scheduleRendererRelease`. */
+      rendererHandbacksForTest: () => number;
+      /** And how many were scheduled, which says whether a missing one is the timer or the event. */
+      rendererHandbacksScheduledForTest: () => number;
+      /**
+       * Ask for a handback the way the daemon's memory-mode message does.
+       *
+       * The daemon says what the memory mode is to every tab at once whenever any setting changes,
+       * and a check has no other way to produce that from inside the page it is driving.
+       */
+      scheduleRendererReleaseForTest: () => void;
       /**
        * Refuse this page a renderer, the way a browser at its context cap does.
        *
@@ -6599,6 +6648,11 @@ function installTestHook(): void {
     sizeAsksFor: (paneId) => sizeAsks.filter((a) => a.paneId === paneId),
     rendererAttachedFor: (paneId) => panesHost?.get(paneId)?.controller.rendererAttached ?? false,
     rendererReleasesFor: (paneId) => panesHost?.get(paneId)?.controller.rendererReleases ?? 0,
+    rendererHandbacksForTest: () => rendererHandbacks,
+    rendererHandbacksScheduledForTest: () => rendererHandbacksScheduled,
+    scheduleRendererReleaseForTest: () => {
+      if (document.visibilityState === 'hidden') scheduleRendererRelease();
+    },
     blockRendererForTest: (on) => {
       XtermController.blockRenderer = on;
       if (on) panesHost?.releaseRenderers();

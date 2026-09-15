@@ -213,6 +213,13 @@ Acking on queue would defeat the whole mechanism.
 Suspension is safe and cheap because the daemon holds authoritative state. Discarding a renderer
 costs one snapshot on return.
 
+A handback that is already waiting is never restarted. The daemon tells every open tab what the
+memory mode is whenever any setting changes, and a hidden tab schedules a handback each time it
+hears one. Clearing the timer and starting it again on each message meant a tab told often enough
+handed nothing back at all, which is the opposite of what this is for: the tab kept a context that
+a tab somebody was looking at could have had. Only looking at the tab cancels one, because that is
+the single event meaning the contexts are wanted here.
+
 Chrome already pauses rendering for hidden tabs. We go further and release the renderer entirely,
 because Chrome's pause still retains the buffers.
 
