@@ -24,15 +24,38 @@ const { client } = await openTerminal();
 await waitFor(client, "document.querySelector('.launcher-input')");
 await sleep(1800);
 
-/** Right click the middle of whatever matches, and report the menu it produced. */
-const menuOn = async (selector) => {
+/**
+ * Right click whatever matches, and report the menu it produced.
+ *
+ * `bare` means the point has to land on that element itself rather than on something inside it.
+ * The middle of the start screen is background only while the lists on it are short: under a full
+ * run the machine has many live sessions, the Running Now list grows, and the middle of it is a
+ * session card. Right clicking one of those offers `Kill session`, correctly, and the check for
+ * "the background offers no session actions" then failed while nothing was wrong.
+ *
+ * So the point is searched for rather than assumed. A check that only holds when the screen is
+ * empty is a check about the screen being empty.
+ */
+const menuOn = async (selector, { bare = false } = {}) => {
   const at = await evaluate(
     client,
     `(() => { const el = document.querySelector(${JSON.stringify(selector)});
        if (!el) return '';
        const b = el.getBoundingClientRect();
        if (b.width < 2 || b.height < 2) return '';
-       return JSON.stringify({ x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) }); })()`,
+       const mid = { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) };
+       if (!${String(bare)}) return JSON.stringify(mid);
+       // Down the middle, then along the top edge: somewhere on this element and on nothing in it.
+       for (let f = 0.5; f > 0.02; f -= 0.06) {
+         const p = { x: mid.x, y: Math.round(b.top + b.height * f) };
+         if (document.elementFromPoint(p.x, p.y) === el) return JSON.stringify(p);
+       }
+       for (let f = 0.1; f < 0.95; f += 0.1) {
+         const p = { x: Math.round(b.left + b.width * f), y: Math.round(b.top + 6) };
+         if (document.elementFromPoint(p.x, p.y) === el) return JSON.stringify(p);
+       }
+       return '';
+     })()`,
   );
   if (String(at) === '') return null;
   const { x, y } = JSON.parse(String(at));
@@ -62,6 +85,8 @@ const PLACES = [
   {
     what: 'the start screen background',
     sel: '.launcher',
+    // Background means background: the point has to land on the launcher and on nothing in it.
+    bare: true,
     must: ['Paste', 'Settings', 'Close tab'],
     mustNot: ['Add a marker here', 'Kill session'],
   },
@@ -98,7 +123,7 @@ const PLACES = [
 ];
 
 for (const place of PLACES) {
-  const menu = await menuOn(place.sel);
+  const menu = await menuOn(place.sel, { bare: place.bare === true });
   if (menu === null) {
     r.skip(`right click on ${place.what}`, 'not on screen in this state');
     continue;
