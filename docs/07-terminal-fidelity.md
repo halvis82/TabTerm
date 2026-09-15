@@ -66,6 +66,38 @@ COLORTERM=truecolor
 
 ---
 
+
+## One size cannot describe a workspace with more than one pane
+
+An attach used to carry a single `cols` and `rows`, and the daemon applied it to **every session in
+the workspace**. For a workspace with one pane that is right, and it is the common case. For a split
+tab it told a 41 column pane it was 124, and the page corrected it a moment later.
+
+A shell survives that. **An agent redraws its entire interface on a resize**, so it drew at the
+wrong width, drew again at the right one, and left the first frame stranded between the lines of
+the second. Observed in a real daemon log:
+
+```
+attach       124x45   <- the tab's width, given to a 41 column pane
+resize-pane   41x45   <- the truth, a moment later
+```
+
+Three rules now, and the second is the net for when the first has nothing to say:
+
+- **A size measured for a pane is used for that pane.** The attach carries one per pane, when the
+  page has panes to measure. It does not on a first load, because the layout arrives in the answer
+  to the attach, and it correctly sends one number marked as a guess then
+- **A single size covering more than one pane is an estimate**, whatever the page said about it,
+  because it cannot be a measurement of all of them. A session that already has a size ignores an
+  estimate and waits for the measurement
+- **Splitting marks its attach as an estimate**, because splitting halves the pane the size came
+  from, so the number is stale for every pane including the one it was measured from
+
+The end state was always correct: a pane given the wrong size is corrected within a second. What
+the fault costs is the redraw in between, which is why the check counts how many times a pane's
+grid moves during a reattach rather than what size it ends on.
+
+
 ## 2. Server-side VT state
 
 **The single most load-bearing decision in the project** (ADR-0004). Validated by the VT fidelity spike before any

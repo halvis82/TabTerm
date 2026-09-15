@@ -2928,6 +2928,9 @@ function buildHosts(): void {
       client?.write(pane.streamId, new TextEncoder().encode(data));
     },
     onResize: (paneId, cols, rows) => {
+      // Counted before anything decides what to do about it, including sizes this pane was told
+      // to take: a grid that moves twice for one attach is the fault, whoever moved it.
+      gridMoves.set(paneId, (gridMoves.get(paneId) ?? 0) + 1);
       // A size this pane was told to take is not a size it is asking for. See `session-size`.
       if (followingSize.has(paneId)) return;
       /**
@@ -3034,6 +3037,31 @@ function buildHosts(): void {
  */
 const SETTLE_MS = 140;
 const sizeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/**
+ * How many times each pane's grid has moved.
+ *
+ * Read by a check, because the fault it exists for is transient: a pane told it is as wide as the
+ * whole tab and corrected a moment later ends up the right size, and the damage is the redraw in
+ * between. An agent redraws its entire interface for each one, so the count is the fault and the
+ * final size is not.
+ */
+const gridMoves = new Map<string, number>();
+
+/**
+ * The last attach this page sent, so a check can ask what it claimed about sizes.
+ *
+ * The fault this exists for does not show in the end state: a pane given the wrong size is
+ * corrected a moment later and settles correctly, and whether the wrong size was applied at all
+ * depends on whether the renderer was ready enough for the measurement to be believed. What is
+ * always true, and is the fix, is that the attach carries a size **per pane** rather than one
+ * number for all of them.
+ */
+let lastAttachSent: { cols: number; rows: number; panes: { paneId: string; cols: number }[] } = {
+  cols: 0,
+  rows: 0,
+  panes: [],
+};
 
 /**
  * How many sizes have actually been sent, which is the thing the coalescing changes.
@@ -3700,6 +3728,37 @@ function reportBox(when: string, paneId: string): void {
       window: `${String(window.innerWidth)}x${String(window.innerHeight)}`,
     },
   });
+}
+
+/**
+ * The size of every pane this page has, so the daemon does not have to guess from one of them.
+ *
+ * A workspace's panes have different sizes and an attach used to carry one number, which the
+ * daemon applied to all of them. In a split tab that told a narrow pane it was as wide as the tab
+ * and corrected it a moment later, and an agent redraws its whole interface on a resize, so it
+ * drew at the wrong width and left that frame stranded in the scrollback.
+ *
+ * Each measurement carries whether it can be trusted, by the same rule one size does: a pane whose
+ * renderer is not ready yet has measured against the wrong cell, and its number is a claim.
+ */
+function attachPaneSizes(): { paneId: string; cols: number; rows: number; estimated?: true }[] {
+  const out: { paneId: string; cols: number; rows: number; estimated?: true }[] = [];
+  for (const pane of panesHost?.all ?? []) {
+    const measured = pane.controller.fit();
+    if (!measured || measured.cols <= 1 || measured.rows <= 1) continue;
+    const trusted = trustMeasurement(measured, pane.controller.sizeIsTrustworthy());
+    out.push({
+      paneId: pane.paneId,
+      cols: trusted.cols,
+      rows: trusted.rows,
+      ...(trusted.estimated === true ? { estimated: true } : {}),
+    });
+  }
+  lastAttachSent = {
+    ...lastAttachSent,
+    panes: out.map((p) => ({ paneId: p.paneId, cols: p.cols })),
+  };
+  return out;
 }
 
 function attachSize(): { cols: number; rows: number; estimated?: true } {
@@ -5208,7 +5267,13 @@ function onControl(msg: ServerMessage): void {
      older page. */
   switch (msg.t) {
     case 'auth-ok': {
-      if (workspaceId) client?.send({ t: 'attach-workspace', workspaceId, ...attachSize() });
+      if (workspaceId)
+        client?.send({
+          t: 'attach-workspace',
+          workspaceId,
+          ...attachSize(),
+          panes: attachPaneSizes(),
+        });
       else client?.send({ t: 'create-session', ...attachSize() });
       return;
     }
@@ -5240,7 +5305,12 @@ function onControl(msg: ServerMessage): void {
       const url = new URL(location.href);
       url.searchParams.set('workspace', workspaceId);
       history.replaceState(null, '', url.toString());
-      client?.send({ t: 'attach-workspace', workspaceId, ...attachSize() });
+      client?.send({
+        t: 'attach-workspace',
+        workspaceId,
+        ...attachSize(),
+        panes: attachPaneSizes(),
+      });
       return;
     }
 
@@ -5382,7 +5452,12 @@ function onControl(msg: ServerMessage): void {
         const url = new URL(location.href);
         url.searchParams.set('workspace', workspaceId);
         history.replaceState(null, '', url.toString());
-        client?.send({ t: 'attach-workspace', workspaceId, ...attachSize() });
+        client?.send({
+          t: 'attach-workspace',
+          workspaceId,
+          ...attachSize(),
+          panes: attachPaneSizes(),
+        });
         return;
       }
       /**
@@ -5417,7 +5492,12 @@ function onControl(msg: ServerMessage): void {
           at: Date.now(),
         });
       }
-      client?.send({ t: 'attach-workspace', workspaceId, ...attachSize() });
+      client?.send({
+        t: 'attach-workspace',
+        workspaceId,
+        ...attachSize(),
+        panes: attachPaneSizes(),
+      });
       return;
     }
 
@@ -6224,6 +6304,16 @@ declare global {
       resumable: () => { sessionId: string; cwd: string; agent: string; summary?: string }[];
       /** How many sizes this page has sent to the daemon. See `sendSizeWhenItSettles`. */
       sizesSentForTest: () => number;
+      /** The grid a pane's terminal is actually on, which is what a resize changes. */
+      gridOf: (paneId: string) => { cols: number; rows: number } | null;
+      /** How many times that grid has moved, which is what a size storm actually is. */
+      gridMovesFor: (paneId: string) => number;
+      /** What the last attach claimed about sizes, which is where one number for many panes was. */
+      lastAttachForTest: () => {
+        cols: number;
+        rows: number;
+        panes: { paneId: string; cols: number }[];
+      };
       /** Ask the daemon what this terminal has done, without opening the panel to do it. */
       statsForTest: () => void;
       /** The last answer, so a check can assert it survived a refresh. */
@@ -6427,6 +6517,12 @@ function installTestHook(): void {
     reconnect: () => client?.connect(),
     setBackgroundTimeout: (seconds) => client?.send({ t: 'set-background-timeout', seconds }),
     sizesSentForTest: () => sizesSent,
+    gridMovesFor: (paneId) => gridMoves.get(paneId) ?? 0,
+    lastAttachForTest: () => lastAttachSent,
+    gridOf: (paneId) => {
+      const term = panesHost?.get(paneId)?.controller.term;
+      return term ? { cols: term.cols, rows: term.rows } : null;
+    },
     statsForTest: () => {
       lastStats = null;
       const focused = splitView?.focused ?? '';

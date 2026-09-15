@@ -265,7 +265,30 @@ export type ClientMessage =
   | { t: 'kill-session'; sessionId: string }
   | { t: 'set-pin'; sessionId?: string; workspaceId?: string; pinned: boolean }
   | { t: 'set-persistence'; sessionId: string; policyId?: string }
-  | { t: 'attach-workspace'; workspaceId: string; cols: number; rows: number; estimated?: boolean }
+  | {
+      t: 'attach-workspace';
+      workspaceId: string;
+      /**
+       * One size, which can only ever describe a workspace that has one pane.
+       *
+       * Kept because a client that has not laid out yet has nothing better, and because a
+       * workspace with a single pane is the common case and this is right for it.
+       */
+      cols: number;
+      rows: number;
+      estimated?: boolean;
+      /**
+       * The size of each pane, when the page has them.
+       *
+       * Without this the daemon applied the number above to **every session in the workspace**,
+       * so attaching to a split tab told a 41 column pane it was 124 and then corrected it a
+       * moment later. A shell survives that. An agent redraws its entire interface on a resize,
+       * so it drew at the wrong width, drew again at the right one, and left the first frame
+       * stranded in the scrollback. That is the scrambled output, and it is why the size a pane
+       * is given has to be the size of that pane.
+       */
+      panes?: readonly { paneId: string; cols: number; rows: number; estimated?: boolean }[];
+    }
   | {
       t: 'split-pane';
       workspaceId: string;

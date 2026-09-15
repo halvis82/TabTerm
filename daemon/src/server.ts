@@ -1028,7 +1028,12 @@ export class DaemonServer {
             ...(msg.command ? { command: msg.command } : {}),
           });
           this.#workspaces.split(msg.workspaceId, msg.paneId, msg.direction, session.id);
-          this.#attachWorkspace(client, msg.workspaceId, msg.cols, msg.rows);
+          /*
+           * Marked as an estimate, because after a split it is one for every pane including the
+           * one that was measured: splitting halves the pane the size came from. The page
+           * measures each of them and says so a moment later.
+           */
+          this.#attachWorkspace(client, msg.workspaceId, msg.cols, msg.rows, true);
           this.#broadcastLayout(msg.workspaceId);
         })().catch((e: unknown) => {
           warn('workspace.split.failed', { error: safeError(e) });
@@ -2591,6 +2596,7 @@ export class DaemonServer {
     cols: number,
     rows: number,
     estimated = false,
+    perPane: readonly { paneId: string; cols: number; rows: number; estimated?: boolean }[] = [],
   ): void {
     const workspace = this.#workspaces.get(workspaceId);
     if (!workspace) return;
@@ -2680,10 +2686,40 @@ export class DaemonServer {
       send(client.socket, controlFrame({ t: 'agent-state', sessionId, state }));
     }
 
-    // Sizes are per pane, so the client sends real ones once it has laid the panes out.
+    /**
+     * Each pane is given its own size, and one size for many panes is a guess by construction.
+     *
+     * This used to hand `cols` and `rows` to every session in the workspace. For a workspace with
+     * one pane that is right, and it is the common case. For a split tab it told a 41 column pane
+     * it was 124, and the page corrected it a moment later. A shell survives that. An agent
+     * redraws its whole interface on a resize, so it drew at the wrong width, drew again at the
+     * right one, and left the first frame stranded between the lines of the second.
+     *
+     * Two rules, and the second is the net for when the first has nothing:
+     *
+     * - A size the page measured **for this pane** is used for this pane
+     * - A single size covering more than one pane is treated as an estimate whatever the page said
+     *   about it, because it cannot be a measurement of all of them
+     */
+    const byPane = new Map(perPane.map((p) => [p.paneId, p]));
+    const manyPanes = toAttach.length > 1;
     for (const entry of toAttach) {
       const session = this.#sessions.get(entry.sessionId);
-      if (session) this.#attach(client, session, entry.streamId, cols, rows, estimated);
+      if (!session) continue;
+      const paneId = entries.find((e) => e.sessionId === entry.sessionId)?.paneId ?? '';
+      const mine = byPane.get(paneId);
+      if (mine) {
+        this.#attach(
+          client,
+          session,
+          entry.streamId,
+          mine.cols,
+          mine.rows,
+          mine.estimated === true,
+        );
+      } else {
+        this.#attach(client, session, entry.streamId, cols, rows, estimated || manyPanes);
+      }
     }
   }
 
