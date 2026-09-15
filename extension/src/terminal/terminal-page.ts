@@ -9,7 +9,7 @@ import type {
   ServerMessage,
   TitleFields,
 } from '@tabterm/shared';
-import { linesWithContent } from './screen-content.js';
+import { linesWithContent, type BufferLike } from './screen-content.js';
 import { FindBar } from './find-bar.js';
 import { trustMeasurement } from './measured-size.js';
 import { InputLine, rowsNeeded } from './input-line.js';
@@ -701,6 +701,20 @@ function soleLabel(): string | undefined {
   if (!layout || layout.type !== 'terminal') return undefined;
   const label = layout.label?.trim();
   return label === undefined || label === '' ? undefined : label;
+}
+
+/**
+ * Whether this pane is in use, from the fact first and the screen second.
+ *
+ * The daemon's answer is the one that holds at the moment this is asked, which is before a
+ * restored pane has any screen at all. The screen is still read, because a pane that has printed
+ * something this second is in use whether or not anybody has told the daemon yet: a program that
+ * writes without a command boundary is exactly that case.
+ */
+function paneHasBeenUsed(paneId: string, pane: { controller: { term: BufferLike } }): boolean {
+  if (panesUsed.has(paneId)) return true;
+  if (panesWithCommand.has(paneId)) return true;
+  return linesWithContent(pane.controller.term) > 1;
 }
 
 function refreshTitle(status?: string): void {
@@ -1404,7 +1418,7 @@ function syncPaneChoosers(): void {
      * what is on the pane, so it is asked again whenever that changes rather than only once.
      */
     const pane = panesHost?.get(paneId);
-    if (pane && linesWithContent(pane.controller.term) > 1) {
+    if (pane && paneHasBeenUsed(paneId, pane)) {
       chooser.dismiss();
       paneChoosers.delete(paneId);
     }
@@ -1423,7 +1437,7 @@ function syncPaneChoosers(): void {
      * A fresh shell has printed a prompt and nothing else; anything more means the pane is in
      * use and has no business being covered.
      */
-    if (linesWithContent(pane.controller.term) > 1) continue;
+    if (paneHasBeenUsed(paneId, pane)) continue;
     paneChoosers.set(
       paneId,
       new PaneChooser({
@@ -1808,6 +1822,19 @@ const panesWithInput = new Set<string>();
  * this guards unreachable. Measured as two empty strings at the moment of the decision.
  */
 const panesAtHome = new Set<string>();
+
+/**
+ * Panes something has been run in, said by the daemon rather than read off the screen.
+ *
+ * The chooser belongs over a pane with nothing in it. Whether a pane has anything in it was
+ * counted from its terminal, and a tab recreated by an extension reload draws its panes before
+ * the daemon's snapshot of each one arrives, so a pane in the middle of an hour's work counted
+ * one line, exactly like a fresh shell. The offer was drawn over it and taken away again a moment
+ * later when the output landed, which reads as the product changing its mind.
+ *
+ * Never cleared: a session somebody has used stays used.
+ */
+const panesUsed = new Set<string>();
 
 const LAUNCHED = 'tabterm.launched';
 
@@ -5161,6 +5188,9 @@ function onControl(msg: ServerMessage): void {
         if (p.hasInput === true) panesWithInput.add(p.paneId);
         // Whether it is sitting in home, which the page cannot work out in time. See below.
         if (p.atHome === true) panesAtHome.add(p.paneId);
+        // And whether anything has ever been run in it, which the screen cannot answer for a
+        // pane whose snapshot has not arrived. See `panesUsed`.
+        if (p.hasRun === true) panesUsed.add(p.paneId);
       }
       applyLayout(msg.layout);
       attached = true;

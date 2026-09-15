@@ -738,6 +738,21 @@ export interface WorkspacePane {
    * directory and the location of home only after the decision that needs them has been made.
    */
   atHome?: boolean;
+  /**
+   * Something has actually been run in this session.
+   *
+   * The same question as `hasRun` on a session card, sent with the attach because the page needs
+   * it before any output has arrived. It decides whether a pane is offered the folder picker and
+   * the list of sessions to bring here, which belongs over a pane with nothing in it and nowhere
+   * else.
+   *
+   * Read off the screen before this existed, and the screen is empty at exactly the wrong moment:
+   * a tab recreated by an extension reload draws its panes before the daemon's snapshot of each
+   * one arrives, so a pane in the middle of an hour's work looked identical to a fresh shell. The
+   * chooser was drawn over it and went away on its own a moment later, which is worse than either
+   * behavior on its own, because it looks like the product cannot make up its mind.
+   */
+  hasRun?: boolean;
 }
 
 /** A session in another tab that could be pulled into this workspace. */

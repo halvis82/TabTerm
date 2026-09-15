@@ -28,13 +28,29 @@ export interface PageShortcut {
  * while the command menu claimed Command Shift D was split down, which is why one of them
  * appeared to do the wrong thing: it was doing exactly what it was bound to.
  */
+/**
+ * What ships bound, and why three of these are not the obvious letters.
+ *
+ * Every memorable combination for closing, splitting and launching is one Chrome has taken.
+ * `Shift+Meta+W` is Close Window and was shipped here anyway, so pressing it closed the window and
+ * every terminal in it. `Shift+Meta+D` saves all tabs as bookmarks and `Shift+Meta+A` searches
+ * tabs, and neither could ever have reached this page.
+ *
+ * Closing keeps its letter by changing its modifier: `Control+Meta+W` is nothing to Chrome and
+ * nothing to macOS, and still reads as "W closes". Splitting and launching take the initial of
+ * what they do, because the letter that would have been better is not available and saying so is
+ * more useful than picking something clever.
+ *
+ * A test asserts none of these is reserved, and did before this happened. It passed because the
+ * list it checks against did not have Close Window in it.
+ */
 export const DEFAULT_PAGE_SHORTCUTS: PageShortcut[] = [
   { id: 'command-menu', title: 'Open the command menu', keys: 'Meta+K' },
-  { id: 'split-right', title: 'Split right', keys: 'Shift+Meta+D' },
+  { id: 'split-right', title: 'Split right', keys: 'Shift+Meta+S' },
   { id: 'split-down', title: 'Split down', keys: 'Shift+Meta+E' },
-  { id: 'close-pane', title: 'Close this pane', keys: 'Shift+Meta+W' },
+  { id: 'close-pane', title: 'Close this pane', keys: 'Control+Meta+W' },
   { id: 'detach-pane', title: 'Move this pane to its own tab', keys: 'Shift+Meta+X' },
-  { id: 'launch-agent', title: 'Launch an agent', keys: 'Shift+Meta+A' },
+  { id: 'launch-agent', title: 'Launch an agent', keys: 'Shift+Meta+L' },
   { id: 'clear-screen', title: 'Clear the screen', keys: 'Shift+Meta+K' },
   { id: 'palette', title: 'Open the command palette', keys: 'Shift+Meta+P' },
 ];
@@ -48,6 +64,19 @@ const KEY = 'tabterm.pageShortcuts';
  * unusable, and the difference does not matter to somebody trying to bind one. Listed rather
  * than detected, because there is no API that answers this question. See
  * `docs/10-limitations.md` tier 0.4.
+ *
+ * **This list was incomplete and something shipped inside the gap.** `Shift+Meta+W` is Close
+ * Window, it was missing from here, and it was the shipped default for closing a pane, so the one
+ * thing that combination could never do was the thing it was bound to. Pressing it closed the
+ * whole window with every terminal in it.
+ *
+ * **A test already compared the defaults against this list and passed**, which is the part worth
+ * understanding. The check was right and the list was short, so it was asking "is this default one
+ * of the combinations we happened to think of", and the honest answer was yes. A check against an
+ * incomplete list is a check about the list.
+ *
+ * So the list is now Chrome's published macOS set rather than a memory of it, and what is written
+ * beside each group is where it came from.
  */
 const RESERVED = new Set([
   'Meta+W',
@@ -65,10 +94,46 @@ const RESERVED = new Set([
   'Meta+M',
   'Meta+Y',
   'Meta+,',
+  'Meta+E',
+  'Meta+G',
+  'Meta+B',
+  'Meta+I',
+  'Meta+J',
+  'Meta+[',
+  'Meta+]',
+  // Command and Shift. The row that was missing the one that cost a window.
   'Shift+Meta+T',
   'Shift+Meta+N',
   'Shift+Meta+Q',
   'Shift+Meta+M',
+  // Close Window. The gap this whole list was rewritten for.
+  'Shift+Meta+W',
+  // Search tabs, bookmark all tabs, bookmarks bar, bookmark manager, downloads, home.
+  'Shift+Meta+A',
+  'Shift+Meta+D',
+  'Shift+Meta+B',
+  'Shift+Meta+O',
+  'Shift+Meta+J',
+  'Shift+Meta+H',
+  // Find again backwards, inspect element, hard reload, redo.
+  'Shift+Meta+G',
+  'Shift+Meta+C',
+  'Shift+Meta+R',
+  'Shift+Meta+Z',
+  // Previous and next tab, and clearing browsing data.
+  'Shift+Meta+[',
+  'Shift+Meta+]',
+  'Shift+Meta+Backspace',
+  'Shift+Meta+Delete',
+  // The developer tools, which are Option rather than Shift.
+  'Alt+Meta+I',
+  'Alt+Meta+J',
+  'Alt+Meta+C',
+  'Alt+Meta+U',
+  'Alt+Meta+ArrowLeft',
+  'Alt+Meta+ArrowRight',
+  // Full screen, which is macOS rather than Chrome and is just as unavailable.
+  'Control+Meta+F',
   'Meta+1',
   'Meta+2',
   'Meta+3',

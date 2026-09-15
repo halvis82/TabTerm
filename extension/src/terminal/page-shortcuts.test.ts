@@ -102,3 +102,36 @@ describe('keys bound to actions somebody made', () => {
     expect(actionIdFrom('split-down')).toBeNull();
   });
 });
+
+/**
+ * Nothing ships bound to a combination Chrome keeps.
+ *
+ * `Shift+Meta+W` is Close Window and was the shipped default for closing a pane, so pressing it
+ * closed the window and every terminal in it.
+ *
+ * **A check for exactly this already existed and passed.** It compares each default against the
+ * reserved list, and the reserved list did not have Close Window in it. So the check was asking
+ * whether a default was one of the combinations somebody had thought of, and the answer was yes.
+ * A check against an incomplete list is a check about the list.
+ *
+ * What is added here is the other half: that two defaults are never the same keys, and that the
+ * one that caused this is refused by name, so a shorter list cannot quietly let it back.
+ */
+describe('what ships bound', () => {
+  it('is never a combination Chrome keeps for itself', () => {
+    const taken = DEFAULT_PAGE_SHORTCUTS.filter((s) => whyNot(s.keys) !== null).map(
+      (s) => `${s.id}=${s.keys}: ${String(whyNot(s.keys))}`,
+    );
+    expect(taken).toEqual([]);
+  });
+
+  it('binds each default to a different combination', () => {
+    // Two jobs on one key is a key that does the wrong one, and which is which is not decidable.
+    const keys = DEFAULT_PAGE_SHORTCUTS.map((s) => s.keys).filter((k) => k !== '');
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it('still refuses the one that started this', () => {
+    expect(whyNot('Shift+Meta+W')).not.toBe(null);
+  });
+});

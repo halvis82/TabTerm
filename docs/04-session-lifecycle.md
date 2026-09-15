@@ -621,6 +621,21 @@ ended rather than left running, because it is in no layout and nothing can reach
 Keeping the pane id matters beyond tidiness: the split ratios around a pane are recorded against
 it, so a replacement leaves the rest of the arrangement exactly as it was.
 
+### Whether a pane is in use is a fact, not a count of its rows
+
+The folder picker and the list of sessions to bring here belong over a pane with nothing in it.
+Whether a pane had anything in it was counted from its terminal, and that count is wrong at exactly
+the moment it is asked after a restore: a tab recreated by an extension reload draws its panes
+before the daemon's snapshot of each one arrives, so a pane in the middle of an hour's work looked
+identical to a fresh shell. The offer was drawn over it and taken away again when the output
+landed, which is worse than either behavior alone because it reads as the product changing its
+mind.
+
+The attach payload therefore carries `hasRun` per pane, beside `startedWithCommand`, `hasInput` and
+`atHome`, which are all there for the same reason: the page is asked a question about a session
+before it has any of the session. The screen is still consulted afterwards, because a pane that
+printed something a second ago is in use whether or not the daemon has been told yet.
+
 ### Panes change places by dragging one onto another
 
 A pane's **bar** is the handle. The terminal is not: a drag that starts on a terminal is a text

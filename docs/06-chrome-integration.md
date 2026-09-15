@@ -247,6 +247,27 @@ This is a convenience and is kept strictly apart from the record of which worksp
 which is what stops the daemon reaping a shell in the moment between Chrome destroying a tab and
 the worker recreating it. A placement that cannot be read costs a tab its position. Nothing else.
 
+### What may be bound, and what ships bound
+
+macOS Chrome keeps a set of combinations for itself. Some never reach a page at all, and some
+reach it having already done something; both are unusable and the difference does not matter to
+somebody trying to bind one. There is no API that answers this, so the set is listed.
+
+**A default shipped inside a gap in that list.** `Shift+Meta+W` is Close Window and was the
+shipped default for closing a pane, so the one thing that combination could never do was the thing
+it was bound to, and pressing it closed the window with every terminal in it.
+
+A test already compared every default against the list and passed, which is the part worth
+understanding: the check was right and the list was short, so it was asking whether a default was
+one of the combinations somebody had thought of. **A check against an incomplete list is a check
+about the list.** The list is now Chrome's published macOS set.
+
+Three defaults moved as a result: closing a pane, splitting right, and launching an agent were on
+Close Window, Bookmark All Tabs and Search Tabs. Closing keeps its letter by changing its modifier,
+since `Control+Meta+W` is nothing to Chrome and nothing to macOS and still reads as "W closes".
+The other two take the initial of what they do, because the letter that would have been better is
+not available, and saying so is more useful than picking something clever.
+
 ### The keys an entry is also bound to
 
 A right-click menu entry that has a keyboard shortcut prints it on the right, as a keyboard shows

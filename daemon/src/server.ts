@@ -2613,6 +2613,8 @@ export class DaemonServer {
        * it made the rule it guards unreachable. The daemon has both from the start.
        */
       const atHome = session.cwd === homedir();
+      // What the page cannot see yet: a restored pane has no screen at the moment it decides.
+      const hasRun = session.hasRun === true;
 
       const existing = client.streams.get(sessionId);
       if (existing !== undefined) {
@@ -2623,6 +2625,7 @@ export class DaemonServer {
           ...(started ? { startedWithCommand: true } : {}),
           ...(typed ? { hasInput: true } : {}),
           ...(atHome ? { atHome: true } : {}),
+          ...(hasRun ? { hasRun: true } : {}),
         });
         continue;
       }
@@ -2635,6 +2638,7 @@ export class DaemonServer {
         ...(started ? { startedWithCommand: true } : {}),
         ...(typed ? { hasInput: true } : {}),
         ...(atHome ? { atHome: true } : {}),
+        ...(hasRun ? { hasRun: true } : {}),
       });
       toAttach.push({ sessionId, streamId });
     }

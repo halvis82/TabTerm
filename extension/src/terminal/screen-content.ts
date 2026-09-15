@@ -7,7 +7,7 @@
  */
 import { isShellNoise } from '@tabterm/shared';
 
-interface BufferLike {
+export interface BufferLike {
   buffer: {
     active: {
       length: number;
