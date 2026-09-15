@@ -3044,10 +3044,22 @@ function sendSizeWhenItSettles(paneId: string): void {
       // Measured when it fires, not when it was scheduled: the size at the end of the drag is
       // the answer, and anything measured earlier is one of the frames being coalesced away.
       const size = panesHost?.fit(paneId);
-      if (size && workspaceId && attached) {
-        sizesSent += 1;
-        client?.send({ t: 'resize-pane', workspaceId, paneId, cols: size.cols, rows: size.rows });
+      /**
+       * Not yet attached is "not yet", never "never".
+       *
+       * Sending on every frame meant a frame that arrived too early was followed by another that
+       * did not, so nothing was lost by dropping one. Coalescing removes that safety net: the
+       * observer can fire its last frame before the socket is ready, and a size dropped then is a
+       * size nobody ever sends. A terminal left running at a size nothing measured is the fault
+       * this whole area exists to prevent, so it waits instead.
+       */
+      if (!workspaceId || !attached) {
+        sendSizeWhenItSettles(paneId);
+        return;
       }
+      if (!size) return;
+      sizesSent += 1;
+      client?.send({ t: 'resize-pane', workspaceId, paneId, cols: size.cols, rows: size.rows });
     }, SETTLE_MS),
   );
 }
