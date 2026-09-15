@@ -87,6 +87,10 @@ Three rules now, and the second is the net for when the first has nothing to say
 - **A size measured for a pane is used for that pane.** The attach carries one per pane, when the
   page has panes to measure. It does not on a first load, because the layout arrives in the answer
   to the attach, and it correctly sends one number marked as a guess then
+- **A set of claimed widths that contradicts the layout is not a measurement of it.** The daemon
+  knows which panes sit beside which and where the divider between them stands, so it checks the
+  claim against what it already holds. Two panes at a divider near 0.73 claimed at equal widths is
+  a claim about a different workspace, and it is downgraded to a guess rather than applied
 - **A single size covering more than one pane is an estimate**, whatever the page said about it,
   because it cannot be a measurement of all of them. A session that already has a size ignores an
   estimate and waits for the measurement

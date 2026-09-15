@@ -64,6 +64,7 @@ import {
 import { loginPath, resolveExecutable } from './login-path.js';
 import { holderOfLocalPort, listeningPorts, localListeners } from './server-detect.js';
 import { applyMemoryMode, frontendSettings } from './memory-modes.js';
+import { claimsContradictLayout } from './attach-claims.js';
 import { layoutWithSessions } from './restore-store.js';
 import { daysBack, dayKey, type StatsStore } from './stats-store.js';
 import type { RestoreStore } from './restore-store.js';
@@ -962,12 +963,22 @@ export class DaemonServer {
       case 'attach-workspace': {
         const workspace = this.#workspaces.get(msg.workspaceId);
         if (workspace) {
+          /*
+           * Including what the page measured for each pane, which was being dropped here.
+           *
+           * The field was added, the page filled it in, a check asserted the page sends it, and
+           * this call never passed it on, so every multi-pane attach fell through to the rule
+           * below it and was treated as a guess. That rule is why the fault stopped happening, so
+           * nothing was visibly wrong: the measurement was simply thrown away and the session sat
+           * on its old size until the page said the same thing again a second later.
+           */
           this.#attachWorkspace(
             client,
             msg.workspaceId,
             msg.cols,
             msg.rows,
             msg.estimated === true,
+            msg.panes ?? [],
           );
           return;
         }
@@ -2739,6 +2750,32 @@ export class DaemonServer {
      */
     const byPane = new Map(perPane.map((p) => [p.paneId, p]));
     const manyPanes = toAttach.length > 1;
+    /**
+     * And a set of claims that cannot be true of this layout is not a measurement of it.
+     *
+     * The daemon knows which panes sit beside which and where the divider between them stands, so
+     * a claim can be checked against something it already holds rather than believed because it
+     * arrived. Measured in a real log: a tab whose panes were 116 and 42 columns, which is a
+     * divider near 0.73, had both panes claimed at 116, which is a claim about a 50/50 split. It
+     * happened forty-two times in one day and each one made an agent redraw its whole interface
+     * at a width the pane never had.
+     *
+     * The page that did that has been fixed. This is under it, because the claim comes from
+     * somewhere else: an extension that has not been reloaded, a page part-way through one, or a
+     * client nobody has written yet.
+     *
+     * Downgraded rather than refused. Sizes that cannot be believed become not-yet-measured, which
+     * is a state this path already has, so the sessions keep the sizes they are running at and the
+     * page's real measurement is believed a moment later.
+     */
+    const claimed = new Map(perPane.map((p) => [p.paneId, p.cols]));
+    const impossible = claimsContradictLayout(workspace.layout, claimed);
+    if (impossible) {
+      warn('attach.claims-contradict-layout', {
+        workspaceId: workspace.id.slice(0, 8),
+        claims: [...claimed].map(([id, c]) => `${id.slice(0, 6)}:${String(c)}`).join(' '),
+      });
+    }
     for (const entry of toAttach) {
       const session = this.#sessions.get(entry.sessionId);
       if (!session) continue;
@@ -2751,7 +2788,7 @@ export class DaemonServer {
           entry.streamId,
           mine.cols,
           mine.rows,
-          mine.estimated === true,
+          impossible || mine.estimated === true,
         );
       } else {
         this.#attach(client, session, entry.streamId, cols, rows, estimated || manyPanes);
