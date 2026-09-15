@@ -6308,6 +6308,14 @@ declare global {
       gridOf: (paneId: string) => { cols: number; rows: number } | null;
       /** How many times that grid has moved, which is what a size storm actually is. */
       gridMovesFor: (paneId: string) => number;
+      /**
+       * The size the daemon last said this pane's session is running at.
+       *
+       * The authoritative one. One PTY has one size, and a view rendering at a different one is
+       * drawing into columns the shell does not know exist. A check can compare this against the
+       * grid to ask the only question that matters: do the two agree.
+       */
+      daemonSizeFor: (paneId: string) => { cols: number; rows: number } | null;
       /** What the last attach claimed about sizes, which is where one number for many panes was. */
       lastAttachForTest: () => {
         cols: number;
@@ -6518,6 +6526,13 @@ function installTestHook(): void {
     setBackgroundTimeout: (seconds) => client?.send({ t: 'set-background-timeout', seconds }),
     sizesSentForTest: () => sizesSent,
     gridMovesFor: (paneId) => gridMoves.get(paneId) ?? 0,
+    daemonSizeFor: (paneId) => {
+      for (let i = sessionSizes.length - 1; i >= 0; i--) {
+        const seen = sessionSizes[i];
+        if (seen?.paneId === paneId) return { cols: seen.cols, rows: seen.rows };
+      }
+      return null;
+    },
     lastAttachForTest: () => lastAttachSent,
     gridOf: (paneId) => {
       const term = panesHost?.get(paneId)?.controller.term;

@@ -229,6 +229,7 @@ const COVERS = [
   ['daemon/src/cleanup', ['sessions']],
   ['daemon/src/pty-host/', ['survives-restart', 'resilience']],
   ['daemon/src/pty-manager', ['survives-restart', 'resilience', 'terminal']],
+  ['daemon/src/session-manager.ts', ['size-agreement', 'attach-sizes', 'steady-size']],
   ['daemon/src/restore-store', ['reattach']],
   // Taking over what the host still holds, which is only visible across a daemon restart.
   ['daemon/src/adopt', ['survives-restart', 'resilience', 'reattach', 'sessions']],
@@ -258,7 +259,11 @@ const COVERS = [
   ['extension/src/terminal/wake-redraw', ['steady-size']],
   ['extension/src/terminal/resize-storm', ['steady-size']],
   ['extension/src/terminal/screen-content', ['start-screen-refresh', 'straight-to-view']],
-  ['extension/src/terminal/panes', ['layout', 'workspace', 'steady-size', 'resize-output']],
+  [
+    'extension/src/terminal/panes',
+    ['layout', 'workspace', 'steady-size', 'resize-output', 'size-agreement'],
+  ],
+  ['extension/src/terminal/measured-size', ['size-agreement', 'attach-sizes', 'steady-size']],
   ['extension/src/terminal/page-shortcuts', ['shortcut-rows', 'pane-menu']],
   ['extension/src/terminal/pane-chooser', ['pane-chooser', 'launched-pane']],
   ['extension/src/transport/', ['resilience', 'reattach']],

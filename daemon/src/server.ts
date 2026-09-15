@@ -1486,7 +1486,29 @@ export class DaemonServer {
           .sessionIds(workspace)
           .find((id) => this.#workspaces.paneFor(workspace, id) === msg.paneId);
         const session = sessionId ? this.#sessions.get(sessionId) : undefined;
-        if (session) this.#sessions.resize(session, client.id, msg.cols, msg.rows);
+        if (!session) return;
+        this.#sessions.resize(session, client.id, msg.cols, msg.rows);
+        /**
+         * Every request gets an answer, including the ones that changed nothing.
+         *
+         * A size is announced when it **changes**. A request the daemon declines to act on
+         * therefore produces silence, and silence is indistinguishable from agreement. That is
+         * wrong in the one case it matters: another view of the same session is smaller, so one
+         * PTY has one size and it is the smaller of them. The asking view heard nothing, kept the
+         * grid it had measured, and rendered rows the shell does not know exist.
+         *
+         * Answered unconditionally to the client that asked. A view that already agrees does
+         * nothing with it, and one that has been overruled has no other way to find out.
+         */
+        send(
+          client.socket,
+          controlFrame({
+            t: 'session-size',
+            sessionId: session.id,
+            cols: session.vt.cols,
+            rows: session.vt.rows,
+          }),
+        );
         return;
       }
 
@@ -3464,6 +3486,35 @@ export class DaemonServer {
       ...(estimated ? { estimated: true } : {}),
       onOutput: (data) => flow.push(data),
     });
+
+    /**
+     * And told what it is actually running at, whether or not that just changed.
+     *
+     * The size is announced when it **changes**, which is right for everybody already attached and
+     * silent for the one client that has just arrived. A view that asked for 23 rows and was
+     * overruled to 19 by another view of the same session heard nothing, because nothing changed:
+     * the session was already at 19. It then rendered 23 rows into a terminal running 19, which is
+     * drawing into rows the shell does not know exist, and a full-screen program comes back as
+     * fragments of several moments overlapping.
+     *
+     * Reachable whenever two views look at one session, which is two tabs, a duplicate, or a
+     * reconnect while another view is still attached. Said unconditionally here: a client that
+     * already agrees does nothing with it, and one that does not has no other way to find out.
+     *
+     * **Not proven by a failing check, and kept deliberately.** The rule that every size request
+     * gets an answer covers every client that measures and asks, which is every page. This covers
+     * a client that attaches and never asks again, which the harness cannot produce because the
+     * page always measures. Removing it would leave that path silent for the sake of tidiness.
+     */
+    send(
+      client.socket,
+      controlFrame({
+        t: 'session-size',
+        sessionId: session.id,
+        cols: session.vt.cols,
+        rows: session.vt.rows,
+      }),
+    );
   }
 
   #sendSnapshot(client: Client, session: Session, streamId: number): void {
