@@ -68,5 +68,45 @@ r.ok(
   (await findBar('document.getElementById("find")?.hidden === true')) === 'true',
 );
 
+/**
+ * A second Command F closes ours rather than handing the key to Chrome.
+ *
+ * It used to be answered inside the terminal's own key handler, which only runs while the terminal
+ * has the keyboard. Opening the bar moves the keyboard into its box, so the next press reached
+ * nothing of ours and Chrome opened its own find, which cannot see a canvas and would only ever
+ * have searched the rows in view.
+ *
+ * Pressed with a real key event at the window, and from inside the bar's own box, which is where
+ * the keyboard actually is when somebody presses it a second time.
+ */
+{
+  const press = (selector) =>
+    evaluate(
+      client,
+      `(() => {
+         const el = ${selector};
+         const e = new KeyboardEvent('keydown', { key: 'f', metaKey: true, bubbles: true, cancelable: true });
+         (el ?? window).dispatchEvent(e);
+         return e.defaultPrevented;
+       })()`,
+    );
+
+  const openedAgain = String(await press("document.querySelector('.xterm-helper-textarea')"));
+  await sleep(250);
+  r.ok('opening it again from the terminal is taken by us', openedAgain === 'true');
+  r.ok(
+    'and it is open',
+    (await findBar('document.getElementById("find")?.hidden === false')) === 'true',
+  );
+
+  const fromTheBox = String(await press("document.getElementById('find-input')"));
+  await sleep(250);
+  r.ok('a press from inside the box is taken by us too', fromTheBox === 'true');
+  r.ok(
+    'and closes it rather than opening a second one',
+    (await findBar('document.getElementById("find")?.hidden === true')) === 'true',
+  );
+}
+
 await finish();
 r.done();

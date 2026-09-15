@@ -5007,10 +5007,36 @@ function runPageShortcut(id: string, e: KeyboardEvent): void {
   }
 }
 
+/** What is selected in the pane that has the keyboard, which is what a search should start from. */
+function focusedSelection(): string {
+  const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
+  return pane?.controller.term.getSelection() ?? '';
+}
+
 function installShortcuts(): void {
   window.addEventListener(
     'keydown',
     (e) => {
+      /**
+       * Command F belongs to the find bar, wherever the keyboard happens to be.
+       *
+       * It was answered inside the terminal's own key handler, which only runs while the terminal
+       * has focus. Opening the bar moves the keyboard into its box, so the second press reached
+       * nothing of ours and Chrome opened its own find, which cannot see a buffer drawn on a
+       * canvas and would only ever have searched the rows in view. Two find bars, one of them
+       * useless, and no way back to ours without a click.
+       *
+       * Handled here, in the capture phase, so it is ours in every state this page can be in: a
+       * terminal, a text box, the command menu, the start screen. A second press closes the bar
+       * rather than opening anything, which is what "again" should mean for a toggle.
+       */
+      if (e.key.toLowerCase() === 'f' && e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (findBar?.isOpen === true) findBar.hide();
+        else findBar?.show(focusedSelection());
+        return;
+      }
       if (e.key === 'Escape' && splitView?.maximized) {
         // Leaving focus mode must also release the keyboard lock, or Command+W stays captured
         // for the whole browser.

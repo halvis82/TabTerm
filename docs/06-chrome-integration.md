@@ -226,6 +226,27 @@ left, so it has to be the half that survives being cut off. Only for a tab holdi
 several there are several names, and taking the focused pane's would make the tab rename itself as
 somebody clicked between them, which is a worse title than none.
 
+### A reopened tab comes back where it was
+
+Reloading the extension destroys every terminal tab and the terminals themselves carry on in the
+PTY host, so the tabs are recreated. They used to be recreated at the end of whichever window was
+in front, so a tab that lived third in a group came back last and ungrouped: the session was right
+and everything about where it was, was lost.
+
+The service worker writes down each terminal tab's window, its position, and its group with that
+group's name and color, and puts all three back. It rewrites that record when a tab is moved,
+attached to another window, grouped or ungrouped, not only when one is created or closed. Without
+that a tab dragged into a group is remembered where it used to be and a reload undoes what somebody
+just did, which is worse than not restoring it at all.
+
+**A group is recreated, not rejoined.** A tab group dies with its last tab, so after a reload the
+recorded group id names nothing. A new group is made with the same name and color, once per old
+group, so tabs that shared one share it again rather than coming back in several groups of one.
+
+This is a convenience and is kept strictly apart from the record of which workspaces have tabs,
+which is what stops the daemon reaping a shell in the moment between Chrome destroying a tab and
+the worker recreating it. A placement that cannot be read costs a tab its position. Nothing else.
+
 ### The keys an entry is also bound to
 
 A right-click menu entry that has a keyboard shortcut prints it on the right, as a keyboard shows

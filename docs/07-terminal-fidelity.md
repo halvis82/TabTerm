@@ -569,6 +569,14 @@ the matches, Escape closes it and gives the keyboard back, and every match is li
 one in its own color. `extension/src/terminal/find-bar.ts` holds the part that has no renderer in
 it, so the policy is testable on its own.
 
+**The key belongs to that bar in every state the page can be in, and a second press closes it.**
+It used to be answered inside the terminal's own key handler, which only runs while the terminal has
+the keyboard. Opening the bar moves the keyboard into its box, so the next press reached nothing of
+TabTerm's and Chrome opened its own find over the top: two bars, one of them unable to see the
+terminal at all, and no way back to the useful one without a click. It is claimed at the window in
+the capture phase now, so a terminal, a text box, the command menu and the start screen all answer
+it the same way.
+
 Mouse reporting mode conflicts with browser selection. When an application has enabled mouse
 reporting, a modifier override allows selection anyway, matching normal terminal convention. Nobody
 arrives knowing that, so a drag with no modifier held says so once per pane rather than appearing

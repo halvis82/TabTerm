@@ -67,6 +67,52 @@ r.ok('the service worker writes down which workspaces have tabs', remembered);
  * So the two halves are separated. Chrome destroying the tabs is Chrome's part and is not worth
  * asserting. Putting them back is ours, and that is what runs here.
  */
+/**
+ * Where the tab is, before it is taken away.
+ *
+ * A reopened tab used to land at the end of whichever window was in front, so a tab that lived
+ * third in a group came back last and ungrouped. The session was right and everything about where
+ * it was, was lost.
+ *
+ * An extension page can ask Chrome about itself, so this is the tab's own answer rather than
+ * anything inferred. A second tab is opened after it so its position is a position rather than
+ * "the end", which is where it would have landed anyway.
+ */
+await evaluate(client, `chrome.tabs.create({ url: 'about:blank', active: false })`);
+await sleep(400);
+const grouped = JSON.parse(
+  String(
+    await evaluate(
+      client,
+      `(async () => {
+         const me = await chrome.tabs.getCurrent();
+         const groupId = await chrome.tabs.group({ tabIds: me.id });
+         await chrome.tabGroups.update(groupId, { title: 'reload-suite', color: 'purple' });
+         const after = await chrome.tabs.getCurrent();
+         return JSON.stringify({ windowId: after.windowId, index: after.index, groupId });
+       })()`,
+    ),
+  ),
+);
+r.ok(
+  'the tab is in a group and not at the end of the window',
+  grouped.groupId !== -1,
+  JSON.stringify(grouped),
+);
+
+/*
+ * Written down after the grouping, or the record would describe where it used to be. Grouping a
+ * tab fires a tab event, which is what the worker writes on, so this waits rather than nudges.
+ */
+const placed = await waitUntil(async () => {
+  const stored = await inWorker(
+    `chrome.storage.local.get('tabterm.tabPlaces').then((s) => JSON.stringify(s['tabterm.tabPlaces'] ?? {}))`,
+  );
+  const places = JSON.parse(String(stored));
+  return places[workspace]?.groupId === grouped.groupId;
+}, 20000);
+r.ok('the service worker writes down where each tab is', placed);
+
 const originalId = (await listTargets()).find((t) => t.url.includes(`workspace=${workspace}`))?.id;
 await client.send('Page.close').catch(() => {});
 await sleep(800);
@@ -217,6 +263,33 @@ if (backTab) {
     await evaluate(back, `document.body.innerText.slice(0, 120)`).catch(() => ''),
   );
   r.ok('and it is showing a terminal, not an expiry notice', attached, body.replace(/\n+/g, ' | '));
+
+  /**
+   * And it came back where it was, which is the part this check was added for.
+   *
+   * The group is a new one with the same name and color, because a group dies with its last tab.
+   * What matters to somebody looking at their tab strip is that it is in a group called that, in
+   * the same window, in the same place, rather than that an integer survived.
+   */
+  const where = JSON.parse(
+    String(
+      await evaluate(
+        back,
+        `(async () => {
+           const me = await chrome.tabs.getCurrent();
+           const group = me.groupId === -1 ? null : await chrome.tabGroups.get(me.groupId);
+           return JSON.stringify({ windowId: me.windowId, index: me.index, title: group?.title ?? '', color: group?.color ?? '' });
+         })()`,
+      ).catch(() => '{}'),
+    ),
+  );
+  r.ok('in the window it was in', where.windowId === grouped.windowId, JSON.stringify(where));
+  r.ok('at the position it was in', where.index === grouped.index, JSON.stringify(where));
+  r.ok(
+    'and in a group with the name and color it had',
+    where.title === 'reload-suite' && where.color === 'purple',
+    JSON.stringify(where),
+  );
   back.close?.();
 } else {
   r.ok('and it is showing a terminal, not an expiry notice', false, 'no tab came back');

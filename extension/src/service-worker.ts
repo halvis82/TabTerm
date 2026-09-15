@@ -222,6 +222,26 @@ const OPEN_TABS_KEY = 'tabterm.openWorkspaces';
  */
 const TAB_MAP_KEY = 'tabterm.tabWorkspaces';
 
+/**
+ * Where each terminal tab was, so a reload can put it back rather than pile them up.
+ *
+ * Kept apart from the list of workspaces that have tabs, which is safety-critical: that list is
+ * what stops the daemon reaping a shell in the moment between Chrome destroying a tab and this
+ * worker recreating it. Placement is a convenience and must never be able to break that, so a
+ * missing or unreadable record here costs a tab its position and nothing else.
+ */
+const TAB_PLACES_KEY = 'tabterm.tabPlaces';
+
+interface TabPlace {
+  windowId: number;
+  index: number;
+  /** -1 when the tab is in no group, which is what Chrome uses. */
+  groupId: number;
+  /** Enough to put a group back when it is gone, since a group dies with its last tab. */
+  groupTitle?: string;
+  groupColor?: string;
+}
+
 /** Read the tab-to-workspace map, which is a plain object so it survives storage. */
 async function tabMap(): Promise<Record<string, string>> {
   try {
@@ -325,6 +345,7 @@ async function reportOpenTabsOnce(): Promise<void> {
       if (tab.id !== undefined && id !== null && id !== '') map[String(tab.id)] = id;
     }
     await chrome.storage.local.set({ [TAB_MAP_KEY]: map });
+    await rememberPlaces(tabs);
     await sendTabsOpen([...new Set([...workspaceIds, ...claimedWhileStarting])], generation);
   } catch {
     /**
@@ -507,6 +528,113 @@ const TAB_REPORT_MS = 120_000;
  * Only what was open at the moment the extension went away. The remembered set is rewritten on
  * every report, so a tab somebody closed is already out of it and is not resurrected.
  */
+/**
+ * Write down where each terminal tab is sitting.
+ *
+ * Groups are read one at a time rather than listed, because a tab can only be in one and the
+ * answer is cached by Chrome. A group that cannot be read is recorded as no group: the tab comes
+ * back ungrouped, which is worse than perfect and better than not coming back.
+ */
+async function rememberPlaces(tabs: readonly chrome.tabs.Tab[]): Promise<void> {
+  try {
+    const places: Record<string, TabPlace> = {};
+    const groups = new Map<number, { title?: string; color?: string }>();
+    for (const tab of tabs) {
+      const id = new URL(tab.url ?? '').searchParams.get('workspace');
+      if (id === null || id === '' || tab.windowId === undefined) continue;
+      const groupId = tab.groupId ?? -1;
+      if (groupId !== -1 && !groups.has(groupId)) {
+        try {
+          const group = await chrome.tabGroups.get(groupId);
+          groups.set(groupId, {
+            ...(group.title === undefined ? {} : { title: group.title }),
+            ...(group.color === undefined ? {} : { color: String(group.color) }),
+          });
+        } catch {
+          groups.set(groupId, {});
+        }
+      }
+      const group = groups.get(groupId);
+      places[id] = {
+        windowId: tab.windowId,
+        index: tab.index,
+        groupId,
+        ...(group?.title === undefined ? {} : { groupTitle: group.title }),
+        ...(group?.color === undefined ? {} : { groupColor: group.color }),
+      };
+    }
+    await chrome.storage.local.set({ [TAB_PLACES_KEY]: places });
+  } catch {
+    /* Placement is a convenience. Losing it costs a tab its position and nothing else. */
+  }
+}
+
+/** What was written down, or an empty map when there is nothing usable. */
+async function readPlaces(): Promise<Record<string, TabPlace>> {
+  try {
+    const stored = (await chrome.storage.local.get(TAB_PLACES_KEY)) as Record<string, unknown>;
+    const raw = stored[TAB_PLACES_KEY];
+    return typeof raw === 'object' && raw !== null ? (raw as Record<string, TabPlace>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** The window, if it is still there. A window that has closed is not somewhere to put a tab. */
+async function liveWindow(windowId: number): Promise<number | undefined> {
+  try {
+    await chrome.windows.get(windowId);
+    return windowId;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Put a tab back in the group it was in, recreating the group when it has gone.
+ *
+ * A group dies with its last tab, so after a reload the ids recorded are usually stale and the
+ * group has to be made again from its name and color. Made once per old group and remembered, or
+ * four tabs that shared one would come back in four groups of one, which is worse than none.
+ */
+async function regroup(
+  tabId: number,
+  place: TabPlace,
+  windowId: number | undefined,
+  putBack: Map<number, number>,
+): Promise<void> {
+  if (place.groupId === -1) return;
+  try {
+    const known = putBack.get(place.groupId);
+    if (known !== undefined) {
+      await chrome.tabs.group({ tabIds: tabId, groupId: known });
+      return;
+    }
+    // The original, when it somehow survived: joining it keeps the name and the color for free.
+    try {
+      await chrome.tabGroups.get(place.groupId);
+      await chrome.tabs.group({ tabIds: tabId, groupId: place.groupId });
+      putBack.set(place.groupId, place.groupId);
+      return;
+    } catch {
+      /* Gone with its last tab, which is the ordinary case. */
+    }
+    const made = await chrome.tabs.group({
+      tabIds: tabId,
+      ...(windowId === undefined ? {} : { createProperties: { windowId } }),
+    });
+    putBack.set(place.groupId, made);
+    await chrome.tabGroups.update(made, {
+      ...(place.groupTitle === undefined ? {} : { title: place.groupTitle }),
+      ...(place.groupColor === undefined
+        ? {}
+        : { color: place.groupColor as chrome.tabGroups.ColorEnum }),
+    });
+  } catch {
+    /* An ungrouped tab is a tab. The session is the part that cannot be recovered. */
+  }
+}
+
 async function reopenAfterReload(): Promise<void> {
   try {
     const stored = await chrome.storage.local.get(OPEN_TABS_KEY);
@@ -527,6 +655,9 @@ async function reopenAfterReload(): Promise<void> {
     reportGeneration += 1;
     void sendTabsOpen(claimedWhileStarting, reportGeneration);
 
+    const places = await readPlaces();
+    /** Groups this reopen has had to recreate, so tabs that shared one share it again. */
+    const groupsPutBack = new Map<number, number>();
     const base = chrome.runtime.getURL('terminal.html');
     const open = await chrome.tabs.query({ url: `${base}*` });
     const already = new Set(
@@ -543,9 +674,26 @@ async function reopenAfterReload(): Promise<void> {
        */
       const showing = await chrome.tabs.query({ url: `${base}?workspace=${id}` });
       if (showing.length > 0) continue;
-      // Not focused: several coming back at once should not fight over which is in front, and
-      // a reload is not a request to be taken somewhere.
-      await chrome.tabs.create({ url: `${base}?workspace=${id}`, active: false });
+      /**
+       * Back where it was, when that is still a place.
+       *
+       * Not focused: several coming back at once should not fight over which is in front, and a
+       * reload is not a request to be taken somewhere.
+       *
+       * A window that has closed since, or a placement that was never written down, falls back to
+       * what this used to do for everything, which is the end of whatever window is in front.
+       * Wrong position, right session, and the session is the part that cannot be recovered.
+       */
+      const place = places[id];
+      const windowId = place === undefined ? undefined : await liveWindow(place.windowId);
+      const created = await chrome.tabs.create({
+        url: `${base}?workspace=${id}`,
+        active: false,
+        ...(windowId === undefined ? {} : { windowId, index: place?.index ?? -1 }),
+      });
+      if (place !== undefined && created.id !== undefined) {
+        await regroup(created.id, place, windowId, groupsPutBack);
+      }
     }
 
     /**
@@ -585,6 +733,18 @@ chrome.tabs.onUpdated.addListener((_id, changed) => {
   if (changed.url !== undefined) void reportOpenTabs();
 });
 chrome.tabs.onReplaced.addListener(() => void reportOpenTabs());
+/**
+ * Moving, grouping and ungrouping a tab change where it is without changing which exist.
+ *
+ * They are listened to for the placement record alone. Without them a tab dragged into a group or
+ * along the strip is written down where it used to be, and a reload puts it back there, which is
+ * a worse kind of wrong than not putting it back at all: it undoes something somebody just did.
+ */
+chrome.tabs.onMoved.addListener(() => void reportOpenTabs());
+chrome.tabs.onAttached.addListener(() => void reportOpenTabs());
+chrome.tabs.onDetached.addListener(() => void reportOpenTabs());
+chrome.tabGroups.onUpdated.addListener(() => void reportOpenTabs());
+chrome.tabGroups.onMoved.addListener(() => void reportOpenTabs());
 chrome.runtime.onStartup.addListener(() => void reopenOnce().then(() => reportOpenTabs()));
 /**
  * An update and a fresh install land here. A reload may or may not, which is why there are three.
