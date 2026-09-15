@@ -8,6 +8,7 @@ import type {
   SavedItem,
   ServerMessage,
   TitleFields,
+  StatsReport,
 } from '@tabterm/shared';
 import { linesWithContent, type BufferLike } from './screen-content.js';
 import { FindBar } from './find-bar.js';
@@ -1345,6 +1346,15 @@ function renderRecoveryActions(recall: WorkspaceRecall): void {
   button('Start a shell in home', () => startFresh(undefined), !(recall.found && recall.cwd));
   button('Close tab', () => window.close());
 }
+
+/**
+ * The last answer about what this terminal and this machine have done.
+ *
+ * Held rather than recomputed because it comes from the daemon: the page cannot work any of it out
+ * for itself, which is the entire point. Null until the first answer arrives, which the panel
+ * draws as a line saying it is asking.
+ */
+let lastStats: StatsReport | null = null;
 
 /** What the daemon last reported as resumable, so the recovery page can offer it too. */
 let resumableSessions: readonly ResumableAgentSession[] = [];
@@ -4954,7 +4964,14 @@ function buildCommandPanel(): void {
        * under the figures says so.
        */
       const memoryBytes = liveHere.reduce((sum, s) => sum + (s.memoryBytes || 0), 0);
-      return buildStats(sessionStats, memoryBytes > 0 ? { memoryBytes } : {});
+      /*
+       * Asked every time the page is opened, because the numbers keep moving and this page is
+       * the only thing that wants them. The answer arrives on `stats` and redraws the panel.
+       */
+      const focused = splitView?.focused ?? '';
+      const sessionId = focused ? (panesHost?.get(focused)?.sessionId ?? '') : '';
+      client?.send({ t: 'get-stats', ...(sessionId ? { sessionId } : {}) });
+      return buildStats(lastStats, memoryBytes > 0 ? { memoryBytes } : {});
     },
   });
 
@@ -5822,6 +5839,14 @@ function onControl(msg: ServerMessage): void {
       return;
     }
 
+    case 'stats': {
+      // Kept, so opening the page again draws the last answer rather than an empty panel while
+      // the next one is on its way.
+      lastStats = msg.stats;
+      commandPanel?.render();
+      return;
+    }
+
     case 'resumable-sessions': {
       resumableSessions = msg.sessions;
       launcher?.setResumable(msg.sessions);
@@ -6178,6 +6203,10 @@ declare global {
       resumable: () => { sessionId: string; cwd: string; agent: string; summary?: string }[];
       /** How many sizes this page has sent to the daemon. See `sendSizeWhenItSettles`. */
       sizesSentForTest: () => number;
+      /** Ask the daemon what this terminal has done, without opening the panel to do it. */
+      statsForTest: () => void;
+      /** The last answer, so a check can assert it survived a refresh. */
+      lastStatsForTest: () => StatsReport | null;
       /**
        * What the command menu's Actions page is offering right now.
        *
@@ -6377,6 +6406,13 @@ function installTestHook(): void {
     reconnect: () => client?.connect(),
     setBackgroundTimeout: (seconds) => client?.send({ t: 'set-background-timeout', seconds }),
     sizesSentForTest: () => sizesSent,
+    statsForTest: () => {
+      lastStats = null;
+      const focused = splitView?.focused ?? '';
+      const sessionId = focused ? (panesHost?.get(focused)?.sessionId ?? '') : '';
+      client?.send({ t: 'get-stats', ...(sessionId ? { sessionId } : {}) });
+    },
+    lastStatsForTest: () => lastStats,
     actions: () => paletteActions().map((a) => ({ id: a.id, title: a.title })),
     recoveryRaceForTest: (cwd) => {
       resumableSessions = [];

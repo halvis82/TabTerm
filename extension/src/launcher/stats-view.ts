@@ -1,25 +1,37 @@
-import { formatDuration, formatTime, type SessionStats } from './session-stats.js';
+import type { CommandTally, PlaceTally, StatsReport } from '@tabterm/shared';
+import { formatDuration } from './session-stats.js';
 import { formatBytes } from './sessions-view.js';
 
 /**
- * The Stats tab.
+ * The Stats page.
  *
- * What this session has run, how long each took, and when. Reading a session back is most useful
- * when something was slow, so duration and time are the two columns that never get truncated.
+ * Everything here used to be counted in the page that was showing it, so refreshing the tab reset
+ * all of it: a session open all day reported four seconds, no commands and no answers. The numbers
+ * were not wrong about the page. They were about the wrong thing, because a tab is a view of a
+ * session and the session is what did the work.
+ *
+ * So it asks the daemon, which sees every command boundary and every agent turn, writes them down,
+ * and outlives every tab. This file draws what comes back and knows nothing else.
  */
-/** What this session costs the machine, which only the daemon can measure. */
+
+/** What this tab costs, which only the daemon can measure. Chrome's own side is not reachable. */
 export interface SessionCost {
   memoryBytes?: number;
-  /** Bytes of scrollback held for this session, when the daemon has said. */
-  scrollbackBytes?: number;
 }
 
-export function buildStats(stats: SessionStats, cost: SessionCost = {}): HTMLElement {
+const shortPath = (p: string): string => p.replace(/^\/Users\/[^/]+/, '~');
+
+export function buildStats(report: StatsReport | null, cost: SessionCost = {}): HTMLElement {
   const wrap = document.createElement('div');
   wrap.className = 'cmd-stats';
 
-  const summary = stats.summarize();
-  const turns = stats.turns();
+  if (report === null) {
+    const waiting = document.createElement('div');
+    waiting.className = 'cmd-empty';
+    waiting.textContent = 'Asking the daemon for what this terminal has done...';
+    wrap.append(waiting);
+    return wrap;
+  }
 
   /** One group of figures under a heading that says what they are about. */
   const group = (heading: string, figures: [string, string][]): void => {
@@ -45,111 +57,108 @@ export function buildStats(stats: SessionStats, cost: SessionCost = {}): HTMLEle
     wrap.append(grid);
   };
 
-  /**
-   * What an agent in this session has been asked, which no command boundary can see.
-   *
-   * A pane running one is a single command that runs all day, so every figure below says the same
-   * thing about it: one command, still running. Only shown once a turn has finished, because a
-   * session with no agent in it has nothing to say here and a row of zeroes is worse than nothing.
-   */
-  if (turns.count > 0) {
-    group('Agent', [
-      ['Answers', String(turns.count)],
-      ['Last answer', turns.lastMs === null ? '' : formatDuration(turns.lastMs)],
-      ['Longest', formatDuration(turns.longestMs)],
-      ['Time waiting', formatDuration(turns.totalMs)],
-    ]);
+  /** A list of things with a count on the right, for the groups that are about habits. */
+  const list = (heading: string, rows: [string, string, boolean?][]): void => {
+    if (rows.length === 0) return;
+    const title = document.createElement('div');
+    title.className = 'cmd-stats-heading';
+    title.textContent = heading;
+    wrap.append(title);
+    const box = document.createElement('div');
+    box.className = 'cmd-stat-list';
+    for (const [text, right, bad] of rows) {
+      const row = document.createElement('div');
+      row.className = 'cmd-stat-row';
+      const what = document.createElement('span');
+      what.className = 'cmd-stat-command';
+      // Written as text: it is a command somebody ran and has no business being markup.
+      what.textContent = text;
+      what.title = text;
+      const count = document.createElement('span');
+      count.className = bad === true ? 'cmd-stat-duration failed' : 'cmd-stat-duration';
+      count.textContent = right;
+      row.append(what, count);
+      box.append(row);
+    }
+    wrap.append(box);
+  };
+
+  const session = report.session;
+  if (session) {
+    /**
+     * Since the session started, which is the whole point of asking the daemon.
+     *
+     * The agent figures are left out when nothing has been asked here, because a row of zeroes
+     * about a feature this terminal is not using is worse than no row at all.
+     */
+    const figures: [string, string][] = [
+      ['Commands run', String(session.commandsRun)],
+      ['Failed', String(session.commandsFailed)],
+      ['Time in commands', formatDuration(session.commandMs)],
+    ];
+    if (session.turns > 0) {
+      figures.push(['Prompts answered', String(session.turns)]);
+      figures.push(['Time waiting on it', formatDuration(session.turnMs)]);
+    }
+    figures.push(['Open for', formatDuration(Date.now() - session.startedAt)]);
+    if (cost.memoryBytes !== undefined && cost.memoryBytes > 0) {
+      figures.push(['Memory', formatBytes(cost.memoryBytes)]);
+    }
+    group('This terminal, since it started', figures);
   }
 
-  /** What this session costs, which is the daemon's side of it and is said rather than guessed. */
-  const costFigures: [string, string][] = [];
-  if (cost.memoryBytes !== undefined && cost.memoryBytes > 0) {
-    costFigures.push(['Memory', formatBytes(cost.memoryBytes)]);
-  }
-  if (cost.scrollbackBytes !== undefined && cost.scrollbackBytes > 0) {
-    costFigures.push(['Scrollback held', formatBytes(cost.scrollbackBytes)]);
-  }
-  costFigures.push(['Session open', formatDuration(Date.now() - summary.startedAt)]);
-  /**
-   * Labels that say what the number is.
-   *
-   * `Median` and `Total time` were both ambiguous: the first named a statistic rather than a
-   * meaning, and the second could as easily have been the age of the session as the sum of the
-   * commands. The statistic itself is unchanged and the reason is still good, so it is the words
-   * that changed.
-   */
-  const figures: [label: string, value: string][] = [
-    ['Commands run', String(summary.total)],
-    ['Failed', String(summary.failed)],
-    ['Running now', String(summary.running)],
-    // The median, not the mean: one `npm install` should not describe a session of quick
-    // commands, which is exactly what an average does.
-    ['Typical command', formatDuration(summary.medianMs)],
-    ['Time in commands', formatDuration(summary.totalMs)],
-  ];
+  const span = (label: string, s: StatsReport['today']): void => {
+    const figures: [string, string][] = [
+      ['Commands run', String(s.commandsRun)],
+      ['Failed', String(s.commandsFailed)],
+      ['Terminals opened', String(s.sessionsOpened)],
+    ];
+    if (s.turns > 0) {
+      figures.push(['Prompts answered', String(s.turns)]);
+      figures.push(['Waiting on agents', formatDuration(s.turnMs)]);
+    }
+    figures.push(['Time in commands', formatDuration(s.commandMs)]);
+    group(label, figures);
+  };
+  span('Today', report.today);
+  span('The last seven days', report.week);
 
-  group('Commands', figures);
-  group('This session', costFigures);
+  list(
+    'What you run most',
+    report.topCommands.map((c: CommandTally): [string, string] => [
+      c.command,
+      `${String(c.count)}x`,
+    ]),
+  );
+  list(
+    'Where you work',
+    report.topPlaces.map((p: PlaceTally): [string, string] => [
+      shortPath(p.cwd),
+      `${String(p.count)}x`,
+    ]),
+  );
+  list(
+    'What went wrong',
+    report.failures.map((c: CommandTally): [string, string, boolean] => [
+      c.command,
+      c.exitCode === undefined ? 'failed' : `exit ${String(c.exitCode)}`,
+      true,
+    ]),
+  );
 
   /**
    * What is counted, said plainly.
    *
-   * The honest answer to "do agents count, and servers, and background jobs?" is: whatever the
-   * shell reports as a command, which is everything run in the foreground and waited for. An
-   * agent CLI and a dev server are each one long-running command and show under `Running now`
-   * until they stop. Anything sent to the background with `&` is not the foreground process and
-   * is not timed, because nothing marks when it ends.
+   * An agent CLI is one long-running command, which is why prompts are counted separately: they
+   * are the unit that matters in a pane running one, and no command boundary can see them.
    */
   const note = document.createElement('div');
   note.className = 'cmd-stats-note';
   note.textContent =
-    'Counts anything run in the foreground and waited for, agents and servers included. ' +
-    'A job sent to the background with & is not timed.';
+    'Counts anything run in the foreground and waited for. A job sent to the background with & is ' +
+    'not timed, and a command typed with a leading space is not counted at all. Memory is the ' +
+    "daemon's side only.";
   wrap.append(note);
 
-  if (summary.longest) {
-    const longest = document.createElement('div');
-    longest.className = 'cmd-note';
-    longest.textContent = `Longest: ${summary.longest.command} (${formatDuration(summary.longest.durationMs)})`;
-    wrap.append(longest);
-  }
-
-  const list = document.createElement('div');
-  list.className = 'cmd-stat-list';
-  const records = stats.records;
-
-  if (records.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'cmd-empty';
-    empty.textContent =
-      'Nothing timed yet. Commands appear here as you run them, with how long each took.';
-    wrap.append(empty);
-    return wrap;
-  }
-
-  for (const record of records.slice(0, 100)) {
-    const row = document.createElement('div');
-    row.className = 'cmd-stat-row';
-    if ((record.exitCode ?? 0) !== 0 && record.durationMs !== undefined) {
-      row.classList.add('failed');
-    }
-
-    const time = document.createElement('span');
-    time.className = 'cmd-stat-time';
-    time.textContent = formatTime(record.startedAt);
-
-    const command = document.createElement('span');
-    command.className = 'cmd-stat-command';
-    command.textContent = record.command;
-    command.title = record.command;
-
-    const duration = document.createElement('span');
-    duration.className = 'cmd-stat-duration';
-    duration.textContent = formatDuration(record.durationMs);
-
-    row.append(time, command, duration);
-    list.append(row);
-  }
-  wrap.append(list);
   return wrap;
 }

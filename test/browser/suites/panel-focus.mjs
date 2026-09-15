@@ -13,6 +13,7 @@ import {
   press,
   pressInPalette,
   finish,
+  waitFor,
 } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
@@ -130,15 +131,25 @@ await evaluate(
   client,
   `[...document.querySelectorAll('.cmd-tab')].find(t => t.textContent === 'Stats')?.click()`,
 );
-await sleep(600);
-r.ok(
-  'there is a Stats tab with session figures',
-  Number(await evaluate(client, `document.querySelectorAll('.cmd-figure').length`)) === 6,
+/*
+ * Waited for rather than slept through, and counted loosely on purpose.
+ *
+ * The page asks the daemon when it opens and draws when the answer lands, so a fixed wait is a
+ * race. It used to assert exactly six figure cells, which is a check about the layout rather than
+ * about the page working: any group added or removed broke it while nothing was wrong.
+ */
+const drawn = await waitFor(client, `document.querySelectorAll('.cmd-figure').length > 0`, 15000);
+r.ok('the Stats tab fills in once the daemon answers', drawn === true);
+const headings = String(
+  await evaluate(
+    client,
+    `JSON.stringify([...document.querySelectorAll('.cmd-stats-heading')].map(h => h.textContent))`,
+  ),
 );
 r.ok(
-  'and it reports timings with timestamps',
-  (await evaluate(client, `!!document.querySelector('.cmd-stat-time')`)) === true ||
-    (await evaluate(client, `!!document.querySelector('.cmd-empty')`)) === true,
+  'and says what this terminal has done since it started, not since the page loaded',
+  headings.includes('since it started'),
+  headings,
 );
 
 await finish();

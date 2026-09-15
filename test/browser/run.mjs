@@ -235,6 +235,8 @@ const COVERS = [
   ['daemon/src/project-', ['project-trust', 'launched-pane']],
   ['daemon/src/notify', ['notifications']],
   ['daemon/src/launcher-data', ['command-panel', 'folder-picker', 'palette', 'menu-aftermath']],
+  ['daemon/src/stats-store', ['stats-persist', 'command-panel']],
+  ['extension/src/launcher/stats-view', ['stats-persist', 'command-panel']],
   ['extension/src/launcher/panel-view', ['command-panel', 'panel-focus', 'panel-in-view']],
   [
     'extension/src/layout/split-view',

@@ -20,6 +20,7 @@ import { ProjectIndex } from './project-index.js';
 import { ProjectTrust } from './project-trust.js';
 import { OutputArchive } from './output-archive.js';
 import { PluginHost } from './plugin-api.js';
+import { StatsStore } from './stats-store.js';
 import { RestoreStore } from './restore-store.js';
 import { DaemonServer } from './server.js';
 import { LocalPtyBackend } from './pty-backend.js';
@@ -101,6 +102,7 @@ async function startDaemon(): Promise<Daemon> {
     new ProjectTrust(db),
     new ProjectIndex(),
     new RestoreStore(db),
+    new StatsStore(db),
     new OutputArchive(db),
     new PluginHost(),
   );

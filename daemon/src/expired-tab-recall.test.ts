@@ -23,6 +23,7 @@ import { ProjectTrust } from './project-trust.js';
 import { PtyHost } from './pty-host/host.js';
 import { PtyHostClient } from './pty-host/client.js';
 import { HostPtyBackend } from './pty-host/backend.js';
+import { StatsStore } from './stats-store.js';
 import { RestoreStore } from './restore-store.js';
 import { DaemonServer } from './server.js';
 import { SessionManager } from './session-manager.js';
@@ -159,6 +160,7 @@ beforeAll(async () => {
     new ProjectTrust(new Database(':memory:')),
     new ProjectIndex(),
     new RestoreStore(new Database(':memory:')),
+    new StatsStore(new Database(':memory:')),
     new OutputArchive(new Database(':memory:')),
     new PluginHost(),
   );

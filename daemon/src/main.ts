@@ -22,6 +22,7 @@ import { WorkspaceStore } from './workspace-store.js';
 import { Database } from './database.js';
 import { LauncherData } from './launcher-data.js';
 import { ProjectIndex } from './project-index.js';
+import { StatsStore } from './stats-store.js';
 import { RestoreStore } from './restore-store.js';
 import { OutputArchive } from './output-archive.js';
 import { PluginHost } from './plugin-api.js';
@@ -181,6 +182,7 @@ async function main(): Promise<void> {
   launcher.useProjectIndex(projects);
   const trust = new ProjectTrust(db);
   const restore = new RestoreStore(db);
+  const stats = new StatsStore(db);
   // Off unless the config says otherwise. See docs/03-data-model.md.
   const archive = new OutputArchive(db, config.archiveOutput);
   // Loaded from ~/.config/tabterm/plugins, which is trusted because you put files there
@@ -219,6 +221,7 @@ async function main(): Promise<void> {
     trust,
     projects,
     restore,
+    stats,
     archive,
     plugins,
   );
@@ -344,7 +347,14 @@ async function main(): Promise<void> {
     });
     server.notifySession(s, { t: 'cwd', sessionId: s.id, cwd: s.cwd });
   };
-  events.onCreated = (s) => tracker.add(s.id, s.pid);
+  events.onCreated = (s) => {
+    tracker.add(s.id, s.pid);
+    /*
+     * The session's own start, written once, so its age is the session's rather than a tab's.
+     * `createdAt` is used rather than now, because an adopted session is older than this daemon.
+     */
+    stats.sessionStarted(s.id, s.createdAt);
+  };
   events.onOutput = (s, chunk) => archive.write(s.id, chunk);
   events.onInputWritten = (s, data) => tracker.onInput(s.id, data);
   events.onIntegrationDetected = (s) => tracker.markIntegrated(s.id);
@@ -429,6 +439,14 @@ async function main(): Promise<void> {
       durationMs,
       sessionId: s.id,
     });
+    /*
+     * And counted, which `recordCommand` cannot do: it keeps one row per command and directory
+     * with a use count, so it is a history rather than a log and cannot say what this session
+     * has run. A command typed with a leading space is still not counted, for the same reason.
+     */
+    if (!command.startsWith(' ')) {
+      stats.commandFinished(s.id, durationMs, exitCode);
+    }
     const ws = workspaces.findBySession(s.id);
     // Long enough that you tabbed away from it, which is the only case worth interrupting for.
     server.notifyFinished(
@@ -482,6 +500,9 @@ async function main(): Promise<void> {
        */
       // A turn, timed from the prompt and ended by the hook that reports it. See agent-turns.ts.
       const turn = turns.observe(sessionId, state, previous, Date.now(), hook);
+      // Counted where it can outlive the tab. A prompt answered is the unit an agent pane is
+      // measured in, and no command boundary can see one.
+      if (turn) stats.turnFinished(sessionId, turn.durationMs);
       const turnStartedAt = turns.startedAt(sessionId);
       server.notifySession(session, {
         t: 'agent-state',

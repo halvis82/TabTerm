@@ -586,6 +586,14 @@ export type ClientMessage =
   // Agent sessions that could be resumed. Listing is not resuming: the daemon reports what
   // exists and a person decides. See docs/09-agent-integration.md.
   | { t: 'list-resumable'; cwd?: string; limit?: number }
+  /**
+   * What this session and this machine have actually done.
+   *
+   * Asked of the daemon rather than counted in the page, because a tab is a view of a session and
+   * everything worth counting belongs to the session. A page counting for itself reset on every
+   * refresh and reported four seconds for a terminal that had been open all day.
+   */
+  | { t: 'get-stats'; sessionId?: string }
   | {
       t: 'resume-agent';
       sessionId: string;
@@ -772,6 +780,54 @@ export interface MergeableSession {
   attached: boolean;
   /** Something has actually been run in it, so an untouched shell can be told apart. */
   hasRun: boolean;
+}
+
+/** Counters for one session, or nothing for a session that began before they were kept. */
+export interface SessionCounters {
+  startedAt: number;
+  commandsRun: number;
+  commandsFailed: number;
+  commandMs: number;
+  /** Prompts an agent answered here, which no command boundary can see. */
+  turns: number;
+  turnMs: number;
+}
+
+/** The same shape over a span of days, plus how many terminals were opened in it. */
+export interface SpanCounters {
+  commandsRun: number;
+  commandsFailed: number;
+  commandMs: number;
+  turns: number;
+  turnMs: number;
+  sessionsOpened: number;
+}
+
+/** A command and how often it has been run, for the two lists that are about habits. */
+export interface CommandTally {
+  command: string;
+  count: number;
+  /** The last exit code seen for it, so a list of failures can say what went wrong. */
+  exitCode?: number;
+  lastUsedAt: number;
+}
+
+/** A directory and how much has been run in it. */
+export interface PlaceTally {
+  cwd: string;
+  count: number;
+}
+
+export interface StatsReport {
+  /** Absent when the request named no session, or named one nothing is recorded for. */
+  session?: SessionCounters;
+  today: SpanCounters;
+  week: SpanCounters;
+  /** Most run, and where. Both come from the history table, under its own rules about secrets. */
+  topCommands: readonly CommandTally[];
+  topPlaces: readonly PlaceTally[];
+  /** Commands that have ended badly, most recent first. */
+  failures: readonly CommandTally[];
 }
 
 export interface ResolvedPath {
@@ -1076,6 +1132,7 @@ export type ServerMessage =
   | { t: 'restorable-workspaces'; workspaces: readonly RestorableSummary[] }
   | { t: 'server-list'; servers: readonly LocalServer[]; others?: readonly OtherLocalPort[] }
   | { t: 'resumable-sessions'; sessions: readonly ResumableAgentSession[] }
+  | { t: 'stats'; stats: StatsReport }
   | { t: 'error'; code: ServerErrorCode; message: string; context?: string };
 
 /** A workspace that could be brought back, as presented before anyone decides to. */

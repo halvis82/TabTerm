@@ -21,6 +21,7 @@ import {
   type LayoutNode,
   type ServerErrorCode,
   type ServerMessage,
+  type StatsReport,
 } from '@tabterm/shared';
 import { authDelayMs, recordFailure, recordSuccess, verifyToken } from './auth.js';
 import type { PanePlace } from '@tabterm/shared';
@@ -63,6 +64,7 @@ import { loginPath, resolveExecutable } from './login-path.js';
 import { holderOfLocalPort, listeningPorts, localListeners } from './server-detect.js';
 import { applyMemoryMode, frontendSettings } from './memory-modes.js';
 import { layoutWithSessions } from './restore-store.js';
+import { daysBack, dayKey, type StatsStore } from './stats-store.js';
 import type { RestoreStore } from './restore-store.js';
 import type { OutputArchive } from './output-archive.js';
 import type { PluginHost } from './plugin-api.js';
@@ -296,6 +298,7 @@ export class DaemonServer {
   readonly #trust: ProjectTrust;
   readonly #projects: ProjectIndex;
   readonly #restore: RestoreStore;
+  readonly #stats: StatsStore;
   readonly #archive: OutputArchive;
   readonly #plugins: PluginHost;
   readonly #clients = new Set<Client>();
@@ -328,6 +331,7 @@ export class DaemonServer {
     trust: ProjectTrust,
     projects: ProjectIndex,
     restore: RestoreStore,
+    stats: StatsStore,
     archive: OutputArchive,
     plugins: PluginHost,
   ) {
@@ -376,6 +380,7 @@ export class DaemonServer {
     this.#trust = trust;
     this.#projects = projects;
     this.#restore = restore;
+    this.#stats = stats;
     this.#archive = archive;
     this.#plugins = plugins;
     /**
@@ -1947,6 +1952,11 @@ export class DaemonServer {
         return;
       }
 
+      case 'get-stats': {
+        send(client.socket, controlFrame({ t: 'stats', stats: this.#statsReport(msg.sessionId) }));
+        return;
+      }
+
       case 'list-resumable': {
         void this.#resumableSessions(msg.cwd, msg.limit ?? 8)
           .then((sessions) => {
@@ -3231,6 +3241,38 @@ export class DaemonServer {
    *    Claude and a conversation about a missing tree for Codex.
    * 3. The store said which conversation it is. Handled inside each reader.
    */
+  /**
+   * Everything the Stats page shows, gathered where the facts are.
+   *
+   * The counters come from `stats_store`, which the daemon writes as commands and turns finish.
+   * The two lists of habits come from the history table, which already decides what may be
+   * remembered: a command typed with a leading space or one that looks like a secret is not in it,
+   * so neither is in here.
+   */
+  #statsReport(sessionId?: string): StatsReport {
+    const session = sessionId ? this.#stats.forSession(sessionId) : null;
+    const now = Date.now();
+    return {
+      ...(session
+        ? {
+            session: {
+              startedAt: session.startedAt,
+              commandsRun: session.commandsRun,
+              commandsFailed: session.commandsFailed,
+              commandMs: session.commandMs,
+              turns: session.turns,
+              turnMs: session.turnMs,
+            },
+          }
+        : {}),
+      today: this.#stats.overDays([dayKey(now)]),
+      week: this.#stats.overDays(daysBack(7, now)),
+      topCommands: this.#stats.topCommands(),
+      topPlaces: this.#stats.topPlaces(),
+      failures: this.#stats.failures(),
+    };
+  }
+
   async #resumableSessions(
     cwd: string | undefined,
     limit: number,

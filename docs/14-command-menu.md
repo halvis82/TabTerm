@@ -9,6 +9,37 @@ blind, arrow-up walks backwards one at a time, and neither shows you what a comm
 ---
 
 
+## Stats belongs to the session, not to the tab looking at it
+
+Every figure was counted in the page that was showing it. Refreshing the tab reset all of them, so
+a terminal that had been open all day reported four seconds, no commands run and nothing answered.
+The numbers were not wrong about the page. They were about the wrong thing, because a tab is a view
+of a session and the session is what did the work.
+
+The daemon keeps them now. It sees every command boundary and every agent turn already, it outlives
+every tab, and it writes them down, so a session's counts survive a refresh, a close and reopen,
+and a daemon restart.
+
+Two shapes, because two questions are being asked. **Per session**, so a terminal can say what it
+has done since it started. **Per day**, so "today" and "the last seven days" are answerable without
+keeping a row per command: a row per day is bounded by the calendar rather than by use, which is
+the only bound that does not need pruning to be correct.
+
+Counters only. No command, directory or other text is stored by any of this. The two lists that are
+about habits, what you run most and where you work, come from the history table, which already
+decides what may be remembered: a command typed with a leading space or one that looks like a
+secret never reaches it, so neither reaches the page.
+
+| Group | What it answers |
+|---|---|
+| This terminal, since it started | Commands run, failed, time in them, prompts answered and time spent waiting on the agent, how long it has really been open, and its memory |
+| Today, and the last seven days | The same counts across every session, plus how many terminals were opened |
+| What you run most, and where you work | The commands and directories with the highest counts |
+| What went wrong | Commands that ended with a non-zero exit, most recent first |
+
+The agent figures are absent from a group when nothing has been asked there, because a row of
+zeroes about a feature this terminal is not using is worse than no row.
+
 ## Stats answers three questions, and says which is which
 
 The page held one list of numbers about commands, and the line in the corner of a pane held a

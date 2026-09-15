@@ -231,6 +231,41 @@ const MIGRATIONS: { version: number; sql: string }[] = [
         SELECT id, owner_profile FROM workspaces WHERE owner_profile IS NOT NULL;
     `,
   },
+  {
+    version: 12,
+    sql: `
+      -- What a terminal has done, kept where the terminal is.
+      --
+      -- Every figure on the Stats page was counted in the page showing it, so refreshing the tab
+      -- reset all of them and a session hours old reported four seconds and nothing run. The
+      -- numbers were about the wrong thing: a tab is a view of a session, and the session did the
+      -- work. The daemon sees every command boundary and every agent turn and outlives every tab.
+      --
+      -- Counters only. No command, directory or any other text: those live in \`commands\`, under
+      -- the rules that table already has about what may be remembered.
+      CREATE TABLE IF NOT EXISTS session_stats (
+        session_id      TEXT PRIMARY KEY,
+        started_at      INTEGER NOT NULL,
+        commands_run    INTEGER NOT NULL DEFAULT 0,
+        commands_failed INTEGER NOT NULL DEFAULT 0,
+        command_ms      INTEGER NOT NULL DEFAULT 0,
+        turns           INTEGER NOT NULL DEFAULT 0,
+        turn_ms         INTEGER NOT NULL DEFAULT 0
+      );
+      -- And per day, so "today" and "this week" are answerable without keeping a row per command.
+      -- A row per day is bounded by the calendar rather than by use, which is the only bound that
+      -- does not need pruning to be correct.
+      CREATE TABLE IF NOT EXISTS day_stats (
+        day             TEXT PRIMARY KEY,
+        commands_run    INTEGER NOT NULL DEFAULT 0,
+        commands_failed INTEGER NOT NULL DEFAULT 0,
+        command_ms      INTEGER NOT NULL DEFAULT 0,
+        turns           INTEGER NOT NULL DEFAULT 0,
+        turn_ms         INTEGER NOT NULL DEFAULT 0,
+        sessions_opened INTEGER NOT NULL DEFAULT 0
+      );
+    `,
+  },
 ];
 
 export class Database {

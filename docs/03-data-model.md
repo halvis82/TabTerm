@@ -77,6 +77,24 @@ frontend composes from known fields. See `05-security.md`.
 
 ---
 
+
+## `session_stats` and `day_stats`
+
+Counters, so the Stats page is about the session rather than about the tab looking at it.
+
+| Table | Key | Holds |
+|---|---|---|
+| `session_stats` | `session_id` | When the session started, commands run and failed, time in commands, prompts answered and time spent on them |
+| `day_stats` | `day`, local | The same counts summed per day, plus how many terminals were opened |
+
+**No text.** Not a command, not a directory, nothing a person typed. Anything that has to name what
+was run comes from `commands`, which already has rules about what may be remembered: a leading
+space or anything that looks like a secret never reaches it.
+
+`day_stats` is a row per calendar day, which is bounded without pruning being load bearing. Rows
+older than a year are dropped anyway, because a counter nobody will ever ask about is still a row.
+
+
 ## 2. Layout and workspace
 
 ```ts
