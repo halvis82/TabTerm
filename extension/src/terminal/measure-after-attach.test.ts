@@ -38,9 +38,20 @@ describe('what happens once a page has attached', () => {
     ).toContain('refitAllPanes()');
   });
 
-  it('and the observer still refuses to speak before that, which is why this is needed', () => {
-    // If this guard ever goes away the refit above becomes redundant rather than load bearing, and
-    // whoever removes one should have to look at the other.
-    expect(source).toContain('if (size && workspaceId && attached)');
+  it('and a size measured before attaching waits rather than being dropped', () => {
+    /**
+     * This used to pin the guard that dropped it: `if (size && workspaceId && attached)`.
+     *
+     * Dropping was safe while a size was sent on every frame of a resize, because a frame that
+     * arrived too early was followed by one that did not. Coalescing the resize removed that, so
+     * the last frame of a drag can be the one that arrives early, and dropping it leaves a
+     * terminal running at a size nothing measured. It waits for the socket now.
+     *
+     * The refit above is still load bearing and still the thing that covers the first measurement
+     * of all, so whoever removes one should still have to look at the other.
+     */
+    const settles = source.slice(source.indexOf('function sendSizeWhenItSettles'));
+    expect(settles.slice(0, 1400)).toContain('sendSizeWhenItSettles(paneId);');
+    expect(settles.slice(0, 1400)).toContain('if (!workspaceId || !attached)');
   });
 });
