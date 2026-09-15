@@ -48,6 +48,19 @@ export class VtState {
   }
 
   /**
+   * How much scrollback this terminal is actually keeping.
+   *
+   * Readable because the setting that governs it could not be checked from outside. A budget that
+   * reached the sessions that already existed and not the ones opened afterwards is a defect that
+   * nothing could assert on, so what was written instead were tests that read the server's source
+   * and looked for the right lines. Those pass whenever the text is right, which is not the same
+   * claim.
+   */
+  get scrollback(): number {
+    return this.#term.options.scrollback ?? 0;
+  }
+
+  /**
    * Throw away everything above the visible screen.
    *
    * What "clear" has to mean if it is to mean anything. Clearing used to wipe only the xterm

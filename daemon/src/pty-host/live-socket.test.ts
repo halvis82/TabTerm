@@ -104,4 +104,43 @@ describe('two hosts finding the same stale socket', () => {
     await a.close();
     await b.close();
   });
+
+  /*
+   * And the loser leaving takes nothing with it, which is the half this file used to end without
+   * asserting.
+   *
+   * `close()` released this process's own listening socket and then unlinked `#socketPath`
+   * unconditionally. After a lost rename those are two different things: the socket released is a
+   * nameless inode, and the path deleted is the name the winner is serving on. So the loser going
+   * away quietly, which is what it is designed to do, removed the winner's socket.
+   *
+   * The winner keeps running and keeps every terminal. Existing connections survive because they
+   * hold the inode, and the next reconnect finds no socket, spawns a new host, and reports every
+   * session expired while every process is still alive and unreachable. That is the exact outcome
+   * the rename was introduced to prevent, reached through the one place it was not applied.
+   */
+  it('and the loser of the rename does not delete the winner s socket on its way out', async () => {
+    const path = join(dir, 'sock');
+    const a = new PtyHost(path, join(dir, 'scrollback-a'));
+    const b = new PtyHost(path, join(dir, 'scrollback-b'));
+    await Promise.all([a.listen(), b.listen()]);
+
+    const winner = a.ownsSocketName ? a : b;
+    const loser = a.ownsSocketName ? b : a;
+    expect(winner.ownsSocketName).toBe(true);
+    expect(loser.ownsSocketName).toBe(false);
+
+    // The loser leaves. Anything can prompt this: a packaging script, a stray kill, launchd
+    // tidying up, or the reset hook signalling a pid chosen by a different race.
+    await loser.close();
+
+    // The winner is still reachable, by name, because the name is still its socket.
+    expect(existsSync(path)).toBe(true);
+    await expect(connectable(path)).resolves.toBe(true);
+    expect(winner.ownsSocketName).toBe(true);
+
+    await winner.close();
+    // And the winner leaving does remove it, because that one really is its own.
+    expect(existsSync(path)).toBe(false);
+  });
 });

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { warn } from '../log.js';
 import { connect, createServer, type Server, type Socket } from 'node:net';
-import { chmodSync, existsSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, renameSync, statSync, unlinkSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { killPty, spawnPty, type PtyHandle, type PtyOptions } from '../pty-manager.js';
 import { controlFrame, decodeFrames, outputFrame } from './framing.js';
@@ -167,6 +167,13 @@ export class PtyHost {
   readonly #clients = new Set<Socket>();
   readonly #server: Server;
   readonly #socketPath: string;
+  /**
+   * The inode of the socket this host bound, when it went on to hold the name.
+   *
+   * Undefined until the rename succeeds, so a host that never claimed the name never believes it
+   * owns one. See `ownsSocketName`.
+   */
+  #ownedSocketIno: number | undefined;
   readonly #store: ScrollbackStore;
   readonly #maxSessions: number;
 
@@ -268,13 +275,39 @@ export class PtyHost {
         // Owner only, before it has a name anybody knows. Anything that can open this socket can
         // spawn a process as you, so the mode is set while it is still unreachable.
         chmodSync(staging, 0o600);
+        /*
+         * Read before the rename, not after.
+         *
+         * A rename does not change the inode, so this is this host's own socket whoever ends up
+         * holding the name. Reading it afterwards would be a race of its own: another host can
+         * rename over the name in between, and this host would then record a number belonging to
+         * somebody else's socket and later delete it on that authority.
+         */
+        const ino = statSync(staging).ino;
         renameSync(staging, this.#socketPath);
+        this.#ownedSocketIno = ino;
         // A host nobody ever connects to is the third way one is left behind: a daemon that
         // spawned it and then died before saying hello.
         this.#leaveIfNothingLeft();
         resolve();
       });
     });
+  }
+
+  /**
+   * Whether the socket name currently points at this host's socket.
+   *
+   * False for the loser of a rename, which is left holding a socket with no name. That is a
+   * designed outcome and harmless in itself: nothing can reach it and it leaves on its own. What
+   * is not harmless is the loser believing it still owns the name on the way out.
+   */
+  get ownsSocketName(): boolean {
+    if (this.#ownedSocketIno === undefined) return false;
+    try {
+      return statSync(this.#socketPath).ino === this.#ownedSocketIno;
+    } catch {
+      return false;
+    }
   }
 
   get sessionCount(): number {
@@ -770,6 +803,24 @@ export class PtyHost {
     for (const c of this.#clients) c.destroy();
     this.#clients.clear();
     await new Promise<void>((resolve) => this.#server.close(() => resolve()));
-    if (existsSync(this.#socketPath)) unlinkSync(this.#socketPath);
+    /**
+     * Only when the name is still this host's socket.
+     *
+     * `#server.close()` releases this process's own listening socket, which after a lost rename is
+     * a nameless inode. Deleting `#socketPath` afterwards used to happen regardless, and that path
+     * is the name the **winner** is serving on: the loser leaving quietly, which is precisely what
+     * it is designed to do, took the winner's socket with it.
+     *
+     * Two commits went into making sure no host can remove a socket another host is answering on.
+     * This was the same removal through the last door they did not close, and it is closed the
+     * same way `releaseLockFile` closes its own: read who it belongs to, act only if it is ours.
+     */
+    if (this.ownsSocketName) {
+      try {
+        unlinkSync(this.#socketPath);
+      } catch {
+        /* it went away while we were leaving, which is the outcome we wanted anyway */
+      }
+    }
   }
 }

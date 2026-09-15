@@ -2438,7 +2438,21 @@ export class DaemonServer {
           updateUserSetting('scrollbackBytes', this.#scrollbackBytes);
           // Lines are what a terminal counts, bytes are what a person budgets. The conversion
           // uses a measured average line, so the number in settings stays honest.
-          this.#sessions.applyScrollback(linesForBytes(this.#scrollbackBytes));
+          /**
+           * Written to the config as well as applied to what is open.
+           *
+           * This field is what a new session's terminal is built with and what the snapshot handed
+           * to an attaching tab is cut to. Applying the budget to the sessions that already existed
+           * and leaving the field alone meant raising it did nothing for anything opened
+           * afterwards, until a restart. And it did it late rather than not at all: changing the
+           * memory mode re-derives the same field from the budget, so an unrelated setting is what
+           * made this one take effect.
+           *
+           * The other two places that derive it, startup and `set-memory-mode`, do so only when a
+           * budget has actually been chosen. Here one just was.
+           */
+          this.#config.scrollbackLines = linesForBytes(this.#scrollbackBytes);
+          this.#sessions.applyScrollback(this.#config.scrollbackLines);
           this.hostBudget?.(this.#scrollbackBytes);
           info('scrollback.budget', { bytes: this.#scrollbackBytes });
         }
