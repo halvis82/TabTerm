@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { VERSION } from '@tabterm/shared';
 import ptyPkg from 'node-pty';
 import type { IPty } from 'node-pty';
 import { info, warn } from './log.js';
@@ -34,7 +35,15 @@ export function spawnPty(opts: PtyOptions): PtyHandle {
     TERM: 'xterm-256color',
     COLORTERM: 'truecolor',
     TABTERM_SESSION: opts.sessionId,
-    TABTERM_VERSION: '0.0.0',
+    /**
+     * The one the product is on, not a number typed here.
+     *
+     * It said `0.0.0` in every shell TabTerm ever started, months after the release was 0.1.0,
+     * because the release bump changed the places somebody thought to look and this was not one
+     * of them. A shell that reports the wrong version is a shell whose environment lies to
+     * whatever reads it, and `version.test.ts` now covers this one too.
+     */
+    TABTERM_VERSION: VERSION,
   };
 
   // argv, never a shell string. See docs/05-security.md §4.

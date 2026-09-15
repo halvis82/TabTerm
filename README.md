@@ -295,9 +295,11 @@ messaging host allowlist and every stable tab URL, so it has to be recorded:
 
 ```sh
 npm run package:extension -- --published   # dist/tabterm-extension-<version>.zip
-# upload, then take the ID the store assigned:
-#   1. put it in package.json under tabterm.extensionId
-#   2. re-run ./scripts/install.sh
+# upload the draft first, because the store assigns the ID during that upload, then:
+#   1. put it in package.json under tabterm.publishedExtensionId
+#      NOT tabterm.extensionId, which pins the unpacked build and must not change
+#   2. re-run ./scripts/install.sh, which allows both ids as native-messaging origins
+#   3. commit that, and run the suites again before submitting for review
 ```
 
 `package.json` is the single place that records it; `install.sh` and `doctor.sh` both read it,

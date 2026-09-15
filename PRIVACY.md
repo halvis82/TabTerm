@@ -1,6 +1,6 @@
 # TabTerm privacy policy
 
-**Last updated:** 2026-09-09
+**Last updated:** 2026-09-15
 
 TabTerm is a terminal. Everything it handles is the sort of thing a terminal handles, which is to
 say some of it is sensitive. This describes exactly what it touches, where that stays, and what you
@@ -72,9 +72,10 @@ Nowhere.
 - **No analytics. No telemetry. No crash reporting**
 - **No advertising, and no data is sold or shared with anybody**
 
-The extension makes no network requests to any remote host. Its only connection is to the companion
-program on your own machine, over loopback, and that connection is bound to loopback and refuses
-anything without the local token.
+The extension makes no network requests to any remote host. Every connection it makes is to your own
+machine, over loopback: to the companion program, which is bound to loopback and refuses anything
+without the local token, and to a local address **you** have asked it to open, which is the feature
+described under "Services listening on your own machine" below. Neither leaves this machine.
 
 Programs **you** run in a terminal can of course use the network. That is what a terminal is for,
 and it is your command doing it rather than TabTerm.
@@ -141,7 +142,7 @@ Closing is the only one that acts on something outside TabTerm, so it is the car
 - The confirmation shows a small preview of the page, loaded at that moment and never before. It is
   sandboxed: it cannot submit forms, open windows, download anything, or navigate the page it sits in
 - TabTerm's own ports cannot be closed
-- Only ports above 1024 are eligible, which is where the operating system's own services are not
+- Only ports above 1024 are eligible
 - Whoever holds the port is looked up **again** at the moment you confirm, rather than trusting what
   the list said a minute ago, because ports get reused and the wrong process must not be ended
 - It sends `SIGTERM`, which asks a program to stop and lets it save what it was doing, rather than

@@ -39,3 +39,31 @@ describe('the release version', () => {
     expect(manifest.manifest_version).toBe(3);
   });
 });
+
+/**
+ * And the version a shell is handed, which was missed by every bump.
+ *
+ * `TABTERM_VERSION` is put into the environment of every terminal TabTerm starts, and it said
+ * `0.0.0` months after the release was 0.1.0: the bump changed the places somebody thought to
+ * look, and this was not one of them. A shell whose environment reports the wrong version lies to
+ * whatever reads it, and nothing was comparing the two.
+ *
+ * Read out of the source rather than by spawning a shell, because spawning one here would make a
+ * check about a string into a check about node-pty.
+ */
+describe('the version a spawned terminal is told', () => {
+  const ptyManager = readFileSync(join(root, 'daemon/src/pty-manager.ts'), 'utf8');
+
+  it('comes from the shared constant rather than a number typed in', () => {
+    expect(ptyManager).toContain('TABTERM_VERSION: VERSION');
+  });
+
+  it('is not a hardcoded version at all', () => {
+    // Any literal here is a fourth place to remember, which is three more than works.
+    expect(ptyManager).not.toMatch(/TABTERM_VERSION:\s*['"]/);
+  });
+
+  it('and that constant is the released one', () => {
+    expect(VERSION).toBe(pkg.version);
+  });
+});
