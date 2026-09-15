@@ -22,6 +22,7 @@ import { PaneHost } from './panes.js';
 import { PaneChooser } from './pane-chooser.js';
 import { openLabelForm } from './label-form.js';
 import { describeError } from './describe-error.js';
+import { XtermController } from './xterm-controller.js';
 import type { PaneMenuAction } from './xterm-controller.js';
 import { findCandidates } from './path-links.js';
 import { askHasLapsed, missHasExpired } from './link-scan.js';
@@ -3096,8 +3097,7 @@ function sendSizeWhenItSettles(paneId: string): void {
         return;
       }
       if (!size) return;
-      sizesSent += 1;
-      client?.send({ t: 'resize-pane', workspaceId, paneId, cols: size.cols, rows: size.rows });
+      askForSize(paneId, size, 'measured');
     }, SETTLE_MS),
   );
 }
@@ -3744,9 +3744,18 @@ function reportBox(when: string, paneId: string): void {
 function attachPaneSizes(): { paneId: string; cols: number; rows: number; estimated?: true }[] {
   const out: { paneId: string; cols: number; rows: number; estimated?: true }[] = [];
   for (const pane of panesHost?.all ?? []) {
-    const measured = pane.controller.fit();
+    /*
+     * Read rather than applied when it is not worth believing.
+     *
+     * The same distinction as in `refitAllPanes`: this size is about to be marked as a guess, and
+     * the daemon will decline to move a session for a guess. Applying it locally anyway would
+     * move this pane for a number the daemon has already rejected, which is the disagreement the
+     * whole of `size-agreement` exists to make impossible.
+     */
+    const believable = pane.controller.sizeIsTrustworthy();
+    const measured = believable ? pane.controller.fit() : pane.controller.propose();
     if (!measured || measured.cols <= 1 || measured.rows <= 1) continue;
-    const trusted = trustMeasurement(measured, pane.controller.sizeIsTrustworthy());
+    const trusted = trustMeasurement(measured, believable);
     out.push({
       paneId: pane.paneId,
       cols: trusted.cols,
@@ -3839,6 +3848,34 @@ const nudgedPanes = new Set<string>();
  * detector reports a storm it reports the reasons with it, which is the difference between
  * knowing that a pane is resizing and knowing what keeps resizing it.
  */
+/**
+ * Every `resize-pane` this page has sent, in order, with the reason it was sent.
+ *
+ * Not the storm detector's window, which forgets on purpose: this is an audit, and the question it
+ * exists to answer is whether a terminal ever moved for a reason that was not a person. A size
+ * that changes and changes back leaves no trace in the end state, because both ends look settled
+ * and the damage is the two redraws in between.
+ *
+ * Capped, because it is a page that can be open for days and this is a diagnostic.
+ */
+const sizeAsks: { at: number; cols: number; rows: number; why: string; paneId: string }[] = [];
+const SIZE_ASK_MEMORY = 200;
+
+/**
+ * The one door a size leaves by.
+ *
+ * There used to be two: the coalesced path sent its own message, so the record of what had been
+ * asked was missing exactly the requests that arrive in bursts. A record with a hole in it is
+ * worse than no record, because the hole is where the interesting entries are.
+ */
+function sendResizePane(paneId: string, size: { cols: number; rows: number }, why: string): void {
+  if (!workspaceId) return;
+  sizeAsks.push({ at: Date.now(), paneId, cols: size.cols, rows: size.rows, why });
+  if (sizeAsks.length > SIZE_ASK_MEMORY) sizeAsks.splice(0, sizeAsks.length - SIZE_ASK_MEMORY);
+  sizesSent += 1;
+  client?.send({ t: 'resize-pane', workspaceId, paneId, cols: size.cols, rows: size.rows });
+}
+
 function askForSize(paneId: string, size: { cols: number; rows: number }, why: string): void {
   if (!workspaceId) return;
   /*
@@ -3872,7 +3909,7 @@ function askForSize(paneId: string, size: { cols: number; rows: number }, why: s
   }
   requestedSizes.set(paneId, size);
   noticeResize(paneId, size, why);
-  client?.send({ t: 'resize-pane', workspaceId, paneId, ...size });
+  sendResizePane(paneId, size, why);
 }
 
 /**
@@ -3932,6 +3969,20 @@ function noticeResize(paneId: string, size: { cols: number; rows: number }, why:
 
 function refitAllPanes(): void {
   for (const pane of panesHost?.all ?? []) {
+    /*
+     * Asked before measuring, because measuring used to move the pane on its own.
+     *
+     * `fit` applies what it measures. So the guard below, which was written to stop an untrusted
+     * size being **sent**, was reached after that size had already been applied: the grid moved,
+     * xterm reported it, and the page forwarded it through the terminal's own resize event, which
+     * is a different door from this one. The guard stopped nothing.
+     *
+     * The rule is the same rule stated earlier, taken one step further: a measurement that is not
+     * worth believing moves nothing at all. Not the session, and not this pane either. The pane
+     * keeps the size the daemon gave it, which is the size the program is running at, and asks
+     * again the moment the renderer it is waiting for arrives.
+     */
+    if (!pane.controller.sizeIsTrustworthy()) continue;
     const size = panesHost?.fit(pane.paneId);
     if (!size) continue;
     reportBox('refit', pane.paneId);
@@ -3944,7 +3995,6 @@ function refitAllPanes(): void {
      * the arrangement `session-size` already exists for. The pane asks again the moment the
      * renderer arrives, and by then the two usually agree, so nothing is resized at all.
      */
-    if (!pane.controller.sizeIsTrustworthy()) continue;
     askForSize(pane.paneId, size, 'refit');
   }
 }
@@ -6304,6 +6354,27 @@ declare global {
       resumable: () => { sessionId: string; cwd: string; agent: string; summary?: string }[];
       /** How many sizes this page has sent to the daemon. See `sendSizeWhenItSettles`. */
       sizesSentForTest: () => number;
+      /**
+       * Every size this pane has asked for, in order, each with the reason it gave.
+       *
+       * A size that changes and changes back is the fault nobody can see from the end state: both
+       * moments look settled, and the damage is the two redraws in between. A sequence is the only
+       * way to ask whether anything moved that nobody asked to move, and the reason is how the
+       * answer becomes actionable rather than just a failure.
+       */
+      sizeAsksFor: (paneId: string) => { at: number; cols: number; rows: number; why: string }[];
+      /** Whether the accelerated renderer is attached, which decides how wide a cell is. */
+      rendererAttachedFor: (paneId: string) => boolean;
+      /** How many times this pane has handed its renderer back, which is an event, not a state. */
+      rendererReleasesFor: (paneId: string) => number;
+      /**
+       * Refuse this page a renderer, the way a browser at its context cap does.
+       *
+       * The state the sizing rules exist for and the one a harness cannot otherwise reach: a pane
+       * measuring with a cell it is about to replace. Releases the ones already attached too, so
+       * turning it on puts every pane into that state rather than only the next one.
+       */
+      blockRendererForTest: (on: boolean) => void;
       /** The grid a pane's terminal is actually on, which is what a resize changes. */
       gridOf: (paneId: string) => { cols: number; rows: number } | null;
       /** How many times that grid has moved, which is what a size storm actually is. */
@@ -6525,6 +6596,14 @@ function installTestHook(): void {
     reconnect: () => client?.connect(),
     setBackgroundTimeout: (seconds) => client?.send({ t: 'set-background-timeout', seconds }),
     sizesSentForTest: () => sizesSent,
+    sizeAsksFor: (paneId) => sizeAsks.filter((a) => a.paneId === paneId),
+    rendererAttachedFor: (paneId) => panesHost?.get(paneId)?.controller.rendererAttached ?? false,
+    rendererReleasesFor: (paneId) => panesHost?.get(paneId)?.controller.rendererReleases ?? 0,
+    blockRendererForTest: (on) => {
+      XtermController.blockRenderer = on;
+      if (on) panesHost?.releaseRenderers();
+      else panesHost?.restoreRenderers();
+    },
     gridMovesFor: (paneId) => gridMoves.get(paneId) ?? 0,
     daemonSizeFor: (paneId) => {
       for (let i = sessionSizes.length - 1; i >= 0; i--) {

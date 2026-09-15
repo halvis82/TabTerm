@@ -89,6 +89,18 @@ export async function newTab(url) {
 }
 
 /**
+ * Bring a tab to the front, which is the only thing that really hides the one behind it.
+ *
+ * Opening a tab is supposed to do this and does not always: a headless browser whose window is not
+ * focused can open one behind. `document.visibilityState` is read inside the code being checked,
+ * so a check about a hidden tab that did not actually hide one passes for the wrong reason.
+ */
+export async function activateTab(id) {
+  const response = await fetch(`${BASE}/json/activate/${id}`);
+  if (!response.ok) throw new Error(`could not activate a tab: ${response.status}`);
+}
+
+/**
  * Close a tab.
  *
  * Sessions outliving a suite was fixed by ending them; the tabs were left open, and a run of

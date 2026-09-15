@@ -365,6 +365,16 @@ browser the suite is not in. Use `listTargets`.
 | `resume-and-tabs` | Both agents are offered and actually resume; an unused tab is taken over rather than left |
 | `opening-and-undo` | Opening a folder runs `cd` once, and undo restores the screen exactly |
 | `menu-aftermath` | Clear and a marker both leave a prompt, and the folder box says what is there |
+| `size-agreement` | Every pane's grid is the size the daemon says its session runs at, after each of the seven ways a size can change |
+| `size-stability` | Nothing the browser does to a tab on its own moves a terminal: hiding it, taking its renderer away and giving it back, or leaving it alone |
+
+Those two ask opposite halves of one question and neither is redundant. The first asks whether the
+page and the daemon agree, which covers rendering into columns the shell does not know exist. The
+second asks whether anything moved that nobody asked to move, which cannot be seen in an end state
+at all: a size that changes and changes back looks settled at both ends, and the damage is the two
+redraws in between. So it asserts on counts and on sequences rather than on a final size, and it
+puts the browser into the state the sizing rules exist for by refusing the page a renderer, which
+is what a browser at its context cap does on its own.
 
 The last one is not hypothetical. The launcher recorded "this directory has no project config" by
 deleting the entry, which made "asked, nothing there" indistinguishable from "never asked". Every
@@ -372,6 +382,18 @@ render asked again and every answer caused another render: thousands of messages
 Nothing looked broken, because a busy loop is invisible; what showed was every other message
 starved behind it, so typing appeared to do nothing. It also got worse the more the product was
 used, since each new recent folder added another question per render.
+
+### Count an event, sample a state
+
+A check that asks "does this pane have an accelerated renderer" gets a true answer about the moment
+it looked, and a hidden tab hands its renderer back and is given another one a moment later. Polled
+from outside, that whole sequence can happen between two looks, and the check reports that nothing
+happened at all. Asked as a count of handbacks, it cannot: a count does not come back down.
+
+So the rule is about what is being asserted rather than about how long to wait for it. Something
+that **happened** is counted in the page and the check compares counts. Something that **is true**
+is sampled, and waited for. Getting this backwards produces a check that passes alone and fails in
+a full run, which reads as load sensitivity and is nothing of the kind.
 
 ## Checking what is on the screen, not what is in the buffer
 

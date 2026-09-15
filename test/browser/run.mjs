@@ -261,9 +261,12 @@ const COVERS = [
   ['extension/src/terminal/screen-content', ['start-screen-refresh', 'straight-to-view']],
   [
     'extension/src/terminal/panes',
-    ['layout', 'workspace', 'steady-size', 'resize-output', 'size-agreement'],
+    ['layout', 'workspace', 'steady-size', 'resize-output', 'size-agreement', 'size-stability'],
   ],
-  ['extension/src/terminal/measured-size', ['size-agreement', 'attach-sizes', 'steady-size']],
+  [
+    'extension/src/terminal/measured-size',
+    ['size-agreement', 'attach-sizes', 'steady-size', 'size-stability'],
+  ],
   ['extension/src/terminal/page-shortcuts', ['shortcut-rows', 'pane-menu']],
   ['extension/src/terminal/pane-chooser', ['pane-chooser', 'launched-pane']],
   ['extension/src/transport/', ['resilience', 'reattach']],

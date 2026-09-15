@@ -97,6 +97,34 @@ The end state was always correct: a pane given the wrong size is corrected withi
 the fault costs is the redraw in between, which is why the check counts how many times a pane's
 grid moves during a reattach rather than what size it ends on.
 
+### A terminal changes size when a person changes it, and at no other time
+
+A session lives in a browser tab, and a browser does things to tabs that nobody asked for: it hides
+them, takes their GPU contexts away and gives them back, freezes them, and restores them from the
+back/forward cache. None of that is a person deciding a terminal should be a different width, so
+none of it may move one.
+
+This is not a cosmetic rule. The accelerated renderer and the DOM one disagree about how wide a
+character is, 7.5 pixels against 7.83, which is 195 columns against 187 for the same box. A context
+handed back and taken again is therefore enough, on its own, to produce two size changes for a
+window nobody touched.
+
+Three rules keep that from happening:
+
+- **A measurement is only believed while the thing that decides the cell is the thing that will
+  still be deciding it.** A pane waiting for a renderer, whether it has never had one or has just
+  handed one back, is measuring against a cell it is about to replace
+- **A measurement that is not believed moves nothing at all.** Not the session, and not the pane
+  either. Measuring and applying are separate calls for this reason: fitting a pane applies what it
+  measures, and applying is a resize the program can see
+- **Waiting is not refusing.** A pane that never gets a context must still be able to follow the
+  window, so the wait expires and the measurement is believed. While it waits nothing is broken:
+  the pane draws, and the daemon's size is the one that counts
+
+The size a request is answered with is the size the session is running at, including when the
+request changed nothing. A size is announced when it changes, so a request the daemon declines to
+act on used to produce silence, and silence is indistinguishable from agreement.
+
 
 ## 2. Server-side VT state
 

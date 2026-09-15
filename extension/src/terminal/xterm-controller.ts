@@ -14,6 +14,7 @@ import { closeColorPicker, openColorPicker } from './color-picker.js';
 import { dragIsTakenByProgram, MOUSE_HINT } from './mouse-hint.js';
 import { encodeModifiedKey, modifyOtherKeysLevel } from './modified-keys.js';
 import type { Highlight } from './highlight-anchor.js';
+import { measurementIsTrustworthy } from './measured-size.js';
 
 export interface ControllerOptions {
   container: HTMLElement;
@@ -139,7 +140,17 @@ export class XtermController {
    * time the context arrives the two usually agree, so nothing is resized at all.
    */
   static readonly RENDERER_GRACE_MS = 10_000;
-  readonly #trustSizeAfter = Date.now() + XtermController.RENDERER_GRACE_MS;
+  /**
+   * When this pane started waiting for a renderer, which is not the same as when it was built.
+   *
+   * It was `Date.now()` at construction and never moved again, so the grace covered starting up
+   * and nothing else. A pane that gives its context back when its tab is hidden starts waiting
+   * all over again, and that is exactly when it is measuring with a cell it is about to replace.
+   */
+  #waitingForRendererSince: number | null = Date.now();
+
+  /** How many times this pane has handed its renderer back. See `releaseRenderer`. */
+  rendererReleases = 0;
 
   #undoText = '';
   readonly #serializer = new SerializeAddon();
@@ -785,18 +796,35 @@ export class XtermController {
    * a default that looks like one.
    */
   fit(): { cols: number; rows: number } | null {
+    if (!this.propose()) return null;
     try {
-      const proposed = this.#fit.proposeDimensions();
-      if (!proposed || !Number.isFinite(proposed.cols) || !Number.isFinite(proposed.rows)) {
-        return null;
-      }
-      if (proposed.cols < 2 || proposed.rows < 2) return null;
       this.#fit.fit();
     } catch {
       // Not laid out yet. A size cannot be invented for it.
       return null;
     }
     return { cols: this.term.cols, rows: this.term.rows };
+  }
+
+  /**
+   * Measure without moving anything.
+   *
+   * `fit` applies what it measures, and applying is a resize: xterm reports it, the page forwards
+   * it, and a program redraws. That is right when the measurement is worth believing and wrong
+   * when it is not, and the difference cannot be expressed while measuring and applying are the
+   * same call. So this is the half that only reads, and `fit` is that half plus the moving.
+   */
+  propose(): { cols: number; rows: number } | null {
+    try {
+      const proposed = this.#fit.proposeDimensions();
+      if (!proposed || !Number.isFinite(proposed.cols) || !Number.isFinite(proposed.rows)) {
+        return null;
+      }
+      if (proposed.cols < 2 || proposed.rows < 2) return null;
+      return { cols: proposed.cols, rows: proposed.rows };
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -860,6 +888,18 @@ export class XtermController {
     if (!this.#webgl) return;
     this.#webgl.dispose();
     this.#webgl = null;
+    /*
+     * Counted, because a check cannot ask this by sampling.
+     *
+     * Whether a pane has a renderer right now is a state, and this is an event: a tab can hand a
+     * context back and be given another one between two polls, so a check looking at the state
+     * reports that nothing happened. Counting is the difference between asking "did this happen"
+     * and "is this happening at the exact moment I looked".
+     */
+    this.rendererReleases += 1;
+    // Waiting again, and measuring with a cell that is about to be replaced. See
+    // `measurementIsTrustworthy`.
+    this.#waitingForRendererSince = Date.now();
   }
 
   /** Reattach the renderer when the pane is looked at again. */
@@ -876,7 +916,12 @@ export class XtermController {
    * broken while this is false: the pane draws, and the daemon's size is the one that counts.
    */
   sizeIsTrustworthy(): boolean {
-    return this.rendererAttached || Date.now() > this.#trustSizeAfter;
+    return measurementIsTrustworthy({
+      rendererAttached: this.rendererAttached,
+      waitingSince: this.#waitingForRendererSince,
+      graceMs: XtermController.RENDERER_GRACE_MS,
+      now: Date.now(),
+    });
   }
 
   get rendererAttached(): boolean {
@@ -976,18 +1021,32 @@ export class XtermController {
     );
   }
 
+  /**
+   * A browser that will not give this pane a context, on purpose.
+   *
+   * Contexts are capped per page and the cap is real: every tab re-attaching at once is exactly
+   * when one is refused, which is the moment the sizing rules were written for. A check cannot
+   * make a browser run out of them, so it says so instead. Off unless a check turns it on.
+   */
+  static blockRenderer = false;
+
   #tryWebgl(attempt = 0): void {
+    if (XtermController.blockRenderer) return;
     try {
       const addon = new WebglAddon();
       addon.onContextLoss(() => {
         addon.dispose();
         this.#webgl = null;
+        // Taken away rather than given back, and the same thing is true either way: this pane is
+        // measuring with a cell it is about to replace.
+        this.#waitingForRendererSince = Date.now();
         this.#opts.onRendererLost?.();
         this.#scheduleRendererRetry(0);
       });
       this.term.loadAddon(addon);
       this.#webgl = addon;
       // The cell is now the one this pane will keep, so a size measured from here is worth having.
+      this.#waitingForRendererSince = null;
       this.#opts.onRendererReady?.();
     } catch {
       // No WebGL to be had right now. xterm draws without it, and this asks again shortly.
