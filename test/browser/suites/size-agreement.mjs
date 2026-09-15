@@ -177,7 +177,50 @@ r.ok('and the daemon had told the page a size by then', someoneWasTold(reconnect
 await client.send('Page.reload');
 await waitFor(client, 'window.__tabterm?.paneIds().length === 2', 25000);
 await sleep(2500);
-const reloaded = await settled('after reloading the tab');
+await settled('after reloading the tab');
+
+/*
+ * 8. The window moved to a display that draws at a different scale.
+ *
+ * A cell is measured in device pixels and the accelerated renderer snaps it to whole ones, so the
+ * same box is a different number of columns on a different screen. Dragging a window between a
+ * laptop display and an external one is therefore a real resize, and the right behavior is to
+ * follow it rather than to refuse.
+ *
+ * What is asserted is not that nothing changed. It is that whatever changed **settled**, on one
+ * value the daemon and the page agree about, rather than alternating between the two displays'
+ * idea of a cell.
+ */
+{
+  const before = await state();
+  for (const scale of [2, 1, 2]) {
+    await client.send('Emulation.setDeviceMetricsOverride', {
+      width: 1200,
+      height: 820,
+      deviceScaleFactor: scale,
+      mobile: false,
+    });
+    await sleep(900);
+  }
+  await client.send('Emulation.clearDeviceMetricsOverride');
+  await sleep(1500);
+  const scaled = await settled('after the window changed display scale');
+  const movesNow = scaled.map((p) => p.moves);
+  await sleep(2500);
+  const after = await state();
+  r.ok(
+    'and it settled rather than alternating between the two',
+    after.every((p, i) => p.moves === movesNow[i]),
+    `${JSON.stringify(movesNow)} -> ${JSON.stringify(after.map((p) => p.moves))}, from ${JSON.stringify(
+      before.map((p) => p.grid),
+    )} to ${JSON.stringify(after.map((p) => p.grid))}`,
+  );
+  r.ok(
+    'and still agrees with the daemon',
+    after.every(agree),
+    JSON.stringify(after.map((p) => p.grid)),
+  );
+}
 
 /**
  * And nothing moved on its own afterwards.
@@ -185,7 +228,12 @@ const reloaded = await settled('after reloading the tab');
  * A grid that keeps changing while nobody is touching anything is the shake this whole area exists
  * to prevent, and it is invisible in a single comparison because each moment looks settled.
  */
-const movesBefore = reloaded.map((p) => p.moves);
+/*
+ * Read now rather than reused from the reload above, because every block between the two is
+ * allowed to resize something. A baseline taken before a legitimate change and compared after it
+ * reports the change as a pane moving on its own, which is the one thing this is looking for.
+ */
+const movesBefore = (await state()).map((p) => p.moves);
 await sleep(3000);
 const quiet = await state();
 r.ok(
