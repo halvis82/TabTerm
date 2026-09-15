@@ -62,6 +62,7 @@ import {
 import { loginPath, resolveExecutable } from './login-path.js';
 import { holderOfLocalPort, listeningPorts, localListeners } from './server-detect.js';
 import { applyMemoryMode, frontendSettings } from './memory-modes.js';
+import { layoutWithSessions } from './restore-store.js';
 import type { RestoreStore } from './restore-store.js';
 import type { OutputArchive } from './output-archive.js';
 import type { PluginHost } from './plugin-api.js';
@@ -2935,21 +2936,41 @@ export class DaemonServer {
       });
 
     const firstSession = spawn(first);
-    const { workspace, paneId } = this.#workspaces.create(firstSession.id);
+    const { workspace } = this.#workspaces.create(firstSession.id);
     this.#sessions.noteWorkspaceOwner(client.id, workspace.id);
     const created: { session: Session; pane: (typeof ordered)[number] }[] = [
       { session: firstSession, pane: first },
     ];
+    for (const pane of ordered.slice(1)) created.push({ session: spawn(pane), pane });
 
-    // Rebuilt as a chain of splits rather than by writing the old layout back, because the old
-    // layout names session ids that no longer exist. The shape is preserved, the identities are
-    // not, which is the honest thing to do when the processes are gone.
-    let anchor = paneId;
-    for (const pane of ordered.slice(1)) {
-      const session = spawn(pane);
-      const result = this.#workspaces.split(workspace.id, anchor, 'horizontal', session.id);
-      anchor = result.paneId;
-      created.push({ session, pane });
+    /**
+     * The arrangement that was saved, with the new sessions substituted into it.
+     *
+     * This used to rebuild the workspace as a chain of horizontal splits, on the reasoning that
+     * the stored layout names sessions that no longer exist. That preserved the number of panes
+     * and nothing else: a stacked pair came back side by side, every ratio was lost, and the
+     * order depended on which way the chain leaned. **Two panes in the same directory came back
+     * swapped**, which is the one case where nothing on the screen says which is which.
+     *
+     * The layout was stored the whole time. What was missing was putting the sessions into it.
+     */
+    const rebuilt = layoutWithSessions(
+      saved.layout,
+      new Map(created.map(({ session, pane }) => [pane.paneId, session.id])),
+    );
+    if (rebuilt !== null) {
+      const now = Date.now();
+      this.#workspaces.hydrate({
+        id: workspace.id,
+        layout: rebuilt,
+        pinned: true,
+        createdAt: workspace.createdAt,
+        updatedAt: now,
+      });
+    } else {
+      // Nothing in the saved tree matched what was spawned, which should not happen and must not
+      // cost the sessions. The single pane the workspace was created with stands.
+      warn('restore.layout-unusable', { from: msg.workspaceId });
     }
 
     for (const { session, pane } of created) {

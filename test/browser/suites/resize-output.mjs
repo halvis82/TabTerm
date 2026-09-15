@@ -182,5 +182,57 @@ r.ok(
   }
 }
 
+/**
+ * And the window resized while the tab is split, which is what was reported.
+ *
+ * A split tab is the case where a window resize is not one resize: both panes change at once, each
+ * one by a different amount, and each one is a separate message to a separate shell. Reported as
+ * blank prompt lines appearing under an `ls` after the window was dragged.
+ */
+{
+  await waitFor(client, 'window.__tabterm.paneIds().length === 2');
+  const ids = JSON.parse(
+    String(await evaluate(client, 'JSON.stringify(window.__tabterm.paneIds())')),
+  );
+  const linesIn = async (paneId) => {
+    const screen = String(
+      await evaluate(client, `window.__tabterm?.readScreen(${JSON.stringify(paneId)}) ?? ""`),
+    );
+    return screen.split('\n').filter((l) => l.trim() !== '');
+  };
+  // Something short in the second pane, so both have a transcript worth counting.
+  await evaluate(client, `window.__tabterm.focusPane(${JSON.stringify(ids[1])})`).catch(() => {});
+  await type(client, 'ls\r');
+  await sleep(1500);
+
+  const was = [await linesIn(ids[0]), await linesIn(ids[1])];
+  for (const [width, height] of [
+    [1150, 800],
+    [960, 700],
+    [1240, 840],
+    [880, 660],
+    [1200, 800],
+  ]) {
+    await client.send('Emulation.setDeviceMetricsOverride', {
+      width,
+      height,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    await sleep(450);
+  }
+  await client.send('Emulation.clearDeviceMetricsOverride');
+  await sleep(1500);
+
+  const now = [await linesIn(ids[0]), await linesIn(ids[1])];
+  for (const i of [0, 1]) {
+    r.ok(
+      `resizing the window did not add lines to pane ${String(i + 1)} of a split tab`,
+      now[i].length - was[i].length <= 1,
+      `${String(was[i].length)} -> ${String(now[i].length)}: ${now[i].slice(-5).join(' | ')}`,
+    );
+  }
+}
+
 await finish();
 r.done();

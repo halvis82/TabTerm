@@ -1,8 +1,9 @@
 import { homedir } from 'node:os';
 import { describe, expect, it } from 'vitest';
+import { panes } from '@tabterm/shared';
 import type { LayoutNode, Workspace } from '@tabterm/shared';
 import { Database } from './database.js';
-import { RestoreStore } from './restore-store.js';
+import { RestoreStore, layoutWithSessions } from './restore-store.js';
 
 const workspace = (id: string, sessions: string[]): Workspace => {
   const build = (index: number): LayoutNode =>
@@ -319,5 +320,84 @@ describe('what a daemon remembers about a workspace across a restart', () => {
       'a workspace that is open has no background clock',
     ).toBeUndefined();
     expect(back?.profile, 'but it is still the same browser that had it').toBe('profile-uuid');
+  });
+});
+
+/**
+ * A restored workspace comes back in the arrangement it was saved in.
+ *
+ * It used to be rebuilt as a chain of horizontal splits, which kept the number of panes and
+ * nothing else. A stacked pair came back side by side, every ratio was lost, and the order
+ * depended on which way the chain leaned. Two panes in the same directory came back swapped,
+ * which is the one case where nothing on the screen says which is which.
+ */
+describe('putting the sessions back into the saved layout', () => {
+  const tree: LayoutNode = {
+    type: 'split',
+    direction: 'vertical',
+    ratio: 0.3,
+    children: [
+      { type: 'terminal', paneId: 'p1', sessionId: 'old-1', label: 'top' },
+      {
+        type: 'split',
+        direction: 'horizontal',
+        ratio: 0.7,
+        children: [
+          { type: 'terminal', paneId: 'p2', sessionId: 'old-2' },
+          { type: 'terminal', paneId: 'p3', sessionId: 'old-3' },
+        ],
+      },
+    ],
+  };
+
+  it('keeps the shape, the directions and the ratios', () => {
+    const out = layoutWithSessions(
+      tree,
+      new Map([
+        ['p1', 'new-1'],
+        ['p2', 'new-2'],
+        ['p3', 'new-3'],
+      ]),
+    );
+    expect(JSON.stringify(out)).toBe(
+      JSON.stringify(tree)
+        .replace('old-1', 'new-1')
+        .replace('old-2', 'new-2')
+        .replace('old-3', 'new-3'),
+    );
+  });
+
+  it('keeps each pane where it was, which is the reported bug', () => {
+    // Two panes in the same directory are indistinguishable on screen, so an order that depends
+    // on how the tree was rebuilt is an order nobody can check and everybody notices.
+    const out = layoutWithSessions(
+      tree,
+      new Map([
+        ['p1', 'a'],
+        ['p2', 'b'],
+        ['p3', 'c'],
+      ]),
+    );
+    expect(panes(out as LayoutNode).map((p) => p.sessionId)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('keeps a name somebody gave a pane', () => {
+    const out = layoutWithSessions(tree, new Map([['p1', 'a']]));
+    expect(out?.type === 'terminal' ? out.label : '').toBe('top');
+  });
+
+  it('prunes a pane nothing was spawned for rather than naming a session that is gone', () => {
+    const out = layoutWithSessions(
+      tree,
+      new Map([
+        ['p1', 'a'],
+        ['p3', 'c'],
+      ]),
+    );
+    expect(panes(out as LayoutNode).map((p) => p.paneId)).toEqual(['p1', 'p3']);
+  });
+
+  it('says so rather than inventing a layout when nothing matched', () => {
+    expect(layoutWithSessions(tree, new Map())).toBe(null);
   });
 });

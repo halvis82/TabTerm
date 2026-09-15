@@ -49,6 +49,38 @@ export interface RestorableWorkspace {
   savedAt: number;
 }
 
+/**
+ * The arrangement, with each pane pointing at the session that replaced it.
+ *
+ * A restore used to rebuild a workspace as a chain of horizontal splits, on the reasoning that the
+ * stored layout names sessions that no longer exist. It preserved the number of panes and nothing
+ * else: a stacked pair came back side by side, ratios were lost, and the order depended on which
+ * way the chain leaned. Two panes in the same directory came back swapped, which is the one case
+ * where nothing on screen says which is which.
+ *
+ * The layout is stored. What was missing was substituting the sessions into it, which is this: the
+ * tree keeps its shape, its directions, its ratios and its names, and every terminal node points
+ * at the session spawned for that pane. A pane with nothing spawned for it is pruned rather than
+ * left naming a session that does not exist.
+ */
+export function layoutWithSessions(
+  layout: LayoutNode,
+  sessionForPane: ReadonlyMap<string, string>,
+): LayoutNode | null {
+  const walk = (node: LayoutNode): LayoutNode | null => {
+    if (node.type === 'terminal') {
+      const sessionId = sessionForPane.get(node.paneId);
+      return sessionId === undefined ? null : { ...node, sessionId };
+    }
+    const left = walk(node.children[0]);
+    const right = walk(node.children[1]);
+    if (left === null) return right;
+    if (right === null) return left;
+    return { ...node, children: [left, right] };
+  };
+  return walk(layout);
+}
+
 /** Enough to be recognisable, small enough that a dozen of them are not a burden. */
 const MAX_SCREEN_BYTES = 64 * 1024;
 

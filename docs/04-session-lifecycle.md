@@ -621,6 +621,23 @@ ended rather than left running, because it is in no layout and nothing can reach
 Keeping the pane id matters beyond tidiness: the split ratios around a pane are recorded against
 it, so a replacement leaves the rest of the arrangement exactly as it was.
 
+### A restored workspace comes back in the arrangement it was saved in
+
+The processes are gone after a restart, so a restore spawns a new shell per pane in the directory
+that pane was in. The **arrangement** is not gone: the layout was stored with the snapshot the
+whole time.
+
+It used to be ignored. The workspace was rebuilt as a chain of horizontal splits, on the reasoning
+that the saved layout names sessions that no longer exist, and that kept the number of panes and
+nothing else. A stacked pair came back side by side, every ratio was lost, and the order depended
+on which way the chain leaned. **Two panes in the same directory came back swapped**, which is the
+one case where nothing on the screen says which is which.
+
+The saved tree is used, with each terminal node pointing at the session spawned for its pane, so
+the shape, the directions, the ratios and any names survive. A pane nothing was spawned for is
+pruned rather than left naming a session that does not exist, and a tree that matches nothing at
+all is reported rather than replaced with a guess.
+
 ### Whether a pane is in use is a fact, not a count of its rows
 
 The folder picker and the list of sessions to bring here belong over a pane with nothing in it.

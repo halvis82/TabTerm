@@ -171,12 +171,20 @@ describe('reboot restore', () => {
       t: 'split-pane',
       workspaceId: created.workspaceId,
       paneId,
-      direction: 'horizontal',
+      // Vertical, so the restore has a direction it could get wrong. It used to rebuild every
+      // workspace as a chain of horizontal splits, which kept the pane count and nothing else.
+      direction: 'vertical',
       cwd: dirB,
       cols: 80,
       rows: 24,
     });
     await sleep(1200);
+    const savedLayout = daemon.workspaces.get(created.workspaceId)?.layout;
+    expect(savedLayout).toBeDefined();
+    const savedOrder = panes(savedLayout ?? { type: 'terminal', paneId: 'x', sessionId: 'y' }).map(
+      (p) => daemon.sessions.get(p.sessionId)?.cwd,
+    );
+    expect(savedOrder).toEqual([dirA, dirB]);
 
     const originalPids = daemon.sessions.all.map((s) => s.pid);
     expect(originalPids.length).toBeGreaterThanOrEqual(2);
@@ -214,6 +222,21 @@ describe('reboot restore', () => {
     expect(
       panes(rebuilt?.layout ?? { type: 'terminal', paneId: 'x', sessionId: 'y' }),
     ).toHaveLength(2);
+
+    /**
+     * The same arrangement, not merely the same number of panes.
+     *
+     * The direction and the order both used to be lost: everything came back as a chain of
+     * horizontal splits, and two panes in the same directory came back swapped, which is the one
+     * case where nothing on the screen says which is which.
+     */
+    const tree = rebuilt?.layout;
+    expect(tree?.type).toBe('split');
+    expect(tree?.type === 'split' ? tree.direction : '').toBe('vertical');
+    const restoredOrder = panes(tree ?? { type: 'terminal', paneId: 'x', sessionId: 'y' }).map(
+      (p) => daemon.sessions.get(p.sessionId)?.cwd,
+    );
+    expect(restoredOrder).toEqual(savedOrder);
 
     // Same directories, different processes. Both halves matter.
     const cwds = daemon.sessions.all.map((s) => s.cwd).sort();
