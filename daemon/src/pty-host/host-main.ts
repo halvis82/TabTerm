@@ -3,7 +3,7 @@ import { error, info, initLog, warn } from '../log.js';
 import { PtyHost } from './host.js';
 import { HOST_LOCK, HOST_SOCKET } from './paths.js';
 import { paths } from '../config.js';
-import { safeError } from '../safe-error.js';
+import { safeError, safeStack } from '../safe-error.js';
 
 /**
  * The PTY host, as a process.
@@ -49,7 +49,7 @@ async function main(): Promise<void> {
   process.on('uncaughtException', (e) => {
     // Staying up matters more here than anywhere else in the product: this process holds the
     // only handle to everybody's running work.
-    error('pty-host.uncaught', { error: safeError(e), stack: e.stack });
+    error('pty-host.uncaught', { error: safeError(e), stack: safeStack(e) });
   });
   process.on('unhandledRejection', (reason) => {
     error('pty-host.unhandled-rejection', { reason: safeError(reason) });

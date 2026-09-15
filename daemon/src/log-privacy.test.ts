@@ -166,7 +166,7 @@ describe('what is left that could reach a log', () => {
      * what it was guarding.
      */
     const raw =
-      /\b(info|warn|error)\('[^']+',\s*\{[^}]*(String\((e|err|error|reason|cause)\)|\b(e|err|error|reason|cause)\.message)/;
+      /\b(info|warn|error)\('[^']+',\s*\{[^}]*(String\((e|err|error|reason|cause)\)|\b(e|err|error|reason|cause)\.(message|stack))/;
     const offenders: string[] = [];
 
     for (const root of roots) {

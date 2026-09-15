@@ -1,6 +1,11 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { decideReap, type ReapInput } from './cleanup.js';
 import { DEFAULTS, type Config } from './config.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 const config: Config = { ...DEFAULTS };
 
@@ -227,5 +232,37 @@ describe('across every arrangement of facts, a session ends only when it should'
     // The other direction: a rule that never fires keeps every abandoned shell on the machine
     // forever, which is what the seven day horizon exists to prevent.
     expect(ALL.some((i) => ends(i))).toBe(true);
+  });
+});
+
+/**
+ * The background timestamp is changed in one place, and that is a claim about structure.
+ *
+ * Read from the source deliberately, which is not the same mistake as testing behaviour by
+ * matching text. The property here **is** structural: not "the timestamp is persisted", which the
+ * tests around this file already establish by running the daemon, but "there is no second way to
+ * change it". A behavioural test cannot express that, because the defect it guards against is a
+ * site that does not exist yet.
+ *
+ * It is worth guarding because it has already happened once. A branch cleared the map and left the
+ * row, so the next daemon started from an authorization that had been withdrawn and could reap a
+ * tab that was open again.
+ *
+ * The restore path is the one exception and is correct: it is reading the rows back, so persisting
+ * them again would be a round trip to tell the disk what it just said.
+ */
+describe('how many ways there are to change when a workspace went to the background', () => {
+  it('is one, plus the restore that is reading them back', () => {
+    const source = readFileSync(join(here, 'session-manager.ts'), 'utf8');
+    const mutations = [...source.matchAll(/#backgroundSince\.(set|delete)\(/g)];
+    // Two inside `#setBackgroundSince` itself, and one in the restore.
+    expect(mutations.length).toBe(3);
+
+    // And the writer is where the persistence happens, so the two cannot drift apart.
+    // Anchored on the declaration rather than the first call site, which is what `indexOf` finds.
+    const declared = source.indexOf('#setBackgroundSince(workspaceId: string');
+    expect(declared).toBeGreaterThan(-1);
+    const setter = source.slice(declared, declared + 700);
+    expect(setter).toContain('rememberBackgroundSince');
   });
 });

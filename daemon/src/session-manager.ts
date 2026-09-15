@@ -717,9 +717,7 @@ export class SessionManager {
      * rather than "since it first ever did".
      */
     const attachedWorkspace = this.#workspaceOf?.(session.id);
-    if (attachedWorkspace !== undefined && this.#backgroundSince.delete(attachedWorkspace)) {
-      this.rememberBackgroundSince?.(attachedWorkspace, null);
-    }
+    if (attachedWorkspace !== undefined) this.#setBackgroundSince(attachedWorkspace, null);
     if (session.reapTimer) {
       clearTimeout(session.reapTimer);
       delete session.reapTimer;
@@ -1086,16 +1084,6 @@ export class SessionManager {
   readonly #reporterSeen = new Map<string, Set<string>>();
 
   /**
-   * Every browser known to have held each workspace, including ones not connected now.
-   *
-   * `#reporterSeen` answers "has this profile held that workspace", which is what a **present**
-   * browser needs. This answers the other direction, "who has held this workspace", which is what
-   * deciding on an **absent** one needs. Without it a single settled ex-owner's silence was enough
-   * to call a workspace closed while another browser that also had it was merely away.
-   */
-  readonly #knownOwners = new Map<string, Set<string>>();
-
-  /**
    * How many workspaces one browser profile is remembered as having held.
    *
    * The record is deliberately kept when a reporter goes away, because it says what that browser
@@ -1107,17 +1095,18 @@ export class SessionManager {
    */
   static readonly SEEN_PER_PROFILE = 500;
 
-  /** Remember that a profile has held a workspace, without the record growing for ever. */
-  /** Learned at runtime as well as restored, or the rule only protects what survived a restart. */
-  #noteKnownOwner(profile: string, workspaceId: string): void {
-    this.#knownOwners.set(
-      workspaceId,
-      (this.#knownOwners.get(workspaceId) ?? new Set<string>()).add(profile),
-    );
-  }
-
+  /**
+   * Remember that a profile has held a workspace, without the record growing for ever.
+   *
+   * There used to be a second map beside this one, "who has held this workspace", built for a rule
+   * about deciding on an **absent** owner. That rule was tried and reverted, so the map was written
+   * in two places, read in none, and unbounded, three commits after this one was given a bound for
+   * exactly that reason. Removed rather than kept as a mechanism in name only.
+   *
+   * Nothing is lost by removing it. If the rule is adopted, the same set comes from `allOwners()`
+   * in the restore store, which is the durable half and is where it was being copied from.
+   */
   #rememberSeen(profile: string, workspaceId: string): boolean {
-    this.#noteKnownOwner(profile, workspaceId);
     let seen = this.#reporterSeen.get(profile);
     if (seen === undefined) {
       seen = new Set<string>();
@@ -1153,6 +1142,32 @@ export class SessionManager {
   readonly #backgroundSince = new Map<string, { at: number; reason: string }>();
 
   /**
+   * The one way this is changed, because the map and the row have to move together.
+   *
+   * Four places set or deleted the entry and each remembered to persist beside it, which was
+   * correct and is not the same as being safe: the invariant is that memory and disk agree, and it
+   * was held by four separate people remembering. It was broken exactly that way once, by a branch
+   * that cleared the map and left the row, so the next daemon read an authorization that had
+   * already been withdrawn and a tab that was open again could be reaped on the strength of it.
+   *
+   * `null` means this workspace is not in the background. Returns whether anything actually
+   * changed, which is what a caller acting on the transition needs.
+   *
+   * The restore path deliberately does not come through here: it is reading the rows back, so
+   * writing them again would be a round trip to say what the disk just said.
+   */
+  #setBackgroundSince(workspaceId: string, value: { at: number; reason: string } | null): boolean {
+    if (value === null) {
+      if (!this.#backgroundSince.delete(workspaceId)) return false;
+      this.rememberBackgroundSince?.(workspaceId, null);
+      return true;
+    }
+    this.#backgroundSince.set(workspaceId, value);
+    this.rememberBackgroundSince?.(workspaceId, value.at);
+    return true;
+  }
+
+  /**
    * Where provenance and the background clock are written so they outlive this daemon.
    *
    * Optional, because a `SessionManager` in a test owns no database, and losing this costs
@@ -1182,10 +1197,6 @@ export class SessionManager {
       for (const profile of entry.profiles ??
         (entry.profile === undefined ? [] : [entry.profile])) {
         this.#rememberSeen(profile, entry.workspaceId);
-        this.#knownOwners.set(
-          entry.workspaceId,
-          (this.#knownOwners.get(entry.workspaceId) ?? new Set<string>()).add(profile),
-        );
       }
       if (entry.backgroundSince !== undefined) {
         this.#backgroundSince.set(entry.workspaceId, {
@@ -1538,13 +1549,9 @@ export class SessionManager {
      */
     if (workspaceId !== undefined) {
       if (disposition === 'open') {
-        if (this.#backgroundSince.delete(workspaceId)) {
-          this.rememberBackgroundSince?.(workspaceId, null);
-        }
+        this.#setBackgroundSince(workspaceId, null);
       } else if (disposition === 'closed' && !this.#backgroundSince.has(workspaceId)) {
-        const at = Date.now();
-        this.#backgroundSince.set(workspaceId, { at, reason: 'tab-absent' });
-        this.rememberBackgroundSince?.(workspaceId, at);
+        this.#setBackgroundSince(workspaceId, { at: Date.now(), reason: 'tab-absent' });
       }
     }
 
@@ -1592,9 +1599,7 @@ export class SessionManager {
          * been withdrawn and a tab that was open again could be reaped on the strength of
          * it. The sibling branch a few lines up has always cleared both.
          */
-        if (workspaceId !== undefined && this.#backgroundSince.delete(workspaceId)) {
-          this.rememberBackgroundSince?.(workspaceId, null);
-        }
+        if (workspaceId !== undefined) this.#setBackgroundSince(workspaceId, null);
         delete session.reapDueAt;
         delete session.reapReason;
       }

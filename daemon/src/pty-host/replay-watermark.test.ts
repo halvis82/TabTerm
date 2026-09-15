@@ -117,4 +117,62 @@ describe('the watermark a reconnect replays from', () => {
     backend.close();
     writer.close();
   });
+
+  /*
+   * And nothing is marked delivered while there is nobody to deliver it to.
+   *
+   * Between a daemon connecting to the host and finishing adoption it opens and migrates the
+   * database, loads plugins, builds the server and starts the agent bridge. The reconcile deadline
+   * is five seconds. If that work runs long and a session is producing output, the deadline fires
+   * against a daemon that has no sessions at all: the held frames are handed to a manager that
+   * looks each one up, finds nothing and returns.
+   *
+   * Handing a frame on is what advances the watermark, so the position moved to the newest live
+   * sequence and the bytes reached nobody. The replay that adoption asks for then arrives entirely
+   * below that mark and is dropped as a duplicate of output that was never shown. The session is
+   * adopted with an empty screen and nothing says why.
+   */
+  it('does not mark output delivered while the daemon has no session to deliver it to', async () => {
+    const sessionId = 'watermark-3';
+    const writer = await connect();
+    writer.spawn({ sessionId, shell: '/bin/sh', cwd: dir, env: {}, cols: 80, rows: 24 });
+    writer.write(sessionId, 'printf BEFOREADOPTION\n');
+    await sleep(300);
+
+    const client = new PtyHostClient({
+      socketPath: join(dir, 'sock'),
+      hostScript: join(dir, 'never-spawned'),
+    });
+    // The state between connecting and adopting: the manager exists and holds nothing.
+    let adopted = false;
+    client.canReceive = () => adopted;
+    await client.connect(4000);
+    const backend = new HostPtyBackend(client);
+    let seen = '';
+    backend.onData((id, data) => {
+      if (id === sessionId) seen += data.toString('utf8');
+    });
+
+    // Live output while the daemon is still starting up, which is what gets held.
+    writer.write(sessionId, 'printf DURINGHOLD\n');
+    await sleep(250);
+
+    // The deadline firing before adoption, which is the whole scenario.
+    client.reconciled();
+    await sleep(150);
+
+    expect(client.deliveredThrough(sessionId)).toBe(0);
+    expect(seen).toBe('');
+
+    // Adoption completes and asks for everything from the beginning.
+    adopted = true;
+    const { missingBytes } = await backend.catchUp(sessionId);
+    await until(() => seen.includes('DURINGHOLD'));
+
+    expect(missingBytes).toBe(0);
+    expect(seen).toContain('BEFOREADOPTION');
+
+    backend.close();
+    writer.close();
+  });
 });

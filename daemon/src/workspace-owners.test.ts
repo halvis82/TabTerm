@@ -62,3 +62,39 @@ describe('a workspace held by more than one browser', () => {
     expect(store.allOwners().get('ws-nobody')).toBeUndefined();
   });
 });
+
+/**
+ * And the record of who held a workspace does not outlive the workspace.
+ *
+ * `workspace_owners` had no lifecycle: a row was added for every workspace a profile ever held
+ * and nothing removed it, including for workspaces somebody deliberately closed and workspaces
+ * pruned as too old to offer back. The table is read whole at every daemon start.
+ *
+ * Not a resource problem in any realistic year. It is worth closing because this is the durable
+ * half of a structure whose in-memory half was deliberately bounded, and because provenance that
+ * outlives what it describes is awkward to reason about later.
+ */
+describe('the record of which browsers held a workspace', () => {
+  it('goes when the workspace is forgotten', () => {
+    store.noteOwner('w-forget', 'profile-a');
+    expect(store.allOwners().get('w-forget')).toBeDefined();
+
+    store.forget('w-forget');
+    expect(store.allOwners().get('w-forget')).toBeUndefined();
+  });
+
+  /*
+   * And a row whose workspace is not in the table at all, which is what pruning leaves behind.
+   *
+   * `prune` deletes workspaces past their age and then sweeps the pane snapshots whose workspace
+   * has gone. The owners were not swept with them, so every workspace ever pruned left its
+   * provenance behind for ever, and the table is read whole at every daemon start.
+   */
+  it('and goes when the workspace it belongs to is no longer there', () => {
+    store.noteOwner('w-old', 'profile-a');
+    expect(store.allOwners().get('w-old')).toBeDefined();
+
+    store.prune(0);
+    expect(store.allOwners().get('w-old')).toBeUndefined();
+  });
+});

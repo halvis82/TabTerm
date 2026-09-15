@@ -41,7 +41,7 @@ import { HOST_LOCK, HOST_POINTER, HOST_SOCKET } from './pty-host/paths.js';
 import { decideReconnect } from './host-reconnect.js';
 import { adoptEverything } from './adopt.js';
 import { readUserSettings } from './user-settings.js';
-import { safeError } from './safe-error.js';
+import { safeError, safeStack } from './safe-error.js';
 
 /**
  * The daemon owns every PTY. No terminal process is ever tied to a Chrome page's lifetime,
@@ -561,6 +561,14 @@ async function main(): Promise<void> {
    * moment the raised bound exists for.
    */
   if (usingHost) hostClient.setBudget(server.scrollbackBytes);
+  /*
+   * And what counts as somewhere to deliver output to, which is a session the manager holds.
+   *
+   * Wired here rather than at construction because the manager does not exist yet at that point,
+   * which is the whole of the problem this closes: everything between connecting and adopting is
+   * time during which output can arrive for sessions the daemon cannot yet receive.
+   */
+  hostClient.canReceive = (sessionId) => sessions.get(sessionId) !== undefined;
   if (usingHost) {
     await adoptEverything(
       {
@@ -892,7 +900,7 @@ async function main(): Promise<void> {
   });
 
   process.on('uncaughtException', (e) => {
-    error('daemon.uncaught', { error: safeError(e), stack: e.stack });
+    error('daemon.uncaught', { error: safeError(e), stack: safeStack(e) });
   });
 }
 

@@ -210,6 +210,25 @@ export class PtyHostClient {
   }
 
   /**
+   * Whether anything downstream can actually receive this session's output yet.
+   *
+   * Set by the daemon once it has a session manager. Until adoption has run, the manager has no
+   * sessions, and handing it output for one is a silent discard: `#ingest` looks the session up,
+   * finds nothing and returns.
+   *
+   * That matters because handing a frame on **advances the watermark**, and the watermark is what
+   * makes the replay that follows a duplicate. Reconciling before adoption therefore set the
+   * position to the newest live sequence, delivered the bytes to nobody, and every chunk of the
+   * replay then arrived below the mark and was dropped. The session was adopted with an empty
+   * screen and nothing said why.
+   *
+   * Reachable whenever the work between connecting and adopting takes longer than the reconcile
+   * deadline, which is opening and migrating the database, loading plugins, constructing the
+   * server and starting the agent bridge.
+   */
+  canReceive: ((sessionId: string) => boolean) | undefined;
+
+  /**
    * How far each session's output has actually been handed on.
    *
    * The host's sequence is the only authority on order, and this is the daemon's position in it.
@@ -301,6 +320,14 @@ export class PtyHostClient {
     const through = this.#deliveredThrough.get(sessionId) ?? 0;
     // A replay always overlaps live output that arrived first. That overlap is not new bytes.
     if (seq <= through) return;
+    /*
+     * Nobody to deliver to is not the same as delivered.
+     *
+     * Advancing here for a session the daemon does not have yet is how output is lost without
+     * anything noticing: the bytes go nowhere, and the replay that would have carried them arrives
+     * below the mark and is discarded as a duplicate of something nobody ever saw.
+     */
+    if (this.canReceive?.(sessionId) === false) return;
     this.#deliveredThrough.set(sessionId, seq);
     for (const fn of this.#dataListeners) fn(sessionId, data, seq);
   }
@@ -923,6 +950,21 @@ export class PtyHostClient {
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.#waiting.delete(requestId);
+        /**
+         * And taken out of the outbox, so a request nobody is waiting for is not sent later.
+         *
+         * A frame queued while the socket was down stayed queued after its caller gave up, and was
+         * flushed on the next reconnect to the same host. The late reply is harmless on its own,
+         * because a present request id matches no waiter and is dropped rather than handed to
+         * somebody else's request. What is not harmless is the work: a `replay` nobody asked for
+         * any more makes the host dump a whole ring into the socket, and those frames land in the
+         * hold of whatever reconciliation is running at that moment and count against its bound.
+         * A stale replay can therefore push the hold over its limit and produce the cut-short
+         * notice on a session that was perfectly healthy.
+         */
+        this.#outbox = this.#outbox.filter(
+          (m) => (m as { requestId?: string }).requestId !== requestId,
+        );
         resolve(null);
       }, timeoutMs);
       this.#waiting.set(requestId, {

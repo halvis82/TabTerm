@@ -310,6 +310,13 @@ export class RestoreStore {
   forget(workspaceId: string): void {
     this.#db.handle.prepare('DELETE FROM pane_snapshots WHERE workspace_id = ?').run(workspaceId);
     this.#db.handle.prepare('DELETE FROM workspaces WHERE id = ?').run(workspaceId);
+    /*
+     * And who held it, which is the durable half of a structure whose in-memory half is bounded
+     * on purpose. A row was added for every workspace a profile ever held and never removed, so
+     * provenance outlived the workspace it describes: rows about workspaces somebody deliberately
+     * closed, kept for ever, and read whole at every daemon start.
+     */
+    this.#db.handle.prepare('DELETE FROM workspace_owners WHERE workspace_id = ?').run(workspaceId);
   }
 
   /**
@@ -433,6 +440,11 @@ export class RestoreStore {
       .run(cutoff);
     this.#db.handle
       .prepare('DELETE FROM pane_snapshots WHERE workspace_id NOT IN (SELECT id FROM workspaces)')
+      .run();
+    // Swept the same way and for the same reason as the snapshots above: a workspace too old to
+    // be offered back does not need a record of which browsers once had it.
+    this.#db.handle
+      .prepare('DELETE FROM workspace_owners WHERE workspace_id NOT IN (SELECT id FROM workspaces)')
       .run();
     if (removed.changes > 0) info('restore.pruned', { workspaces: Number(removed.changes) });
   }
