@@ -214,10 +214,18 @@ r.ok(
   await waitFor(client, 'window.__tabterm?.paneIds().length > 0', 25000);
   // Waits for the bars themselves rather than for a duration: they are drawn when the attach
   // lands, and a fixed sleep here is the difference between a check and a coin toss.
+  /*
+   * Waited for the names it had, not merely for non-empty ones.
+   *
+   * A pane in the home directory is called `~`, and that comparison needs to know where home is,
+   * which arrives after the attach. Waiting for "not empty" accepted the intermediate `halvis82`
+   * and read it as the answer, which failed under load and passed on a quiet machine. The bar is
+   * not finished until it says what it said before.
+   */
+  const want = JSON.stringify(before.slice().sort());
   const filled = await waitFor(
     client,
-    `[...document.querySelectorAll('.pane-bar-name')].length > 0 &&
-     [...document.querySelectorAll('.pane-bar-name')].every((n) => (n.textContent ?? '') !== '')`,
+    `JSON.stringify([...document.querySelectorAll('.pane-bar-name')].map((n) => n.textContent ?? '').sort()) === ${JSON.stringify(want)}`,
     20000,
   );
   const after = (await bars()).map((b) => b.name);

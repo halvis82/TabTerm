@@ -12,14 +12,31 @@ const { client } = await openTerminal();
 await waitFor(client, "document.querySelector('.launcher-input')");
 
 // Three commands, one of which fails, so the counts have something to be wrong about.
+/*
+ * Waited for each command's output rather than slept through.
+ *
+ * Under a full run a shell takes longer than a fixed wait allows, and the next command was typed
+ * before the previous one had finished. The counts then disagreed with the commands that had
+ * actually run, which reads as the counting being broken.
+ */
 await type(client, 'echo stats-one\r');
-await sleep(900);
+await waitFor(client, `(window.__tabterm.readScreen() ?? '').includes('stats-one')`, 20000);
 await type(client, 'echo stats-two\r');
-await sleep(900);
+await waitFor(client, `(window.__tabterm.readScreen() ?? '').includes('stats-two')`, 20000);
 // A command that fails, not one that ends the shell: `exit` would take the session with it and
 // the check after the refresh would be about a different session entirely.
-await type(client, '(exit 3)\r');
-await sleep(1200);
+/*
+ * One command that fails and says so on the screen, so the wait and the failure are the same
+ * event. `(exit 3); echo ...` does not work: the shell reports the exit code of the last command
+ * on the line, which is the echo, so the line counted as a success.
+ */
+await type(client, 'ls /no-such-directory-stats-check\r');
+await waitFor(
+  client,
+  `(window.__tabterm.readScreen() ?? '').includes('no-such-directory-stats-check')`,
+  20000,
+);
+await sleep(700);
 
 /** What the daemon says about the session this tab is showing. */
 const ask = async () => {
