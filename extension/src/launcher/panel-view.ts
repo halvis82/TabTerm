@@ -73,6 +73,15 @@ function shortLabel(text: string): string {
  */
 const LIVE_REFRESH_MS = 400;
 
+/**
+ * How long after a scroll the page is still considered to be in use.
+ *
+ * Long enough to cover the gap between one notch of a trackpad and the next, which is what a slow
+ * scroll is, and short enough that a page somebody has stopped reading catches up while they are
+ * still looking at it.
+ */
+const READING_SETTLE_MS = 1200;
+
 export class CommandPanel {
   readonly #opts: PanelOptions;
   readonly #el: HTMLElement;
@@ -160,6 +169,7 @@ export class CommandPanel {
     this.#el.append(header, this.#search, this.#body, this.#footer);
     opts.root.append(this.#el);
     this.#watchSize();
+    this.#watchReading();
 
     /**
      * There is no separate minimized form, deliberately.
@@ -297,6 +307,44 @@ export class CommandPanel {
    * or in the space available for it.
    */
   #liveTimer: ReturnType<typeof setTimeout> | undefined;
+  /** When somebody last scrolled this panel, so a rebuild can wait until they have stopped. */
+  #lastScrolledAt = 0;
+  #pointerInside = false;
+
+  /**
+   * Whether somebody is using the page right now, in which case it holds still.
+   *
+   * The pointer being over it is not enough on its own, because a pointer resting somewhere is not
+   * somebody reading. A scroll in the last moment is, and so is a pointer over a page that is
+   * still settling from one.
+   */
+  #beingRead(): boolean {
+    return this.#pointerInside && Date.now() - this.#lastScrolledAt < READING_SETTLE_MS;
+  }
+
+  /** Watch for the two things that mean somebody is reading rather than the page being idle. */
+  #watchReading(): void {
+    this.#el.addEventListener('pointerenter', () => (this.#pointerInside = true));
+    this.#el.addEventListener('pointerleave', () => {
+      this.#pointerInside = false;
+      // Whatever was held back while they were reading is worth showing now that they are not.
+      this.refreshLive();
+    });
+    this.#el.addEventListener(
+      'wheel',
+      () => {
+        this.#lastScrolledAt = Date.now();
+      },
+      { passive: true },
+    );
+    this.#body.addEventListener(
+      'scroll',
+      () => {
+        this.#lastScrolledAt = Date.now();
+      },
+      { passive: true },
+    );
+  }
 
   #watchSize(): void {
     const observer = new ResizeObserver(() => {
@@ -404,7 +452,26 @@ export class CommandPanel {
      */
     clearTimeout(this.#liveTimer);
     this.#liveTimer = setTimeout(() => {
-      if (this.isOpen && this.#editing === null && !this.#showingSettings) this.render();
+      if (!this.isOpen || this.#editing !== null || this.#showingSettings) return;
+      /**
+       * Never while somebody is reading it.
+       *
+       * Rebuilding this page replaces every node in it, and the element under the pointer is one
+       * of those. A wheel event goes to whatever is under the cursor at the time, so a page being
+       * rebuilt several times a second takes the thing being scrolled out from under the gesture
+       * again and again: reported as not being able to scroll up at all unless you do it fast
+       * enough to outrun it. Measured at the body being rebuilt continuously while a scroll was
+       * in progress.
+       *
+       * The edit form and the settings page are already protected from exactly this, for the same
+       * reason. Reading is the same kind of thing as typing: the page must hold still while it is
+       * being used, and catch up when it is not.
+       */
+      if (this.#beingRead()) {
+        this.#liveTimer = setTimeout(() => this.refreshLive(), LIVE_REFRESH_MS);
+        return;
+      }
+      this.render();
     }, LIVE_REFRESH_MS);
   }
 

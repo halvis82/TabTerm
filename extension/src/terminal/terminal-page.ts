@@ -1383,6 +1383,15 @@ function renderRecoveryActions(recall: WorkspaceRecall): void {
  * draws as a line saying it is asking.
  */
 let lastStats: StatsReport | null = null;
+/**
+ * When the Stats page last asked the daemon for figures.
+ *
+ * Building that page used to ask every time, and the answer redraws the panel, which builds the
+ * page again. See the note where it is asked.
+ */
+let lastStatsAskedAt = 0;
+/** Faster than anybody reads a count of commands, and slow enough that it cannot feed itself. */
+const STATS_ASK_EVERY_MS = 1000;
 
 /** What the daemon last reported as resumable, so the recovery page can offer it too. */
 let resumableSessions: readonly ResumableAgentSession[] = [];
@@ -5214,13 +5223,29 @@ function buildCommandPanel(): void {
        * under the figures says so.
        */
       const memoryBytes = liveHere.reduce((sum, s) => sum + (s.memoryBytes || 0), 0);
-      /*
-       * Asked every time the page is opened, because the numbers keep moving and this page is
-       * the only thing that wants them. The answer arrives on `stats` and redraws the panel.
+      /**
+       * Asked at most once in a while, because asking is what draws the page that asks.
+       *
+       * This sent `get-stats` every time the page was built. The answer arrives on `stats`, and
+       * that redraws the panel, and drawing the panel builds this page, which asks again. A loop
+       * with nothing bounding it but the round trip to the daemon: measured at **nine thousand
+       * rebuilds of the stats element in fourteen seconds**, which is six hundred a second.
+       *
+       * What that looks like from the outside is the page being impossible to scroll. Every
+       * rebuild replaces the element the pointer is over, and a wheel event goes to whatever is
+       * under the cursor when it arrives, so a slow scroll loses its target over and over while a
+       * fast one outruns it. Reported as being unable to scroll up unless you do it very fast.
+       *
+       * The numbers still keep moving, and this still asks for them. Once a second is faster than
+       * anybody reads a count of commands, and it cannot feed itself.
        */
-      const focused = splitView?.focused ?? '';
-      const sessionId = focused ? (panesHost?.get(focused)?.sessionId ?? '') : '';
-      client?.send({ t: 'get-stats', ...(sessionId ? { sessionId } : {}) });
+      const now = Date.now();
+      if (now - lastStatsAskedAt > STATS_ASK_EVERY_MS) {
+        lastStatsAskedAt = now;
+        const focused = splitView?.focused ?? '';
+        const sessionId = focused ? (panesHost?.get(focused)?.sessionId ?? '') : '';
+        client?.send({ t: 'get-stats', ...(sessionId ? { sessionId } : {}) });
+      }
       return buildStats(lastStats, memoryBytes > 0 ? { memoryBytes } : {});
     },
   });
@@ -6222,8 +6247,17 @@ function onControl(msg: ServerMessage): void {
     case 'stats': {
       // Kept, so opening the page again draws the last answer rather than an empty panel while
       // the next one is on its way.
+      const changed = JSON.stringify(lastStats) !== JSON.stringify(msg.stats);
       lastStats = msg.stats;
-      commandPanel?.render();
+      /*
+       * Only when the answer says something new.
+       *
+       * Redrawing is what causes the next question to be asked, so redrawing for an answer
+       * identical to the one already on screen is the other half of the loop this used to run.
+       * The throttle where it is asked is what breaks the cycle; this is what stops it costing
+       * anything when it does not.
+       */
+      if (changed) commandPanel?.render();
       return;
     }
 

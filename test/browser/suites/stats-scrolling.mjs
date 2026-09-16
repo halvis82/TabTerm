@@ -147,5 +147,36 @@ r.ok(
   `${String(fought)} of 8 notches were taken back, ended at ${String(position)} of ${String(height)}`,
 );
 
+/*
+ * And the page is not rebuilding itself hundreds of times a second, which is the real fault.
+ *
+ * Building the Stats page asked the daemon for figures, the answer redrew the panel, and redrawing
+ * built the page, which asked again. Nothing bounded that but the round trip to the daemon:
+ * measured at nine thousand rebuilds of the stats element in fourteen seconds.
+ *
+ * Scrolling was how it showed. Every rebuild replaces the element the pointer is over, and a wheel
+ * event goes to whatever is under the cursor when it arrives, so a slow scroll loses its target
+ * again and again while a fast one outruns it. Counting the rebuilds asks the question directly
+ * rather than through the symptom.
+ */
+await evaluate(
+  client,
+  `(() => {
+     const body = document.querySelector('.cmd-body');
+     window.__rebuilds = 0;
+     new MutationObserver((records) => {
+       window.__rebuilds += records.length;
+     }).observe(body, { childList: true });
+   })()`,
+);
+// Long enough to cover several of the daemon's own updates, and several of the asks.
+await sleep(4000);
+const rebuilds = Number(await evaluate(client, 'window.__rebuilds'));
+r.ok(
+  'and the page is not rebuilding itself in a loop',
+  rebuilds < 40,
+  `${String(rebuilds)} rebuilds in four seconds`,
+);
+
 await finish();
 r.done();
