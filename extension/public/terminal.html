@@ -800,6 +800,20 @@
     min-height: 0;
     overflow-y: auto;
     padding: 0 6px 6px;
+    /*
+     * Chrome's scroll anchoring off, because this list is rebuilt under the person reading it.
+     *
+     * Anchoring exists to keep what you are looking at still when content above it changes, and it
+     * does that by moving `scrollTop` to compensate. The Stats and Recent pages are live, so they
+     * are rebuilt whenever a command finishes, and every rebuild is content above changing. The
+     * compensation then lands on somebody who is scrolling, in the opposite direction, and the
+     * longer the page the more there is to compensate for: reported as being almost stuck at the
+     * bottom, and reproduced on a page twice as tall as a fresh machine's.
+     *
+     * The position is preserved explicitly across a rebuild instead, which is the same intent
+     * done where it can tell the difference between the page changing and somebody scrolling.
+     */
+    overflow-anchor: none;
   }
   .cmd-list {
     display: flex;

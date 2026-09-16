@@ -455,7 +455,17 @@ export class CommandPanel {
       // Not a list of rows: nothing here is selectable or pasteable, so it does not pretend to
       // be by rendering as one.
       this.#rows = [];
+      /*
+       * Where they were reading is kept across the rebuild.
+       *
+       * The page is live, so it is rebuilt whenever a command finishes, and a scroll position
+       * belongs to the element whose children are being replaced. Restoring it explicitly is the
+       * half that `overflow-anchor: none` leaves to us: the browser no longer guesses, so this
+       * says what the answer is.
+       */
+      const wasAt = this.#body.scrollTop;
       this.#body.replaceChildren(this.#opts.stats());
+      this.#body.scrollTop = wasAt;
       this.#renderFooter(undefined);
       return;
     }

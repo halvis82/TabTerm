@@ -11,8 +11,18 @@ const r = reporter();
 const { client } = await openTerminal();
 await waitFor(client, "document.querySelector('.launcher-input')");
 // Something in the history, so the Stats page has enough on it to scroll.
-await type(client, 'echo STATS-SCROLL\r');
-await waitFor(client, `(window.__tabterm.readScreen() ?? '').includes('STATS-SCROLL')`, 20000);
+/*
+ * Enough history that the page is genuinely long, which is the condition the fault needs.
+ *
+ * On a page that barely scrolls, scrolling works and this passes. It first reproduced in a full
+ * run, where the daemon had been used by sixty other suites and the page was nearly twice as
+ * tall, which is also why it happens on a real machine and not on a fresh one.
+ */
+for (let i = 0; i < 24; i++) {
+  await type(client, `echo stats-scroll-${String(i)}\r`);
+  await sleep(90);
+}
+await waitFor(client, `(window.__tabterm.readScreen() ?? '').includes('stats-scroll-23')`, 20000);
 
 // Open the command panel and move to Stats.
 await evaluate(
