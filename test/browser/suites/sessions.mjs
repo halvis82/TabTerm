@@ -197,5 +197,41 @@ r.ok(
   Number(await evaluate(revisit.client, `document.querySelectorAll('.pane').length`)) === 0,
 );
 
+/*
+ * And every card is painted the way it is worded.
+ *
+ * The dot and the badge take their colour from the card's `data-state`, and that was worked out
+ * from whether a page was attached while the words were worked out from whether a tab holds the
+ * session. The two stopped meaning the same thing the moment a tab Chrome had put to sleep started
+ * counting as held: cards said "open in a tab" in two different colours, which is a distinction the
+ * interface was drawing that nothing meant.
+ *
+ * Checked on the rendered card rather than on the functions behind it, because the functions agree
+ * with each other by construction and the attribute is what actually drifted.
+ *
+ * It passes with the fault put back, and is kept anyway. The state that drifts is a tab holding a
+ * session while no page is attached, which is Chrome discarding a tab and is not something this
+ * harness can make it do. What this catches is the same invariant breaking in any state it **can**
+ * reach, which is every other way a card is drawn.
+ */
+const disagreeing = JSON.parse(
+  String(
+    await evaluate(
+      revisit.client,
+      `JSON.stringify([...document.querySelectorAll('.session-card')]
+         .map((c) => ({
+           state: c.dataset.state,
+           badge: (c.querySelector('.session-badge')?.textContent ?? '').trim(),
+         }))
+         .filter((c) => (c.badge === 'open in a tab') !== (c.state === 'attached')))`,
+    ),
+  ),
+);
+r.ok(
+  'every card is painted the way it is worded',
+  disagreeing.length === 0,
+  JSON.stringify(disagreeing),
+);
+
 await finish();
 r.done();

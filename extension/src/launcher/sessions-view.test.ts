@@ -3,6 +3,7 @@ import {
   badgeTextFor,
   describe as describeSession,
   formatBytes,
+  isInATab,
   shortPath,
   shortenFromLeft,
   since,
@@ -207,5 +208,24 @@ describe('what a session card says about where a session is', () => {
 
   it('and says background only when no tab holds it at all', () => {
     expect(badgeTextFor({ ...base, attached: false, inTab: false })).toBe('background');
+  });
+
+  /*
+   * And the card is painted from the same answer.
+   *
+   * The dot and the badge take their colour from `data-state`, which was worked out from
+   * `attached` while the words were worked out from "a tab holds it". Once a sleeping tab counted
+   * as held, two cards could say the same thing in different colours, which is a distinction the
+   * interface was drawing that nothing meant.
+   */
+  it('and the look agrees with the words, including for a tab that is asleep', () => {
+    for (const session of [
+      { ...base, attached: true, inTab: true },
+      { ...base, attached: false, inTab: true },
+      { ...base, attached: false, inTab: false },
+    ]) {
+      const saysInTab = badgeTextFor(session) === 'open in a tab';
+      expect(isInATab(session)).toBe(saysInTab);
+    }
   });
 });

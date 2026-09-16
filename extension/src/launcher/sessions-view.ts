@@ -139,7 +139,16 @@ export function buildSessionCard(session: LiveSession, options: SessionsOptions)
   card.dataset['cwd'] = session.cwd;
   card.tabIndex = 0;
   // Attached and unattached are the whole point of the list, so they differ in more than a word.
-  card.dataset['state'] = session.attached ? 'attached' : 'detached';
+  /*
+   * The same question the badge's words ask, so they cannot disagree.
+   *
+   * This read `attached` alone while the words read "a tab holds it", and the two stopped meaning
+   * the same thing the moment a sleeping tab started counting as held. What that looked like was
+   * two cards both saying "open in a tab" in different colours, one with the accent badge and the
+   * blue dot and one grey, which is a difference the interface was drawing for no reason anybody
+   * could name.
+   */
+  card.dataset['state'] = isInATab(session) ? 'attached' : 'detached';
   if (session.busy) card.dataset['busy'] = 'true';
 
   const head = document.createElement('header');
@@ -263,5 +272,16 @@ export function formatBytes(bytes: number): string {
  * now asks the same question.
  */
 export function badgeTextFor(session: Pick<LiveSession, 'attached' | 'inTab'>): string {
-  return session.attached || session.inTab ? 'open in a tab' : 'background';
+  return isInATab(session) ? 'open in a tab' : 'background';
+}
+
+/**
+ * Whether a tab is holding this session, which decides both what the card says and how it looks.
+ *
+ * One function because they are one question. The words and the colour were worked out separately,
+ * and they drifted the moment a tab Chrome had put to sleep started counting as a tab: the card
+ * said "open in a tab" and was still painted as though nothing held it.
+ */
+export function isInATab(session: Pick<LiveSession, 'attached' | 'inTab'>): boolean {
+  return session.attached || session.inTab;
 }
