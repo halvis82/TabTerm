@@ -133,5 +133,70 @@ const offered = await waitFor(
 );
 r.ok('but a genuinely empty pane is still offered somewhere to go', offered === true);
 
+/*
+ * And the case that survived the first fix: a pane somebody is working in where no command ever
+ * finishes.
+ *
+ * That is every pane running an agent. The command is the agent itself and it runs for hours, so
+ * nothing anybody types is a command that completes: the count of commands run says none, and the
+ * screen says very little because a full-screen program draws on the alternate buffer. Reported
+ * after the first attempt as still appearing "for like 1.5 seconds" over a working agent, which is
+ * how long it takes the restored screen to fill in.
+ *
+ * Typed without Return here, which produces exactly that state without needing an agent: somebody
+ * has typed into the pane, no command has run, and the screen is one line of prompt.
+ */
+await evaluate(client, "window.__tabterm.split('vertical')");
+await waitFor(client, 'window.__tabterm.paneIds().length === 4', 20000);
+await sleep(1200);
+const fresh = JSON.parse(
+  String(await evaluate(client, 'JSON.stringify(window.__tabterm.paneIds())')),
+).at(-1);
+await evaluate(client, `window.__tabterm.focus(${JSON.stringify(fresh)})`);
+await sleep(500);
+/*
+ * Switched to the alternate screen, which is where an agent lives.
+ *
+ * This is the whole of why the other answers fail for that pane. A full-screen program draws on
+ * the alternate buffer, so what the daemon serializes is nearly empty and the page sees one line.
+ * The command is the agent itself and it runs for hours, so no command ever finishes and the count
+ * of commands run stays at none. Typing into it is the only evidence that survives, and it is the
+ * evidence the host keeps across a daemon restart.
+ */
+const altScreen = `printf '\\033[?1049h'`;
+await type(client, `${altScreen}\r`);
+await sleep(800);
+await type(client, 'a prompt somebody is waiting on', { submit: false });
+await sleep(1200);
+
+await client.send('Page.reload');
+/*
+ * Counted over that pane alone, not over the tab.
+ *
+ * There is a genuinely empty pane in this tab by now, from the check above that the offer still
+ * appears where it should. Counting every offer in the document counts that one too, and reports
+ * the feature working as a failure.
+ */
+const offerOver = (id) =>
+  evaluate(client, `document.querySelectorAll('.pane[data-pane-id="${id}"] .pane-chooser').length`);
+
+let offerOverTyped = 0;
+const until = Date.now() + 12000;
+while (Date.now() < until) {
+  let showing = 0;
+  try {
+    showing = Number(await offerOver(fresh));
+  } catch {
+    // Between documents.
+  }
+  if (showing > 0) offerOverTyped += 1;
+  await sleep(50);
+}
+r.ok(
+  'and none over a pane that was typed into but has run nothing',
+  offerOverTyped === 0,
+  `${String(offerOverTyped)} samples had an offer up`,
+);
+
 await finish();
 r.done();

@@ -651,8 +651,18 @@ export class SessionManager {
        * across restarts, for the Stats page. That is the direct answer to "has anything ever run
        * here" and it does not depend on what is on screen at this instant. The screen stays as the
        * fallback for a session that predates the record.
+       *
+       * And having been typed into comes first, because it is the only one of the three that is
+       * true of a pane running an agent. The command there is the agent itself and it runs for
+       * hours, so no command ever finishes and the counter stays at none; the agent draws on the
+       * alternate buffer, so the screen serializes to almost nothing. Somebody has been typing
+       * prompts into it all morning, and the host keeps that fact across a daemon restart, which
+       * is exactly what makes it the right question to ask of a session being adopted.
        */
-      hasRun: this.everRan?.(info_.sessionId) === true || usedLines(vt.snapshot(0).screen) > 1,
+      hasRun:
+        info_.hasInput === true ||
+        this.everRan?.(info_.sessionId) === true ||
+        usedLines(vt.snapshot(0).screen) > 1,
     };
     if (info_.command) session.command = info_.command;
     session.osc = this.#buildOsc(session);

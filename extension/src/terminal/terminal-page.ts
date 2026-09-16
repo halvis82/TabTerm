@@ -725,6 +725,24 @@ function soleLabel(): string | undefined {
 function paneHasBeenUsed(paneId: string, pane: { controller: { term: BufferLike } }): boolean {
   if (panesUsed.has(paneId)) return true;
   if (panesWithCommand.has(paneId)) return true;
+  /**
+   * And a pane somebody has typed into is a pane somebody is working in.
+   *
+   * This fact was already arriving with the attach and was already trusted for deciding whether a
+   * tab may go back to the start screen. It was not consulted here, and this is the decision where
+   * it matters most, because it is the only durable one that covers a pane running an agent.
+   *
+   * `hasRun` is about commands that **finish**, and in a pane running an agent the command is the
+   * agent itself, which does not finish for hours. Nothing anybody types into it is a command that
+   * completes, so the counter says nothing has run there, and the screen says very little because
+   * a full-screen program draws on the alternate buffer. All three of the other answers are
+   * therefore no, and the offer to open a folder was drawn over somebody's working agent until the
+   * screen filled in about a second and a half later.
+   *
+   * Typing is the evidence that survives all of that: the host keeps it across a daemon restart,
+   * so a session adopted from a previous daemon still knows somebody has been working in it.
+   */
+  if (panesWithInput.has(paneId)) return true;
   return linesWithContent(pane.controller.term) > 1;
 }
 

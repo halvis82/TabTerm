@@ -69,6 +69,24 @@ describe('a session adopted after a daemon restart', () => {
     void sessions.terminate(session, { kind: 'user-kill' });
   });
 
+  /*
+   * The case the record cannot answer: a pane running an agent.
+   *
+   * The command there is the agent itself and it runs for hours, so nothing ever finishes and the
+   * counter says none. The agent draws on the alternate buffer, so the screen serializes to almost
+   * nothing. Somebody has been typing prompts into it all morning, and the host keeps that across
+   * a daemon restart, which is why it is asked first.
+   */
+  it('counts as used when somebody has typed into it, though nothing has finished', () => {
+    const stats = new StatsStore(new Database(':memory:'));
+    stats.sessionStarted('adopted-1', Date.now() - 3_600_000);
+
+    const sessions = managerWith(stats);
+    const session = sessions.adopt({ ...adoptedWithEmptyScreen, hasInput: true });
+    expect(session.hasRun).toBe(true);
+    void sessions.terminate(session, { kind: 'user-kill' });
+  });
+
   it('and a manager with no record falls back to the screen', () => {
     const sessions = managerWith(null);
     const session = sessions.adopt(adoptedWithEmptyScreen);
