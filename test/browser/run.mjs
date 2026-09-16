@@ -231,6 +231,8 @@ const COVERS = [
   ['extension/src/launcher/panel-view', ['command-panel', 'stats-scrolling']],
   ['extension/src/launcher/settings-view', ['settings', 'command-panel']],
   ['extension/src/terminal/label-look', ['pane-label']],
+  ['extension/src/terminal/page-shortcuts', ['pane-focus-keys', 'shortcuts']],
+  ['extension/src/layout/split-view', ['pane-focus-keys', 'layout']],
   ['extension/src/terminal/color-picker', ['pane-label', 'highlights']],
   ['extension/src/terminal/markers', ['input-marks', 'highlights']],
   ['extension/src/launcher/stats-view', ['stats-persist', 'stats-scrolling']],

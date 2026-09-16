@@ -5368,6 +5368,24 @@ function installForwardedCommands(): void {
  * because leaving a mode has to be the key everything else uses for leaving a mode, and the
  * other because it is only claimed while an undo is being offered.
  */
+/**
+ * Move the focus to the pane beside this one, wrapping round at the end.
+ *
+ * In the order the layout has them, which is the order they are drawn in, so "next" means the one
+ * to the right or below rather than whichever was created next. Wrapping because a tab of panes is
+ * a ring in use: getting back to the first one should not mean reaching for the mouse.
+ *
+ * Does nothing with one pane, rather than redrawing focus on the pane that already has it.
+ */
+function focusAnotherPane(step: 1 | -1): void {
+  const panes = layout ? collectPanes(layout) : [];
+  if (panes.length < 2) return;
+  const here = splitView?.focused ?? panes[0];
+  const at = panes.indexOf(here ?? '');
+  const next = panes[(at + step + panes.length) % panes.length];
+  if (next !== undefined) splitView?.focus(next);
+}
+
 function runPageShortcut(id: string, e: KeyboardEvent): void {
   switch (id) {
     case 'command-menu':
@@ -5388,6 +5406,12 @@ function runPageShortcut(id: string, e: KeyboardEvent): void {
     case 'launch-agent':
       // Option as well puts it beside this pane rather than in a tab of its own.
       launchAgent(e.altKey ? 'split' : 'new-tab');
+      return;
+    case 'focus-next-pane':
+      focusAnotherPane(1);
+      return;
+    case 'focus-previous-pane':
+      focusAnotherPane(-1);
       return;
     case 'clear-screen': {
       const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
@@ -6653,6 +6677,8 @@ declare global {
       gridOf: (paneId: string) => { cols: number; rows: number } | null;
       /** How many times that grid has moved, which is what a size storm actually is. */
       gridMovesFor: (paneId: string) => number;
+      /** Which pane has the keyboard, which is the whole of what a focus shortcut changes. */
+      focusedPane: () => string;
       /**
        * How many times the session behind this pane was actually resized.
        *
@@ -6891,6 +6917,7 @@ function installTestHook(): void {
       else panesHost?.restoreRenderers();
     },
     gridMovesFor: (paneId) => gridMoves.get(paneId) ?? 0,
+    focusedPane: () => splitView?.focused ?? '',
     daemonSizeChangesFor: (paneId) => daemonSizeChanges.get(paneId) ?? 0,
     daemonSizeFor: (paneId) => {
       for (let i = sessionSizes.length - 1; i >= 0; i--) {

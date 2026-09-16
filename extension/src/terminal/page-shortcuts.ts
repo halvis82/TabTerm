@@ -53,6 +53,24 @@ export const DEFAULT_PAGE_SHORTCUTS: PageShortcut[] = [
   { id: 'launch-agent', title: 'Launch an agent', keys: 'Shift+Meta+L' },
   { id: 'clear-screen', title: 'Clear the screen', keys: 'Shift+Meta+K' },
   { id: 'palette', title: 'Open the command palette', keys: 'Shift+Meta+P' },
+  /**
+   * Moving between panes, which had no key at all.
+   *
+   * Asked for as cycling with Option and Tab, and Option and Tab is not available: this terminal
+   * sends Option as Meta on purpose, because that is what terminal users expect, and a shell binds
+   * Meta and Tab to completing a word. Measured rather than assumed, by pressing it with `ech` at
+   * the prompt and watching it become `echo`.
+   *
+   * Control and Command with an arrow is free, measured the same way: the page receives it and the
+   * shell does nothing with it. It is also directional, which cycling with one key is not, and
+   * that suits a layout somebody can see.
+   */
+  { id: 'focus-next-pane', title: 'Focus the next pane', keys: 'Control+Meta+ArrowRight' },
+  {
+    id: 'focus-previous-pane',
+    title: 'Focus the previous pane',
+    keys: 'Control+Meta+ArrowLeft',
+  },
 ];
 
 const KEY = 'tabterm.pageShortcuts';
