@@ -53,6 +53,14 @@ export interface Session {
   /** Latest state reported by an agent CLI's hooks, never inferred from output. */
   agentState?: AgentState;
   /**
+   * When the turn this agent is in began, kept so a reattaching tab can be told.
+   *
+   * It is pushed with every `agent-state`, and a page that has just loaded has had none pushed to
+   * it. Without it the pane knows the agent is answering and not since when, so the label that
+   * exists to say how long somebody has been waiting shows nothing.
+   */
+  agentTurnStartedAt?: number;
+  /**
    * Somebody has typed into this session, whether or not they pressed Enter.
    *
    * A tab goes back to the start screen only when its one terminal is genuinely untouched, and
@@ -142,6 +150,12 @@ export interface Session {
   commandStartedAt?: number;
   pendingCommand?: string;
   lastExitCode?: number;
+  /** How long the last command took and when it ended, so a reattaching tab can say so. */
+  lastDurationMs?: number;
+  lastFinishedAt?: number;
+  /** The same for the last agent turn, which is the unit an agent pane is measured in. */
+  lastTurnMs?: number;
+  lastTurnEndedAt?: number;
 }
 
 export interface SessionEvents {
@@ -539,6 +553,17 @@ export class SessionManager {
         const startedAt = session.commandStartedAt;
         session.commandRunning = false;
         session.lastExitCode = exitCode;
+        /*
+         * Kept, so a tab attaching afterwards can be told how the last command went.
+         *
+         * The page works its label out from events, and a page that has just loaded has had none.
+         * The duration is computed here already; not keeping it meant a refreshed tab showed
+         * nothing under a pane until something next happened, which in an idle pane is never.
+         */
+        if (startedAt !== undefined) {
+          session.lastDurationMs = Date.now() - startedAt;
+          session.lastFinishedAt = Date.now();
+        }
         delete session.commandStartedAt;
         this.#events.onTitle?.(session);
         // The command text comes from the shell integration. Without it sourced there is

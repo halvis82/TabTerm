@@ -5454,6 +5454,30 @@ function onControl(msg: ServerMessage): void {
          * been lost rather than as never having arrived.
          */
         if (p.title) sessionTitles.set(p.sessionId, p.title);
+        /*
+         * And what its timer counts from, which the page cannot work out for itself.
+         *
+         * Elapsed time is computed here from events the daemon pushes, and a page that has just
+         * loaded has had none pushed to it. So every timer in a reattached tab was blank until
+         * something happened, and in an idle pane nothing does. Refreshing therefore looked like
+         * the timers had been lost rather than like they had never arrived, which is the same
+         * shape as the pane names before they were sent with the attach.
+         */
+        if (p.time) {
+          const state = timeStateFor(p.paneId);
+          if (p.time.sessionStartedAt !== undefined)
+            state.sessionStartedAt = p.time.sessionStartedAt;
+          if (p.time.commandStartedAt !== undefined)
+            state.commandStartedAt = p.time.commandStartedAt;
+          if (p.time.agentTurnStartedAt !== undefined) {
+            state.agentTurnStartedAt = p.time.agentTurnStartedAt;
+          }
+          if (p.time.lastDurationMs !== undefined) state.lastDurationMs = p.time.lastDurationMs;
+          if (p.time.lastFinishedAt !== undefined) state.lastFinishedAt = p.time.lastFinishedAt;
+          if (p.time.lastExitCode !== undefined) state.lastExitCode = p.time.lastExitCode;
+          if (p.time.lastTurnMs !== undefined) state.lastTurnMs = p.time.lastTurnMs;
+          if (p.time.lastTurnEndedAt !== undefined) state.lastTurnEndedAt = p.time.lastTurnEndedAt;
+        }
       }
       /*
        * Set before the layout is applied, because applying it decides what to offer.

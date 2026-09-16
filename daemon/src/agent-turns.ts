@@ -36,6 +36,36 @@ export interface FinishedTurn {
  */
 const TURN_START_HOOK = 'UserPromptSubmit';
 
+/**
+ * Whether what somebody typed abandons the answer they were waiting for.
+ *
+ * A turn is bounded by hooks, and an agent that is interrupted by the person does not report one:
+ * `Stop` is fired when a response finishes, not when somebody stops it. So the prompt that follows
+ * an interrupt arrives while the agent still looks like it is working, and it was read as a second
+ * prompt queued onto the turn already in progress. The label then went on counting from the
+ * question that had been abandoned, which is the report this exists for: "it doesn't register if a
+ * user interrupts and sends a new prompt. the timer is just kept going."
+ *
+ * Escape is what interrupts these agents, and Ctrl+C is the older way to stop anything. Neither is
+ * proof on its own, which is why the shape matters: an arrow key is an escape followed by `[` or
+ * `O`, and a paste can carry anything. What is looked for is an escape that is not the start of a
+ * sequence.
+ *
+ * Being wrong here is cheap and only in one direction: a turn that restarts when it should not
+ * under-reports a wait by the time between the two prompts. A turn that never restarts reports a
+ * wait that is not happening, which is the one people notice.
+ */
+export function looksLikeInterrupt(text: string): boolean {
+  if (text.includes('\u0003')) return true;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== '\u001b') continue;
+    const next = text[i + 1];
+    // A bare escape, or one that does not open a control sequence, is somebody pressing Escape.
+    if (next === undefined || (next !== '[' && next !== 'O')) return true;
+  }
+  return false;
+}
+
 /** States the agent is resting in, which is where a prompt may begin a turn. */
 function isResting(state: AgentState | undefined): boolean {
   return state !== 'working' && state !== 'starting';
@@ -43,6 +73,14 @@ function isResting(state: AgentState | undefined): boolean {
 
 export class TurnTracker {
   readonly #startedAt = new Map<string, number>();
+  /**
+   * Sessions whose answer was abandoned by the person, so the next prompt is a fresh wait.
+   *
+   * Needed because the agent's own state does not change when it is interrupted: it is still
+   * reported as working, so the guard that stops a queued prompt restarting the clock would stop
+   * this one too. Cleared by the prompt it lets through.
+   */
+  readonly #interrupted = new Set<string>();
 
   /**
    * Record a state change, and report a turn if this one ended it.
@@ -68,7 +106,12 @@ export class TurnTracker {
        * turn is measured from the first of them: the second is not a moment anybody started
        * waiting at.
        */
-      if (hook === TURN_START_HOOK && isResting(previous)) this.#startedAt.set(sessionId, now);
+      if (
+        hook === TURN_START_HOOK &&
+        (isResting(previous) || this.#interrupted.delete(sessionId))
+      ) {
+        this.#startedAt.set(sessionId, now);
+      }
       return null;
     }
 
@@ -100,7 +143,20 @@ export class TurnTracker {
     return this.#startedAt.get(sessionId);
   }
 
+  /**
+   * The person stopped waiting for this answer.
+   *
+   * The clock stops rather than being left to run, and the next prompt is allowed to start a new
+   * one even though the agent has not said it is resting, because it never will: nothing reports
+   * an interrupt.
+   */
+  interrupt(sessionId: string): void {
+    this.#startedAt.delete(sessionId);
+    this.#interrupted.add(sessionId);
+  }
+
   forget(sessionId: string): void {
     this.#startedAt.delete(sessionId);
+    this.#interrupted.delete(sessionId);
   }
 }

@@ -796,6 +796,32 @@ export interface WorkspacePane {
    * behavior on its own, because it looks like the product cannot make up its mind.
    */
   hasRun?: boolean;
+  /**
+   * What this pane's label counts from, so a refreshed tab is not blank until something happens.
+   *
+   * Elapsed time is worked out in the page from discrete events, which is right: streaming a
+   * ticking clock would be continuous traffic to say something the receiver can compute. The cost
+   * is that a page which has just loaded has received no events, so every timer in a reattached
+   * tab was empty until the next one arrived, and for an idle pane that is never.
+   *
+   * The same shape as the pane's name arriving with the attach, and for the same reason: a fact
+   * the first paint depends on belongs on the attach rather than on the next change.
+   */
+  time?: {
+    /** When the session began, which outlives this daemon. */
+    sessionStartedAt?: number;
+    /** When the command now running started, when one is. */
+    commandStartedAt?: number;
+    /** When the agent's current turn began, which is when the person asked. */
+    agentTurnStartedAt?: number;
+    /** How the last command went, which is what the label shows once one has finished. */
+    lastDurationMs?: number;
+    lastFinishedAt?: number;
+    lastExitCode?: number;
+    /** And the last answer, which is the same question in a pane running an agent. */
+    lastTurnMs?: number;
+    lastTurnEndedAt?: number;
+  };
 }
 
 /** A session in another tab that could be pulled into this workspace. */

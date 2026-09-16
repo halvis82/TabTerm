@@ -2678,6 +2678,29 @@ export class DaemonServer {
       // What this pane is, so its bar says so before anything changes. The title is otherwise
       // only ever pushed on a change, so a reattached tab had blank bars until one happened.
       const title = session.titleFields;
+      /*
+       * And what its timer counts from, for the same reason the title is here.
+       *
+       * Elapsed time is computed in the page from discrete events. A page that has just loaded has
+       * had none, so every timer in a reattached tab was blank until the next event, and for an
+       * idle pane that is never.
+       */
+      const time = {
+        sessionStartedAt: session.createdAt,
+        ...(session.commandRunning && session.commandStartedAt !== undefined
+          ? { commandStartedAt: session.commandStartedAt }
+          : {}),
+        ...(session.agentTurnStartedAt === undefined
+          ? {}
+          : { agentTurnStartedAt: session.agentTurnStartedAt }),
+        ...(session.lastDurationMs === undefined
+          ? {}
+          : { lastDurationMs: session.lastDurationMs, lastFinishedAt: session.lastFinishedAt }),
+        ...(session.lastExitCode === undefined ? {} : { lastExitCode: session.lastExitCode }),
+        ...(session.lastTurnMs === undefined
+          ? {}
+          : { lastTurnMs: session.lastTurnMs, lastTurnEndedAt: session.lastTurnEndedAt }),
+      };
 
       const existing = client.streams.get(sessionId);
       if (existing !== undefined) {
@@ -2690,6 +2713,7 @@ export class DaemonServer {
           ...(atHome ? { atHome: true } : {}),
           ...(hasRun ? { hasRun: true } : {}),
           title,
+          time,
         });
         continue;
       }
@@ -2704,6 +2728,7 @@ export class DaemonServer {
         ...(atHome ? { atHome: true } : {}),
         ...(hasRun ? { hasRun: true } : {}),
         title,
+        time,
       });
       toAttach.push({ sessionId, streamId });
     }

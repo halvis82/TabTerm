@@ -40,6 +40,7 @@ import { HOST_LOCK, HOST_POINTER, HOST_SOCKET } from './pty-host/paths.js';
 /** The shortest the settings panel will offer. Anything under it was never chosen by a person. */
 import { decideReconnect } from './host-reconnect.js';
 import { adoptEverything } from './adopt.js';
+import { looksLikeInterrupt } from './agent-turns.js';
 import { readUserSettings } from './user-settings.js';
 import { safeError, safeStack } from './safe-error.js';
 
@@ -366,7 +367,21 @@ async function main(): Promise<void> {
     stats.sessionStarted(s.id, s.createdAt);
   };
   events.onOutput = (s, chunk) => archive.write(s.id, chunk);
-  events.onInputWritten = (s, data) => tracker.onInput(s.id, data);
+  events.onInputWritten = (s, data) => {
+    tracker.onInput(s.id, data);
+    /*
+     * And somebody interrupting an agent ends the wait they were in.
+     *
+     * Nothing reports an interrupt: `Stop` fires when a response finishes, not when a person stops
+     * one, so the agent goes on looking like it is working and the prompt that follows was read as
+     * a second prompt queued onto the same turn. The label then counted from a question that had
+     * been abandoned.
+     */
+    if (s.agentState === 'working' && looksLikeInterrupt(data)) {
+      turns.interrupt(s.id);
+      delete s.agentTurnStartedAt;
+    }
+  };
   events.onIntegrationDetected = (s) => tracker.markIntegrated(s.id);
   /**
    * Command detection for shells with no integration installed.
@@ -513,7 +528,17 @@ async function main(): Promise<void> {
       // Counted where it can outlive the tab. A prompt answered is the unit an agent pane is
       // measured in, and no command boundary can see one.
       if (turn) stats.turnFinished(sessionId, turn.durationMs);
+      // And kept on the session, so a tab that attaches after the answer can still say what it
+      // cost. Otherwise the pane is blank until the next turn, which may not come.
+      if (turn) {
+        session.lastTurnMs = turn.durationMs;
+        session.lastTurnEndedAt = Date.now();
+      }
       const turnStartedAt = turns.startedAt(sessionId);
+      // Kept on the session as well as pushed, so a tab attaching later can be told when this
+      // turn began rather than waiting for the next hook to fire.
+      if (turnStartedAt === undefined) delete session.agentTurnStartedAt;
+      else session.agentTurnStartedAt = turnStartedAt;
       server.notifySession(session, {
         t: 'agent-state',
         sessionId,
