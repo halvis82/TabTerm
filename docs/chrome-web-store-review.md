@@ -57,13 +57,22 @@ companion program running and listening on `127.0.0.1`.
 2. Turn on **Developer mode**
 3. **Load unpacked**, and choose the `extension/dist` folder inside the clone
 
-Or install the packaged `.zip` from the store listing, which is the same code. The extension ID is
-pinned by a key in the manifest, and both IDs are registered with the native messaging host, so
-either works.
+Or install TabTerm from its Chrome Web Store listing, which is the same code.
+
+The unpacked extension's ID is pinned by a `key` in the manifest, so it does not change between
+reloads, and that is the ID the installer registers with the native messaging host. The Store
+assigns its own ID on publish, which no manifest key can control; the installer reads it from
+`publishedExtensionId` in `package.json` and registers it alongside the first, so one install
+serves both. That field is empty until the first upload assigns an ID, so a reviewer following
+these steps is using the unpacked build.
 
 ## Open a terminal
 
-Press **Option Shift T**, or click the TabTerm icon in the toolbar.
+Press **Shift Command .**, or click the TabTerm icon in the toolbar.
+
+That is the only key the extension ships bound, as the suggested key on `_execute_action`. The
+other commands are declared without one and sit unassigned at `chrome://extensions/shortcuts`
+until somebody chooses.
 
 **What success looks like:** a tab opens showing a start screen with a folder box and a shell prompt
 underneath. Type `echo hello` and press Return. The output appears. That is a real PTY: `ls`, `vim`

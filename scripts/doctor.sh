@@ -322,7 +322,7 @@ note "reaching another machine on your network asks once, in TabTerm's name: mac
 
 echo
 if [ "$fails" -eq 0 ]; then
-  echo "  Everything checks out. Open a terminal with Option+Shift+T."
+  echo "  Everything checks out. Open a terminal with Shift+Command+. or the toolbar icon."
 else
   echo "  $fails problem(s) above."
 fi

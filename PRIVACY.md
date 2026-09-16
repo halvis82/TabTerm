@@ -1,6 +1,6 @@
 # TabTerm privacy policy
 
-**Last updated:** 2026-09-15
+**Last updated:** 2026-09-16
 
 TabTerm is a terminal. Everything it handles is the sort of thing a terminal handles, which is to
 say some of it is sensitive. This describes exactly what it touches, where that stays, and what you
@@ -176,6 +176,22 @@ registered to accept messages only from the TabTerm extension.
 TabTerm requests no access to websites. It has no content scripts and no host permissions, so it
 cannot read pages you visit. The only webpage data it ever sees is what you hand it deliberately
 through the right-click menu.
+
+---
+
+## Chrome Web Store Limited Use
+
+TabTerm's use of information received through Chrome APIs complies with the
+[Chrome Web Store User Data Policy](https://developer.chrome.com/docs/webstore/program-policies/limited-use),
+including the Limited Use requirements.
+
+In practice that commitment costs nothing to keep, because of where the data goes. What the Chrome
+APIs give TabTerm is the existence of its own tabs and windows, the shortcut you pressed, and text
+you hand it deliberately. All of it is used for the one feature you invoked and for nothing else. It
+is not sold, not transferred to anybody, not used for advertising or any form of profiling, and not
+read by a human. There is nowhere for it to go: **there is no TabTerm server**, and the extension
+has no host permissions and no content scripts, so it cannot reach a webpage even if something in it
+wanted to.
 
 ---
 

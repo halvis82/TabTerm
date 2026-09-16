@@ -189,13 +189,16 @@ two states you are in.
 
 ### 6. Open a terminal
 
-`Option+Shift+T`. `Shift+Command+.` and `Control+Shift+T` also work, and all three are
-rebindable at `chrome://extensions/shortcuts`.
+`Shift+Command+.`, or click the toolbar icon. That is the only shortcut the extension ships bound:
+it is the suggested key on `_execute_action` and Chrome assigns it on install.
 
-An extension shortcut is handled by the browser before the page sees it, so whatever it is bound
-to is taken away from every site you visit. That is why the default is an Option combination:
-web applications bind Command, so Option is nearly empty, and a terminal shortcut should not cost
-you a shortcut in an application you already use.
+The other commands, including opening a terminal under a key of your own, are declared **without** a
+suggested key. They appear at `chrome://extensions/shortcuts` waiting for one, and nothing happens
+until you choose it. Everything there is rebindable, this one included.
+
+They are left unbound on purpose. An extension shortcut is handled by the browser before the page
+sees it, so whatever it is bound to is taken away from every site you visit, and spending that on
+several commands nobody asked for is a poor trade. One key, and the rest are yours to assign.
 
 ### 7. Check it
 

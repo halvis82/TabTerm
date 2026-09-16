@@ -66,8 +66,10 @@ the bootstrap problem and it has exactly two acceptable answers.
 
 ### Primary: native messaging host (ADR-0005)
 
-A tiny native messaging host whose manifest lists **only our extension ID**. Chrome enforces that
-allowlist, so the host also authenticates the extension, which the WebSocket alone cannot do.
+A tiny native messaging host whose manifest lists **only this extension's own IDs**: the one pinned
+by the manifest `key`, and the one the Store assigns once there is a published listing. Nothing
+else is on it. Chrome enforces that allowlist, so the host also authenticates the extension, which
+the WebSocket alone cannot do.
 
 ```
 extension → chrome.runtime.connectNative("com.tabterm.host")
