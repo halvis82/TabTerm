@@ -532,6 +532,16 @@ export class DaemonServer {
             sessionId: session.id,
             memoryBytes: memoryOf(session.pid),
             ...(workspace ? { workspaceId: workspace.id } : {}),
+            /*
+             * And the shape of that tab, when there is more than one pane in it.
+             *
+             * `Running now` draws a shared tab the way the tab is, so the arrangement has to reach
+             * it. Left off for a single pane: there is no arrangement to describe, and sending one
+             * would put a layout tree beside every ordinary session for nothing.
+             */
+            ...(workspace && panes(workspace.layout).length > 1
+              ? { layout: workspace.layout }
+              : {}),
             cwd: session.cwd,
             // A name somebody typed beats anything derived, so it is carried and preferred.
             ...(workspace ? nameFromLayout(workspace.layout, session.id) : {}),
@@ -1338,6 +1348,15 @@ export class DaemonServer {
           return;
         }
         this.#sessions.recordTabClosed(msg.workspaceId, msg.eventId);
+        /*
+         * And the list is said again, because what it says about that tab has changed.
+         *
+         * A tab closing is not a layout change, so nothing here announced it, and a page that had
+         * already been sent the list kept a card saying a tab holds a session that no longer does.
+         * Pages used to ask for this list when they needed it and were never pushed one, so being
+         * pushed a stale one is a hazard that only exists now that it is pushed at all.
+         */
+        this.#announceLiveSessions();
         return;
       }
 
@@ -2853,6 +2872,33 @@ export class DaemonServer {
           controlFrame({ t: 'workspace-updated', workspaceId, layout: workspace.layout }),
         );
       }
+    }
+    /*
+     * And everybody else is told the list of running sessions has changed shape.
+     *
+     * `Running now` draws the panes of a shared tab together and in the arrangement that tab has,
+     * so a split, a pane closed, a pane moved to its own tab and a session merged in all change
+     * what that list should look like. Nothing pushed it: a page asked when it opened and when
+     * somebody went back to the start screen, so another tab's list stayed as it was until one of
+     * those happened.
+     *
+     * Sent on layout changes only, which are things a person did with their hands. It is not on a
+     * timer and not on output.
+     */
+    this.#announceLiveSessions();
+  }
+
+  /**
+   * Tell every tab what is running, because the shape of it has changed.
+   *
+   * Built once and sent to everybody, rather than per client: the list is the same for all of them
+   * and building it serializes every session's screen, which is the expensive part.
+   */
+  #announceLiveSessions(): void {
+    const sessions = this.#liveSessions();
+    for (const c of this.#clients) {
+      if (!c.authed) continue;
+      send(c.socket, controlFrame({ t: 'live-sessions', sessions }));
     }
   }
 

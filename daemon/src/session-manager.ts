@@ -1458,6 +1458,16 @@ export class SessionManager {
     const workspaceId = this.#workspaceOf?.(sessionId);
     if (workspaceId === undefined) return false;
     if (this.#closedWorkspaces.has(workspaceId)) return false;
+    /**
+     * Only when nobody is here to say otherwise.
+     *
+     * A browser that is connected and does not list this workspace is saying the tab is gone, and
+     * that is far better evidence than something it said earlier. The memory is for the gap where
+     * there is no browser to ask: the worker asleep, its connection dropped, nothing reporting at
+     * all. Using it while a reporter is connected and silent made a closed tab go on claiming to
+     * hold a session.
+     */
+    if (this.#openWorkspaces.size > 0) return false;
     return this.#everReportedOpen.has(workspaceId);
   }
 

@@ -1,4 +1,5 @@
-import type { LiveSession } from '@tabterm/shared';
+import type { LayoutNode, LiveSession } from '@tabterm/shared';
+import { groupSessions, isShared, type SessionGroup } from './session-groups.js';
 
 /**
  * Sessions that already exist, on the page you see when you open a tab.
@@ -117,11 +118,90 @@ export function buildSessions(options: SessionsOptions): HTMLElement {
   // switch on: a class that only appeared past six meant the cap depended on how many there
   // were rather than on how much room there is.
 
-  for (const session of sessions) {
-    grid.append(buildSessionCard(session, options));
+  /*
+   * Grouped, so a tab with several panes reads as one thing rather than several unrelated ones.
+   *
+   * Every session still appears, and a session alone in its tab is drawn exactly as it was. The
+   * order is unchanged: groups sit where their oldest member sat. See `session-groups.ts`.
+   */
+  for (const group of groupSessions(sessions)) {
+    if (!isShared(group)) {
+      const only = group.sessions[0];
+      if (only) grid.append(buildSessionCard(only, options));
+      continue;
+    }
+    grid.append(buildSharedTab(group, options));
   }
   wrap.append(grid);
   return wrap;
+}
+
+/**
+ * The panes of one tab, drawn the way that tab is arranged.
+ *
+ * A container rather than cards that merely sit beside each other: a group that straddles a row
+ * boundary loses the cue entirely, and that is the one thing adjacency cannot survive.
+ *
+ * The arrangement is the workspace's own. Two panes side by side are drawn side by side and two
+ * stacked are drawn stacked, because somebody recognising a terminal they left running recognises
+ * the shape of it, and cards in arbitrary order are a worse answer than one that looks like what
+ * they will get back.
+ */
+function buildSharedTab(group: SessionGroup, options: SessionsOptions): HTMLElement {
+  const box = document.createElement('section');
+  box.className = 'session-group';
+  if (group.workspaceId !== undefined) box.dataset['workspaceId'] = group.workspaceId;
+
+  const head = document.createElement('header');
+  head.className = 'session-group-head';
+  const what = document.createElement('span');
+  what.className = 'session-group-title';
+  what.textContent = `${String(group.sessions.length)} panes in one tab`;
+  head.append(what);
+  box.append(head);
+
+  const body = document.createElement('div');
+  body.className = 'session-group-body';
+  /*
+   * Null when every pane in the arrangement has gone, which the caller has already ruled out by
+   * only building this for a group with members. Kept explicit so the body is never given one.
+   */
+  const shape = group.layout ? buildLayoutNode(group.layout, group, options) : null;
+  if (shape) body.append(shape);
+  box.append(body);
+  return box;
+}
+
+/**
+ * One node of a workspace's arrangement, as boxes inside boxes.
+ *
+ * The same shape the tab has, built from the same tree the tab is built from, so there is one
+ * answer to what a workspace looks like rather than two that can disagree. A split becomes a row or
+ * a column; a pane becomes the card that was already there.
+ *
+ * A pane whose session is not in the list is skipped rather than drawn as a gap: it has exited, or
+ * it has been taken into another tab and the two facts have not met yet, and either way drawing a
+ * hole would be drawing a terminal that is not there.
+ */
+function buildLayoutNode(
+  node: LayoutNode,
+  group: SessionGroup,
+  options: SessionsOptions,
+): HTMLElement | null {
+  if (node.type === 'terminal') {
+    const session = group.sessions.find((s) => s.sessionId === node.sessionId);
+    return session ? buildSessionCard(session, options) : null;
+  }
+  const first = buildLayoutNode(node.children[0], group, options);
+  const second = buildLayoutNode(node.children[1], group, options);
+  // One side gone is not a split any more, so the other side stands on its own rather than being
+  // drawn as half of something.
+  if (!first) return second;
+  if (!second) return first;
+  const split = document.createElement('div');
+  split.className = `session-split is-${node.direction}`;
+  split.append(first, second);
+  return split;
 }
 
 /**

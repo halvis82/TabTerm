@@ -342,6 +342,18 @@ export interface ShellIntegrationStatus {
 export interface LiveSession {
   sessionId: string;
   workspaceId?: string;
+  /**
+   * The arrangement of the tab this session is in, when it shares that tab with others.
+   *
+   * Sent so `Running now` can draw a tab the way the tab is: two panes side by side are drawn side
+   * by side, one above the other is drawn that way. Somebody recognising a terminal they left
+   * running recognises the shape of it, and a group of cards in arbitrary order is a worse answer
+   * than one that looks like what they will get back.
+   *
+   * Absent for a session that is the only pane in its tab, because there is no arrangement to
+   * describe and nothing to draw around it.
+   */
+  layout?: LayoutNode;
   cwd: string;
   /**
    * The name somebody gave this session, if they gave it one.

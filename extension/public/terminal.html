@@ -356,6 +356,75 @@
     padding-top: 2px;
   }
 
+  /*
+   * A tab with more than one pane, drawn as one thing.
+   *
+   * It spans the whole row rather than sitting as a wide cell among the single cards, because a
+   * container that has to fit the column rhythm cannot hold four panes without becoming unreadable,
+   * and a tab is a different kind of object from a terminal: giving it its own row says so.
+   *
+   * The tint is the panel's own hover wash rather than a colour of its own. Colour on that card
+   * already means something, blue for attached and green for busy and whatever somebody chose for a
+   * pane label, and a group that introduced a fourth meaning would be competing with all three.
+   */
+  .session-group {
+    grid-column: 1 / -1;
+    border: 1px solid rgba(140, 155, 190, 0.22);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--hover) 55%, transparent);
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .session-group-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 2px;
+  }
+
+  .session-group-title {
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    /* Full text rather than the dim tint: it sits on a wash, where dim measured under the line. */
+    color: var(--text);
+    opacity: 0.72;
+  }
+
+  .session-group-body {
+    display: flex;
+  }
+
+  /*
+   * The arrangement the tab has, in the direction the tab has it.
+   *
+   * `horizontal` is the split that puts panes side by side, which is what it means everywhere else
+   * in this product, so a row. Stacked panes become a column. Equal shares rather than the tab's
+   * own ratio: a card has a minimum readable width and honouring a 0.8 split would squeeze one of
+   * them under it for a faithfulness nobody is reading the list for.
+   */
+  .session-split {
+    display: flex;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+  }
+  .session-split.is-horizontal {
+    flex-direction: row;
+  }
+  .session-split.is-vertical {
+    flex-direction: column;
+  }
+  .session-group-body > .session-card,
+  .session-split > .session-card,
+  .session-split > .session-split {
+    flex: 1;
+    min-width: 0;
+  }
+
   .session-grid.is-scrolling {
     max-height: 300px;
     overflow-y: auto;

@@ -72,6 +72,19 @@ describe('where a card may say a terminal is', () => {
     expect(sessions.tabHolds('s-1')).toBe(false);
   });
 
+  /*
+   * And a browser that is here and does not mention it is saying the tab is gone, which is better
+   * evidence than anything it said earlier. The memory is for the gap where there is nobody to
+   * ask, not for arguing with somebody who is.
+   */
+  it('and defers to a browser that is connected and no longer lists it', () => {
+    const sessions = manager();
+    sessions.setWorkspaceLookup(() => 'ws-1');
+    sessions.reportOpenWorkspaces('chrome:control', ['ws-1']);
+    sessions.reportOpenWorkspaces('chrome:control', ['ws-other']);
+    expect(sessions.tabHolds('s-1')).toBe(false);
+  });
+
   it('and says nothing about a workspace no browser has ever mentioned', () => {
     const sessions = manager();
     sessions.setWorkspaceLookup(() => 'ws-never');
