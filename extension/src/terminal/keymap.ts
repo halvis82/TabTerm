@@ -79,7 +79,15 @@ export function classifyKey(e: KeyInput): KeyAction {
          */
         return { kind: 'browser' };
       case 'f':
-        return { kind: 'search' };
+        /*
+         * Command F only, not Command Shift F.
+         *
+         * This asked for Command and an F and nothing else, so Shift came along, and the browser
+         * shortcut on that combination was swallowed here as well as in the page's own handler.
+         * Finding backwards is Shift and Return inside the box, so nothing is lost by letting it
+         * past.
+         */
+        return e.shiftKey ? { kind: 'browser' } : { kind: 'search' };
       default:
         // Command+W, Command+T, Command+number and the rest are Chrome's, and in a normal tab
         // they never reach the page at all. See docs/10-limitations.md tier 0.4.

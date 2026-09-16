@@ -5454,7 +5454,15 @@ function installShortcuts(): void {
        * terminal, a text box, the command menu, the start screen. A second press closes the bar
        * rather than opening anything, which is what "again" should mean for a toggle.
        */
-      if (e.key.toLowerCase() === 'f' && e.metaKey && !e.ctrlKey && !e.altKey) {
+      /*
+       * Command F and nothing else with an F in it.
+       *
+       * This asked for Command, and said nothing about Shift, so Command Shift F was taken too and
+       * prevented. That one is Chrome's, and taking a browser shortcut away costs somebody a key
+       * everywhere they go, not just here. Nothing in the find bar uses it: previous is Shift and
+       * Return inside the box, and Chrome's own find-again is Command G.
+       */
+      if (e.key.toLowerCase() === 'f' && e.metaKey && !e.shiftKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         e.stopPropagation();
         if (findBar?.isOpen === true) findBar.hide();

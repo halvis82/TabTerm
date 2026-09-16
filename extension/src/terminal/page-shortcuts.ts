@@ -135,6 +135,8 @@ const RESERVED = new Set([
   'Shift+Meta+H',
   // Find again backwards, inspect element, hard reload, redo.
   'Shift+Meta+G',
+  // Chrome's own, and it was being swallowed by the find bar asking only about Command and F.
+  'Shift+Meta+F',
   'Shift+Meta+C',
   'Shift+Meta+R',
   'Shift+Meta+Z',
