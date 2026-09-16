@@ -4,6 +4,7 @@ import {
   describe as describeSession,
   formatBytes,
   isInATab,
+  shellRanLabel,
   shortPath,
   shortenFromLeft,
   since,
@@ -245,5 +246,45 @@ describe('what a session card says about where a session is', () => {
       const saysInTab = badgeTextFor(session) === 'open in a tab';
       expect(isInATab(session)).toBe(saysInTab);
     }
+  });
+});
+
+/**
+ * What an idle shell is called.
+ *
+ * Every terminal that had gone quiet was labelled "shell", which made the one line meant to tell
+ * them apart the one line they all shared. The thing somebody recognises a shell by is the last
+ * thing they ran in it.
+ */
+describe('a shell described by what it last ran', () => {
+  it('says the command beside the word', () => {
+    expect(shellRanLabel('ls')).toBe('shell - ls');
+  });
+
+  /*
+   * Cut from the right, because a command's beginning is what identifies it. Losing the `ssh`
+   * would leave a host with no verb.
+   */
+  it('and cuts a long one from the end, keeping what identifies it', () => {
+    const label = shellRanLabel('ssh argonath@192.168.1.168');
+    expect(label.startsWith('shell - ssh argonath@')).toBe(true);
+    expect(label.endsWith('…')).toBe(true);
+  });
+
+  it('and stays short enough to sit beside the size and the age', () => {
+    const label = shellRanLabel('git log --oneline --graph --decorate --all --since=yesterday');
+    expect(label.length).toBeLessThanOrEqual('shell - '.length + 18);
+  });
+
+  /*
+   * A command typed across two lines, or with runs of spaces in it, is one command. The label is
+   * one line, so it reads as one.
+   */
+  it('and flattens whitespace so the line stays a line', () => {
+    expect(shellRanLabel('echo   one\n  two')).toBe('shell - echo one two');
+  });
+
+  it('and falls back to the bare word when there is nothing to say', () => {
+    expect(shellRanLabel('   ')).toBe('shell');
   });
 });

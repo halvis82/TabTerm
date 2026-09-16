@@ -1438,10 +1438,18 @@ export class Launcher {
     if (restorable) sections.push(restorable);
     const servers = this.#serverSection(state.home);
     if (servers) sections.push(servers);
-    const resume = this.#resumeSection(state.home);
-    if (resume) sections.push(resume);
 
-    // --- recent directories ----------------------------------------------
+    /*
+     * --- recent directories, above resuming an agent -----------------------
+     *
+     * Both are ways to start, and folders are the commoner one: somebody opening this page is far
+     * more often going somewhere they work than picking up a particular conversation. The list
+     * below it is also the longer of the two and grows without bound, so putting it first pushed
+     * the folders down the page as the machine was used more.
+     *
+     * The same reasoning the ports section already carries a note about, applied one section
+     * earlier: what is nearest the top is what somebody is most likely to have come for.
+     */
     if (state.recentDirs.length > 0) {
       const shown = this.#visibleCount('recent', state.recentDirs.length, MAX_RECENT);
       const dirRows = state.recentDirs.slice(0, shown).map((d) => this.#dirRow(d, state.home));
@@ -1454,6 +1462,9 @@ export class Launcher {
         }),
       );
     }
+
+    const resume = this.#resumeSection(state.home);
+    if (resume) sections.push(resume);
 
     /*
      * Below the folders, because it answers a different question.

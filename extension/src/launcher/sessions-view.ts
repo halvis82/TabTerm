@@ -104,7 +104,40 @@ export function describe(session: LiveSession): string {
   if (session.busy) return session.lastCommand ?? session.process ?? 'running';
   if (session.process && !SHELLS.has(session.process)) return session.process;
   if (session.lastCommand) return session.lastCommand;
+  /*
+   * An idle shell says what it last did, because "shell" says nothing at all.
+   *
+   * Every terminal that has gone quiet was labelled the same word, which made the one line meant
+   * to tell them apart the one line they all shared. What it last ran is the thing somebody
+   * recognises it by.
+   */
+  if (session.ranLast) return shellRanLabel(session.ranLast);
   return 'shell';
+}
+
+/**
+ * How much of a command fits beside the word, before it pushes the size and the age off the line.
+ *
+ * Measured against the example that prompted this: `ssh argonath@192.168.1.168` is twenty six
+ * characters, so a cap of twenty eight let the whole thing through and the line ran into the
+ * figures beside it. Eighteen keeps the verb and enough of the host to know which machine.
+ */
+const RAN_LAST_MAX = 18;
+
+/**
+ * A shell described by the last thing it ran.
+ *
+ * Kept as "shell" plus the command rather than the command alone, because a bare `ls` beside three
+ * other bare commands does not say these are shells, and the word is what makes the line read as a
+ * description rather than as a name somebody chose.
+ *
+ * Cut from the right with an ellipsis: a command's beginning is what identifies it, so `ssh
+ * argonath@192.168.1.168` becomes `ssh argonath@192.16…` rather than losing the `ssh`.
+ */
+export function shellRanLabel(command: string, max = RAN_LAST_MAX): string {
+  const clean = command.replace(/\s+/g, ' ').trim();
+  if (clean === '') return 'shell';
+  return clean.length <= max ? `shell - ${clean}` : `shell - ${clean.slice(0, max - 1)}…`;
 }
 
 export function buildSessions(options: SessionsOptions): HTMLElement {

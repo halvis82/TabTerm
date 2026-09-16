@@ -1,0 +1,83 @@
+// Three things about the start screen that are only true once it is drawn.
+//
+// What a session that has gone quiet is called, whether the grid wastes a row on a gap it could
+// have filled, and which of two ways to start work comes first.
+import { openTerminal, evaluate, sleep, type, finish, waitFor, waitUntil } from '../helpers.mjs';
+import { reporter } from '../cdp.mjs';
+
+const r = reporter();
+
+// A session that runs something and then goes quiet, which is what used to be called "shell".
+const worker = await openTerminal();
+await waitFor(worker.client, "document.querySelector('.launcher-input')");
+await type(worker.client, 'ls /usr\r');
+await waitFor(worker.client, `(window.__tabterm.readScreen() ?? '').includes('bin')`, 20000);
+await sleep(1500);
+
+const viewer = await openTerminal();
+await waitFor(viewer.client, "document.querySelector('.launcher-input')");
+await sleep(2500);
+
+/** What every card calls itself, in order. */
+const labels = async () =>
+  JSON.parse(
+    String(
+      await evaluate(
+        viewer.client,
+        `JSON.stringify([...document.querySelectorAll('.session-card')]
+           .map((c) => (c.querySelector('.session-what')?.textContent ?? '').trim()))`,
+      ),
+    ),
+  );
+
+/*
+ * The session that ran `ls` says so. Every idle terminal used to be called "shell", which made the
+ * one line meant to tell them apart the one line they all shared.
+ */
+const named = await waitUntil(
+  async () => (await labels()).some((l) => l.startsWith('shell - ')),
+  20000,
+);
+r.ok('a shell that has run something says what it ran', named, JSON.stringify(await labels()));
+
+r.ok(
+  'and a bare "shell" is not what a used session is called',
+  (await labels()).some((l) => l.startsWith('shell - ls')),
+  JSON.stringify(await labels()),
+);
+
+/*
+ * The grid fills a gap rather than leaving a column empty for good. Asserted on the property that
+ * causes it rather than by counting rows, which depends on how wide the window happens to be.
+ */
+const flow = String(
+  await evaluate(
+    viewer.client,
+    `getComputedStyle(document.querySelector('.session-grid')).gridAutoFlow`,
+  ),
+);
+r.ok('the grid lets a later card fill a gap', flow.includes('dense'), flow);
+
+/*
+ * And folders come before resuming an agent. Both are ways to start, and the folder is the commoner
+ * one; the resume list is also the one that grows without bound, so first it pushed the other down.
+ */
+const order = JSON.parse(
+  String(
+    await evaluate(
+      viewer.client,
+      `JSON.stringify([...document.querySelectorAll('.launcher-section-title, .launcher-heading, h3, h2')]
+         .map((el) => (el.textContent ?? '').trim().toLowerCase())
+         .filter((t) => t.includes('recent folders') || t.includes('resume an agent')))`,
+    ),
+  ),
+);
+r.ok('both sections are on the page', order.length === 2, JSON.stringify(order));
+r.ok(
+  'and recent folders comes first',
+  order[0]?.includes('recent folders') === true,
+  JSON.stringify(order),
+);
+
+await finish();
+r.done();

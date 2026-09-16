@@ -366,6 +366,14 @@ export interface LiveSession {
   /** What is running, when that is known. */
   process?: string;
   lastCommand?: string;
+  /**
+   * The last command that **finished** here, as opposed to one running now.
+   *
+   * Two fields because they say different things and a card treats them differently: one is what
+   * this terminal is doing, the other is the most recent thing it did. Collapsing them would make
+   * a session that ran `ls` an hour ago look like a session running `ls`.
+   */
+  ranLast?: string;
   /** Whether a tab is currently showing it, as opposed to it merely being alive. */
   attached: boolean;
   /**

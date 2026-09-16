@@ -351,6 +351,16 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(258px, 1fr));
     gap: 10px;
+    /*
+     * A card that fits a gap goes in it, rather than a row being left half empty.
+     *
+     * A tab with two panes takes two columns, and when only one column is left at the end of a row
+     * it starts a new one and leaves that column empty for good. With this, a single card further
+     * down slides up into it. The order is still oldest to newest everywhere it can be: `dense`
+     * only moves an item when the item that would have come first does not fit, which is exactly
+     * the case that was wasting a row.
+     */
+    grid-auto-flow: row dense;
     /* Room for the lift on hover. Without it a card in the top row moved up under the edge of
        whatever is above and its top border was clipped off. */
     padding-top: 2px;

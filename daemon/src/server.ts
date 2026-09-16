@@ -547,6 +547,8 @@ export class DaemonServer {
             ...(workspace ? nameFromLayout(workspace.layout, session.id) : {}),
             ...(session.titleFields.process ? { process: session.titleFields.process } : {}),
             ...(session.pendingCommand ? { lastCommand: session.pendingCommand } : {}),
+            // And the last one that finished, which is what describes a session sitting idle.
+            ...(session.ranLast ? { ranLast: session.ranLast } : {}),
             attached: session.clients.size > 0,
             // A discarded tab is still a tab. See `inTab` in the protocol.
             inTab: this.#sessions.tabHolds(session.id),

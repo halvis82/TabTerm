@@ -150,6 +150,8 @@ export interface Session {
   commandStartedAt?: number;
   pendingCommand?: string;
   lastExitCode?: number;
+  /** The last command that finished here, which is what an idle session is described by. */
+  ranLast?: string;
   /** How long the last command took and when it ended, so a reattaching tab can say so. */
   lastDurationMs?: number;
   lastFinishedAt?: number;
@@ -570,6 +572,15 @@ export class SessionManager {
         // simply nothing to record, and history stays empty rather than guessing.
         const text = session.pendingCommand;
         delete session.pendingCommand;
+        /*
+         * Kept after it has finished, because it is what the card has to say about this terminal.
+         *
+         * `pendingCommand` is the command running **now** and is deleted the moment one ends, so a
+         * session that had run `ls` and gone quiet had nothing to describe it and was labelled
+         * "shell" like every other idle shell. Kept separately rather than by leaving the pending
+         * one in place: a finished command must not be able to read as a running one.
+         */
+        if (text) session.ranLast = text;
         if (text) {
           this.#events.onCommand?.(session, text, exitCode, startedAt ? Date.now() - startedAt : 0);
         }
