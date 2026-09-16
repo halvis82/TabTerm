@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LayoutNode, LiveSession } from '@tabterm/shared';
-import { groupSessions, isShared, orderedByLayout } from './session-groups.js';
+import { columnsWide, groupSessions, isShared, orderedByLayout } from './session-groups.js';
 
 const session = (id: string, startedAt: number, extra: Partial<LiveSession> = {}): LiveSession => ({
   sessionId: id,
@@ -115,5 +115,49 @@ describe('grouping what Running Now shows', () => {
       session('c', 3, { workspaceId: 'ws', layout }),
     ])[0];
     expect(orderedByLayout(group!).map((e) => e.session.sessionId)).toEqual(['a', 'b', 'c']);
+  });
+
+  /*
+   * How wide a tab is, in cards. The first version gave every group the whole row, which turned a
+   * pair of terminals into a banner across the list.
+   */
+  it('is two cards wide when two panes are side by side', () => {
+    expect(columnsWide(sideBySide('a', 'b'))).toBe(2);
+  });
+
+  it('and one card wide when they are stacked, since they share a column', () => {
+    expect(
+      columnsWide({
+        type: 'split',
+        direction: 'vertical',
+        ratio: 0.5,
+        children: [
+          { type: 'terminal', paneId: 'p1', sessionId: 'a' },
+          { type: 'terminal', paneId: 'p2', sessionId: 'b' },
+        ],
+      }),
+    ).toBe(1);
+  });
+
+  it('and adds across a split whose halves are themselves split', () => {
+    const nested: LayoutNode = {
+      type: 'split',
+      direction: 'horizontal',
+      ratio: 0.5,
+      children: [
+        { type: 'terminal', paneId: 'p1', sessionId: 'a' },
+        {
+          type: 'split',
+          direction: 'vertical',
+          ratio: 0.5,
+          children: [
+            { type: 'terminal', paneId: 'p2', sessionId: 'b' },
+            { type: 'terminal', paneId: 'p3', sessionId: 'c' },
+          ],
+        },
+      ],
+    };
+    // One on the left, two stacked on the right: two columns, not three.
+    expect(columnsWide(nested)).toBe(2);
   });
 });

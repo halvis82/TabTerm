@@ -83,6 +83,53 @@ r.ok(
 );
 
 /*
+ * And a card inside a group is the size a card outside one is.
+ *
+ * The first version gave every group the whole row, which made a pair of terminals into a banner
+ * across the list. The group takes as many columns as the tab is wide instead, so the cards inside
+ * keep the width they would have had on their own. Measured rather than read off the CSS, because
+ * what matters is what the grid actually did with it.
+ */
+const widths = JSON.parse(
+  String(
+    await evaluate(
+      viewer.client,
+      `(() => {
+         const inside = document.querySelector('.session-group .session-card');
+         const outside = [...document.querySelectorAll('.session-card')]
+           .find((c) => !c.closest('.session-group'));
+         if (!inside || !outside) return 'null';
+         return JSON.stringify({
+           inside: Math.round(inside.getBoundingClientRect().width),
+           outside: Math.round(outside.getBoundingClientRect().width),
+           group: Math.round(document.querySelector('.session-group').getBoundingClientRect().width),
+           grid: Math.round(document.querySelector('.session-grid').getBoundingClientRect().width),
+         });
+       })()`,
+    ),
+  ),
+);
+r.ok(
+  'a grouped card is about the size of an ungrouped one',
+  widths !== null && Math.abs(widths.inside - widths.outside) <= 30,
+  JSON.stringify(widths),
+);
+/*
+ * And it asks for exactly as many columns as the tab is wide.
+ *
+ * Not "narrower than the row", which is only true when the list has more columns than the tab has
+ * panes: at a narrow width the grid has two columns and a two pane tab fills them, correctly. The
+ * rule is the span, and that holds at any width.
+ */
+const span = String(
+  await evaluate(
+    viewer.client,
+    `getComputedStyle(document.querySelector('.session-group')).gridColumn`,
+  ),
+);
+r.ok('and it asks for as many columns as the tab is wide', span.includes('span 2'), span);
+
+/*
  * Stacked, which must change the drawing rather than only the membership.
  *
  * Something is run in the new pane before it is expected here. `Running now` lists sessions

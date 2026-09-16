@@ -45,6 +45,24 @@ describe('how long ago', () => {
     expect(since(now - 7_200_000, now)).toBe('2h ago');
     expect(since(now - 172_800_000, now)).toBe('2d ago');
   });
+
+  /*
+   * Days on their own are too coarse for this list. "2d ago" covers two days to nearly three, and
+   * these are terminals somebody left running: which of two is older, and whether the one they are
+   * thinking of is from yesterday evening or the morning before, is what the line is read for.
+   */
+  it('says the hours after the days, when there are any', () => {
+    const hour = 3_600_000;
+    expect(since(now - (2 * 24 + 5) * hour, now)).toBe('2d 5h ago');
+    expect(since(now - (1 * 24 + 1) * hour, now)).toBe('1d 1h ago');
+  });
+
+  /*
+   * And not "2d 0h", which is a number said for the sake of the shape of the sentence.
+   */
+  it('and leaves them off when there are none', () => {
+    expect(since(now - 3 * 24 * 3_600_000, now)).toBe('3d ago');
+  });
 });
 
 describe('what a session is doing', () => {

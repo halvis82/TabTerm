@@ -1,5 +1,5 @@
 import type { LayoutNode, LiveSession } from '@tabterm/shared';
-import { groupSessions, isShared, type SessionGroup } from './session-groups.js';
+import { columnsWide, groupSessions, isShared, type SessionGroup } from './session-groups.js';
 
 /**
  * Sessions that already exist, on the page you see when you open a tab.
@@ -67,7 +67,20 @@ export function since(at: number, now = Date.now()): string {
   if (minutes < 60) return `${String(minutes)}m ago`;
   const hours = Math.round(minutes / 60);
   if (hours < 24) return `${String(hours)}h ago`;
-  return `${String(Math.round(hours / 24))}d ago`;
+  /**
+   * Days and the hours after them, because a day on its own is too coarse here.
+   *
+   * "2d ago" covers anything from two days to nearly three, and these are terminals somebody left
+   * running: which of two sessions is the older one, and whether the one they are thinking of is
+   * from yesterday evening or the morning before, is exactly what this line is read for.
+   *
+   * Rounded down to the day rather than to the nearest, so the hours are what is left over and the
+   * two halves agree. Rounding the day and then taking a remainder produces "3d 21h", which reads
+   * as nearly four days and is nearly three.
+   */
+  const days = Math.floor(hours / 24);
+  const leftover = hours - days * 24;
+  return leftover === 0 ? `${String(days)}d ago` : `${String(days)}d ${String(leftover)}h ago`;
 }
 
 /** Shells, which are what a session is when nothing more interesting is true of it. */
@@ -151,6 +164,20 @@ function buildSharedTab(group: SessionGroup, options: SessionsOptions): HTMLElem
   const box = document.createElement('section');
   box.className = 'session-group';
   if (group.workspaceId !== undefined) box.dataset['workspaceId'] = group.workspaceId;
+  /**
+   * As many columns as the tab is wide, and no more.
+   *
+   * The first version gave every group the whole row, which turned a pair of terminals into a
+   * banner across the list. A tab of two side by side is two cards wide; a tab of two stacked is
+   * one card wide and two tall. Each card then keeps the size it would have had on its own, which
+   * is the point: the grouping is a background and an arrangement, not a different kind of card.
+   *
+   * Capped, because a tab with five panes is wider than the list and a group that asks for more
+   * columns than exist gets put somewhere nobody meant. Past the cap it wraps inside itself, which
+   * is the same thing the tab does to fit them on a screen.
+   */
+  const wide = group.layout ? Math.min(columnsWide(group.layout), MAX_GROUP_COLUMNS) : 1;
+  box.style.gridColumn = `span ${String(wide)}`;
 
   const head = document.createElement('header');
   head.className = 'session-group-head';
@@ -211,6 +238,15 @@ function buildLayoutNode(
  * the one that printed the thing you remember. That is as true when choosing what to put in a
  * new pane as it is on the start screen, and two renderings of the same idea would drift.
  */
+/**
+ * The widest a group may be, in cards.
+ *
+ * A list is usually three or four columns, and a group wider than the list asks the grid for
+ * columns that are not there. Three keeps the common shapes exact and lets the rare ones wrap
+ * inside the group, which is what the tab itself does to fit them on a screen.
+ */
+const MAX_GROUP_COLUMNS = 3;
+
 export function buildSessionCard(session: LiveSession, options: SessionsOptions): HTMLElement {
   const card = document.createElement('article');
   card.className = 'session-card';

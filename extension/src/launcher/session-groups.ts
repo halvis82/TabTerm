@@ -104,3 +104,20 @@ export function orderedByLayout(group: SessionGroup): { session: LiveSession; pa
 export function isShared(group: SessionGroup): boolean {
   return group.sessions.length > 1;
 }
+
+/**
+ * How many cards wide a tab is, which is how many columns of the grid it needs.
+ *
+ * Panes side by side add up; panes stacked sit in the same column, so the wider of them decides.
+ * A tab of two side by side is two cards wide, a tab of two stacked is one card wide and two tall,
+ * and each card stays the size it would be on its own.
+ *
+ * The first version of this gave every group the whole row, which made a pair of terminals into a
+ * banner across the list and was the first thing said about it: "it takes up the whole width".
+ */
+export function columnsWide(node: LayoutNode): number {
+  if (node.type === 'terminal') return 1;
+  const first = columnsWide(node.children[0]);
+  const second = columnsWide(node.children[1]);
+  return node.direction === 'horizontal' ? first + second : Math.max(first, second);
+}
