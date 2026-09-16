@@ -1599,10 +1599,37 @@ export class SessionManager {
    * The daemon takes this at face value and does not second-guess it. It cannot: nothing on this
    * side can distinguish a person closing a tab from a browser taking its windows down.
    */
-  recordTabClosed(workspaceId: string, eventId: string): void {
+  recordTabClosed(workspaceId: string, eventId: string, closedBy?: string): void {
     this.#closedWorkspaces.set(workspaceId, { at: Date.now(), eventId });
     // And it stops being somewhere a terminal is. See `tabHolds`.
     this.#everReportedOpen.delete(workspaceId);
+    /**
+     * And it comes out of the list belonging to the browser that closed it. Only that one.
+     *
+     * A reporter's list is the last thing that browser said, and "open beats closed" reads it
+     * first, deliberately: a workspace reopened inside the window has to cancel a timer. That is
+     * right about a **newer** list and wrong about an older one, and a tab closing does not
+     * rewrite a list sent before it. So a session whose tab was closed went on being described as
+     * open until the next report happened to arrive, which on a quiet browser is minutes. Seen on
+     * a real machine: a workspace with three `tab-closed` events against it, still held.
+     *
+     * Only the closer's own list, because **one of two closing is not both**. A workspace open in
+     * two browsers, one of which closes its tab, is still open in the other, and clearing every
+     * list would end a terminal somebody is looking at. That is the one outcome this product does
+     * not accept, and a test pins it.
+     *
+     * Without an attributed closer nothing is cleared, which is the conservative half of the same
+     * rule: an unattributed close cannot be known to contradict anybody in particular.
+     */
+    const closer = closedBy === undefined ? undefined : profileOf(closedBy);
+    if (closer !== undefined) {
+      for (const [clientId, open] of this.#openWorkspaces) {
+        if (profileOf(clientId) !== closer || !open.has(workspaceId)) continue;
+        const without = new Set(open);
+        without.delete(workspaceId);
+        this.#openWorkspaces.set(clientId, without);
+      }
+    }
     info('workspace.tab-closed', { workspaceId, eventId });
     this.rescheduleReaps();
   }

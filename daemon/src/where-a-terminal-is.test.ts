@@ -85,9 +85,57 @@ describe('where a card may say a terminal is', () => {
     expect(sessions.tabHolds('s-1')).toBe(false);
   });
 
+  /**
+   * The one seen on a real machine: closed, and still described as held.
+   *
+   * A reporter's list is the last thing that browser said, and "open beats closed" reads it first
+   * so that a workspace reopened inside the window can cancel a timer. That is right about a newer
+   * list and wrong about an older one, and a tab closing does not rewrite a list sent before it.
+   * A session with three `tab-closed` events against its workspace was still saying "open in a
+   * tab" because no report had happened to arrive since.
+   */
+  it('stops being held the moment its tab is closed, not when the next report arrives', () => {
+    const sessions = manager();
+    sessions.setWorkspaceLookup(() => 'ws-1');
+    sessions.reportOpenWorkspaces('chrome:control', ['ws-1', 'ws-2']);
+    expect(sessions.tabHolds('s-1')).toBe(true);
+
+    sessions.recordTabClosed('ws-1', 'event-1', 'chrome:control');
+    expect(sessions.tabHolds('s-1')).toBe(false);
+  });
+
+  /*
+   * And a browser that says it is open again wins, which is the case the rule was written for:
+   * reopening a workspace inside the window has to be able to cancel the timer.
+   */
+  it('and a later report saying it is back is believed', () => {
+    const sessions = manager();
+    sessions.setWorkspaceLookup(() => 'ws-1');
+    sessions.reportOpenWorkspaces('chrome:control', ['ws-1']);
+    sessions.recordTabClosed('ws-1', 'event-1', 'chrome:control');
+    sessions.reportOpenWorkspaces('chrome:control', ['ws-1']);
+    expect(sessions.tabHolds('s-1')).toBe(true);
+  });
+
   it('and says nothing about a workspace no browser has ever mentioned', () => {
     const sessions = manager();
     sessions.setWorkspaceLookup(() => 'ws-never');
     expect(sessions.tabHolds('s-1')).toBe(false);
+  });
+
+  /**
+   * And one of two browsers closing is not both.
+   *
+   * A workspace open in two browsers, one of which closes its tab, is still open in the other.
+   * Clearing every list would end a terminal somebody is looking at, which is the one outcome this
+   * product does not accept.
+   */
+  it("leaves another browser's claim alone when one of them closes", () => {
+    const sessions = manager();
+    sessions.setWorkspaceLookup(() => 'ws-1');
+    sessions.reportOpenWorkspaces('chrome-a:control', ['ws-1']);
+    sessions.reportOpenWorkspaces('chrome-b:control', ['ws-1']);
+    sessions.recordTabClosed('ws-1', 'event-1', 'chrome-a:control');
+    expect(sessions.tabHolds('s-1')).toBe(true);
   });
 });

@@ -1349,7 +1349,8 @@ export class DaemonServer {
           warn('tab-closed.refused', { clientId: client.id, role: client.role });
           return;
         }
-        this.#sessions.recordTabClosed(msg.workspaceId, msg.eventId);
+        // Attributed, so it can correct that browser's own earlier claim and nobody else's.
+        this.#sessions.recordTabClosed(msg.workspaceId, msg.eventId, client.id);
         /*
          * And the list is said again, because what it says about that tab has changed.
          *

@@ -10,6 +10,19 @@ const r = reporter();
 // A session that runs something and then goes quiet, which is what used to be called "shell".
 const worker = await openTerminal();
 await waitFor(worker.client, "document.querySelector('.launcher-input')");
+/*
+ * Somewhere recent, so the folders section exists at all.
+ *
+ * It is drawn only when there is something to draw, and what the daemon has seen depends on which
+ * other suites have run. Asserting the order without making a folder recent passed or failed on
+ * the company this suite happened to keep.
+ */
+await type(worker.client, 'cd /usr\r');
+await sleep(400);
+await type(worker.client, 'cd ~\r');
+await sleep(1200);
+
+// And then the command the card is judged by, run last so it is the last one.
 await type(worker.client, 'ls /usr\r');
 await waitFor(worker.client, `(window.__tabterm.readScreen() ?? '').includes('bin')`, 20000);
 await sleep(1500);
@@ -72,6 +85,10 @@ const order = JSON.parse(
     ),
   ),
 );
+/*
+ * Asserted rather than assumed: with only one of them present the order below is vacuous, and it
+ * would pass by saying nothing.
+ */
 r.ok('both sections are on the page', order.length === 2, JSON.stringify(order));
 r.ok(
   'and recent folders comes first',
