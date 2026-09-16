@@ -120,6 +120,9 @@ const FIRST = [
  */
 const LAST = [
   'survives-restart',
+  // Kills the daemon on purpose, to reach the one state its check is about: a session adopted
+  // from a previous daemon, which is what an update leaves behind.
+  'offer-only-over-empty-panes',
   'resilience',
   'nothing-left-alive',
   // These three leave the start screen the way a person does, which runs a `cd`, and two of them
