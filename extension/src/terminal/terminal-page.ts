@@ -23,6 +23,7 @@ import { PaneChooser } from './pane-chooser.js';
 import { openLabelForm } from './label-form.js';
 import { describeError } from './describe-error.js';
 import { XtermController } from './xterm-controller.js';
+import { resolveDroppedFolder } from './dropped-folder.js';
 import type { PaneMenuAction } from './xterm-controller.js';
 import { findCandidates } from './path-links.js';
 import { askHasLapsed, missHasExpired } from './link-scan.js';
@@ -2744,7 +2745,21 @@ function installDropTarget(): void {
     if (!carried || notOurs(e)) return;
     e.preventDefault();
     if (carried === 'files') {
-      void takeDroppedFiles([...(e.dataTransfer?.files ?? [])]);
+      /*
+       * A folder is separated out before anything tries to read it.
+       *
+       * Chrome puts a dropped folder in `files` like anything else, with no bytes behind it, so it
+       * went down the path that reads a file and reported that it could not be read. It is a
+       * directory, which `webkitGetAsEntry` is the only way to find out, and it has to be asked
+       * during the event: the entries are gone by the next tick.
+       */
+      const entries = [...(e.dataTransfer?.items ?? [])].map((item) =>
+        item.kind === 'file' ? item.webkitGetAsEntry() : null,
+      );
+      const folders = entries.filter((entry) => entry?.isDirectory === true).map((e2) => e2!.name);
+      const files = [...(e.dataTransfer?.files ?? [])].filter((f) => !folders.includes(f.name));
+      for (const name of folders) takeDroppedFolder(name);
+      if (files.length > 0) void takeDroppedFiles(files);
       return;
     }
     /*
@@ -2790,6 +2805,32 @@ function stageAtPrompt(text: string): void {
     return;
   }
   client?.write(pane.streamId, new TextEncoder().encode(text));
+}
+
+/** Folders this machine is known to work in, from the start screen's own list. */
+let knownFolders: readonly string[] = [];
+
+/**
+ * What to do with a folder somebody dropped on a pane.
+ *
+ * His words: "drag and drop folders doesn't work… it should just give hte path to the folder". The
+ * path is the one thing a browser will not hand over, so it is looked up by name among the folders
+ * this machine is known to work in. When that answers, the path goes to the prompt the way a
+ * dropped file's path does. When it does not, the reason is said, rather than leaving a drop that
+ * appears to do nothing at all.
+ */
+function takeDroppedFolder(name: string): void {
+  const found = resolveDroppedFolder(name, knownFolders);
+  if ('path' in found) {
+    stageAtPrompt(quotePath(found.path));
+    return;
+  }
+  setStatus(
+    found.ambiguous > 1
+      ? `Several folders are called ${name}. Chrome does not say which one was dropped`
+      : `Chrome does not give a dropped folder's path, and ${name} is not in your recent folders`,
+    'warn',
+  );
 }
 
 /** Hand each dropped file to the daemon, which writes it and answers with what to do about it. */
@@ -5811,6 +5852,15 @@ function onControl(msg: ServerMessage): void {
         'hidden-resumes',
       ]);
       launcher?.setState(msg.state);
+      /*
+       * Kept, because a dropped folder arrives as a name and nothing else.
+       *
+       * Chrome hands over the bytes of a dropped file and never its path, and a folder has no
+       * bytes, so a folder dropped on a pane produced a zero-length read and a message saying it
+       * could not be read. The name is real though, and these are the folders this machine is
+       * known to work in, so a name that matches exactly one of them is an answer.
+       */
+      knownFolders = msg.state.recentDirs.map((d) => d.path);
       const homeWasUnknown = launcherHome === '';
       launcherHome = msg.state.home;
       /*
