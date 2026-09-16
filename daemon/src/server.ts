@@ -538,6 +538,8 @@ export class DaemonServer {
             ...(session.titleFields.process ? { process: session.titleFields.process } : {}),
             ...(session.pendingCommand ? { lastCommand: session.pendingCommand } : {}),
             attached: session.clients.size > 0,
+            // A discarded tab is still a tab. See `inTab` in the protocol.
+            inTab: this.#sessions.tabHolds(session.id),
             startedAt: session.createdAt,
             preview: lines.slice(-PREVIEW_LINES),
             busy: session.commandRunning,
@@ -1355,6 +1357,8 @@ export class DaemonServer {
                 cwd: session.cwd,
                 paneCount: panes(w.layout).length,
                 attached: session.clients.size > 0,
+                // A discarded tab is still a tab. See `inTab` in the protocol.
+                inTab: this.#sessions.tabHolds(session.id),
                 hasRun: session.hasRun === true,
               },
             ];

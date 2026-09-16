@@ -1419,6 +1419,18 @@ export class SessionManager {
    * reloading the extension, a teardown race, or a second profile that never had the workspace
    * were all indistinguishable from somebody deliberately closing a terminal.
    */
+  /**
+   * Whether a tab is holding this session, as far as anybody can tell.
+   *
+   * The same question the reap policy asks, answered for anything that wants to **say** so rather
+   * than decide on it. A card reading "background" beside a terminal that is plainly in a tab is
+   * alarming in exactly the way this product must not be, because background is also the word for
+   * the state that starts a timer.
+   */
+  tabHolds(sessionId: string): boolean {
+    return this.#tabDisposition(sessionId) === 'open';
+  }
+
   #tabDisposition(sessionId: string): TabDisposition {
     if (this.#workspaceOf === undefined) return 'unknown';
     const workspaceId = this.#workspaceOf(sessionId);

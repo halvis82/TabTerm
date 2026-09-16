@@ -356,6 +356,20 @@ export interface LiveSession {
   lastCommand?: string;
   /** Whether a tab is currently showing it, as opposed to it merely being alive. */
   attached: boolean;
+  /**
+   * A tab is holding it, whether or not that tab has a page running right now.
+   *
+   * Not the same question as `attached`, and the difference is the whole of why this exists.
+   * `attached` is a live socket from a terminal page. Chrome discards a tab it has not needed for
+   * a while: the tab stays in the strip, the page is thrown away, and the socket goes with it. So
+   * a terminal sitting in a window somebody has not looked at for an hour reported itself as
+   * having no tab and was labelled `background`, which is also the word for the state that starts
+   * the timer that ends a session.
+   *
+   * Nothing was ever at risk, because the rule that ends sessions asks this question rather than
+   * the other one. The label was asking the wrong one.
+   */
+  inTab: boolean;
   startedAt: number;
   /** The last few lines of its screen, trimmed. Empty for a session that printed nothing. */
   preview: readonly string[];

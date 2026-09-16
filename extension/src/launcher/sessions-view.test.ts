@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  badgeTextFor,
   describe as describeSession,
   formatBytes,
   shortPath,
@@ -12,6 +13,7 @@ const base: LiveSession = {
   sessionId: 's',
   cwd: '/Users/someone/Projects/app',
   attached: false,
+  inTab: false,
   startedAt: 0,
   preview: [],
   busy: false,
@@ -137,6 +139,7 @@ describe('what a session card calls a session', () => {
     sessionId: 's',
     cwd: '/Users/someone/work',
     attached: false,
+    inTab: false,
     startedAt: 0,
     preview: [],
     busy: false,
@@ -170,5 +173,39 @@ describe('what a session card calls a session', () => {
   it('says shell only when nothing has ever run there, where it is the truth', () => {
     expect(describeSession({ ...base, process: 'zsh' })).toBe('shell');
     expect(describeSession(base)).toBe('shell');
+  });
+});
+
+/**
+ * A tab Chrome has put to sleep is still a tab.
+ *
+ * `attached` is a live page. Chrome discards tabs it has not needed for a while: the tab stays in
+ * the strip, the page is thrown away, and the socket goes with it. Terminals sitting in a second
+ * window were therefore labelled `background`, which is also the name of the state that starts the
+ * timer that ends a session, so the label was alarming as well as wrong.
+ *
+ * Nothing was ever at risk. The rule that ends a session asks whether a tab holds it, which is the
+ * question this label now asks too.
+ */
+describe('what a session card says about where a session is', () => {
+  const base = {
+    sessionId: 's1',
+    cwd: '/tmp',
+    startedAt: Date.now(),
+    preview: [],
+    busy: false,
+    memoryBytes: 0,
+  };
+
+  it('says it is in a tab when a page is showing it', () => {
+    expect(badgeTextFor({ ...base, attached: true, inTab: true })).toBe('open in a tab');
+  });
+
+  it('and still says so when the tab is asleep and no page is attached', () => {
+    expect(badgeTextFor({ ...base, attached: false, inTab: true })).toBe('open in a tab');
+  });
+
+  it('and says background only when no tab holds it at all', () => {
+    expect(badgeTextFor({ ...base, attached: false, inTab: false })).toBe('background');
   });
 });

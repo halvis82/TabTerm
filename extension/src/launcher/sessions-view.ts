@@ -159,7 +159,7 @@ export function buildSessionCard(session: LiveSession, options: SessionsOptions)
   const badge = document.createElement('span');
   badge.className = 'session-badge';
   // Said plainly, because "attached" is jargon for something people think of as "open".
-  badge.textContent = session.attached ? 'open in a tab' : 'background';
+  badge.textContent = badgeTextFor(session);
   head.append(badge);
 
   card.append(head);
@@ -249,4 +249,19 @@ export function formatBytes(bytes: number): string {
   if (mb < 1) return `${String(Math.round(bytes / 1024))} KB`;
   if (mb < 100) return `${(Math.round(mb * 10) / 10).toString()} MB`;
   return `${String(Math.round(mb))} MB`;
+}
+
+/**
+ * What a card says about where a session is.
+ *
+ * `attached` is a live page. Chrome discards tabs it has not needed for a while: the tab stays in
+ * the strip, the page is thrown away, and the socket goes with it. So terminals sitting in a window
+ * somebody had not looked at for an hour were labelled `background`, which is also the name of the
+ * state that starts the timer that ends a session. The label was alarming as well as wrong.
+ *
+ * Nothing was ever at risk. The rule that ends a session asks whether a **tab** holds it, and this
+ * now asks the same question.
+ */
+export function badgeTextFor(session: Pick<LiveSession, 'attached' | 'inTab'>): string {
+  return session.attached || session.inTab ? 'open in a tab' : 'background';
 }
