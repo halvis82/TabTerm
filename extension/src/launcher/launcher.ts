@@ -1014,6 +1014,22 @@ export class Launcher {
     input: HTMLInputElement,
     pinned = false,
   ): void {
+    /**
+     * Never once the start screen is gone.
+     *
+     * The card is shown on a timer, three hundred and twenty milliseconds after the pointer lands
+     * on a chip, so that crossing the row does not flash one card per chip. Clicking a chip opens
+     * the template and takes the start screen away, and the chip goes with it, so the `mouseleave`
+     * that would have cancelled the timer never happens: the pointer has not moved, the thing
+     * under it has. The timer then fired against a page that is now four terminals, and built a
+     * card describing a template over the top of them.
+     *
+     * Guarded here rather than by chasing the timer, because every path that shows this card is a
+     * path that can be late: the hover, the right click, and anything added later. What the card
+     * belongs to is the start screen, so the start screen being gone is the answer for all of
+     * them.
+     */
+    if (this.#dismissed || this.#el.hidden) return;
     // A pinned card stays until it is dismissed: hovering another chip does not replace it.
     if (this.#cardPinned && !pinned) return;
     this.#templateCard?.remove();
