@@ -1435,6 +1435,24 @@ function syncPaneChoosers(): void {
     }
   }
   if (paneIds.length < 2) return;
+  /**
+   * Nothing is offered until the daemon has said what these panes are.
+   *
+   * The offer is for a pane with nothing in it, and until the attach lands this page knows nothing
+   * about any of them: not whether a command has ever run there, not whether anything was typed,
+   * and not what is on the screen, because the snapshot arrives with the attach too. Deciding then
+   * means deciding from an empty page, which answers "nothing in it" for every pane there is.
+   *
+   * A layout can arrive first. `workspace-updated` carries a layout and no pane facts, and a page
+   * that has just connected can be sent one before its own attach is answered. So the offer was
+   * drawn over a pane holding an agent, and taken away a second or two later once the facts
+   * arrived, which is the flicker he reported. Sometimes it stayed longer, which is the same thing
+   * with a slower answer.
+   *
+   * Waiting costs nothing. A pane that really is empty is still empty when the attach lands, and
+   * the offer appears then, once, rather than appearing and being corrected.
+   */
+  if (!attached) return;
 
   for (const paneId of paneIds) {
     if (paneChoosers.has(paneId)) continue;
@@ -5437,10 +5455,17 @@ function onControl(msg: ServerMessage): void {
          */
         if (p.title) sessionTitles.set(p.sessionId, p.title);
       }
+      /*
+       * Set before the layout is applied, because applying it decides what to offer.
+       *
+       * `syncPaneChoosers` runs inside `applyLayout` and now refuses to offer anything until the
+       * daemon's account of these panes has landed. Every fact it needs was read out of this
+       * message a few lines above, so by here it has landed: the flag is what says so.
+       */
+      attached = true;
       applyLayout(msg.layout);
       // Drawn after the layout, because the bars do not exist until the panes do.
       splitView?.refreshTitleBars();
-      attached = true;
 
       /**
        * And now measure, because everything measured before this was thrown away.

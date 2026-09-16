@@ -198,6 +198,16 @@ async function main(): Promise<void> {
   };
   // And which workspace, so a report of the tabs Chrome has open can be matched to sessions.
   sessions.setWorkspaceLookup((sessionId) => workspaces.findBySession(sessionId)?.id);
+  /*
+   * And whether anything has ever run in a session, which only a record can answer.
+   *
+   * Adoption asks this to decide whether a reopened pane counts as used. The screen cannot answer
+   * it for the sessions it matters most for: a full-screen program draws on the alternate buffer,
+   * so an agent that has cleared and redrawn serializes to almost nothing and reports itself as
+   * untouched. The counter behind the Stats page is written as commands finish and survives this
+   * daemon, so it answers "has anything ever run here" directly.
+   */
+  sessions.everRan = (sessionId) => (stats.forSession(sessionId)?.commandsRun ?? 0) > 0;
 
   /**
    * Provenance and the background clock, kept across daemon restarts.

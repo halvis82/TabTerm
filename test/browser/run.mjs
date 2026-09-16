@@ -212,7 +212,7 @@ const COVERS = [
   ['extension/src/terminal/color-', ['highlights', 'pane-label']],
   ['extension/src/terminal/markers', ['markers', 'highlights']],
   ['extension/src/terminal/label-form', ['pane-label']],
-  ['extension/src/terminal/pane-chooser', ['pane-chooser']],
+  ['extension/src/terminal/pane-chooser', ['pane-chooser', 'no-offer-over-used-panes']],
   ['extension/src/terminal/quote-path', ['opening-and-undo']],
   [
     'extension/src/terminal/xterm-controller',

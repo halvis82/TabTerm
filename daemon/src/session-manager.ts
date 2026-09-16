@@ -608,18 +608,26 @@ export class SessionManager {
       clients: new Map(),
       commandRunning: false,
       /**
-       * Whether it was ever used is read off its screen, not assumed.
+       * Whether it was ever used, asked of the record first and the screen second.
        *
        * It used to be assumed true, on the reasoning that a session which outlived a daemon had
        * plainly been used. That is not true of a shell somebody opened and left: it outlives a
-       * daemon restart exactly as readily as a busy one. The result was empty shells appearing
-       * in `Running now` as cards holding nothing but a prompt, and being protected from the
-       * rule that clears untouched panes away.
+       * daemon restart exactly as readily as a busy one. The result was empty shells appearing in
+       * `Running now` as cards holding nothing but a prompt, and being protected from the rule
+       * that clears untouched panes away.
        *
-       * The screen is the evidence available. More than one line with anything on it means
-       * something was run, because a shell that has only printed its prompt has exactly one.
+       * So it was read off the screen instead, and the screen is a poor witness for exactly the
+       * sessions that matter most. A full-screen program draws on the alternate buffer, and an
+       * agent that has cleared and redrawn can serialize to very little, so the session somebody
+       * most obviously has work in reports that nothing has ever run in it. What follows is the
+       * offer to open a folder drawn over a working agent, which is the report this comes from.
+       *
+       * The daemon already writes down how many commands each session has run, per session and
+       * across restarts, for the Stats page. That is the direct answer to "has anything ever run
+       * here" and it does not depend on what is on screen at this instant. The screen stays as the
+       * fallback for a session that predates the record.
        */
-      hasRun: usedLines(vt.snapshot(0).screen) > 1,
+      hasRun: this.everRan?.(info_.sessionId) === true || usedLines(vt.snapshot(0).screen) > 1,
     };
     if (info_.command) session.command = info_.command;
     session.osc = this.#buildOsc(session);
@@ -1156,6 +1164,14 @@ export class SessionManager {
    * The restore path deliberately does not come through here: it is reading the rows back, so
    * writing them again would be a round trip to say what the disk just said.
    */
+  /**
+   * Whether anything has ever run in a session, from a record that outlives this daemon.
+   *
+   * Set by `main.ts` to the stats store, which counts commands per session and is written as they
+   * finish. Optional so the manager can be built without one in a test that is not about this.
+   */
+  everRan: ((sessionId: string) => boolean) | undefined;
+
   #setBackgroundSince(workspaceId: string, value: { at: number; reason: string } | null): boolean {
     if (value === null) {
       if (!this.#backgroundSince.delete(workspaceId)) return false;
