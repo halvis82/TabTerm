@@ -21,7 +21,7 @@
     "package:app": "npm run build:daemon && node scripts/build-app-bundle.mjs",
     "package:extension": "npm run build:extension && node scripts/package-extension.mjs",
     "doctor": "bash scripts/doctor.sh",
-    "diagnostics": "node scripts/diagnostics.mjs",
+    "diagnostics": "node scripts/with-node.mjs node scripts/diagnostics.mjs",
     "typecheck": "tsc --build --force",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

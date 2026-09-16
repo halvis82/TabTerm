@@ -1437,15 +1437,25 @@ export class SessionManager {
      * after a restart the daemon did not even know about the second one. The second half was real
      * and is fixed, in `workspace_owners`.
      *
-     * The first half was tried here and reverted. Refusing to conclude anything while a past owner
-     * is away means a browser that is uninstalled, or simply never opened again, pins every
-     * terminal it ever touched for the life of the machine, which is the failure the paragraphs
-     * above spend their length avoiding: a timeout that never applies to anything. Two checks
-     * encode the current answer deliberately, one of them named for it.
+     * One settled owner is enough, and that is a decision rather than an oversight.
      *
-     * So the trade stands: a settled browser that had it and no longer lists it is taken at its
-     * word. What changed is that the daemon now knows the full set of owners across a restart,
-     * which is what any future rule would have to be built on.
+     * The alternative was tried, here, and reverted twice. Requiring **every** browser that has
+     * ever held a workspace to be present before concluding anything sounds like the safe
+     * direction and is not, because the set of owners survives a restart: a workspace restored
+     * with an owner that never reconnects can then never be judged closed by anybody, so the
+     * timeout somebody chose applies to nothing at all. Two tests pin that, one of them named for
+     * it, and both fail the moment the rule is widened.
+     *
+     * The cost of the rule as it stands, stated accurately, because the note that used to be here
+     * justified it with a failure the code already has. It is **not** that a browser which never
+     * returns would pin its terminals for ever. It is narrower than that: a workspace open in two
+     * browsers can be judged closed on one browser's silence while the other still has it on
+     * screen but is not reporting at that moment.
+     *
+     * What keeps that window small is the check above this one. It runs over **every** reporter,
+     * settled or not, and a single mention of the workspace protects the session absolutely. So a
+     * second browser only fails to protect its own tab while it is not reporting at all, and
+     * Chrome's control client reconnects and re-reports every time its worker wakes.
      */
     for (const [clientId, since] of this.#reporterSince) {
       if (now - since < this.settledAfterMs) continue;
