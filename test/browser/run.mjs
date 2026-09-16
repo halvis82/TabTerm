@@ -229,7 +229,10 @@ const COVERS = [
   ['daemon/src/cleanup', ['sessions']],
   ['daemon/src/pty-host/', ['survives-restart', 'resilience']],
   ['daemon/src/pty-manager', ['survives-restart', 'resilience', 'terminal']],
-  ['daemon/src/session-manager.ts', ['size-agreement', 'attach-sizes', 'steady-size']],
+  [
+    'daemon/src/session-manager.ts',
+    ['size-agreement', 'attach-sizes', 'steady-size', 'redraw-in-place'],
+  ],
   ['daemon/src/restore-store', ['reattach']],
   // Taking over what the host still holds, which is only visible across a daemon restart.
   ['daemon/src/adopt', ['survives-restart', 'resilience', 'reattach', 'sessions']],
@@ -261,7 +264,15 @@ const COVERS = [
   ['extension/src/terminal/screen-content', ['start-screen-refresh', 'straight-to-view']],
   [
     'extension/src/terminal/panes',
-    ['layout', 'workspace', 'steady-size', 'resize-output', 'size-agreement', 'size-stability'],
+    [
+      'layout',
+      'workspace',
+      'steady-size',
+      'resize-output',
+      'size-agreement',
+      'size-stability',
+      'redraw-in-place',
+    ],
   ],
   [
     'extension/src/terminal/measured-size',

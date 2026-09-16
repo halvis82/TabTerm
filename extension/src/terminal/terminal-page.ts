@@ -3960,6 +3960,15 @@ const sessionSizes: { paneId: string; cols: number; rows: number }[] = [];
 const SESSION_SIZE_MEMORY = 40;
 
 /**
+ * How many times the daemon has told a pane its session is running at a **different** size.
+ *
+ * Not how many messages arrived: every request is answered now, and an answer that repeats the
+ * size a session already had costs nothing and reaches no program. This counts the ones that do
+ * reach it, because each one is a full redraw of whatever is running.
+ */
+const daemonSizeChanges = new Map<string, number>();
+
+/**
  * Sizes asked for recently, so a pane that has started resizing itself in a loop says so.
  *
  * A terminal caught in one is visible to the person watching it and to nothing else: by the time
@@ -5827,6 +5836,25 @@ function onControl(msg: ServerMessage): void {
        * the grid passed just as happily with the nudge removed. This is the sequence the daemon
        * actually applied, which is the thing the nudge is trying to cause.
        */
+      /**
+       * Counted when it is a size this session was not already running at.
+       *
+       * Every one of these is a SIGWINCH, and a SIGWINCH is an agent redrawing its whole
+       * interface. It redraws in place: it moves the cursor up by the number of rows it believes
+       * it printed, erases them, and draws again. That row count depends on the width, because a
+       * wrapped line occupies more rows at a narrower one. So a second size arriving while the
+       * first redraw is in flight makes the erase clear the wrong number of rows, the old frame
+       * stays on screen, and the new one lands underneath it.
+       *
+       * Which is why the count matters and the final size does not. One size change for one thing
+       * a person did is correct and invisible. Two is a stranded copy of whatever was on screen,
+       * and the report that started all of this was the same table drawn three times at three
+       * widths.
+       */
+      const lastSize = sessionSizes.filter((e) => e.paneId === pane.paneId).at(-1);
+      if (!lastSize || lastSize.cols !== msg.cols || lastSize.rows !== msg.rows) {
+        daemonSizeChanges.set(pane.paneId, (daemonSizeChanges.get(pane.paneId) ?? 0) + 1);
+      }
       sessionSizes.push({ paneId: pane.paneId, cols: msg.cols, rows: msg.rows });
       if (sessionSizes.length > SESSION_SIZE_MEMORY) sessionSizes.shift();
       /**
@@ -6429,6 +6457,13 @@ declare global {
       /** How many times that grid has moved, which is what a size storm actually is. */
       gridMovesFor: (paneId: string) => number;
       /**
+       * How many times the session behind this pane was actually resized.
+       *
+       * One per thing a person did is correct. Two for one action is a stranded frame, because an
+       * agent redrawing in place erases by a row count that only holds at the width it drew at.
+       */
+      daemonSizeChangesFor: (paneId: string) => number;
+      /**
        * The size the daemon last said this pane's session is running at.
        *
        * The authoritative one. One PTY has one size, and a view rendering at a different one is
@@ -6659,6 +6694,7 @@ function installTestHook(): void {
       else panesHost?.restoreRenderers();
     },
     gridMovesFor: (paneId) => gridMoves.get(paneId) ?? 0,
+    daemonSizeChangesFor: (paneId) => daemonSizeChanges.get(paneId) ?? 0,
     daemonSizeFor: (paneId) => {
       for (let i = sessionSizes.length - 1; i >= 0; i--) {
         const seen = sessionSizes[i];

@@ -367,6 +367,7 @@ browser the suite is not in. Use `listTargets`.
 | `menu-aftermath` | Clear and a marker both leave a prompt, and the folder box says what is there |
 | `size-agreement` | Every pane's grid is the size the daemon says its session runs at, after each of the seven ways a size can change |
 | `size-stability` | Nothing the browser does to a tab on its own moves a terminal: hiding it, taking its renderer away and giving it back, or leaving it alone |
+| `redraw-in-place` | A program that redraws in place is not left with copies of itself on the screen, and a whole drag costs one resize rather than one per frame |
 
 Those two ask opposite halves of one question and neither is redundant. The first asks whether the
 page and the daemon agree, which covers rendering into columns the shell does not know exist. The

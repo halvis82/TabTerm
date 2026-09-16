@@ -101,6 +101,37 @@ The end state was always correct: a pane given the wrong size is corrected withi
 the fault costs is the redraw in between, which is why the check counts how many times a pane's
 grid moves during a reattach rather than what size it ends on.
 
+### Why a resize shows up as the same thing printed twice
+
+A wrong size is not the symptom people report. What they report is the same block of output on the
+screen two or three times, each copy a different width, stacked.
+
+That is the redraw, not the size. A program that draws an interface in place, which is every agent
+and every progress display, does it by moving the cursor up by the number of rows it believes it
+printed, erasing them, and drawing again. **That row count is only true at the width it drew at**,
+because a line that fits in one row at 120 columns takes two at 60. So if the width changes between
+the draw and the erase, the erase clears the wrong number of rows: the previous frame stays on the
+screen, and the new one is drawn underneath it. Nothing will ever clean that up, because the
+program believes it already did.
+
+Two consequences follow, and they are what the sizing rules are actually for:
+
+- **Every extra size change is one more stranded copy.** Not a cosmetic degradation that gets worse
+  gradually: one copy per resize the program is told about
+- **The count is what matters, not the final size.** A session that ends up at the right width
+  having visited two others on the way has printed the screen three times, and every one of those
+  is still there
+
+So the property is not "the size is correct". It is **one thing a person did produces one size
+change**. A drag is one thing a person did, which is why the page coalesces the stream of
+intermediate widths a drag produces rather than forwarding each one: twenty-eight frames of a drag
+once became fifty-eight messages, and a program redrawing in place answers every one of them.
+
+`redraw-in-place` checks exactly this, with a program written the naive way on purpose: it draws a
+block and, on every SIGWINCH, goes up by the number of lines it printed and draws again. The point
+is not that the program is clever. It is that the platform must never put it in a position where
+that arithmetic stops holding.
+
 ### A terminal changes size when a person changes it, and at no other time
 
 A session lives in a browser tab, and a browser does things to tabs that nobody asked for: it hides
