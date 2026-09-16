@@ -1093,6 +1093,13 @@ export class SessionManager {
   readonly #openWorkspaces = new Map<string, ReadonlySet<string>>();
 
   /**
+   * Workspaces some browser has reported holding, kept across that browser going away.
+   *
+   * Used only to say where a terminal is, never to decide anything about it. See `tabHolds`.
+   */
+  readonly #everReportedOpen = new Set<string>();
+
+  /**
    * When each reporter first said anything, so a claim can be required to have settled.
    *
    * A browser that has just connected has not finished finding out what it has. Its first report
@@ -1333,6 +1340,13 @@ export class SessionManager {
     }
     if (!this.#reporterSince.has(clientId)) this.#reporterSince.set(clientId, Date.now());
     this.#openWorkspaces.set(clientId, new Set(ids));
+    /*
+     * Remembered beyond the connection that said it, for the label only.
+     *
+     * A reporter's list is forgotten when it disconnects, which is right for deciding anything. It
+     * is wrong for describing, because the browser being asleep is not the tab being gone.
+     */
+    for (const id of ids) this.#everReportedOpen.add(id);
     // Everything this browser has ever positively claimed, which is the only basis on which it may
     // later be believed about the same workspace being gone.
     const profile = profileOf(clientId);
@@ -1428,7 +1442,23 @@ export class SessionManager {
    * the state that starts a timer.
    */
   tabHolds(sessionId: string): boolean {
-    return this.#tabDisposition(sessionId) === 'open';
+    if (this.#tabDisposition(sessionId) === 'open') return true;
+    /**
+     * And what a browser last said, which is the answer while it is asleep.
+     *
+     * Chrome's service worker is not a process that stays running: it sleeps and wakes constantly,
+     * measured at nine times in forty minutes on a real machine, and each time its connection goes
+     * the report goes with it. `#tabDisposition` is right to forget it, because deciding to end
+     * somebody's terminal on a stale report is exactly the class of mistake this product cannot
+     * make. Saying where a terminal **is** has no such cost, and a card that flips to "background"
+     * every time a worker naps is wrong far more often than it is right.
+     *
+     * Cleared by an explicit close, so a tab that really went away stops being remembered as one.
+     */
+    const workspaceId = this.#workspaceOf?.(sessionId);
+    if (workspaceId === undefined) return false;
+    if (this.#closedWorkspaces.has(workspaceId)) return false;
+    return this.#everReportedOpen.has(workspaceId);
   }
 
   #tabDisposition(sessionId: string): TabDisposition {
@@ -1550,6 +1580,8 @@ export class SessionManager {
    */
   recordTabClosed(workspaceId: string, eventId: string): void {
     this.#closedWorkspaces.set(workspaceId, { at: Date.now(), eventId });
+    // And it stops being somewhere a terminal is. See `tabHolds`.
+    this.#everReportedOpen.delete(workspaceId);
     info('workspace.tab-closed', { workspaceId, eventId });
     this.rescheduleReaps();
   }
