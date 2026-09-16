@@ -1,4 +1,13 @@
 import { THEME_CHOICES } from '../terminal/themes.js';
+import {
+  DEFAULT_LABEL_OPACITY,
+  DEFAULT_LABEL_SCALE,
+  LABEL_OPACITY_KEY,
+  LABEL_SCALE_KEY,
+  obscuresOutput,
+  saneOpacity,
+  saneScale,
+} from '../terminal/label-look.js';
 import { describeKeys, prettyKeys } from '../terminal/page-shortcuts.js';
 import type { AgentHooksStatus, NotifyPolicy, ShellIntegrationStatus } from '@tabterm/shared';
 /**
@@ -63,6 +72,30 @@ const SCROLLBACK_CHOICES: [bytes: number, label: string][] = [
   [10 * 1024 * 1024, '10 MB'],
   [25 * 1024 * 1024, '25 MB'],
   [50 * 1024 * 1024, '50 MB'],
+];
+
+/**
+ * Offered strengths for the name drawn over a pane, with the default named.
+ *
+ * Steps rather than a slider, for the same reason as every other setting here: a slider implies a
+ * precision nobody wants, and the difference between 0.16 and 0.17 is not a decision.
+ */
+const LABEL_OPACITY_CHOICES: readonly (readonly [string, string])[] = [
+  ['0', 'Off'],
+  ['0.08', 'Faintest'],
+  ['0.16', 'Faint (default)'],
+  ['0.3', 'Clear'],
+  ['0.45', 'Strong'],
+  ['0.6', 'Strongest'],
+];
+
+/** And sizes, as a multiple of the size it works out from the pane. */
+const LABEL_SCALE_CHOICES: readonly (readonly [string, string])[] = [
+  ['0.6', 'Small'],
+  ['0.8', 'Smaller'],
+  ['1', 'Normal (default)'],
+  ['1.3', 'Larger'],
+  ['1.6', 'Large'],
 ];
 
 /** Offered thresholds. A slider would imply a precision nobody wants from this. */
@@ -143,6 +176,40 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
     themeSelect.value = (stored['tabterm.theme'] as string | undefined) ?? 'dark';
   });
   look.append(field('Theme', 'Colors for the terminal and this panel', themeSelect));
+
+  /*
+   * How the name drawn over a pane looks.
+   *
+   * It is deliberately faint, because it says which session this is without competing with what
+   * the session is saying, and how faint is a judgement about a screen and a pair of eyes rather
+   * than something one number settles. The defaults are named in the choices so it is obvious
+   * which one is the way it came.
+   */
+  const opacitySelect = chooser(LABEL_OPACITY_CHOICES, String(DEFAULT_LABEL_OPACITY), (value) => {
+    void chrome.storage.local.set({ [LABEL_OPACITY_KEY]: Number(value) });
+    opacityWarning.hidden = !obscuresOutput(Number(value));
+  });
+  const opacityWarning = document.createElement('div');
+  opacityWarning.className = 'cmd-settings-warning';
+  opacityWarning.textContent = 'At this strength the name will cover the output behind it.';
+  opacityWarning.hidden = true;
+
+  const scaleSelect = chooser(LABEL_SCALE_CHOICES, String(DEFAULT_LABEL_SCALE), (value) => {
+    void chrome.storage.local.set({ [LABEL_SCALE_KEY]: Number(value) });
+  });
+
+  void chrome.storage.local.get([LABEL_OPACITY_KEY, LABEL_SCALE_KEY]).then((stored) => {
+    const opacity = saneOpacity(stored[LABEL_OPACITY_KEY] ?? DEFAULT_LABEL_OPACITY);
+    opacitySelect.value = String(opacity);
+    opacityWarning.hidden = !obscuresOutput(opacity);
+    scaleSelect.value = String(saneScale(stored[LABEL_SCALE_KEY] ?? DEFAULT_LABEL_SCALE));
+  });
+
+  look.append(
+    field('Session name strength', 'How visible the name drawn over a pane is', opacitySelect),
+  );
+  look.append(opacityWarning);
+  look.append(field('Session name size', 'How large that name is drawn', scaleSelect));
   wrap.append(look);
 
   // --- Terminals ----------------------------------------------------------

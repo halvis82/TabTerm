@@ -1194,6 +1194,16 @@
    *   label    13px, bright              the thing itself
    *   desc     12px, dim                 what it means, on its own line
    */
+  .cmd-settings-warning {
+    /* Sits under the control it is about, so it reads as a consequence of that choice. */
+    margin: -2px 8px 8px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--warn-fg, #e8c06a);
+    background: color-mix(in srgb, var(--warn-fg, #e8c06a) 12%, transparent);
+  }
+
   .cmd-settings {
     display: flex;
     flex-direction: column;
@@ -1582,6 +1592,22 @@
   .marker-rail.has-markers {
     display: block;
   }
+  /*
+   * A line somebody typed on, in its own lane beside the landmarks.
+   *
+   * Thinner and to one side on purpose: what somebody looks for on this rail is a landmark, and
+   * these say where the input was rather than offering a second set of targets.
+   */
+  .input-pip {
+    position: absolute;
+    left: 1px;
+    width: 3px;
+    height: 2px;
+    border-radius: 1px;
+    background: rgba(140, 170, 230, 0.55);
+    pointer-events: none;
+  }
+
   .marker-pip {
     position: absolute;
     left: 0;
@@ -1688,12 +1714,14 @@
     /* Big enough to read at a glance and faint enough to read through, which is the whole point:
        it says which session this is without competing with what the session is saying. Sized
        against the pane, so it stays legible in a narrow one and never grows past it. */
-    font-size: clamp(32px, 17cqw, 85px);
+    /* Scaled by a setting, defaulting to 1, so the sizing above stays the shape of the rule. */
+    font-size: calc(clamp(32px, 17cqw, 85px) * var(--pane-label-scale, 1));
     line-height: 1.05;
     font-weight: 600;
     letter-spacing: 0.01em;
     color: var(--text);
-    opacity: 0.16;
+    /* A setting, defaulting to what it was. Far enough up this stops being a watermark. */
+    opacity: var(--pane-label-opacity, 0.16);
     pointer-events: none;
     user-select: none;
     max-width: 72%;

@@ -68,6 +68,14 @@ export function openLabelForm(opts: LabelFormOptions): HTMLElement {
       opts.onPreview?.(input.value, chosen);
       input.focus();
     },
+    /*
+     * And the name takes the colour as the mouse moves over the map, not only on release.
+     *
+     * Asked for: the existing name should update as you hold the mouse down and move, so the
+     * choice is made against the thing it applies to rather than against a swatch. Only a preview:
+     * what is kept is whatever is chosen on release.
+     */
+    onPreview: (color) => opts.onPreview?.(input.value, color),
   });
 
   const actions = document.createElement('div');

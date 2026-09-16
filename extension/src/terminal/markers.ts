@@ -122,7 +122,20 @@ export class MarkerRail {
    * looking at the buffer. They share the rail because "somewhere I marked" is one idea, and
    * having to look in two places for it would be two features where there should be one.
    */
-  sync(term: Terminal, extra: readonly FoundMarker[] = []): void {
+  /**
+   * `inputs` are lines somebody pressed Return on, which is a different kind of thing.
+   *
+   * A landmark and a highlight are places somebody deliberately marked, and they share the rail
+   * because "somewhere I marked" is one idea. Every command typed is not that: it is automatic,
+   * there are hundreds of them, and putting them in the same list would make the rail a stripe
+   * and make "how many marks are there" a question with a useless answer. So they are drawn on
+   * the same rail in their own lane and counted separately.
+   */
+  sync(
+    term: Terminal,
+    extra: readonly FoundMarker[] = [],
+    inputs: readonly FoundMarker[] = [],
+  ): void {
     this.#markers = [...findMarkers(term), ...extra].sort((a, b) => a.row - b.row);
     this.#rail.replaceChildren();
     // Hidden entirely when there is nothing to show, rather than sitting there as an empty
@@ -139,6 +152,22 @@ export class MarkerRail {
       pip.title = 'Jump to this marker';
       this.#rail.append(pip);
     }
+
+    /*
+     * Input in its own lane, so the rail says which is which at a glance.
+     *
+     * Thinner and to one side: what somebody is looking for on this rail is a landmark, and the
+     * input marks are context for where they are rather than a competing set of targets.
+     */
+    for (const mark of inputs) {
+      const pip = document.createElement('div');
+      pip.className = 'input-pip';
+      pip.dataset['row'] = String(mark.row);
+      pip.style.top = `${String((mark.row / length) * 100)}%`;
+      pip.title = 'Something was typed here';
+      this.#rail.append(pip);
+    }
+    if (inputs.length > 0) this.#rail.classList.add('has-markers');
   }
 
   dispose(): void {

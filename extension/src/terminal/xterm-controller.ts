@@ -5,7 +5,7 @@ import { SerializeAddon } from '@xterm/addon-serialize';
 import { SearchAddon } from '@xterm/addon-search';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { installCurrentWidths } from '@tabterm/shared';
-import type { ILinkProvider } from '@xterm/xterm';
+import type { ILinkProvider, IMarker } from '@xterm/xterm';
 import { classifyKey, xtermShouldHandle } from './keymap.js';
 import { placeMenu } from './menu-position.js';
 import { MarkerRail } from './markers.js';
@@ -165,6 +165,8 @@ export class XtermController {
   readonly #search = new SearchAddon();
   /** Landmarks in the scrollback, and the rail beside the scrollbar that finds them. */
   #markers: MarkerRail | null = null;
+  /** Lines somebody pressed Return on. See `markInputHere`. */
+  readonly #inputMarks: IMarker[] = [];
   #markerTimer = 0;
   #highlights: HighlightLayer | null = null;
   readonly #opts: ControllerOptions;
@@ -529,7 +531,7 @@ export class XtermController {
     if (under && this.#highlights?.covers(under.row, under.col) === true) {
       item('Remove highlight', true, () => {
         this.#highlights?.removeAt(under.row, under.col);
-        this.#markers?.sync(this.term, this.#highlights?.places() ?? []);
+        this.#markers?.sync(this.term, this.#highlights?.places() ?? [], this.#inputRows());
       });
     }
 
@@ -632,14 +634,56 @@ export class XtermController {
         // Both on the same tick, and both for the same reason: a decoration is anchored
         // relative to the cursor line, so anything that scrolled has moved it.
         this.#highlights?.draw();
-        rail.sync(this.term, this.#highlights?.places() ?? []);
+        rail.sync(this.term, this.#highlights?.places() ?? [], this.#inputRows());
       }, 220);
     });
   }
 
+  /**
+   * Mark the line somebody pressed Return on, so the rail says where the input is.
+   *
+   * Asked for as "i want to differentiate in the scrollbar what is output and what is input". The
+   * moment Return is pressed is the one point that answers it for both kinds of session: in a
+   * shell it is the command, and in a pane running an agent it is the prompt, and neither needs
+   * the line to be recognised by how it looks.
+   *
+   * `registerMarker` rather than a row number, because the buffer moves underneath: a row is only
+   * true until the next line scrolls off, and a marker follows its line and reports itself gone
+   * when that line falls out of the scrollback, which is exactly when it stops being reachable.
+   */
+  markInputHere(): void {
+    const marker = this.term.registerMarker(0);
+    if (!marker) return;
+    this.#inputMarks.push(marker);
+    /*
+     * Bounded, and the oldest goes first.
+     *
+     * A session running all day is thousands of commands, and a rail with a pip for every one of
+     * them is a solid stripe that says nothing. The recent ones are the ones somebody is looking
+     * for, which is the same reasoning the scrollback itself is bounded on.
+     */
+    while (this.#inputMarks.length > XtermController.MAX_INPUT_MARKS) {
+      this.#inputMarks.shift()?.dispose();
+    }
+    this.#markers?.sync(this.term, this.#highlights?.places() ?? [], this.#inputRows());
+  }
+
+  /** How many places the rail will point at before it stops being a rail. */
+  static readonly MAX_INPUT_MARKS = 60;
+
+  /** The rail's own colour for a line somebody typed, which is not a landmark and not a highlight. */
+  static readonly INPUT_MARK_COLOR = 0x5f7bb0;
+
+  /** Lines somebody typed on, which the rail draws in its own lane. */
+  #inputRows(): { row: number; color: number }[] {
+    return this.#inputMarks
+      .filter((m) => !m.isDisposed && m.line >= 0)
+      .map((m) => ({ row: m.line, color: XtermController.INPUT_MARK_COLOR }));
+  }
+
   /** Rebuild the rail now. For measuring what a full-buffer scan costs. */
   syncMarkersForTest(): void {
-    this.#markers?.sync(this.term, this.#highlights?.places() ?? []);
+    this.#markers?.sync(this.term, this.#highlights?.places() ?? [], this.#inputRows());
   }
 
   /** Highlight what is selected. Returns how many lines it covered, zero when nothing was. */
@@ -647,7 +691,7 @@ export class XtermController {
     const lines = this.#highlights?.add(color) ?? 0;
     if (lines > 0) {
       this.#opts.onColorUsed?.(color);
-      this.#markers?.sync(this.term, this.#highlights?.places() ?? []);
+      this.#markers?.sync(this.term, this.#highlights?.places() ?? [], this.#inputRows());
       // The selection has been acted on, and leaving it drawn over its own highlight hides it.
       this.term.clearSelection();
     }
@@ -657,7 +701,7 @@ export class XtermController {
   /** Restore the highlights this session had, without counting it as a change. */
   restoreHighlights(highlights: readonly Highlight[]): void {
     this.#highlights?.restore(highlights);
-    this.#markers?.sync(this.term, this.#highlights?.places() ?? []);
+    this.#markers?.sync(this.term, this.#highlights?.places() ?? [], this.#inputRows());
   }
 
   get highlights(): readonly Highlight[] {

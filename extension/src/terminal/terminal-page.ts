@@ -24,6 +24,14 @@ import { openLabelForm } from './label-form.js';
 import { describeError } from './describe-error.js';
 import { XtermController } from './xterm-controller.js';
 import { resolveDroppedFolder } from './dropped-folder.js';
+import {
+  DEFAULT_LABEL_OPACITY,
+  DEFAULT_LABEL_SCALE,
+  LABEL_OPACITY_KEY,
+  LABEL_SCALE_KEY,
+  saneOpacity,
+  saneScale,
+} from './label-look.js';
 import type { PaneMenuAction } from './xterm-controller.js';
 import { findCandidates } from './path-links.js';
 import { askHasLapsed, missHasExpired } from './link-scan.js';
@@ -2959,6 +2967,15 @@ function buildHosts(): void {
       inputLine.consume(data);
       growStripToFit();
 
+      /*
+       * Return is where input becomes a thing worth finding again.
+       *
+       * Asked for as wanting to tell input from output in the scrollbar. The moment Return is
+       * pressed answers it for both kinds of session without recognising anything by how it looks:
+       * in a shell it is the command, and in a pane running an agent it is the prompt.
+       */
+      if (data.includes('\r')) pane.controller.markInputHere();
+
       // Hotstrings act on the keystroke before it reaches the shell. Suspended while a
       // full-screen program owns the terminal, because the deletions this sends would be edits
       // there rather than corrections. See docs/14-command-menu.md §4.
@@ -5240,6 +5257,35 @@ function applyTheme(theme: string): void {
  * preference that only applies where it was typed is not a preference. `chrome.storage` already
  * broadcasts, so watching the key costs nothing and needs no protocol.
  */
+/**
+ * How the name over a pane is drawn, from the settings, applied to the page.
+ *
+ * Two custom properties rather than rewriting the rule, so the stylesheet keeps the sizing it had
+ * and a setting only scales it. Both fall back to what they were, so a profile that has never
+ * touched them looks exactly as it did.
+ */
+function applyLabelLook(opacity: number, scale: number): void {
+  document.documentElement.style.setProperty('--pane-label-opacity', String(saneOpacity(opacity)));
+  document.documentElement.style.setProperty('--pane-label-scale', String(saneScale(scale)));
+}
+
+/** Follow a change wherever it is made, the same way the theme does. */
+function watchLabelLook(): void {
+  const read = async (): Promise<void> => {
+    const stored = await chrome.storage.local.get([LABEL_OPACITY_KEY, LABEL_SCALE_KEY]);
+    applyLabelLook(
+      saneOpacity(stored[LABEL_OPACITY_KEY] ?? DEFAULT_LABEL_OPACITY),
+      saneScale(stored[LABEL_SCALE_KEY] ?? DEFAULT_LABEL_SCALE),
+    );
+  };
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if (!(LABEL_OPACITY_KEY in changes) && !(LABEL_SCALE_KEY in changes)) return;
+    void read();
+  });
+  void read();
+}
+
 function watchTheme(): void {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
@@ -7089,6 +7135,7 @@ async function start(): Promise<void> {
   loadHiddenResumes();
   // Before anything is drawn, so a tab never flashes the wrong theme on the way in.
   watchTheme();
+  watchLabelLook();
   buildHosts();
   buildLauncher();
   buildCommandPanel();

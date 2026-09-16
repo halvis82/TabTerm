@@ -58,22 +58,87 @@ export function openColorPicker(opts: ColorPickerOptions): HTMLElement {
     return colorAt((e.clientX - box.left) / box.width, (e.clientY - box.top) / box.height);
   };
 
-  map.addEventListener('mousemove', (e) => {
-    const color = colorFor(e);
+  /**
+   * Held down, the map is followed rather than sampled once.
+   *
+   * Asked for: "i want to be able to hold my mouse down while selecting the color and see it
+   * update... and if held and moved off the color map, it should just keep the selection at the
+   * last color touched."
+   *
+   * So a press is a drag with a live answer, and what is shown while dragging is what is chosen on
+   * release. Leaving the map with the button down keeps the last colour rather than snapping back,
+   * because somebody dragging past the edge has not changed their mind, and releasing outside
+   * commits that colour rather than throwing the whole gesture away.
+   */
+  let pressing = false;
+  let lastTouched = settled;
+
+  const showColor = (color: string): void => {
+    lastTouched = color;
     bar.style.background = color;
     opts.onPreview?.(color);
+  };
+
+  const inside = (e: MouseEvent): boolean => {
+    const box = map.getBoundingClientRect();
+    return (
+      e.clientX >= box.left &&
+      e.clientX <= box.right &&
+      e.clientY >= box.top &&
+      e.clientY <= box.bottom
+    );
+  };
+
+  map.addEventListener('mousemove', (e) => {
+    if (!pressing) showColor(colorFor(e));
   });
   map.addEventListener('mouseleave', () => {
-    bar.style.background = settled;
-    opts.onPreview?.(settled);
+    // Only when nothing is being dragged. Mid-drag the last colour stands.
+    if (!pressing) showColor(settled);
   });
-  // On mouseup rather than click: the map is inside a menu that closes on mousedown elsewhere,
-  // and a press that begins here must be the one that decides.
-  map.addEventListener('mouseup', (e) => {
+
+  map.addEventListener('mousedown', (e) => {
     e.stopPropagation();
-    opts.onPick(colorFor(e));
+    pressing = true;
+    showColor(colorFor(e));
   });
-  map.addEventListener('mousedown', (e) => e.stopPropagation());
+
+  /*
+   * Followed on the document rather than on the map, because the pointer leaves it.
+   *
+   * A drag that goes outside keeps the last colour it touched, which is what the map stops being
+   * able to report the moment the pointer is past its edge.
+   */
+  const detachDrag = (): void => {
+    document.removeEventListener('mousemove', followWhilePressed, true);
+    document.removeEventListener('mouseup', commitOnRelease, true);
+  };
+  /*
+   * The listeners take themselves off once the picker is gone.
+   *
+   * There are two ways it goes: the floating one closes on a press elsewhere, and either kind can
+   * be removed outright by `closeColorPicker`. Rather than teach both about these, they check
+   * whether the element they belong to is still in the document, which is true however it left.
+   */
+  function followWhilePressed(e: MouseEvent): void {
+    if (!picker.isConnected) {
+      detachDrag();
+      return;
+    }
+    if (pressing && inside(e)) showColor(colorFor(e));
+  }
+  function commitOnRelease(e: MouseEvent): void {
+    if (!picker.isConnected) {
+      detachDrag();
+      return;
+    }
+    if (!pressing) return;
+    pressing = false;
+    e.stopPropagation();
+    opts.onPick(lastTouched);
+  }
+  document.addEventListener('mousemove', followWhilePressed, true);
+  document.addEventListener('mouseup', commitOnRelease, true);
 
   /**
    * Five slots, filled left to right, and never a sixth.
