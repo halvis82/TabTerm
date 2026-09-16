@@ -65,6 +65,14 @@ function shortLabel(text: string): string {
   return text.length > 40 ? `${text.slice(0, 40)}\u2026` : text;
 }
 
+/**
+ * How long a burst of finished commands is allowed to settle before the panel is rebuilt.
+ *
+ * Short enough that the page reads as live, long enough that a script running commands in a row
+ * rebuilds it once rather than once each.
+ */
+const LIVE_REFRESH_MS = 400;
+
 export class CommandPanel {
   readonly #opts: PanelOptions;
   readonly #el: HTMLElement;
@@ -288,6 +296,8 @@ export class CommandPanel {
    * A `ResizeObserver` covers all three, because every one of them ends as a change in height
    * or in the space available for it.
    */
+  #liveTimer: ReturnType<typeof setTimeout> | undefined;
+
   #watchSize(): void {
     const observer = new ResizeObserver(() => {
       if (this.isOpen) this.#applyPlacement();
@@ -382,7 +392,20 @@ export class CommandPanel {
   refreshLive(): void {
     if (!this.isOpen || this.#editing !== null || this.#showingSettings) return;
     if (this.#placement.tab === 'recent') this.#opts.onSearch(this.#search.value);
-    if (this.#placement.tab === 'stats' || this.#placement.tab === 'recent') this.render();
+    if (this.#placement.tab !== 'stats' && this.#placement.tab !== 'recent') return;
+    /**
+     * Coalesced, because this fires once per command that finishes.
+     *
+     * Rebuilding the page is the whole body replaced and every row built again, and a script or an
+     * agent running a series of commands fires this for each one. Being live is the point and
+     * being live to the second is not: nobody reads a count of commands closely enough to notice
+     * it settling a moment later, and the work lands while somebody is reading the page it is
+     * rebuilding.
+     */
+    clearTimeout(this.#liveTimer);
+    this.#liveTimer = setTimeout(() => {
+      if (this.isOpen && this.#editing === null && !this.#showingSettings) this.render();
+    }, LIVE_REFRESH_MS);
   }
 
   refreshSettings(): void {
