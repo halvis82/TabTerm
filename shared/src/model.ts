@@ -396,6 +396,13 @@ export interface LiveSession {
   /** A command is in flight right now. */
   busy: boolean;
   /**
+   * The agent's own session id, for a session running one, which is what `--resume` takes.
+   *
+   * Sent so a card can offer the command that reopens the conversation. Learned from the agent's
+   * hooks and from nowhere else: it is not on the screen and not in the environment.
+   */
+  agentSessionId?: string;
+  /**
    * Resident memory of this session's process tree, in bytes.
    *
    * What the daemon side costs. A tab showing the session costs more in a Chrome renderer, which

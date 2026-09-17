@@ -147,6 +147,38 @@ present that have never fired is a real state, and the one worth being able to s
 
 ---
 
+### The one thing only the hook knows
+
+The payload an agent hands its hooks carries that agent's **own** session id, which is what
+`--resume` takes. It is nowhere else: not in the environment the session was started with, and not
+anywhere on the screen, which this product does not read anyway. So the hook script reads its
+standard input, takes `session_id` out of it, and sends it along with the state.
+
+Read only when something is actually piped in, so a hook run by hand from a terminal returns
+instead of waiting on a keyboard, and capped, so a large payload cannot make a script on the
+agent's critical path slow. The id is checked at both ends against a plain identifier and dropped
+otherwise, because it ends up in text somebody is invited to paste into a shell.
+
+It reaches a page twice: with the state it was learned from, and with the attach, for the same
+reason a pane's name and its timers are on the attach. No hook fires because a page reloaded, so
+without it a reattached tab could not offer the command until the agent was next spoken to.
+
+### Copy the command that reopens it
+
+Right clicking a pane running an agent, or its card in `Running now`, offers **Copy resume
+command**, which is:
+
+    cd <the session's directory> && claude --resume <the agent's session id>
+
+The directory is part of the answer. `--resume` does work from anywhere, which was checked rather
+than assumed: resuming from `/tmp` reopened the transcript of a session that had been running in a
+project directory. What it does not do is put the agent back in the folder the conversation was
+about, so it read and wrote the wrong files while showing the right transcript. `&&` rather than
+`;` so a folder that has been renamed since stops the command instead of starting an agent
+somewhere arbitrary.
+
+---
+
 ## 4. Correlation across concurrent sessions
 
 Multiple agent sessions run at once, in different panes and different projects. Every event

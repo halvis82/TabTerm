@@ -61,6 +61,13 @@ export interface Session {
    */
   agentTurnStartedAt?: number;
   /**
+   * The agent's own session id, learned from its hooks, which is what `--resume` takes.
+   *
+   * Kept on the session because it outlives the tab: the whole use of it is to go back to a
+   * conversation later, including from a terminal that is not this one. See `agent-bridge.ts`.
+   */
+  agentSessionId?: string;
+  /**
    * Somebody has typed into this session, whether or not they pressed Enter.
    *
    * A tab goes back to the start screen only when its one terminal is genuinely untouched, and

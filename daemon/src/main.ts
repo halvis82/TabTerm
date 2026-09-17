@@ -506,9 +506,11 @@ async function main(): Promise<void> {
   const agentBridge = new AgentBridge({
     port: config.agentBridgePort,
     verifyToken,
-    onEvent: ({ sessionId, state, detail, hook }) => {
+    onEvent: ({ sessionId, state, detail, hook, agentSessionId }) => {
       const session = sessions.get(sessionId);
       if (!session) return;
+      // Learned once and kept. Every hook carries it, and it does not change within a session.
+      if (agentSessionId !== undefined) session.agentSessionId = agentSessionId;
       const previous = session.agentState;
       session.agentState = state;
       server.recordAgentEvent(Date.now());
@@ -547,6 +549,7 @@ async function main(): Promise<void> {
         // How long somebody has been waiting, which is the one number a pane running an agent
         // can usefully show and the one it did not have.
         ...(turnStartedAt === undefined ? {} : { turnStartedAt }),
+        ...(session.agentSessionId === undefined ? {} : { agentSessionId: session.agentSessionId }),
       });
 
       /**

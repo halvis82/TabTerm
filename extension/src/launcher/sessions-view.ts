@@ -1,5 +1,5 @@
-import type { LayoutNode, LiveSession } from '@tabterm/shared';
-import { columnsWide, groupSessions, isShared, type SessionGroup } from './session-groups.js';
+import type { LiveSession } from '@tabterm/shared';
+import { groupSessions, isShared, orderedByLayout, type SessionGroup } from './session-groups.js';
 
 /**
  * Sessions that already exist, on the page you see when you open a tab.
@@ -18,6 +18,20 @@ export interface SessionsOptions {
   onOpen: (session: LiveSession) => void;
   /** Absent where ending a session is not one of the things on offer, as in a pane chooser. */
   onClose?: (session: LiveSession) => void;
+  /**
+   * Take a session out of the tab it shares, dragged out of its group.
+   *
+   * Absent where that is not on offer, as in a pane chooser, which leaves the cards undraggable
+   * rather than draggable and inert.
+   */
+  onDetach?: (session: LiveSession) => void;
+  /**
+   * A session that has just been dragged out, outlined for a moment so the eye can follow it.
+   *
+   * It leaves its group and lands somewhere else in the list, in its place by age, which is a jump
+   * of some distance with nothing to connect the two positions. See `.session-card.is-landed`.
+   */
+  landed?: string;
   home: string;
 }
 
@@ -140,6 +154,102 @@ export function shellRanLabel(command: string, max = RAN_LAST_MAX): string {
   return clean.length <= max ? `shell - ${clean}` : `shell - ${clean.slice(0, max - 1)}…`;
 }
 
+/**
+ * Dragging a session out of the tab it shares.
+ *
+ * A group says these panes are in one tab, and taking one out of the picture is the plainest way
+ * to say take it out of that tab. The drop is refused over any group, including the one it came
+ * from, so the gesture has exactly one meaning: out. There is no dragging **into** a tab here,
+ * which is a different operation with a different consequence and already has its own way in.
+ *
+ * Which session is moving is kept here rather than read from the drag. `dataTransfer` deliberately
+ * refuses to be read during `dragover`, and `dragover` is where the decision to accept or refuse
+ * has to be made.
+ */
+let draggingOut: LiveSession | undefined;
+let draggingSince = 0;
+
+/**
+ * How long a drag may hold the list still.
+ *
+ * `dragend` is what normally clears this and it is reliable, but a flag that freezes a list is not
+ * a flag to leave without a floor under it: a drag that somehow never ends would stop `Running now`
+ * updating for as long as the page is open, and nothing on screen would say why. Longer than any
+ * real drag across a list, short enough to be invisible if it is ever reached.
+ */
+const DRAG_HOLDS_LIST_MS = 8000;
+
+/**
+ * Whether a session is being carried right now.
+ *
+ * Asked by whoever redraws this list. The list redraws on its own whenever what is running changes,
+ * and a redraw replaces the card under the pointer with a new element: the browser then has nothing
+ * to finish the drag with and the gesture ends in the middle. Measured under a full test run, where
+ * other terminals starting and ending kept the list moving, and the drag never even began.
+ */
+export function isDraggingSession(): boolean {
+  if (draggingOut === undefined) return false;
+  return Date.now() - draggingSince < DRAG_HOLDS_LIST_MS;
+}
+
+const DRAG_TYPE = 'application/x-tabterm-session';
+
+function dragOutOfGroup(card: HTMLElement, session: LiveSession, grid: HTMLElement): void {
+  card.draggable = true;
+  card.addEventListener('dragstart', (e) => {
+    draggingOut = session;
+    draggingSince = Date.now();
+    e.dataTransfer?.setData(DRAG_TYPE, session.sessionId);
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+    card.classList.add('is-dragging');
+    // The list says a drag is happening, so the groups can show that they are not a destination.
+    grid.classList.add('is-dragging-out');
+  });
+  card.addEventListener('dragend', () => {
+    draggingOut = undefined;
+    card.classList.remove('is-dragging');
+    grid.classList.remove('is-dragging-out');
+  });
+  /*
+   * A drag begins with a press, and a press on a card opens it. Without this the session opened
+   * in its tab the moment the drag ended, which is the opposite of taking it out of that tab.
+   */
+  card.addEventListener('click', (e) => {
+    if (!card.classList.contains('was-dragged')) return;
+    card.classList.remove('was-dragged');
+    e.stopPropagation();
+  });
+}
+
+/** The list accepts a dragged session anywhere that is not a group. */
+function acceptDrops(area: HTMLElement, onDetach: (session: LiveSession) => void): void {
+  area.addEventListener('dragover', (e) => {
+    if (draggingOut === undefined) return;
+    // Over a group, including its own, this is not a drop target at all: no `preventDefault`,
+    // so the browser shows the "no" cursor and a drop there does nothing.
+    if ((e.target as HTMLElement).closest('.session-group')) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    area.classList.add('is-drop-target');
+  });
+  area.addEventListener('dragleave', (e) => {
+    if (e.target === area) area.classList.remove('is-drop-target');
+  });
+  area.addEventListener('drop', (e) => {
+    area.classList.remove('is-drop-target');
+    const moving = draggingOut;
+    draggingOut = undefined;
+    if (moving === undefined) return;
+    if ((e.target as HTMLElement).closest('.session-group')) return;
+    e.preventDefault();
+    // Marked so the click that ends this drag does not also open the session. See `dragOutOfGroup`.
+    area
+      .querySelector(`.session-card[data-session-id="${CSS.escape(moving.sessionId)}"]`)
+      ?.classList.add('was-dragged');
+    onDetach(moving);
+  });
+}
+
 export function buildSessions(options: SessionsOptions): HTMLElement {
   const wrap = document.createElement('section');
   wrap.className = 'sessions';
@@ -176,101 +286,85 @@ export function buildSessions(options: SessionsOptions): HTMLElement {
       if (only) grid.append(buildSessionCard(only, options));
       continue;
     }
-    grid.append(buildSharedTab(group, options));
+    grid.append(buildSharedTab(group, options, grid));
   }
   wrap.append(grid);
+  /*
+   * The whole section takes the drop, not only the grid.
+   *
+   * "Out of the group" is what the gesture means, and somebody making it lets go wherever the
+   * pointer happens to be, which is often the space beside the list rather than another card.
+   */
+  const onDetach = options.onDetach;
+  if (onDetach) acceptDrops(wrap, onDetach);
   return wrap;
 }
 
 /**
- * The panes of one tab, drawn the way that tab is arranged.
+ * The panes of one tab, drawn as a row of ordinary cards.
  *
  * A container rather than cards that merely sit beside each other: a group that straddles a row
  * boundary loses the cue entirely, and that is the one thing adjacency cannot survive.
  *
- * The arrangement is the workspace's own. Two panes side by side are drawn side by side and two
- * stacked are drawn stacked, because somebody recognising a terminal they left running recognises
- * the shape of it, and cards in arbitrary order are a worse answer than one that looks like what
- * they will get back.
+ * It mirrored the workspace's own splits at first, so a stacked pair was drawn stacked. That was
+ * the wrong trade and he said so: mirroring a tree means a card's size comes from the shape of the
+ * tab, so one pane of a three pane tab was drawn tall with a stretched footer while its neighbours
+ * were short. **A card is a card.** They are all the same size here, in the order the panes are in,
+ * wrapping when there are more than fit, which is also what the tab does to fit them on a screen.
  */
-function buildSharedTab(group: SessionGroup, options: SessionsOptions): HTMLElement {
+function buildSharedTab(
+  group: SessionGroup,
+  options: SessionsOptions,
+  grid: HTMLElement,
+): HTMLElement {
   const box = document.createElement('section');
   box.className = 'session-group';
   if (group.workspaceId !== undefined) box.dataset['workspaceId'] = group.workspaceId;
+
+  const members = orderedByLayout(group);
   /**
-   * As many columns as the tab is wide, and no more.
+   * As many columns as it has panes, up to the cap, and no more.
    *
-   * The first version gave every group the whole row, which turned a pair of terminals into a
-   * banner across the list. A tab of two side by side is two cards wide; a tab of two stacked is
-   * one card wide and two tall. Each card then keeps the size it would have had on its own, which
-   * is the point: the grouping is a background and an arrangement, not a different kind of card.
-   *
-   * Capped, because a tab with five panes is wider than the list and a group that asks for more
-   * columns than exist gets put somewhere nobody meant. Past the cap it wraps inside itself, which
-   * is the same thing the tab does to fit them on a screen.
+   * It spanned the whole row first, which turned a pair of terminals into a banner across the
+   * list. Each card then keeps the width it would have had on its own, which is the point: the
+   * grouping is a background and an order, not a different kind of card.
    */
-  const wide = group.layout ? Math.min(columnsWide(group.layout), MAX_GROUP_COLUMNS) : 1;
-  box.style.gridColumn = `span ${String(wide)}`;
+  box.style.gridColumn = `span ${String(Math.min(members.length, MAX_GROUP_COLUMNS))}`;
 
   const head = document.createElement('header');
   head.className = 'session-group-head';
   const what = document.createElement('span');
   what.className = 'session-group-title';
-  what.textContent = `${String(group.sessions.length)} panes in one tab`;
+  what.textContent = `${String(members.length)} panes in one tab`;
   head.append(what);
   box.append(head);
 
   const body = document.createElement('div');
   body.className = 'session-group-body';
-  /*
-   * Null when every pane in the arrangement has gone, which the caller has already ruled out by
-   * only building this for a group with members. Kept explicit so the body is never given one.
-   */
-  const shape = group.layout ? buildLayoutNode(group.layout, group, options) : null;
-  if (shape) body.append(shape);
+  for (const { session } of members) {
+    const card = buildSessionCard(session, options);
+    // Only a card in a group can be dragged, because out of the group is all the gesture means.
+    if (options.onDetach) dragOutOfGroup(card, session, grid);
+    body.append(card);
+  }
   box.append(body);
+
+  /**
+   * The whole thing opens the tab, not only the cards in it.
+   *
+   * The background between and around them is part of the same object, and a person aiming at a
+   * group aims at the group. A press that began on a card is left alone: that card has its own
+   * answer, which is to open the tab **and** put the keyboard in that pane.
+   */
+  box.addEventListener('click', (e) => {
+    if ((e.target as HTMLElement).closest('.session-card')) return;
+    const first = members[0]?.session;
+    if (first) options.onOpen(first);
+  });
+
   return box;
 }
 
-/**
- * One node of a workspace's arrangement, as boxes inside boxes.
- *
- * The same shape the tab has, built from the same tree the tab is built from, so there is one
- * answer to what a workspace looks like rather than two that can disagree. A split becomes a row or
- * a column; a pane becomes the card that was already there.
- *
- * A pane whose session is not in the list is skipped rather than drawn as a gap: it has exited, or
- * it has been taken into another tab and the two facts have not met yet, and either way drawing a
- * hole would be drawing a terminal that is not there.
- */
-function buildLayoutNode(
-  node: LayoutNode,
-  group: SessionGroup,
-  options: SessionsOptions,
-): HTMLElement | null {
-  if (node.type === 'terminal') {
-    const session = group.sessions.find((s) => s.sessionId === node.sessionId);
-    return session ? buildSessionCard(session, options) : null;
-  }
-  const first = buildLayoutNode(node.children[0], group, options);
-  const second = buildLayoutNode(node.children[1], group, options);
-  // One side gone is not a split any more, so the other side stands on its own rather than being
-  // drawn as half of something.
-  if (!first) return second;
-  if (!second) return first;
-  const split = document.createElement('div');
-  split.className = `session-split is-${node.direction}`;
-  split.append(first, second);
-  return split;
-}
-
-/**
- * One card, exported so a pane offering to take a session shows the same thing.
- *
- * A path is not enough to tell four shells in the same repository apart, and the one you want is
- * the one that printed the thing you remember. That is as true when choosing what to put in a
- * new pane as it is on the start screen, and two renderings of the same idea would drift.
- */
 /**
  * The widest a group may be, in cards.
  *
@@ -299,6 +393,13 @@ export function buildSessionCard(session: LiveSession, options: SessionsOptions)
    */
   card.dataset['state'] = isInATab(session) ? 'attached' : 'detached';
   if (session.busy) card.dataset['busy'] = 'true';
+  /*
+   * Outlined for a moment, because it has just arrived from somewhere else on the page.
+   *
+   * The animation is one shot and the class is set by whoever rebuilt the list, so a card that is
+   * rebuilt for an unrelated reason a second later does not flash again.
+   */
+  if (options.landed === session.sessionId) card.classList.add('is-landed');
 
   const head = document.createElement('header');
   head.className = 'session-head';

@@ -531,6 +531,10 @@ export class DaemonServer {
           return {
             sessionId: session.id,
             memoryBytes: memoryOf(session.pid),
+            // What reopens this conversation elsewhere, when it is an agent's. See `agent-bridge`.
+            ...(session.agentSessionId === undefined
+              ? {}
+              : { agentSessionId: session.agentSessionId }),
             ...(workspace ? { workspaceId: workspace.id } : {}),
             /*
              * And the shape of that tab, when there is more than one pane in it.
@@ -1473,6 +1477,60 @@ export class DaemonServer {
           }),
         );
         if (result.source) this.#broadcastLayout(result.source.id);
+        return;
+      }
+
+      /**
+       * The same move, asked by a tab that does not hold the pane.
+       *
+       * A session dragged out of its group on the start screen. The asking tab knows only the
+       * session: the tab it is in may be another window's, or asleep, and it certainly is not
+       * this one. So the pane is found here rather than named, and the reply says where it came
+       * from so the asking tab can put the new one beside it.
+       */
+      case 'detach-session-to-tab': {
+        const from = this.#workspaces.findBySession(msg.sessionId);
+        const pane = from
+          ? panes(from.layout).find((p) => p.sessionId === msg.sessionId)
+          : undefined;
+        if (!from || !pane) return;
+        // The only pane in a tab is already in its own tab. Nothing to do, and nothing to say.
+        if (panes(from.layout).length <= 1) return;
+
+        const moved = this.#workspaces.detachToNewWorkspace(from.id, pane.paneId);
+        if (!moved) {
+          sendError(client.socket, 'workspace-invalid-layout', 'cannot detach the only pane');
+          return;
+        }
+
+        /**
+         * Every tab that was showing it in the old workspace lets go of it.
+         *
+         * What `detach-pane-to-tab` does for the one client that asked, done for whoever actually
+         * held it, because here that is somebody else. Without it the daemon still believes that
+         * tab has the session, so the attach from the new tab finds it already bound and never
+         * sends the snapshot, which leaves the new pane blank.
+         */
+        const session = this.#sessions.get(msg.sessionId);
+        if (session) {
+          for (const c of this.#clients) {
+            if (!c.authed || !c.streams.has(msg.sessionId)) continue;
+            this.#sessions.detach(session, c.id);
+            this.#unbind(c, msg.sessionId);
+          }
+        }
+
+        send(
+          client.socket,
+          controlFrame({
+            t: 'session-detached-to-tab',
+            sessionId: msg.sessionId,
+            fromWorkspaceId: from.id,
+            newWorkspaceId: moved.newWorkspace.id,
+          }),
+        );
+        // The tab it left redraws without it, and every start screen hears the list has changed.
+        if (moved.source) this.#broadcastLayout(moved.source.id);
         return;
       }
 
@@ -2711,6 +2769,11 @@ export class DaemonServer {
        * had none, so every timer in a reattached tab was blank until the next event, and for an
        * idle pane that is never.
        */
+      /*
+       * And the agent's own session id, for the same reason: it is learned from a hook, and no
+       * hook fires because a page reloaded.
+       */
+      const agentSession = session.agentSessionId;
       const time = {
         sessionStartedAt: session.createdAt,
         ...(session.commandRunning && session.commandStartedAt !== undefined
@@ -2738,6 +2801,7 @@ export class DaemonServer {
           ...(typed ? { hasInput: true } : {}),
           ...(atHome ? { atHome: true } : {}),
           ...(hasRun ? { hasRun: true } : {}),
+          ...(agentSession === undefined ? {} : { agentSessionId: agentSession }),
           title,
           time,
         });
@@ -2753,6 +2817,7 @@ export class DaemonServer {
         ...(typed ? { hasInput: true } : {}),
         ...(atHome ? { atHome: true } : {}),
         ...(hasRun ? { hasRun: true } : {}),
+        ...(agentSession === undefined ? {} : { agentSessionId: agentSession }),
         title,
         time,
       });

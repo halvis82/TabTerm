@@ -716,12 +716,56 @@ the tree collapsed correctly and the surviving pane still drew itself at half wi
 space beside it, which read as the layout not updating at all. Filling is now the default and a
 fixed share is set only for the first child of a split, which is the right way round.
 
-### Two terminals in one tab are two rows
+### Two terminals in one tab are two cards in one box
 
-`Running now` lists sessions, not tabs, so a split tab appears twice. That is deliberate: they
-are separate shells with their own directories and their own work, and collapsing them into one
-row would hide one of them. Both rows carry the same workspace, so pressing either brings that
-tab forward.
+`Running now` lists sessions, not tabs, so a split tab appears once per pane. That part is
+deliberate: they are separate shells with their own directories and their own work, and collapsing
+them into one card would hide one of them. What was missing was any sign that they are in the same
+place, so four panes of one tab looked exactly like four unrelated terminals.
+
+Panes that share a tab are drawn inside one box, in the order the tab has them. The box takes as
+many columns of the list as the tab has panes, up to three, so the cards inside stay the size every
+other card is.
+
+**A card is a card.** The box drew the tab's own splits at first, which meant a card's size came
+from the shape of the tab: one pane of a three pane tab was tall with a stretched footer beside two
+short ones. The arrangement now decides the order the cards appear in and nothing else, and the row
+wraps when there are more than fit, which is what the tab does with them too.
+
+Three ways to press it, and they mean different things:
+
+| Pressed | What happens |
+| --- | --- |
+| A card in the box | That tab comes forward, **with the keyboard in that pane** |
+| The box itself, anywhere that is not a card | That tab comes forward |
+| A card dragged out of the box | That session leaves the tab. See below |
+
+The pane travels with the request. A tab of four panes is four cards, and all four of them used to
+open the tab on whichever pane it happened to be left on, so the card somebody pressed was not the
+terminal they got. The session id goes to the worker with the workspace: a tab that already exists
+is told which pane to focus, and one that has to be created is given it in its URL, because the way
+a tab takes over a workspace is to navigate and a navigation throws away everything else.
+
+### Dragging a session out of its tab
+
+A group says these panes are in one tab, so pulling one out of the picture says take it out of that
+tab. The drop is refused over any group, including the one it came from, so the gesture has exactly
+one meaning. There is no dragging **into** a tab here: that is a different operation with a
+different consequence, and it has its own way in already.
+
+The start screen asking for this is not the tab holding the pane, and may be in another window
+entirely, so it names the session and the daemon finds the pane. `detach-session-to-tab` is the
+same operation as `detach-pane-to-tab` asked from the outside, and it releases the session from
+whichever client was showing it rather than from the one that asked. Without that the daemon still
+believes the old tab has it, the new tab's attach finds it already bound, and the snapshot is never
+sent, which leaves the new pane blank.
+
+The tab it lands in opens **beside the tab it came out of** and **in the background**. At the end
+of the strip it reads as an unrelated tab that happened to appear; beside the one it left, it reads
+as the thing that just moved. In the background because the person is on the start screen doing
+something, and a new tab in front of them answers a request they did not make. The card reappears
+in its place by age, outlined once, because that can be most of a list away from where it was
+dragged and nothing else connects the two positions.
 
 ### What a card calls a session
 

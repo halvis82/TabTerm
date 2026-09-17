@@ -27,6 +27,14 @@ export interface AgentEvent {
    * time since its last approval.
    */
   hook: string;
+  /**
+   * The agent's own session id, which is the one `--resume` takes.
+   *
+   * Nothing else knows it. It is not in the environment the session was started with, and the
+   * only place it appears is the payload the agent hands its own hooks, so this endpoint is the
+   * one chance to learn it. See docs/09-agent-integration.md.
+   */
+  agentSessionId?: string;
 }
 
 export interface AgentBridgeOptions {
@@ -114,7 +122,12 @@ export class AgentBridge {
     }
 
     try {
-      const parsed = JSON.parse(body) as { sessionId?: unknown; hook?: unknown; detail?: unknown };
+      const parsed = JSON.parse(body) as {
+        sessionId?: unknown;
+        hook?: unknown;
+        detail?: unknown;
+        agentSessionId?: unknown;
+      };
       const sessionId = typeof parsed.sessionId === 'string' ? parsed.sessionId : '';
       const hook = typeof parsed.hook === 'string' ? parsed.hook : '';
       const state = mapHookToState(hook);
@@ -127,11 +140,23 @@ export class AgentBridge {
         return;
       }
 
+      /*
+       * Bounded and checked here rather than trusted. It arrives from a hook, which is a separate
+       * process holding a valid token, and it ends up in text somebody is invited to paste into a
+       * shell.
+       */
+      const agentSessionId =
+        typeof parsed.agentSessionId === 'string' &&
+        /^[A-Za-z0-9._-]{1,128}$/.test(parsed.agentSessionId)
+          ? parsed.agentSessionId
+          : undefined;
+
       this.#opts.onEvent({
         sessionId,
         state,
         hook,
         ...(typeof parsed.detail === 'string' ? { detail: parsed.detail.slice(0, 500) } : {}),
+        ...(agentSessionId === undefined ? {} : { agentSessionId }),
       });
       res.writeHead(204);
       res.end();

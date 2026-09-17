@@ -1,4 +1,4 @@
-import { buildSessions } from './sessions-view.js';
+import { buildSessions, isDraggingSession } from './sessions-view.js';
 import { resolveTypedPath, unresolveTypedPath } from './typed-path.js';
 import { checkShape, previewPanes } from '@tabterm/shared';
 
@@ -67,6 +67,13 @@ export interface LauncherOptions {
   onRestore: (workspaceId: string, replayCommands: boolean) => void;
   /** Open a session that already exists, wherever it currently is. */
   onOpenSession: (session: LiveSession) => void;
+  /**
+   * Take a session out of the tab it shares, dragged out of its group in `Running now`.
+   *
+   * The session, not the pane: the tab holding it is somebody else's window or none at all, and
+   * this page has no pane to name. See `detach-session-to-tab`.
+   */
+  onDetachSession: (session: LiveSession) => void;
   /** Ask the daemon to complete a folder path. The answer arrives via pathCompletion(). */
   onCompletePath: (partial: string) => void;
   /** Ask whether a folder is there, as it is typed. The answer arrives via folderChecked(). */
@@ -267,6 +274,19 @@ export class Launcher {
     this.#renderQueued = window.setTimeout(() => {
       this.#renderQueued = undefined;
       if (this.#dismissed) return;
+      /**
+       * Never while somebody is carrying a card.
+       *
+       * Redrawing replaces the element under the pointer, and a drag whose source has been thrown
+       * away ends where it is: the gesture simply stops, with no sign of why. This list redraws
+       * whenever anything on the machine starts or finishes, which is exactly while somebody is
+       * reaching across it. Looked at again shortly, so nothing is lost, only deferred.
+       */
+      if (isDraggingSession()) {
+        this.#renderDueBy = Date.now() + 120;
+        this.#scheduleRender();
+        return;
+      }
       if (this.#stillWaiting()) {
         // The rest of the batch is still coming. Look again shortly rather than drawing half.
         this.#scheduleRender();
@@ -384,6 +404,16 @@ export class Launcher {
     return !this.#dismissed && !this.#el.hidden;
   }
 
+  /**
+   * Say which session just moved, so the card it lands on is outlined when it next renders.
+   *
+   * Set before the list that reflects the move arrives, which is the order these happen in: the
+   * daemon answers the move and pushes the new list a moment later.
+   */
+  markLanded(sessionId: string): void {
+    this.#landed = sessionId;
+  }
+
   setLiveSessions(sessions: readonly LiveSession[]): void {
     this.#liveSessions = [...sessions];
     this.#answered('live');
@@ -429,6 +459,9 @@ export class Launcher {
   }
 
   #liveSessions: LiveSession[] = [];
+
+  /** A session that has just been dragged out of its group. See `landed` in `sessions-view.ts`. */
+  #landed: string | undefined;
   #dirInput: HTMLInputElement | null = null;
   /** Which layout Return will run. Open, because that is what almost everybody wants. */
   #completionList: HTMLElement | null = null;
@@ -1430,9 +1463,18 @@ export class Launcher {
           sessions: () => this.#liveSessions,
           onOpen: (session) => this.#opts.onOpenSession(session),
           onClose: (session) => this.#opts.onCloseSession(session),
+          onDetach: (session) => this.#opts.onDetachSession(session),
+          /*
+           * Outlined once, on the rebuild that actually moved it.
+           *
+           * Taken as it is read, so the next rebuild draws an ordinary card. The list is rebuilt
+           * often, and a flag that stayed set would flash the same card every time.
+           */
+          ...(this.#landed === undefined ? {} : { landed: this.#landed }),
           home: state.home,
         }),
       );
+      this.#landed = undefined;
     }
     const restorable = this.#restoreSection(state.home);
     if (restorable) sections.push(restorable);

@@ -84,6 +84,7 @@ Rules, all enforced:
 | `insert-marker` | `sessionId`, `label`, `color?` | A landmark, printed as output so it survives a reload |
 | `set-pane-label` | `workspaceId`, `paneId`, `label`, `color?` | Names the session. Empty label removes it |
 | `detach-pane-to-tab` | `workspaceId`, `paneId` | The pane leaves; the answer carries the workspace it went to |
+| `detach-session-to-tab` | `sessionId` | The same move asked from outside the tab, where only the session is known. See `06-chrome-integration.md` |
 
 ---
 
@@ -118,7 +119,7 @@ Both fields are optional, so an older extension still reports and is simply not 
 | `process-state` | `sessionId`, `state`, `foreground?` | |
 | `command-start` | `sessionId`, `commandId`, `command`, `cwd`, `startedAt` | OSC 133 |
 | `command-end` | `sessionId`, `commandId`, `exitCode`, `completedAt`, `interrupted` | OSC 133 |
-| `agent-state` | `sessionId`, `state`, `detail?`, `turnStartedAt?` | Hook bridge, see `09-agent-integration.md`. `turnStartedAt` is when the person asked, absent between turns and absent for a turn whose prompt was never seen |
+| `agent-state` | `sessionId`, `state`, `detail?`, `turnStartedAt?`, `agentSessionId?` | Hook bridge, see `09-agent-integration.md`. `turnStartedAt` is when the person asked, absent between turns and absent for a turn whose prompt was never seen |
 | `session-exited` | `sessionId`, `exitCode`, `signal?` | |
 | `session-detached` | `sessionId`, `remainingClients` | |
 | `session-expiring` | `sessionId`, `expiresAt`, `reason` | **Reserved. Nothing sends it.** See `04-session-lifecycle.md` |
@@ -134,6 +135,7 @@ Both fields are optional, so an older extension still reports and is simply not 
 | `folder-checked` | `path`, `exists`, `isFile?`, `error?`, `checkId?` | `path` and `checkId` are both echoed. A folder that is not there is an answer, not an error |
 | `resumable-sessions` | `sessions[]` | Each with `agent`, `cwd`, `modifiedAt` and a `summary?`. Never contains one that would fail |
 | `pane-detached` | `workspaceId`, `newWorkspaceId` | The tab opens the new workspace beside itself |
+| `session-detached-to-tab` | `sessionId`, `fromWorkspaceId`, `newWorkspaceId` | Answered to the tab that asked, which is not the tab it left. `fromWorkspaceId` is where the new tab goes beside |
 | `error` | `code`, `message`, `context?` | Never a bare string |
 
 ### 4.1 Which sessions are live

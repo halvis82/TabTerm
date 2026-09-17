@@ -404,42 +404,79 @@
     opacity: 0.72;
   }
 
+  /*
+   * A row of ordinary cards, wrapping.
+   *
+   * It mirrored the tab's own splits at first, which meant a card's size came from the shape of the
+   * tab: one pane of a three pane tab was drawn tall with a stretched footer beside two short ones.
+   * A card is a card. They are all the same size here, and the row wraps when there are more than
+   * fit, which is what the tab does to fit them on a screen too.
+   */
   .session-group-body {
-    display: flex;
-    /* The arrangement fills the container, whatever shape it is. */
-    flex: 1;
-    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(238px, 1fr));
+    gap: 8px;
+    align-items: start;
   }
-  .session-group-body > .session-card {
-    flex: 1;
-    min-width: 0;
+
+  /* The whole group answers a press, so it lifts as one rather than a card at a time. */
+  .session-group:hover {
+    border-color: rgba(140, 170, 230, 0.4);
+    background: color-mix(in srgb, var(--hover) 78%, transparent);
+  }
+  .session-group {
+    cursor: pointer;
+    transition:
+      background 120ms ease,
+      border-color 120ms ease;
   }
 
   /*
-   * The arrangement the tab has, in the direction the tab has it.
+   * Dragging a session out of the group it is in.
    *
-   * `horizontal` is the split that puts panes side by side, which is what it means everywhere else
-   * in this product, so a row. Stacked panes become a column. Equal shares rather than the tab's
-   * own ratio: a card has a minimum readable width and honouring a 0.8 split would squeeze one of
-   * them under it for a faithfulness nobody is reading the list for.
+   * The card fades while it is being carried, every group dims to say it is not a destination, and
+   * the space around them lights up to say it is. Out of a tab is the only thing this gesture does,
+   * so the interface says so before the drop rather than by refusing it afterwards.
    */
-  .session-split {
-    display: flex;
-    gap: 8px;
-    flex: 1;
-    min-width: 0;
+  .session-card.is-dragging {
+    opacity: 0.4;
   }
-  .session-split.is-horizontal {
-    flex-direction: row;
+  .session-grid.is-dragging-out .session-group {
+    opacity: 0.55;
+    cursor: no-drop;
   }
-  .session-split.is-vertical {
-    flex-direction: column;
+  .sessions.is-drop-target .session-grid {
+    outline: 2px dashed rgba(120, 165, 240, 0.5);
+    outline-offset: 6px;
+    border-radius: 12px;
   }
-  .session-group-body > .session-card,
-  .session-split > .session-card,
-  .session-split > .session-split {
-    flex: 1;
-    min-width: 0;
+
+  /*
+   * And where it landed, outlined once.
+   *
+   * It leaves its group and reappears in its place by age, which can be most of a list away, with
+   * nothing to connect the two positions. The outline is the connection. One shot: it is set by the
+   * rebuild that moved the card, so a rebuild a second later for some other reason does not flash.
+   */
+  .session-card.is-landed {
+    animation: session-landed 1.4s ease-out 1;
+  }
+  @keyframes session-landed {
+    0% {
+      box-shadow: 0 0 0 2px rgba(120, 165, 240, 0.85);
+    }
+    70% {
+      box-shadow: 0 0 0 2px rgba(120, 165, 240, 0.65);
+    }
+    100% {
+      box-shadow: 0 0 0 2px rgba(120, 165, 240, 0);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .session-card.is-landed {
+      animation: none;
+      box-shadow: 0 0 0 2px rgba(120, 165, 240, 0.6);
+    }
   }
 
   .session-grid.is-scrolling {
