@@ -753,6 +753,17 @@ terminal they got. The session id goes to the worker with the workspace: a tab t
 is told which pane to focus, and one that has to be created is given it in its URL, because the way
 a tab takes over a workspace is to navigate and a navigation throws away everything else.
 
+### One row, whatever is in it
+
+A group is its cards plus a border, padding and the line that names it, so a row holding a group was
+taller than a row of cards on their own and the grid looked ragged. A card standing alone is given
+exactly that difference back as extra screen, so the two kinds of row come out level. The amount is
+written down once as `--group-chrome` and a check measures a group against a lone card, so it
+cannot drift quietly.
+
+Nothing is stretched to make that happen. Cards in a group are one height and lone cards another,
+and every card of a kind is identical to the others of that kind.
+
 ### The badge follows the tab, live
 
 A card says `open in a tab` or `background`, and the answer is whether a tab holds that session.

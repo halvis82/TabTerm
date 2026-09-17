@@ -128,6 +128,40 @@ describe('the hook an agent runs', () => {
     expect(sent()).toMatchObject({ hook: 'Notification' });
   });
 
+  /**
+   * And it does not wait for whoever is writing to it.
+   *
+   * The agent waits for this script, so reading until end of input means letting somebody else
+   * decide when the agent may carry on. A writer that holds the pipe open must cost a moment, not
+   * a hook timeout, and the state must still be reported when it does.
+   */
+  it('reports the state even when nothing closes its input', async () => {
+    received.length = 0;
+    const started = Date.now();
+    await new Promise<void>((resolve, reject) => {
+      const child = execFile(
+        'bash',
+        [SCRIPT, 'Stop'],
+        {
+          env: {
+            PATH: process.env['PATH'] ?? '',
+            HOME: home,
+            TABTERM_AGENT_PORT: String(port),
+            TABTERM_SESSION: 'tt-1',
+          },
+        },
+        (error) => {
+          if (error === null) resolve();
+          else reject(new Error(error.message));
+        },
+      );
+      // Written, and then the pipe is deliberately left open.
+      child.stdin?.write('{"session_id":"never-closed"}');
+    });
+    expect(Date.now() - started, 'the hook waited on the writer').toBeLessThan(4000);
+    expect(sent()).toMatchObject({ hook: 'Stop' });
+  }, 15000);
+
   it('says nothing at all for a shell TabTerm did not start', async () => {
     received.length = 0;
     await run('Stop', '{}', { TABTERM_SESSION: '' });

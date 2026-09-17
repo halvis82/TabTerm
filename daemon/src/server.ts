@@ -587,6 +587,31 @@ export class DaemonServer {
    */
   notifyFinished(event: Finished, where?: string, target?: { workspaceId?: string }): void {
     const decision = decide(event, this.#notifyPolicy, where);
+    /**
+     * Logged either way, because "why did I not get told" had no answer anywhere.
+     *
+     * Reported as notifications having stopped appearing, and nothing in the log could say whether
+     * the daemon had decided against one, sent one that Chrome dropped, or never seen the thing
+     * finish at all. Those are three different faults and they were indistinguishable.
+     *
+     * The kind and the duration, never what ran: the title of one of these is built from the
+     * command and the body from the directory, and neither belongs in a diagnostic log. See
+     * `log-privacy.test.ts`.
+     */
+    info('notify.decided', {
+      kind: event.kind,
+      ms: event.durationMs,
+      sent: decision !== null,
+      ...(decision === null
+        ? {
+            why: !this.#notifyPolicy.enabled
+              ? 'notifications off'
+              : event.durationMs < this.#notifyPolicy.thresholdMs
+                ? 'under the threshold'
+                : 'this kind is off',
+          }
+        : {}),
+    });
     if (!decision) return;
     this.broadcast({
       t: 'notify',

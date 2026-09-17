@@ -347,6 +347,20 @@
   }
 
   /* Wide enough for a readable preview, and it reflows rather than scrolling sideways. */
+  /**
+   * What a group costs on top of the cards inside it.
+   *
+   * Its border and padding top and bottom, the line that names it, and the gap under that line.
+   * A card on its own is given the same amount back as extra screen, so a row of lone cards is
+   * exactly as tall as a row containing a group and the grid reads as one thing.
+   *
+   * Asserted rather than trusted: `running-now-groups` measures a group against a lone card and
+   * fails if this drifts from what the box actually costs.
+   */
+  :root {
+    --group-chrome: 39px;
+  }
+
   .session-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(258px, 1fr));
@@ -402,6 +416,15 @@
     align-items: center;
     gap: 6px;
     padding: 0 2px;
+    /*
+     * A known height, because the rest of the list is built from it.
+     *
+     * A group is its cards plus this line and the box around them, and a card standing on its own
+     * has neither. Left to itself that made every row with a group in it taller than the cards
+     * beside it, which is the uneven grid he asked to be rid of. Fixing the number here lets a
+     * lone card be given exactly the difference back. See `--group-chrome`.
+     */
+    height: 14px;
   }
 
   .session-group-title {
@@ -489,6 +512,18 @@
       animation: none;
       box-shadow: 0 0 0 2px rgba(120, 165, 240, 0.6);
     }
+  }
+
+  /*
+   * A card standing on its own shows a little more of its screen.
+   *
+   * Which is the whole trick: it is taller by exactly what a group costs in border, padding and
+   * the line that names it, so a row of lone cards and a row with a group in it come out the same
+   * height. He asked for tiles that are all one size and got a grid where the lone ones looked
+   * short; this is the smallest change that makes the rows agree without stretching anything.
+   */
+  .session-grid > .session-card .session-screen {
+    height: calc(101px + var(--group-chrome));
   }
 
   .session-grid.is-scrolling {
@@ -643,6 +678,7 @@
        size the preview instead of the preview sizing the card. */
     flex: none;
     height: 101px;
+    /* A lone card is taller by exactly what a group's box and title cost. See `--group-chrome`. */
     padding: 6px 10px;
     overflow: hidden;
     /* The same two colors the renderer paints with, so a picture of a terminal looks like one

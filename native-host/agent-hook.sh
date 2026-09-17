@@ -23,10 +23,17 @@ TOKEN=$(cat "$TOKEN_FILE" 2>/dev/null) || exit 0
 # thing this project does not do. See docs/09-agent-integration.md.
 #
 # Read only when something is actually piped in, so a hook run by hand from a terminal returns
-# instead of waiting on a keyboard, and capped so a large payload cannot make this slow.
+# instead of waiting on a keyboard.
+#
+# Bounded, and that bound is the important part. This runs on the agent's critical path and the
+# agent waits for it, so reading until end of input means trusting somebody else to close a pipe
+# before we will let them carry on. One second is far longer than a payload takes to arrive and far
+# shorter than the agent's own hook timeout, and a read that times out still reports the state,
+# which is the half the product depends on.
 AGENT_SESSION=""
 if [ ! -t 0 ]; then
-  PAYLOAD=$(head -c 65536 2>/dev/null) || PAYLOAD=""
+  PAYLOAD=""
+  IFS= read -r -t 1 -d '' PAYLOAD <&0
   AGENT_SESSION=$(printf '%s' "$PAYLOAD" |
     sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
 fi

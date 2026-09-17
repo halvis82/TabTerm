@@ -119,26 +119,35 @@ r.ok(
 r.ok('and the same width', new Set(sizes.map((s2) => s2.w)).size === 1, JSON.stringify(sizes));
 
 /*
- * And that is true of every card on the list, in a group or not.
+ * And every card of a kind is the same height as every other of that kind.
  *
- * A card is one size: a head, a picture of a screen, a line underneath. Grid items fill their cell
- * by default, so a row holding a group of seven panes made the ordinary card beside it three cards
- * tall, footer stranded at the bottom of an empty box. Measured across the whole list rather than
- * within the group, because that is where the two kinds of item meet.
+ * Cards in a group are one height and cards standing alone are another, deliberately: a lone card
+ * is taller by exactly what a group's border, padding and title cost, so the two kinds of row come
+ * out level. What must never happen is a card being stretched by what happens to sit beside it,
+ * which is what a grid does to its items by default and what the row check below pins.
  */
-const everyCard = JSON.parse(
+const heights = JSON.parse(
   String(
     await evaluate(
       viewer.client,
-      `JSON.stringify([...document.querySelectorAll('.session-card')]
-         .map((c) => Math.round(c.getBoundingClientRect().height)))`,
+      `JSON.stringify({
+         grouped: [...document.querySelectorAll('.session-group .session-card')]
+           .map((c) => Math.round(c.getBoundingClientRect().height)),
+         alone: [...document.querySelectorAll('.session-grid > .session-card')]
+           .map((c) => Math.round(c.getBoundingClientRect().height)),
+       })`,
     ),
   ),
 );
 r.ok(
-  'every card on the list is the same height, grouped or not',
-  new Set(everyCard).size === 1,
-  JSON.stringify(everyCard),
+  'every card in a group is the height of the others in it',
+  new Set(heights.grouped).size === 1,
+  JSON.stringify(heights),
+);
+r.ok(
+  'and every card standing alone is the height of the other lone ones',
+  new Set(heights.alone).size <= 1,
+  JSON.stringify(heights),
 );
 
 /*
@@ -151,6 +160,36 @@ const stretched = String(
   ),
 );
 r.ok('and nothing is stretched to the height of its row', stretched === 'start', stretched);
+
+/*
+ * And a row with a group in it is the same height as a row of cards on their own.
+ *
+ * Asked for as a grid that reads as one thing "regardless of amounts of tabs in groups or
+ * whatnot". A group is its cards plus a border, padding and the line that names it, so cards on
+ * their own are given exactly that much back as extra screen. The number is written down in one
+ * place and this is what keeps it honest.
+ */
+const evenness = JSON.parse(
+  String(
+    await evaluate(
+      viewer.client,
+      `(() => {
+         const group = document.querySelector(${JSON.stringify(group)});
+         const alone = [...document.querySelectorAll('.session-grid > .session-card')][0];
+         if (!group || !alone) return 'null';
+         return JSON.stringify({
+           group: Math.round(group.getBoundingClientRect().height),
+           alone: Math.round(alone.getBoundingClientRect().height),
+         });
+       })()`,
+    ),
+  ),
+);
+r.ok(
+  'a group and a card standing alone are the same height',
+  evenness !== null && Math.abs(evenness.group - evenness.alone) <= 2,
+  JSON.stringify(evenness),
+);
 
 /*
  * And a card inside a group is the size a card outside one is.
@@ -180,7 +219,7 @@ const widths = JSON.parse(
   ),
 );
 r.ok(
-  'a grouped card is about the size of an ungrouped one',
+  'a grouped card is about the width of an ungrouped one',
   widths !== null && Math.abs(widths.inside - widths.outside) <= 30,
   JSON.stringify(widths),
 );
@@ -432,25 +471,24 @@ r.ok(
  * And it does what it says: the tab holding those panes goes, this one stays, and the sessions
  * carry on, because closing a tab is not the same as ending a terminal.
  */
-const tabsBefore = Number(
-  await evaluate(
-    watcher,
-    `new Promise((d) => chrome.tabs.query({}, (t) => d(t.filter((x) => (x.url ?? '').includes('terminal.html')).length)))`,
-  ),
-);
+const workspaceClosing = String(await evaluate(work.client, 'window.__tabterm.workspaceId()'));
+const stillOpen = async () =>
+  Number(
+    await evaluate(
+      watcher,
+      `new Promise((d) => chrome.tabs.query({}, (t) => d(t.filter((x) =>
+         (x.url ?? '').includes(${JSON.stringify(workspaceClosing)})).length)))`,
+    ),
+  );
+r.ok('the tab it names is open before the press', (await stillOpen()) === 1);
 await realClick(watcher, '.term-menu button', 'Close the tab it is in');
-await sleep(2500);
-const tabsAfter = Number(
-  await evaluate(
-    watcher,
-    `new Promise((d) => chrome.tabs.query({}, (t) => d(t.filter((x) => (x.url ?? '').includes('terminal.html')).length)))`,
-  ),
-);
-r.ok(
-  'and the tab it named is the one that closed',
-  tabsAfter === tabsBefore - 1,
-  `${String(tabsBefore)} -> ${String(tabsAfter)}`,
-);
+/*
+ * The tab is named rather than counted. Other tabs in this run close themselves at moments of
+ * their own, so a count going down by one proves nothing about which one went.
+ */
+const closed = await waitUntil(async () => (await stillOpen()) === 0, 10000);
+r.ok('and pressing it closes that tab', closed, `${String(await stillOpen())} still open`);
+
 r.ok(
   'while this one is still here',
   String(await evaluate(watcher, 'typeof document')) === 'object',

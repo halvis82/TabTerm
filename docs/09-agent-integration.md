@@ -163,6 +163,23 @@ It reaches a page twice: with the state it was learned from, and with the attach
 reason a pane's name and its timers are on the attach. No hook fires because a page reloaded, so
 without it a reattached tab could not offer the command until the agent was next spoken to.
 
+### The hook never waits on anybody
+
+The agent runs this script and waits for it, so anything in it that blocks is time the agent spends
+not answering. Reading the payload until end of input meant trusting the agent to close a pipe
+before we would let it carry on, and a writer that holds the pipe open turns a hook into a timeout
+and loses the event entirely. That matters most for `Stop`, which is the event that ends a turn:
+lose it and the turn's timer runs forever and the notification never comes.
+
+The read is bounded at one second, far longer than a payload takes to arrive and far shorter than
+the agent's own hook timeout. A read that times out still reports the state, which is the half the
+product depends on; only the session id is missed.
+
+Every hook that arrives is now recorded in the daemon log at `info` level: the hook name, the state
+it maps to, and whether it ended a turn. Names and states only, never anything an agent said or was
+asked. Before that, whether an agent's `Stop` was reaching the daemon at all was unanswerable, and
+that single fact is what separates a broken hook from a broken turn from a broken notification.
+
 ### Copy the command that reopens it
 
 Right clicking a pane running an agent, or its card in `Running now`, offers **Copy resume
