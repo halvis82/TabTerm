@@ -8,6 +8,9 @@ import { installCurrentWidths } from '@tabterm/shared';
 import type { ILinkProvider, IMarker } from '@xterm/xterm';
 import { classifyKey, xtermShouldHandle } from './keymap.js';
 import { placeAndArm } from './menu-shell.js';
+
+/** Where this browser records that it has given a pane a WebGL context. See `rendererWorksHere`. */
+const WEBGL_WORKS_KEY = 'tabterm.webgl-works';
 import { MarkerRail } from './markers.js';
 import { HighlightLayer } from './highlights.js';
 import { closeColorPicker, openColorPicker } from './color-picker.js';
@@ -827,6 +830,19 @@ export class XtermController {
    * a default that looks like one.
    */
   fit(): { cols: number; rows: number } | null {
+    /**
+     * A measurement that is not worth believing moves nothing at all. Not even this pane.
+     *
+     * Stated at the call sites first, one at a time, and it never held: `fit` applies what it
+     * measures, applying changes the grid, xterm reports that change, and the page forwards it as
+     * an ordinary resize. So a guarded call site still let the guess out under another name. The
+     * audit log says it plainly: `attach` at 91 columns, then `terminal-said-so` at 91, for a
+     * session running at 101.
+     *
+     * Here it is one rule in one place. The pane keeps the size the daemon gave it, which is the
+     * size the program is actually running at, and asks again the moment its renderer arrives.
+     */
+    if (!this.sizeIsTrustworthy()) return null;
     if (!this.propose()) return null;
     try {
       this.#fit.fit();
@@ -952,7 +968,34 @@ export class XtermController {
       waitingSince: this.#waitingForRendererSince,
       graceMs: XtermController.RENDERER_GRACE_MS,
       now: Date.now(),
+      rendererExpected: XtermController.rendererWorksHere,
     });
+  }
+
+  /**
+   * Whether a WebGL renderer has ever attached in this browser.
+   *
+   * Remembered across reloads, because the moment it matters most is the first measurement after
+   * one: every tab reattaches at once, they contend for a capped number of contexts, and a page
+   * that has just started has no evidence of its own yet. A browser that produced one yesterday
+   * will produce one in a moment, and a measurement taken before it arrives is four percent out.
+   */
+  static rendererWorksHere = ((): boolean => {
+    try {
+      return localStorage.getItem(WEBGL_WORKS_KEY) === '1';
+    } catch {
+      return false;
+    }
+  })();
+
+  static rememberRendererWorks(): void {
+    if (XtermController.rendererWorksHere) return;
+    XtermController.rendererWorksHere = true;
+    try {
+      localStorage.setItem(WEBGL_WORKS_KEY, '1');
+    } catch {
+      /* storage can be refused, and this page still knows for itself */
+    }
   }
 
   get rendererAttached(): boolean {
@@ -1078,6 +1121,9 @@ export class XtermController {
       this.#webgl = addon;
       // The cell is now the one this pane will keep, so a size measured from here is worth having.
       this.#waitingForRendererSince = null;
+      // And this browser has proved it gives out contexts, which is what tells the next page that
+      // a missing renderer means "not yet" rather than "never". See `rendererWorksHere`.
+      XtermController.rememberRendererWorks();
       this.#opts.onRendererReady?.();
     } catch {
       // No WebGL to be had right now. xterm draws without it, and this asks again shortly.

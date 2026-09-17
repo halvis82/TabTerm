@@ -4020,15 +4020,28 @@ function reportBox(when: string, paneId: string): void {
 function attachPaneSizes(): { paneId: string; cols: number; rows: number; estimated?: true }[] {
   const out: { paneId: string; cols: number; rows: number; estimated?: true }[] = [];
   for (const pane of panesHost?.all ?? []) {
-    /*
-     * Read rather than applied when it is not worth believing.
+    /**
+     * On this path a renderer that is not here yet is simply not believed, grace or no grace.
      *
-     * The same distinction as in `refitAllPanes`: this size is about to be marked as a guess, and
-     * the daemon will decline to move a session for a guess. Applying it locally anyway would
-     * move this pane for a number the daemon has already rejected, which is the disagreement the
-     * whole of `size-agreement` exists to make impossible.
+     * Everywhere else a pane that has waited long enough for a renderer is believed anyway, so a
+     * machine that never gives it one can still follow the window. Attaching is the one moment
+     * where waiting costs nothing, because the daemon already knows what size the session is
+     * running at and will say so.
+     *
+     * The two renderers do not agree about the width of a cell: the DOM one reports the font's
+     * advance and the WebGL one snaps it down to whole device pixels. Read out of this machine's
+     * own log: 7.5 from the WebGL renderer in every one of 6512 measurements, and 7.82 to 7.84
+     * from the DOM one, which is four percent, which is 120 columns against 125. Every reattach
+     * therefore moved each pane twice, once to the DOM's answer and once back, and an agent
+     * redraws its whole interface for each. That is the scrambled transcript, reported three
+     * times now and finally visible in the log as `attach 120x45` followed by `resize-pane
+     * 125x45`.
+     *
+     * Read rather than applied when it is not worth believing, for the reason `refitAllPanes`
+     * gives: the daemon will decline to move a session for a guess, and applying it here anyway
+     * would leave this pane disagreeing with the session it is showing.
      */
-    const believable = pane.controller.sizeIsTrustworthy();
+    const believable = pane.controller.rendererAttached;
     const measured = believable ? pane.controller.fit() : pane.controller.propose();
     if (!measured || measured.cols <= 1 || measured.rows <= 1) continue;
     const trusted = trustMeasurement(measured, believable);
@@ -4064,7 +4077,17 @@ function attachSize(): { cols: number; rows: number; estimated?: true } {
    * which follows within a second through `resize-pane`.
    */
   const first = panesHost?.all[0];
-  const measured = first?.controller.fit();
+  /*
+   * Read without applying while the renderer is missing, because applying is its own door.
+   *
+   * `fit` measures and applies, and applying changes the grid, and xterm then reports that change,
+   * and the page forwards it as an ordinary resize. So marking this number a guess stopped nothing:
+   * the guess had already gone out under another name. The audit log says it plainly, `attach`
+   * followed by `terminal-said-so` at the same wrong width. `refitAllPanes` learned this before;
+   * this is the same lesson on the attach path.
+   */
+  const ready = first?.controller.rendererAttached === true;
+  const measured = ready ? first?.controller.fit() : first?.controller.propose();
   if (measured && measured.cols > 1 && measured.rows > 1) {
     if (first) reportBox('attach', first.paneId);
     /*
@@ -4076,7 +4099,12 @@ function attachSize(): { cols: number; rows: number; estimated?: true } {
      * columns under the first and 195 under the second. The daemon keeps the size the session
      * has and tells this page, instead of resizing a program that is drawing in place.
      */
-    return trustMeasurement(measured, first?.controller.sizeIsTrustworthy() ?? false);
+    /*
+     * And on this path a renderer that is not here yet is not believed at all, grace or no grace.
+     * The daemon already knows what size the session is running at, so waiting costs nothing here
+     * and guessing costs a reflow of the whole history. See `attachPaneSizes`.
+     */
+    return trustMeasurement(measured, ready);
   }
   // A cell from the terminal's own font metrics when there is one, and a sane default when not.
   const cell = panesHost?.all[0]?.controller.cellSize();
@@ -7136,6 +7164,14 @@ function installTestHook(): void {
     },
     blockRendererForTest: (on) => {
       XtermController.blockRenderer = on;
+      // Remembered, so a check can reload the page and still come up without a renderer, which is
+      // the only way to reproduce losing the race for a GPU context. See `readBlockedRenderer`.
+      try {
+        if (on) sessionStorage.setItem('tabterm.blockRenderer', '1');
+        else sessionStorage.removeItem('tabterm.blockRenderer');
+      } catch {
+        /* storage can be refused; the flag still works for this page */
+      }
       if (on) panesHost?.releaseRenderers();
       else panesHost?.restoreRenderers();
     },
@@ -7469,6 +7505,20 @@ async function start(): Promise<void> {
   void refreshShortcuts();
   watchSharedSettings();
   installShortcuts();
+  /**
+   * A page coming up with no renderer, on purpose.
+   *
+   * The state this reproduces is a tab that lost the race for a GPU context, which happens for
+   * real when every tab reattaches at once. It has to survive the reload, because the moment being
+   * tested is the attach itself, so it lives in `sessionStorage` rather than in a variable.
+   */
+  try {
+    if (sessionStorage.getItem('tabterm.blockRenderer') === '1') {
+      XtermController.blockRenderer = true;
+    }
+  } catch {
+    /* storage can be refused, in which case there is nothing to restore */
+  }
   installForwardedCommands();
   installFocusRequests();
   // Asked once at startup, so the palette's hints describe the keys Chrome really has.
