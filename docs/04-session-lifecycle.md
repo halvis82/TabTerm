@@ -593,6 +593,25 @@ race; this is the normal path, not an error path.
 
 ---
 
+### A restored screen is a picture, not a terminal
+
+Restoring a workspace writes the saved screen into a **new** shell, so the work is still there to
+read. What must not come with it is the terminal the old program was running in.
+
+A serialized screen carries the modes its program had set, and several of those govern input rather
+than drawing: mouse reporting, focus reporting, application cursor keys, bracketed paste. Replayed
+into a new shell they arm all four against a process that never asked for any of them. Every click
+then sends `ESC [ M` and three raw bytes, every focus change sends `ESC [ I`, every arrow key sends
+`ESC O A` instead of `ESC [ A`. The person typed none of it and it arrives as though they had.
+
+This was reported as restored sessions not working at all: a prompt typed into a resumed agent came
+straight back as "Interrupted by user", because a stray escape is that program's interrupt key.
+
+So the restore writes the screen, then the input state of a new shell, then its notice. Said
+explicitly rather than by stripping sequences out of the saved bytes: what the screen looks like is
+the saved program's business, and what the keyboard and the mouse do belongs to the one that is
+running. The shell turns back on whatever it wants for itself.
+
 ## 6. Merge and detach of panes
 
 ### Merge

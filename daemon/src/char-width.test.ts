@@ -129,7 +129,18 @@ describe('the screen the daemon keeps', () => {
     page.loadAddon(serializer);
     await new Promise<void>((resolve) => page.write(written, resolve));
 
-    expect(daemonScreen).toBe(serializer.serialize({ scrollback: 0 }));
-    expect(daemonScreen).toBe('✅'.repeat(6));
+    /*
+     * Compared as a picture, which is what this is about.
+     *
+     * A snapshot also describes the terminal the picture was drawn in: whether the cursor is
+     * hidden, and which format mouse reports are in, neither of which the serializer says and both
+     * of which a replayed screen needs. That trailer is not content, so it comes off before two
+     * screens are compared for having the same cells in them.
+     */
+    const picture = (screen: string): string =>
+      // eslint-disable-next-line no-control-regex -- an escape sequence is what is being stripped
+      screen.replace(/\u001b\[\?(?:25[lh]|100[56]|1015h)/g, '');
+    expect(picture(daemonScreen)).toBe(serializer.serialize({ scrollback: 0 }));
+    expect(picture(daemonScreen)).toBe('✅'.repeat(6));
   });
 });

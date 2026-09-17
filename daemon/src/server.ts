@@ -31,6 +31,7 @@ import { FlowController } from './flow-control.js';
 import { debug, info, warn } from './log.js';
 import { expandHome } from './complete-path.js';
 import { plainText } from './plain-text.js';
+import { INPUT_STATE_OF_A_NEW_SHELL } from './restored-screen.js';
 import { markerBlock } from './marker-block.js';
 import {
   MAX_DROP_BYTES,
@@ -3253,7 +3254,16 @@ export class DaemonServer {
           `This is a new shell in ${pane.cwd}. Resume it from the start screen.`
         : `This is a new shell in ${pane.cwd}, not the original process.`;
       const notice = `\r\n\x1b[2m[restored ${describeAge(pane.savedAt)}. ${what}]\x1b[0m\r\n`;
-      session.vt.write(Buffer.from(pane.screen + notice, 'utf8'));
+      /*
+       * The screen is history. The terminal it was drawn in is not restored with it.
+       *
+       * A saved screen carries the modes its program had set, and several of them govern input
+       * rather than drawing: mouse reporting, focus reporting, application cursor keys, bracketed
+       * paste. Replaying them into this new shell armed all four against a process that never
+       * asked for them, so a click or a focus change sent escape sequences nobody typed. That is
+       * what "restored sessions do not work" was. See `restored-screen.ts`.
+       */
+      session.vt.write(Buffer.from(pane.screen + INPUT_STATE_OF_A_NEW_SHELL + notice, 'utf8'));
 
       if (msg.replayCommands && pane.lastCommand) {
         // Typed, not run. The command lands at the prompt and waits, so a destructive one is

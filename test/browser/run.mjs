@@ -123,6 +123,9 @@ const LAST = [
   // Kills the daemon on purpose, to reach the one state its check is about: a session adopted
   // from a previous daemon, which is what an update leaves behind.
   'offer-only-over-empty-panes',
+  // Kills the shell and then the daemon, which together are what a machine going down leaves: a
+  // saved screen with no process behind it, which is the only way to reach the restore offer.
+  'restored-view-is-clean',
   'resilience',
   'nothing-left-alive',
   // These three leave the start screen the way a person does, which runs a `cd`, and two of them

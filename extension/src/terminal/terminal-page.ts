@@ -6919,6 +6919,14 @@ declare global {
       };
       /** The session behind each pane, which is what an agent hook reports against. */
       paneSessions: () => { paneId: string; sessionId: string }[];
+      /**
+       * What this pane's terminal would do with a key, a click or a focus change.
+       *
+       * None of it is visible on the screen, and all of it decides whether the terminal sends
+       * bytes nobody typed. A screen restored from a dead program used to arm every one of these
+       * against a new shell, which is what "restored sessions do not work" turned out to be.
+       */
+      inputState: () => { modes: Record<string, unknown>; cursorHidden: boolean } | null;
       /** Do what looking at the tab does, which is how an outcome stops being news. */
       lookAtTab: () => void;
       /** What the line under the path box knows, for when it is blank and should not be. */
@@ -7261,6 +7269,18 @@ function installTestHook(): void {
     }),
     paneSessions: () =>
       (panesHost?.all ?? []).map((p) => ({ paneId: p.paneId, sessionId: p.sessionId })),
+    inputState: () => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : panesHost?.all[0];
+      if (!pane) return null;
+      const term = pane.controller.term;
+      // Whether the cursor is hidden is the one part of this the emulator does not publish.
+      const core = (term as unknown as { _core?: { coreService?: { isCursorHidden?: boolean } } })
+        ._core;
+      return {
+        modes: { ...term.modes },
+        cursorHidden: core?.coreService?.isCursorHidden === true,
+      };
+    },
     lookAtTab: () => lookedAtTab(),
     folderStateDebug: () => launcher?.folderStateDebug() ?? {},
     keyboardHolder: () => {

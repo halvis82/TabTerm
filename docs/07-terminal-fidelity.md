@@ -261,6 +261,34 @@ table is not something one of them can pick up and the other not.
 Anything the chosen library does not round-trip is a **known fidelity gap** and gets recorded in §7
 of this document by the VT fidelity spike.
 
+### Two of those the daemon has to add itself
+
+The serialize addon restores the alternate screen, bracketed paste, application cursor keys, the
+keypad, wrapping, focus reporting and whether the mouse is being tracked. It says nothing about
+these two, and both are in the list above because a replayed screen is wrong without them.
+
+**Whether the cursor is hidden.** An agent's interface hides the real cursor and draws its own.
+Replay the screen without that and the real cursor comes back: a block sitting wherever the last
+frame left it, which for that interface is the bottom left, jumping about as the frame is redrawn on
+each keystroke. It was reported as a second typing indicator in every restored tab, which is
+precisely what it was.
+
+**Which format mouse reports are in.** The tracking is restored and the encoding is not, so a
+program that asked for the modern format is told about clicks in the 1980s one. That format cannot
+express a column past 95, which is most of a full width terminal, and reports a release as an
+anonymous button.
+
+Both are read off the emulator at snapshot time rather than tracked alongside it, so a reset
+sequence is accounted for without this code having to know that reset sequences exist. The path is
+private to the library, so it is checked rather than trusted: a version that stops exposing it
+leaves the snapshot exactly as it was before, which is a worse screen and not a broken one.
+
+**An empty screen stays empty.** The trailer is appended only to a screen that has something on it.
+"There is nothing here" is a fact other code acts on: the restore record refuses to overwrite a
+screen captured while a pane was alive with an empty one taken after the process had gone. Six bytes
+of mode description made an empty screen look like content, and a dead pane erased the work it was
+supposed to be keeping.
+
 ### Costs, measured in the VT fidelity spike
 
 - Resident memory per session at 1k, 10k, and 50k scrollback lines
