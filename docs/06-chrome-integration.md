@@ -716,36 +716,32 @@ the tree collapsed correctly and the surviving pane still drew itself at half wi
 space beside it, which read as the layout not updating at all. Filling is now the default and a
 fixed share is set only for the first child of a split, which is the right way round.
 
-### Two terminals in one tab are two cards in one box
+### Two terminals in one tab are two cards with one colour behind them
 
 `Running now` lists sessions, not tabs, so a split tab appears once per pane. That part is
 deliberate: they are separate shells with their own directories and their own work, and collapsing
 them into one card would hide one of them. What was missing was any sign that they are in the same
 place, so four panes of one tab looked exactly like four unrelated terminals.
 
-Panes that share a tab are drawn inside one box, in the order the tab has them. The box takes as
-many columns of the list as the tab has panes, up to three, so the cards inside stay the size every
-other card is.
+Three designs, and the third is the one that holds. It mirrored the tab's own splits first, which
+made a card's size come from the shape of its tab: one pane of a three pane tab was tall with a
+stretched footer beside two short ones. Then the cards were equal but lived inside a box with a
+title, and a box is taller than what it contains, so the cards beside it lined up with nothing;
+lengthening the lone ones to compensate only moved the mismatch, and they ran past the bottom of
+the box instead.
 
-**A card is a card.** The box drew the tab's own splits at first, which meant a card's size came
-from the shape of the tab: one pane of a three pane tab was tall with a stretched footer beside two
-short ones. The arrangement now decides the order the cards appear in and nothing else, and the row
-wraps when there are more than fit, which is what the tab does with them too.
+So nothing is nested. Every card is a member of the one grid, all the same size, on the same pitch,
+and a tab is a **wash**: another grid item placed over the same cells, painted before the cards and
+reaching a few pixels past them on every side. It holds nothing, which is why nothing can drift. It
+carries no title either: the tab it stands for is said by the cards on it.
 
-One size, everywhere on the list. A card is a head, a fixed picture of a screen, and a line
-underneath, and nothing about its neighbours changes that. Grid items fill their cell by default,
-so the same complaint came back a second time by a different route: a row holding a group of seven
-panes was three cards tall, and the ordinary card beside it was stretched to match, with its footer
-stranded at the bottom of an empty box. The list does not stretch its items to the height of their
-row, and neither does a group stretch the cards inside it.
-
-Three ways to press it, and they mean different things:
+Three ways to press it, and they mean different things:Three ways to press it, and they mean different things:
 
 | Pressed | What happens |
 | --- | --- |
-| A card in the box | That tab comes forward, **with the keyboard in that pane** |
-| The box itself, anywhere that is not a card | That tab comes forward |
-| A card dragged out of the box | That session leaves the tab. See below |
+| A card with a wash behind it | That tab comes forward, **with the keyboard in that pane** |
+| The wash itself, in the band around the cards | That tab comes forward |
+| A card dragged off its wash | That session leaves the tab. See below |
 
 The pane travels with the request. A tab of four panes is four cards, and all four of them used to
 open the tab on whichever pane it happened to be left on, so the card somebody pressed was not the

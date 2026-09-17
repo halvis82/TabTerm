@@ -124,6 +124,30 @@ const overlap = JSON.parse(
 r.ok('and no two tiles are on the same cell', overlap === null, String(overlap));
 
 /*
+ * And every card in the list is the same size, whether it belongs to a tab or not.
+ *
+ * The whole point of the wash: the cards are all members of the one grid, so a tab is a colour
+ * behind them rather than a box around them, and nothing has to be lengthened to compensate for
+ * the height of a box. Asked for after two designs that did not line up.
+ */
+const sizes = JSON.parse(
+  String(
+    await evaluate(
+      viewer.client,
+      `JSON.stringify([...document.querySelectorAll('.session-card')].map((c) => {
+         const b = c.getBoundingClientRect();
+         return Math.round(b.height) + 'x' + Math.round(b.width);
+       }))`,
+    ),
+  ),
+);
+r.ok(
+  'every card in the list is the same size',
+  new Set(sizes).size <= 1,
+  JSON.stringify([...new Set(sizes)]),
+);
+
+/*
  * And folders come before resuming an agent. Both are ways to start, and the folder is the commoner
  * one; the resume list is also the one that grows without bound, so first it pushed the other down.
  */

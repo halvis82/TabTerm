@@ -55,7 +55,12 @@ await sleep(2000);
  * so every count here asks about that one.
  */
 const mine = String(await evaluate(work.client, 'window.__tabterm.workspaceId()'));
-const group = `.session-group[data-workspace-id="${mine}"]`;
+/*
+ * A tab is a wash behind its cards now, and the cards are members of the one grid tagged with the
+ * tab they belong to. Nothing is nested, which is what keeps every card on the same pitch.
+ */
+const group = `.session-wash[data-workspace-id="${mine}"]`;
+const inGroup = `.session-card[data-group="${mine}"]`;
 
 const shape = async () =>
   JSON.parse(
@@ -65,10 +70,12 @@ const shape = async () =>
         `JSON.stringify({
            cards: document.querySelectorAll('.session-card').length,
            groups: document.querySelectorAll(${JSON.stringify(group)}).length,
-           inGroups: document.querySelectorAll(${JSON.stringify(group + ' .session-card')}).length,
+           inGroups: document.querySelectorAll(${JSON.stringify(inGroup)}).length,
            /* A box drawn around a single card says nothing, wherever it came from. */
-           lonely: [...document.querySelectorAll('.session-group')]
-             .filter((g) => g.querySelectorAll('.session-card').length < 2).length,
+           /* A wash with fewer than two cards on it is a tab drawn around a single terminal. */
+           lonely: [...document.querySelectorAll('.session-wash')].filter((w) =>
+             [...document.querySelectorAll('.session-card')]
+               .filter((c) => c.dataset.group === w.dataset.group).length < 2).length,
          })`,
       ),
     ),
@@ -105,7 +112,7 @@ const sizes = JSON.parse(
   String(
     await evaluate(
       viewer.client,
-      `JSON.stringify([...document.querySelectorAll('${group} .session-card')]
+      `JSON.stringify([...document.querySelectorAll('${inGroup}')]
          .map((c) => { const b = c.getBoundingClientRect();
            return { w: Math.round(b.width), h: Math.round(b.height) }; }))`,
     ),
@@ -131,7 +138,7 @@ const heights = JSON.parse(
     await evaluate(
       viewer.client,
       `JSON.stringify({
-         grouped: [...document.querySelectorAll('.session-group .session-card')]
+         grouped: [...document.querySelectorAll('.session-card[data-group]')]
            .map((c) => Math.round(c.getBoundingClientRect().height)),
          alone: [...document.querySelectorAll('.session-grid > .session-card')]
            .map((c) => Math.round(c.getBoundingClientRect().height)),
@@ -162,36 +169,41 @@ const stretched = String(
 r.ok('and nothing is stretched to the height of its row', stretched === 'start', stretched);
 
 /*
- * And a row with a group in it is the same height as a row of cards on their own.
+ * The wash covers the cards it belongs to, rather than being a box that holds them.
  *
- * Asked for as a grid that reads as one thing "regardless of amounts of tabs in groups or
- * whatnot". A group is its cards plus a border, padding and the line that names it, so cards on
- * their own are given exactly that much back as extra screen. The number is written down in one
- * place and this is what keeps it honest.
+ * Which is what keeps the grid even: every card is a member of the one grid, on the same pitch,
+ * and the tab's colour is painted over the same cells and a few pixels past. A box around them was
+ * taller than what it held, so the cards beside it lined up with nothing.
  */
-const evenness = JSON.parse(
+const covers = JSON.parse(
   String(
     await evaluate(
       viewer.client,
       `(() => {
-         const group = document.querySelector(${JSON.stringify(group)});
-         const alone = [...document.querySelectorAll('.session-grid > .session-card')][0];
-         if (!group || !alone) return 'null';
+         const wash = document.querySelector(${JSON.stringify(group)});
+         const cards = [...document.querySelectorAll(${JSON.stringify(inGroup)})];
+         if (!wash || cards.length === 0) return 'null';
+         const w = wash.getBoundingClientRect();
          return JSON.stringify({
-           group: Math.round(group.getBoundingClientRect().height),
-           alone: Math.round(alone.getBoundingClientRect().height),
+           washHeight: Math.round(w.height),
+           coversAll: cards.every((c) => {
+             const b = c.getBoundingClientRect();
+             return b.top >= w.top - 1 && b.bottom <= w.bottom + 1 &&
+                    b.left >= w.left - 1 && b.right <= w.right + 1;
+           }),
          });
        })()`,
     ),
   ),
 );
 r.ok(
-  'a group and a card standing alone are the same height',
-  evenness !== null && Math.abs(evenness.group - evenness.alone) <= 2,
-  JSON.stringify(evenness),
+  'the tab colour is drawn behind its cards, covering all of them',
+  covers !== null && covers.coversAll === true && covers.washHeight > 100,
+  JSON.stringify(covers),
 );
 
 /*
+ * And a card inside a group is the size a card outside one is./*
  * And a card inside a group is the size a card outside one is.
  *
  * The first version gave every group the whole row, which made a pair of terminals into a banner
@@ -204,9 +216,9 @@ const widths = JSON.parse(
     await evaluate(
       viewer.client,
       `(() => {
-         const inside = document.querySelector('${group} .session-card');
+         const inside = document.querySelector('${inGroup}');
          const outside = [...document.querySelectorAll('.session-card')]
-           .find((c) => !c.closest('.session-group'));
+           .find((c) => c.dataset.group === undefined);
          if (!inside || !outside) return 'null';
          return JSON.stringify({
            inside: Math.round(inside.getBoundingClientRect().width),
@@ -270,7 +282,7 @@ const afterThird = JSON.parse(
   String(
     await evaluate(
       viewer.client,
-      `JSON.stringify([...document.querySelectorAll('${group} .session-card')]
+      `JSON.stringify([...document.querySelectorAll('${inGroup}')]
          .map((c) => Math.round(c.getBoundingClientRect().height)))`,
     ),
   ),
@@ -359,7 +371,7 @@ await evaluate(
 }))`,
 ).catch(() => undefined);
 await sleep(300);
-const pressedGroup = await realClick(viewer.client, `${group} .session-group-title`);
+const pressedGroup = await realClick(viewer.client, group);
 r.ok('the group itself can be pressed', pressedGroup);
 const cameForward = await waitUntil(async () => isActive(work.client), 15000);
 r.ok('and pressing it opens the tab those panes are in', cameForward);
@@ -379,16 +391,14 @@ const again = await openTerminal();
 await waitFor(again.client, "document.querySelector('.launcher-input')");
 await waitUntil(
   async () =>
-    Number(
-      await evaluate(again.client, `document.querySelectorAll('${group} .session-card').length`),
-    ) >= 2,
+    Number(await evaluate(again.client, `document.querySelectorAll('${inGroup}').length`)) >= 2,
   20000,
 );
 const wanted = String(
   await evaluate(
     again.client,
     `(() => {
-       const cards = [...document.querySelectorAll('${group} .session-card')];
+       const cards = [...document.querySelectorAll('${inGroup}')];
        return cards[cards.length - 1]?.dataset.sessionId ?? '';
      })()`,
   ),
@@ -411,8 +421,7 @@ await waitFor(onlooker.client, "document.querySelector('.launcher-input')");
 const watcher = onlooker.client;
 await waitUntil(
   async () =>
-    Number(await evaluate(watcher, `document.querySelectorAll('${group} .session-card').length`)) >=
-    2,
+    Number(await evaluate(watcher, `document.querySelectorAll('${inGroup}').length`)) >= 2,
   20000,
 );
 
@@ -432,7 +441,7 @@ const cardAt = JSON.parse(
     await evaluate(
       watcher,
       `(() => {
-         const card = document.querySelector(${JSON.stringify(group + ' .session-card')});
+         const card = document.querySelector(${JSON.stringify(inGroup)});
          if (!card) return 'null';
          card.scrollIntoView({ block: 'center' });
          const b = card.getBoundingClientRect();

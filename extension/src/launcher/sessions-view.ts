@@ -222,13 +222,25 @@ function dragOutOfGroup(card: HTMLElement, session: LiveSession, grid: HTMLEleme
   });
 }
 
-/** The list accepts a dragged session anywhere that is not a group. */
+/** Whether what is under the pointer is part of a tab with other panes in it. */
+function belongsToATab(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.closest('.session-wash, .session-card[data-group]') !== null;
+}
+
+/** The list accepts a dragged session anywhere that is not part of a tab. */
 function acceptDrops(area: HTMLElement, onDetach: (session: LiveSession) => void): void {
   area.addEventListener('dragover', (e) => {
     if (draggingOut === undefined) return;
-    // Over a group, including its own, this is not a drop target at all: no `preventDefault`,
-    // so the browser shows the "no" cursor and a drop there does nothing.
-    if ((e.target as HTMLElement).closest('.session-group')) return;
+    /*
+     * Over anything belonging to a tab, including its own, this is not a drop target at all: no
+     * `preventDefault`, so the browser shows the "no" cursor and a drop there does nothing.
+     *
+     * Asked of the card rather than of a box around it. The cards of a tab are members of the one
+     * grid now, with the tab's colour washed behind them, so what says "this belongs to a tab" is
+     * the card itself. See `appendSharedTab`.
+     */
+    if (belongsToATab(e.target)) return;
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
     area.classList.add('is-drop-target');
@@ -241,7 +253,7 @@ function acceptDrops(area: HTMLElement, onDetach: (session: LiveSession) => void
     const moving = draggingOut;
     draggingOut = undefined;
     if (moving === undefined) return;
-    if ((e.target as HTMLElement).closest('.session-group')) return;
+    if (belongsToATab(e.target)) return;
     e.preventDefault();
     // Marked so the click that ends this drag does not also open the session. See `dragOutOfGroup`.
     area
@@ -262,7 +274,9 @@ function acceptDrops(area: HTMLElement, onDetach: (session: LiveSession) => void
  * of whatever else Chrome is showing down the side, and it changes without this list being rebuilt.
  */
 function packGrid(grid: HTMLElement): void {
-  const items = [...grid.children].filter((el): el is HTMLElement => el instanceof HTMLElement);
+  const items = [...grid.children].filter(
+    (el): el is HTMLElement => el instanceof HTMLElement && el.dataset['tile'] !== undefined,
+  );
   if (items.length === 0) return;
   const columns = getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length;
   if (columns < 2) {
@@ -285,6 +299,22 @@ function packGrid(grid: HTMLElement): void {
     const width = Math.max(1, Math.min(tile.columns, columns));
     item.style.gridColumn = `${String(place.column)} / span ${String(width)}`;
     item.style.gridRow = `${String(place.row)} / span ${String(Math.max(1, tile.rows))}`;
+
+    /*
+     * And the cards of a tab fill the rectangle its wash was given, in reading order.
+     *
+     * They are members of this grid rather than of the wash, which is the whole point: a card in a
+     * tab and a card on its own are the same size and sit on the same pitch. The wash is behind
+     * them and only says which of them belong together.
+     */
+    const group = item.dataset['group'];
+    if (!item.classList.contains('session-wash') || group === undefined) return;
+    const cards = [...grid.querySelectorAll(`.session-card[data-group="${CSS.escape(group)}"]`)];
+    cards.forEach((card, index) => {
+      if (!(card instanceof HTMLElement)) return;
+      card.style.gridColumn = String(place.column + (index % width));
+      card.style.gridRow = String(place.row + Math.floor(index / width));
+    });
   });
 }
 
@@ -357,7 +387,7 @@ export function buildSessions(options: SessionsOptions): HTMLElement {
       grid.append(card);
       continue;
     }
-    grid.append(buildSharedTab(group, options, grid));
+    appendSharedTab(group, options, grid);
   }
   wrap.append(grid);
   /*
@@ -378,76 +408,59 @@ export function buildSessions(options: SessionsOptions): HTMLElement {
 }
 
 /**
- * The panes of one tab, drawn as a row of ordinary cards.
+ * The panes of one tab: ordinary cards, with the tab's colour washed behind them.
  *
- * A container rather than cards that merely sit beside each other: a group that straddles a row
- * boundary loses the cue entirely, and that is the one thing adjacency cannot survive.
+ * Three designs, and this is the one he asked for after seeing the other two. It mirrored the
+ * workspace's own splits first, which made a card's size come from the shape of its tab. Then the
+ * cards were equal but lived inside a box with a title, and a box is taller than what it contains:
+ * the cards beside it lined up with nothing, and lengthening those to compensate only moved the
+ * mismatch. "Keep a perfect grid with all of them the same size, but the blue background just goes
+ * around them extending slightly past, with no title."
  *
- * It mirrored the workspace's own splits at first, so a stacked pair was drawn stacked. That was
- * the wrong trade and he said so: mirroring a tree means a card's size comes from the shape of the
- * tab, so one pane of a three pane tab was drawn tall with a stretched footer while its neighbours
- * were short. **A card is a card.** They are all the same size here, in the order the panes are in,
- * wrapping when there are more than fit, which is also what the tab does to fit them on a screen.
+ * So the cards are members of the one grid like every other card, and the wash is a separate item
+ * placed over the same cells, behind them, reaching a few pixels past on every side. Nothing is
+ * nested, so nothing can drift: every card in the list sits on the same pitch whether or not it
+ * belongs to a tab.
  */
-function buildSharedTab(
-  group: SessionGroup,
-  options: SessionsOptions,
-  grid: HTMLElement,
-): HTMLElement {
-  const box = document.createElement('section');
-  box.className = 'session-group';
-  if (group.workspaceId !== undefined) box.dataset['workspaceId'] = group.workspaceId;
-
+function appendSharedTab(group: SessionGroup, options: SessionsOptions, grid: HTMLElement): void {
   const members = orderedByLayout(group);
-  /*
-   * How much of the grid this tab takes: as many columns as it has panes up to the cap, and one
-   * row per wrapped row of cards inside it. That is what the packing works in. See `pack-grid.ts`.
-   */
   const across = Math.min(members.length, MAX_GROUP_COLUMNS);
-  box.dataset['tile'] =
-    `${String(across)}x${String(Math.ceil(members.length / Math.max(1, across)))}`;
-  /**
-   * As many columns as it has panes, up to the cap, and no more.
-   *
-   * It spanned the whole row first, which turned a pair of terminals into a banner across the
-   * list. Each card then keeps the width it would have had on its own, which is the point: the
-   * grouping is a background and an order, not a different kind of card.
+  const down = Math.ceil(members.length / Math.max(1, across));
+  const id = group.workspaceId ?? members[0]?.session.sessionId ?? '';
+
+  /*
+   * The wash comes first in the order, so it is painted before the cards that sit on it. It is a
+   * grid item like any other and the packing gives it the whole rectangle. See `packGrid`.
    */
-  // The span is set by the packing, which knows how many columns there are. See `packGrid`.
-  box.style.gridColumn = `span ${String(across)}`;
-
-  const head = document.createElement('header');
-  head.className = 'session-group-head';
-  const what = document.createElement('span');
-  what.className = 'session-group-title';
-  what.textContent = `${String(members.length)} panes in one tab`;
-  head.append(what);
-  box.append(head);
-
-  const body = document.createElement('div');
-  body.className = 'session-group-body';
-  for (const { session } of members) {
-    const card = buildSessionCard(session, options);
-    // Only a card in a group can be dragged, because out of the group is all the gesture means.
-    if (options.onDetach) dragOutOfGroup(card, session, grid);
-    body.append(card);
-  }
-  box.append(body);
-
-  /**
-   * The whole thing opens the tab, not only the cards in it.
-   *
-   * The background between and around them is part of the same object, and a person aiming at a
-   * group aims at the group. A press that began on a card is left alone: that card has its own
-   * answer, which is to open the tab **and** put the keyboard in that pane.
+  const wash = document.createElement('div');
+  wash.className = 'session-wash';
+  wash.dataset['tile'] = `${String(across)}x${String(down)}`;
+  wash.dataset['group'] = id;
+  if (group.workspaceId !== undefined) wash.dataset['workspaceId'] = group.workspaceId;
+  wash.title = `${String(members.length)} panes in one tab`;
+  /*
+   * Pressing the colour around the cards opens that tab, which is what it is a picture of. The
+   * cards on top answer for themselves, and a press that lands on one never reaches here.
    */
-  box.addEventListener('click', (e) => {
-    if ((e.target as HTMLElement).closest('.session-card')) return;
+  wash.addEventListener('click', () => {
     const first = members[0]?.session;
     if (first) options.onOpen(first);
   });
+  grid.append(wash);
 
-  return box;
+  for (const { session } of members) {
+    const card = buildSessionCard(session, options);
+    card.dataset['group'] = id;
+    // Only a card in a tab with others can be dragged, because out of that tab is all it means.
+    if (options.onDetach) dragOutOfGroup(card, session, grid);
+    /*
+     * The wash lights up with any of its cards, so the tab reads as one thing under the pointer
+     * without the cards being inside anything.
+     */
+    card.addEventListener('mouseenter', () => wash.classList.add('is-lit'));
+    card.addEventListener('mouseleave', () => wash.classList.remove('is-lit'));
+    grid.append(card);
+  }
 }
 
 /**

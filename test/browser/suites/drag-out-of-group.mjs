@@ -60,7 +60,12 @@ await sleep(2000);
  * one of them is also drawing groups. Every count here names the workspace it is about.
  */
 const mine = String(await evaluate(work.client, 'window.__tabterm.workspaceId()'));
-const group = `.session-group[data-workspace-id="${mine}"]`;
+/*
+ * A tab is a wash behind its cards now, and the cards are members of the one grid tagged with the
+ * tab they belong to. Nothing is nested, which is what keeps every card on the same pitch.
+ */
+const group = `.session-wash[data-workspace-id="${mine}"]`;
+const inGroup = `.session-card[data-group="${mine}"]`;
 
 const shape = async () =>
   JSON.parse(
@@ -69,7 +74,7 @@ const shape = async () =>
         viewer.client,
         `JSON.stringify({
            groups: document.querySelectorAll('${group}').length,
-           inGroups: document.querySelectorAll('${group} .session-card').length,
+           inGroups: document.querySelectorAll('${inGroup}').length,
            cards: document.querySelectorAll('.session-card').length,
            landed: document.querySelectorAll('.session-card.is-landed').length,
          })`,
@@ -104,7 +109,7 @@ r.ok('the two panes of one tab are drawn as one group', grouped, JSON.stringify(
  * move, and in particular nothing may be detached and then put back.
  */
 const before = await shape();
-const ontoItself = await dragOnto(viewer.client, `${group} .session-card`, group);
+const ontoItself = await dragOnto(viewer.client, `${inGroup}`, group);
 r.ok('a card in a group can be picked up at all', ontoItself === '', ontoItself);
 await sleep(1500);
 const afterRefused = await shape();
@@ -121,11 +126,7 @@ r.ok(
  */
 const url = String(await evaluate(viewer.client, 'location.href'));
 const tabsBefore = new Set((await strip()).map((t) => t.workspace));
-const moved = await dragOnto(
-  viewer.client,
-  `${group} .session-card`,
-  '.session-grid > .session-card',
-);
+const moved = await dragOnto(viewer.client, `${inGroup}`, '.session-card:not([data-group])');
 r.ok('the card can be dragged out of its group', moved === '', moved);
 
 const left = await waitUntil(async () => (await shape()).inGroups < before.inGroups, 25000);

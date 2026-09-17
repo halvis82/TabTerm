@@ -389,81 +389,46 @@
     padding-top: 2px;
   }
 
-  /*
-   * A tab with more than one pane, drawn as one thing.
+  /**
+   * A tab with more than one pane, drawn as the colour behind its cards.
    *
-   * It takes as many columns as the tab is wide and no more, so each card inside stays the size it
-   * would have been on its own. It spanned the whole row first, which turned a pair of terminals
-   * into a banner across the list and was the first thing said about it.
+   * Not a box around them. A box is taller than what it contains, so the cards beside it lined up
+   * with nothing, and lengthening the lone ones to compensate only moved the mismatch: they then
+   * ran past the bottom of the group. Asked for directly: keep every card the same size on one
+   * grid, and let the colour go around them, reaching slightly past, with no title.
    *
-   * The tint is the panel's own hover wash rather than a colour of its own. Colour on that card
-   * already means something, blue for attached and green for busy and whatever somebody chose for a
-   * pane label, and a group that introduced a fourth meaning would be competing with all three.
+   * So this is a grid item like the cards are, placed over the same cells and painted before them,
+   * reaching a few pixels past on every side. It holds nothing, which is why nothing can drift.
    */
-  .session-group {
-    /* Width comes from the arrangement, set per group. See `columnsWide`. */
+  .session-wash {
+    /*
+     * Stretched over the cells it was given, because it has nothing inside it to give it a height.
+     * The list does not stretch its items by default, which is what keeps the cards their own size.
+     */
+    align-self: stretch;
     border: 1px solid rgba(140, 155, 190, 0.22);
     border-radius: 12px;
     background: color-mix(in srgb, var(--hover) 55%, transparent);
-    padding: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .session-group-head {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 0 2px;
-    /*
-     * A known height, because the rest of the list is built from it.
-     *
-     * A group is its cards plus this line and the box around them, and a card standing on its own
-     * has neither. Left to itself that made every row with a group in it taller than the cards
-     * beside it, which is the uneven grid he asked to be rid of. Fixing the number here lets a
-     * lone card be given exactly the difference back. See `--group-chrome`.
-     */
-    height: 14px;
-  }
-
-  .session-group-title {
-    font-size: 10.5px;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    /* Full text rather than the dim tint: it sits on a wash, where dim measured under the line. */
-    color: var(--text);
-    opacity: 0.72;
-  }
-
-  /*
-   * A row of ordinary cards, wrapping.
-   *
-   * It mirrored the tab's own splits at first, which meant a card's size came from the shape of the
-   * tab: one pane of a three pane tab was drawn tall with a stretched footer beside two short ones.
-   * A card is a card. They are all the same size here, and the row wraps when there are more than
-   * fit, which is what the tab does to fit them on a screen too.
-   */
-  .session-group-body {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(238px, 1fr));
-    gap: 8px;
-    align-items: start;
-    /* And the rows keep their own height too, so the last row of a group that does not fill its
-       width is not left holding one stretched card. */
-    align-content: start;
-  }
-
-  /* The whole group answers a press, so it lifts as one rather than a card at a time. */
-  .session-group:hover {
-    border-color: rgba(140, 170, 230, 0.4);
-    background: color-mix(in srgb, var(--hover) 78%, transparent);
-  }
-  .session-group {
+    /* Past the cards it sits under, which is what makes it read as around them. */
+    margin: -6px;
     cursor: pointer;
     transition:
       background 120ms ease,
       border-color 120ms ease;
+  }
+  /* Lit by any of its cards, so the tab reads as one thing under the pointer. */
+  .session-wash.is-lit,
+  .session-wash:hover {
+    border-color: rgba(140, 170, 230, 0.4);
+    background: color-mix(in srgb, var(--hover) 78%, transparent);
+  }
+  /*
+   * And the cards sit on it rather than in it. A later grid item paints on top, which the order
+   * already gives, and this keeps a card that lifts on hover from lifting under its neighbour.
+   */
+  .session-grid > .session-card {
+    position: relative;
+    z-index: 1;
   }
 
   /*
@@ -476,7 +441,8 @@
   .session-card.is-dragging {
     opacity: 0.4;
   }
-  .session-grid.is-dragging-out .session-group {
+  .session-grid.is-dragging-out .session-wash,
+  .session-grid.is-dragging-out .session-card[data-group] {
     opacity: 0.55;
     cursor: no-drop;
   }
@@ -512,18 +478,6 @@
       animation: none;
       box-shadow: 0 0 0 2px rgba(120, 165, 240, 0.6);
     }
-  }
-
-  /*
-   * A card standing on its own shows a little more of its screen.
-   *
-   * Which is the whole trick: it is taller by exactly what a group costs in border, padding and
-   * the line that names it, so a row of lone cards and a row with a group in it come out the same
-   * height. He asked for tiles that are all one size and got a grid where the lone ones looked
-   * short; this is the smallest change that makes the rows agree without stretching anything.
-   */
-  .session-grid > .session-card .session-screen {
-    height: calc(101px + var(--group-chrome));
   }
 
   .session-grid.is-scrolling {
