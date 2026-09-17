@@ -818,6 +818,8 @@ export class DaemonServer {
       }
       for (const f of client.flow.values()) f.dispose();
       this.#clients.delete(client);
+      // And it stops being somebody to keep the list of running sessions up to date for.
+      this.#wantsLiveSessions.delete(client.id);
       // Its report about tabs went with it: a browser that has gone does not speak for them.
       this.#sessions.forgetReporter(client.id);
       debug('client.disconnected', { clientId: client.id });
@@ -2448,6 +2450,7 @@ export class DaemonServer {
       }
 
       case 'list-live-sessions': {
+        this.#wantsLiveSessions.add(client.id);
         send(client.socket, controlFrame({ t: 'live-sessions', sessions: this.#liveSessions() }));
         return;
       }
@@ -3007,10 +3010,21 @@ export class DaemonServer {
   #announceLiveSessions(): void {
     const sessions = this.#liveSessions();
     for (const c of this.#clients) {
-      if (!c.authed) continue;
+      /**
+       * Only to a page that has asked for this list, because only that one has a list to correct.
+       *
+       * A page that has just connected asks for everything it needs as it starts, and an unasked
+       * for answer arriving before that is not an update: it is a first answer, out of order,
+       * which draws the start screen once on its own and once again a second later when the batch
+       * it was waiting for lands. The check that counts drawings per change is what noticed.
+       */
+      if (!c.authed || !this.#wantsLiveSessions.has(c.id)) continue;
       send(c.socket, controlFrame({ t: 'live-sessions', sessions }));
     }
   }
+
+  /** Clients that have asked what is running, and so have an answer worth keeping up to date. */
+  readonly #wantsLiveSessions = new Set<string>();
 
   /**
    * Build a workspace of N panes, all rooted in one directory.

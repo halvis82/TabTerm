@@ -442,6 +442,18 @@ that passes through something the page might have wanted.
 Drag selects, double-click selects a word or path, triple-click selects a line, and shift-click
 extends, all from xterm.
 
+### A gap a program drew is still a gap
+
+A full screen interface lays itself out by jumping the cursor rather than by writing spaces,
+because it is cheaper: `ESC [ 12 C` means twelve columns to the right. The preview of a session
+strips escape sequences to get readable text, and stripping those along with the colours closed
+every gap the program had drawn, so a card read `Configdialogdismissed` and `bypasspermissionson`.
+Several hundred of those sequences in a single screen of an agent's interface, counted in a real
+database. They are put back as the spaces they looked like.
+
+Indentation survives for the same reason it exists: a transcript, a tree of output and a table all
+say something by where they start. Only what trails off the end of a line is dropped.
+
 ### A landmark is landed with context, not at the top edge
 
 Pressing a marker beside the scrollbar used to put the marked line two rows from the top. That is

@@ -171,6 +171,35 @@ export function listWindow(
  */
 const MAX_RESUME = 6;
 
+/**
+ * What a list of running sessions looks like on screen, as one string.
+ *
+ * Only the parts a card draws, at the resolution it draws them: two lists with the same signature
+ * produce the same pixels, so redrawing for the second is work nobody can see.
+ */
+function signatureOf(sessions: readonly LiveSession[]): string {
+  return sessions
+    .map((s) =>
+      [
+        s.sessionId,
+        s.workspaceId ?? '',
+        s.cwd,
+        s.name ?? '',
+        s.process ?? '',
+        s.lastCommand ?? '',
+        s.ranLast ?? '',
+        s.attached ? 'a' : '',
+        s.inTab ? 't' : '',
+        s.busy ? 'b' : '',
+        // To a tenth of a megabyte, which is what the card says.
+        Math.round(s.memoryBytes / 104_857.6),
+        s.preview.join('\n'),
+        s.layout ? JSON.stringify(s.layout) : '',
+      ].join('\u0001'),
+    )
+    .join('\u0002');
+}
+
 export class Launcher {
   readonly #opts: LauncherOptions;
   readonly #el: HTMLElement;
@@ -415,9 +444,26 @@ export class Launcher {
   }
 
   setLiveSessions(sessions: readonly LiveSession[]): void {
+    /**
+     * A list that says the same thing as the one already here is not a change.
+     *
+     * The daemon says "what is running has changed" whenever it might have, which includes a tab
+     * opening or closing somewhere. Most of those carry a list identical to the one on screen, and
+     * redrawing for one costs a full rebuild of every card for nothing. The check that counts
+     * drawings per change is what noticed, at two drawings for one change.
+     *
+     * Compared at the resolution the cards are drawn at: memory is shown to the nearest tenth of a
+     * megabyte, so bytes ticking underneath that are not news either.
+     */
+    const now = signatureOf(sessions);
     this.#liveSessions = [...sessions];
+    if (now === this.#liveSignature) return;
+    this.#liveSignature = now;
     this.#answered('live');
   }
+
+  /** What the last list said, so an identical one can be recognised. See `setLiveSessions`. */
+  #liveSignature = '';
 
   setState(state: LauncherState): void {
     this.#state = state;

@@ -70,10 +70,16 @@ export class PageFind implements FindTarget {
     this.#hits = [];
   }
 
-  focus(): void {
-    const box = this.#root()?.querySelector('.launcher-input');
-    if (box instanceof HTMLElement) box.focus();
-  }
+  /**
+   * Nothing, deliberately.
+   *
+   * The bar puts the keyboard back where it came from when it closes, which for a terminal is the
+   * terminal. On the start screen there is no such place to put it: the page decides for itself
+   * what should have the keyboard, and taking it into the folder box instead swallowed every key
+   * the page's own listeners were watching for, because that box stops keys from travelling any
+   * further. The check that Command Shift F still reaches the page is what caught it.
+   */
+  focus(): void {}
 
   /** Wrap every occurrence, in the order they appear on the page. */
   #mark(root: HTMLElement, term: string): void {

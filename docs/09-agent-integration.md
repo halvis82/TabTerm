@@ -376,6 +376,19 @@ The title is read from the **end** of the file, because that is where the curren
 97 MB transcript it sat 21 KB from the end. Codex writes no such record, so its rows keep the first
 prompt.
 
+### A stored turn is shown as sentences
+
+What is in those files is what the agent was sent and what it sent back: markdown, tables written
+with pipes, fenced code, and machinery that is not conversation at all. Flattened into one line for
+a row in a list, that came out as noise. Reported with a picture: rows made entirely of
+`<task-notification>`, and a paragraph whose middle was `| 8 | 52.0, 46.0, 42.3 | 9.7 points |`.
+
+These rows exist to tell one stored session from another, so what belongs in them is the sentences.
+A turn that is only machinery is dropped rather than shown blank, emphasis is kept as the words it
+was emphasising, a table's cells are joined the way a sentence joins things, and code says that it
+is code rather than pasting itself. Nothing is invented and ordinary prose is untouched. See
+`readable-turn.ts`.
+
 ### Reading somebody else's format
 
 Two formats, and they agree on nothing. The Codex store states the working directory in its
