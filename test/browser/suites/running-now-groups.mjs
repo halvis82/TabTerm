@@ -13,6 +13,7 @@ import {
   waitFor,
   waitUntil,
   realClick,
+  openPaneMenu,
 } from '../helpers.mjs';
 import { reporter, closeTab } from '../cdp.mjs';
 
@@ -116,6 +117,40 @@ r.ok(
   JSON.stringify(sizes),
 );
 r.ok('and the same width', new Set(sizes.map((s2) => s2.w)).size === 1, JSON.stringify(sizes));
+
+/*
+ * And that is true of every card on the list, in a group or not.
+ *
+ * A card is one size: a head, a picture of a screen, a line underneath. Grid items fill their cell
+ * by default, so a row holding a group of seven panes made the ordinary card beside it three cards
+ * tall, footer stranded at the bottom of an empty box. Measured across the whole list rather than
+ * within the group, because that is where the two kinds of item meet.
+ */
+const everyCard = JSON.parse(
+  String(
+    await evaluate(
+      viewer.client,
+      `JSON.stringify([...document.querySelectorAll('.session-card')]
+         .map((c) => Math.round(c.getBoundingClientRect().height)))`,
+    ),
+  ),
+);
+r.ok(
+  'every card on the list is the same height, grouped or not',
+  new Set(everyCard).size === 1,
+  JSON.stringify(everyCard),
+);
+
+/*
+ * And a group is as tall as the cards in it, rather than being stretched to its row either.
+ */
+const stretched = String(
+  await evaluate(
+    viewer.client,
+    `getComputedStyle(document.querySelector('.session-grid')).alignItems`,
+  ),
+);
+r.ok('and nothing is stretched to the height of its row', stretched === 'start', stretched);
 
 /*
  * And a card inside a group is the size a card outside one is.
@@ -327,6 +362,95 @@ const landedOn = await waitUntil(async () => {
   return pairs.find((p) => p.paneId === focused)?.sessionId === wanted;
 }, 15000);
 r.ok('and the pane it names is the one with the keyboard', landedOn, `${wanted} was asked for`);
+
+const onlooker = await openTerminal();
+await waitFor(onlooker.client, "document.querySelector('.launcher-input')");
+const watcher = onlooker.client;
+await waitUntil(
+  async () =>
+    Number(await evaluate(watcher, `document.querySelectorAll('${group} .session-card').length`)) >=
+    2,
+  20000,
+);
+
+/*
+ * "Close tab" on a card means that card's tab, not this one.
+ *
+ * Last of all, and from a start screen opened here for it, because taking the offer closes the tab
+ * every check above reads from. The two presses before this one each close the start screen they
+ * were made on, so this needs one of its own anyway.
+ *
+ * It sat at the bottom of every menu on this page and always closed the tab it was opened from. On
+ * a card in Running Now that reads as an offer to close the tab the card is about, and it closed
+ * the one you were working in instead. Reported in those words.
+ */
+const cardAt = JSON.parse(
+  String(
+    await evaluate(
+      watcher,
+      `(() => {
+         const card = document.querySelector(${JSON.stringify(group + ' .session-card')});
+         if (!card) return 'null';
+         card.scrollIntoView({ block: 'center' });
+         const b = card.getBoundingClientRect();
+         return JSON.stringify({
+           x: Math.round((b.left + b.right) / 2),
+           y: Math.round(b.top + 12),
+           sessionId: card.dataset.sessionId,
+         });
+       })()`,
+    ),
+  ),
+);
+r.ok('a card can be pointed at', cardAt !== null, JSON.stringify(cardAt));
+await openPaneMenu(watcher, cardAt.x, cardAt.y);
+const labels = JSON.parse(
+  String(
+    await evaluate(
+      watcher,
+      `JSON.stringify([...document.querySelectorAll('.term-menu button, .term-menu [role="menuitem"], .term-menu div')]
+         .map((el) => (el.textContent ?? '').trim()).filter(Boolean))`,
+    ),
+  ),
+);
+r.ok(
+  'the menu on a card offers to close the tab that card is in',
+  labels.some((l) => l === 'Close the tab it is in'),
+  JSON.stringify(labels),
+);
+r.ok(
+  'and does not offer to close this one',
+  !labels.some((l) => l === 'Close tab'),
+  JSON.stringify(labels),
+);
+
+/*
+ * And it does what it says: the tab holding those panes goes, this one stays, and the sessions
+ * carry on, because closing a tab is not the same as ending a terminal.
+ */
+const tabsBefore = Number(
+  await evaluate(
+    watcher,
+    `new Promise((d) => chrome.tabs.query({}, (t) => d(t.filter((x) => (x.url ?? '').includes('terminal.html')).length)))`,
+  ),
+);
+await realClick(watcher, '.term-menu button', 'Close the tab it is in');
+await sleep(2500);
+const tabsAfter = Number(
+  await evaluate(
+    watcher,
+    `new Promise((d) => chrome.tabs.query({}, (t) => d(t.filter((x) => (x.url ?? '').includes('terminal.html')).length)))`,
+  ),
+);
+r.ok(
+  'and the tab it named is the one that closed',
+  tabsAfter === tabsBefore - 1,
+  `${String(tabsBefore)} -> ${String(tabsAfter)}`,
+);
+r.ok(
+  'while this one is still here',
+  String(await evaluate(watcher, 'typeof document')) === 'object',
+);
 
 await finish();
 r.done();

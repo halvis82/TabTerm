@@ -361,6 +361,15 @@
      * the case that was wasting a row.
      */
     grid-auto-flow: row dense;
+    /*
+     * Nothing is stretched to the height of whatever is tallest in its row.
+     *
+     * A card is one size everywhere: a head, a picture of a screen, a line underneath. Grid items
+     * fill their cell by default, so once a group of seven panes made a row three cards tall, the
+     * ordinary card beside it was pulled to three cards tall as well, with its footer stranded at
+     * the bottom of an empty box. Reported twice, and it was the same rule both times.
+     */
+    align-items: start;
     /* Room for the lift on hover. Without it a card in the top row moved up under the edge of
        whatever is above and its top border was clipped off. */
     padding-top: 2px;
@@ -417,6 +426,9 @@
     grid-template-columns: repeat(auto-fit, minmax(238px, 1fr));
     gap: 8px;
     align-items: start;
+    /* And the rows keep their own height too, so the last row of a group that does not fill its
+       width is not left holding one stretched card. */
+    align-content: start;
   }
 
   /* The whole group answers a press, so it lifts as one rather than a card at a time. */
@@ -492,8 +504,11 @@
   .session-card {
     display: flex;
     flex-direction: column;
-    /* The row is a fixed height and this fills it, rather than the other way round. */
-    height: 100%;
+    /*
+     * Its own height, which is the same for every card: a head, a fixed picture of a screen, and
+     * a line underneath. It used to fill its cell instead, which was invisible while every row
+     * held cards and nothing else, and wrong the moment a row also held a group.
+     */
     overflow: hidden;
     border-radius: 10px;
     border: 1px solid var(--edge);
@@ -3478,6 +3493,11 @@
   }
   .pane-chooser-grid .session-screen {
     height: 84px;
+  }
+  /* The chooser's row is one card tall and the card fills it, which is what keeps every offer the
+     same size however little the screen behind it has on it. */
+  .pane-chooser-grid .session-card {
+    height: 100%;
   }
   .pane-chooser-grid .session-card.is-confirming {
     border-color: var(--warn);

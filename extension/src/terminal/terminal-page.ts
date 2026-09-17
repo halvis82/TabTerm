@@ -2400,6 +2400,36 @@ function sessionUnder(target: Element): LiveSession | undefined {
 }
 
 /**
+ * The tab a right click in Running Now was about, when it was about one at all.
+ *
+ * "Close tab" sat at the bottom of every menu on this page and always closed **this** tab. On a
+ * card that reads as an offer to close the tab the card is about, which is the tab you are looking
+ * at a picture of, and it closed the one you were working in instead. Reported in those words:
+ * the item does not refer to the thing that was right clicked.
+ *
+ * A group answers as well as a card. Pressing a group opens the tab those panes share, so a right
+ * click on the space around the cards means that tab too.
+ *
+ * Nothing is returned for a session no tab is holding. There is no tab to close, and the honest
+ * answer to that is to leave the item out rather than to quietly go back to meaning this one.
+ */
+function tabUnder(target: Element): string | undefined {
+  const card = target.closest('.session-card');
+  if (card instanceof HTMLElement) {
+    const id = card.dataset['sessionId'];
+    const session = id === undefined ? undefined : liveElsewhere.find((s) => s.sessionId === id);
+    return session?.inTab === true ? session.workspaceId : undefined;
+  }
+  const group = target.closest('.session-group');
+  if (!(group instanceof HTMLElement)) return undefined;
+  const workspaceId = group.dataset['workspaceId'];
+  if (workspaceId === undefined) return undefined;
+  return liveElsewhere.some((s) => s.workspaceId === workspaceId && s.inTab)
+    ? workspaceId
+    : undefined;
+}
+
+/**
  * What a card in Running Now offers.
  *
  * The two things a person wants from a session they can see: go to it, or end it. Killing one
@@ -2553,6 +2583,9 @@ function pageMenuItems(target: Element): ShellItem[] {
    * between: what to do with the terminal first, then what to do with its directory.
    */
   const session = sessionUnder(target);
+  // Which tab the click was about, and whether it was about one of these cards at all.
+  const theirTab = tabUnder(target);
+  const onCard = target.closest('.session-card, .session-group') !== null;
 
   const onStartScreen = target.closest('.launcher') !== null;
   return [
@@ -2616,13 +2649,42 @@ function pageMenuItems(target: Element): ShellItem[] {
         ]
       : []),
     ...wayOutItems(onStartScreen),
-    {
-      // "Session", not "tab": what closing it gets rid of is the terminal in it. The same
-      // wording the pane's own menu uses, for the same reason.
-      label: 'Close tab',
-      separated: true,
-      run: () => window.close(),
-    },
+    /**
+     * Closing a tab, and the one that was pointed at.
+     *
+     * On a card or a group in Running Now that is the tab those sessions are in. Anywhere else on
+     * the page it is this one, which is what it has always been and is right there. See `tabUnder`
+     * for the third case: a session nothing is holding, where the item is left out because there
+     * is no tab to close and meaning this one would be the original complaint again.
+     *
+     * The sessions are not touched either way. A tab closing is not a terminal ending: they carry
+     * on in the background and the list keeps offering them. `Kill session` above is the other
+     * thing, and says so.
+     */
+    ...(theirTab === undefined
+      ? onCard
+        ? []
+        : [
+            {
+              label: 'Close tab',
+              separated: true,
+              run: () => window.close(),
+            } satisfies ShellItem,
+          ]
+      : [
+          {
+            label: 'Close the tab it is in',
+            separated: true,
+            run: () => {
+              void chrome.runtime.sendMessage({
+                t: 'tabterm:close-workspace-tab',
+                workspaceId: theirTab,
+              });
+              // Asked for again shortly, so the badge stops saying a tab has it. See `inTab`.
+              setTimeout(() => client?.send({ t: 'list-live-sessions' }), 500);
+            },
+          } satisfies ShellItem,
+        ]),
   ];
 }
 

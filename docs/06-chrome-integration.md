@@ -732,6 +732,13 @@ from the shape of the tab: one pane of a three pane tab was tall with a stretche
 short ones. The arrangement now decides the order the cards appear in and nothing else, and the row
 wraps when there are more than fit, which is what the tab does with them too.
 
+One size, everywhere on the list. A card is a head, a fixed picture of a screen, and a line
+underneath, and nothing about its neighbours changes that. Grid items fill their cell by default,
+so the same complaint came back a second time by a different route: a row holding a group of seven
+panes was three cards tall, and the ordinary card beside it was stretched to match, with its footer
+stranded at the bottom of an empty box. The list does not stretch its items to the height of their
+row, and neither does a group stretch the cards inside it.
+
 Three ways to press it, and they mean different things:
 
 | Pressed | What happens |
@@ -745,6 +752,20 @@ open the tab on whichever pane it happened to be left on, so the card somebody p
 terminal they got. The session id goes to the worker with the workspace: a tab that already exists
 is told which pane to focus, and one that has to be created is given it in its URL, because the way
 a tab takes over a workspace is to navigate and a navigation throws away everything else.
+
+### Close tab means the tab that was pointed at
+
+Every menu on this page ended with `Close tab`, and it always closed the tab it was opened from.
+On a card in `Running now` that reads as an offer to close the tab the card is about, which is a
+different tab entirely, and it closed the one being worked in instead.
+
+A right click on a card or on the space around a group now offers **Close the tab it is in**, and
+closes that one. Anywhere else on the page the item is `Close tab` and means this one, which is
+what it has always been. A session no tab is holding gets neither: there is nothing to close, and
+falling back to meaning this tab is the original complaint again.
+
+Closing a tab is not ending a terminal. The sessions carry on in the background and the list keeps
+offering them, which is what `Kill session` further up the same menu is for.
 
 ### Dragging a session out of its tab
 
