@@ -1320,7 +1320,7 @@ export class DaemonServer {
           warn('tabs-open.refused', { clientId: client.id, role: client.role });
           return;
         }
-        this.#sessions.reportOpenWorkspaces(
+        const moved = this.#sessions.reportOpenWorkspaces(
           client.id,
           msg.workspaceIds,
           msg.reporterIncarnation !== undefined && msg.generation !== undefined
@@ -1334,7 +1334,23 @@ export class DaemonServer {
          * the evidence has to be withdrawn rather than merely outranked: it would otherwise sit
          * there authorizing an ending the next time the tab went quiet for any reason at all.
          */
-        for (const workspaceId of msg.workspaceIds) this.#sessions.forgetTabClosed(workspaceId);
+        let reopened = false;
+        for (const workspaceId of msg.workspaceIds) {
+          if (this.#sessions.forgetTabClosed(workspaceId)) reopened = true;
+        }
+        /**
+         * And every start screen is told, because what a card says has just changed.
+         *
+         * A card says "open in a tab" or "background", and the answer is whether a tab holds that
+         * session. Closing a tab already announced; a tab **coming back** did not, so a start
+         * screen open at the time went on saying "background" about terminals that were plainly in
+         * a tab again, and only a refresh corrected it. Reported after reopening a tab with the
+         * browser's own undo.
+         *
+         * Only when something actually moved. Most of these reports are a poll repeating itself,
+         * and building this list serializes every screen on the machine.
+         */
+        if (moved || reopened) this.#announceLiveSessions();
         return;
       }
 

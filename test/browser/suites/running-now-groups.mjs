@@ -279,7 +279,11 @@ r.ok(
 /*
  * And a tab that goes away entirely takes its group with it rather than leaving an empty box.
  */
-await closeTab(alone.tabId ?? alone.id);
+/*
+ * The tab, by the id it actually has. `tabId` is not a field on what `openTerminal` returns, so
+ * this closed nothing at all and the check below was passing on a tab that was still open.
+ */
+await closeTab(alone.tab.id);
 await sleep(2500);
 r.ok(
   'nothing is left drawing an empty group',

@@ -753,6 +753,19 @@ terminal they got. The session id goes to the worker with the workspace: a tab t
 is told which pane to focus, and one that has to be created is given it in its URL, because the way
 a tab takes over a workspace is to navigate and a navigation throws away everything else.
 
+### The badge follows the tab, live
+
+A card says `open in a tab` or `background`, and the answer is whether a tab holds that session.
+Closing a tab already told every start screen. A tab **coming back** did not, so a start screen open
+at the time went on saying `background` about terminals that were plainly in a tab again, and only
+refreshing that page corrected it. Reported after closing a tab and reopening it with the browser's
+own undo.
+
+The daemon announces the list when a browser's report of its open tabs **differs** from the last
+one, which is what a tab opening or closing looks like from here. Only when it differs: most of
+those reports are a poll repeating itself, and building that list serializes every screen on the
+machine.
+
 ### Close tab means the tab that was pointed at
 
 Every menu on this page ended with `Close tab`, and it always closed the tab it was opened from.

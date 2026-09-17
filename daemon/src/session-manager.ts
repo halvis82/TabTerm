@@ -1333,12 +1333,19 @@ export class SessionManager {
    */
   readonly #reporterMark = new Map<string, { incarnation: string; generation: number }>();
 
-  /** Told by each extension, on every tab event and on a poll. */
+  /**
+   * Told by each extension, on every tab event and on a poll.
+   *
+   * Answers whether this changed anything. A poll that repeats what it said last time is most of
+   * these, and whoever is listening should not redraw the world for it: building the list of live
+   * sessions serializes every screen on the machine. A report that **differs** has moved a tab,
+   * which is the one thing that changes which sessions a tab is holding.
+   */
   reportOpenWorkspaces(
     clientId: string,
     ids: readonly string[],
     from?: { incarnation: string; generation: number },
-  ): void {
+  ): boolean {
     if (from !== undefined) {
       const mark = this.#reporterMark.get(clientId);
       if (mark !== undefined && mark.incarnation === from.incarnation) {
@@ -1348,7 +1355,7 @@ export class SessionManager {
             generation: from.generation,
             latest: mark.generation,
           });
-          return;
+          return false;
         }
       }
       this.#reporterMark.set(clientId, {
@@ -1357,7 +1364,11 @@ export class SessionManager {
       });
     }
     if (!this.#reporterSince.has(clientId)) this.#reporterSince.set(clientId, Date.now());
-    this.#openWorkspaces.set(clientId, new Set(ids));
+    const before = this.#openWorkspaces.get(clientId);
+    const now = new Set(ids);
+    const changed =
+      before === undefined || before.size !== now.size || [...now].some((id) => !before.has(id));
+    this.#openWorkspaces.set(clientId, now);
     /*
      * Remembered beyond the connection that said it, for the label only.
      *
@@ -1374,6 +1385,7 @@ export class SessionManager {
     // A session whose tab has come back must lose the clock it was put on, and one whose tab has
     // gone must be given one. Both are just the policy run again.
     for (const session of this.all) this.#rescheduleReapIfIdle(session);
+    return changed;
   }
 
   /**
@@ -1642,11 +1654,12 @@ export class SessionManager {
   }
 
   /** A workspace open again, so whatever was recorded about closing it is no longer true. */
-  forgetTabClosed(workspaceId: string): void {
-    if (this.#closedWorkspaces.delete(workspaceId)) {
-      info('workspace.tab-reopened', { workspaceId });
-      this.rescheduleReaps();
-    }
+  /** Answers whether there was anything to forget, which is a tab having come back. */
+  forgetTabClosed(workspaceId: string): boolean {
+    if (!this.#closedWorkspaces.delete(workspaceId)) return false;
+    info('workspace.tab-reopened', { workspaceId });
+    this.rescheduleReaps();
+    return true;
   }
 
   /** What authorized an automatic ending, for the log that records it. */
