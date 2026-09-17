@@ -421,23 +421,38 @@
      * The list does not stretch its items by default, which is what keeps the cards their own size.
      */
     align-self: stretch;
-    border: 1px solid rgba(140, 155, 190, 0.22);
-    border-radius: 12px;
-    background: color-mix(in srgb, var(--hover) 55%, transparent);
     /* Past the cards it sits under, which is what makes it read as around them. Less than half
-       the gap, so two of them can never touch. */
+       the gap, so two of them can never touch. See REACH in `sessions-view.ts`. */
     margin: -4px;
     cursor: pointer;
+    /*
+     * The colour is painted by the outline inside it, not by this box. The shape is not always a
+     * rectangle: a tab whose last row is short turns back on itself, and a box has corners only at
+     * its own four. See `rounded-path.ts`.
+     */
+    background: none;
+    border: 0;
+  }
+  .session-wash-ink {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .session-wash-ink path {
+    fill: color-mix(in srgb, var(--hover) 55%, transparent);
+    stroke: rgba(140, 155, 190, 0.22);
+    stroke-width: 1;
     transition:
-      background 120ms ease,
-      border-color 120ms ease;
+      fill 120ms ease,
+      stroke 120ms ease;
   }
   /* Lit by any of its cards, so the tab reads as one thing under the pointer. */
-  .session-wash.is-lit,
-  .session-wash:hover {
-    border-color: rgba(140, 170, 230, 0.4);
-    background: color-mix(in srgb, var(--hover) 78%, transparent);
+  .session-wash.is-lit .session-wash-ink path,
+  .session-wash:hover .session-wash-ink path {
+    fill: color-mix(in srgb, var(--hover) 78%, transparent);
+    stroke: rgba(140, 170, 230, 0.4);
   }
+
   /*
    * And the cards sit on it rather than in it. A later grid item paints on top, which the order
    * already gives, and this keeps a card that lifts on hover from lifting under its neighbour.

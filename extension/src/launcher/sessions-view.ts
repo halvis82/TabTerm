@@ -1,6 +1,7 @@
 import type { LiveSession } from '@tabterm/shared';
 import { groupSessions, isShared, orderedByLayout, type SessionGroup } from './session-groups.js';
 import { packTiles, type Tile } from './pack-grid.js';
+import { roundedPath, type Point } from './rounded-path.js';
 
 /**
  * Sessions that already exist, on the page you see when you open a tab.
@@ -224,7 +225,13 @@ function dragOutOfGroup(card: HTMLElement, session: LiveSession, grid: HTMLEleme
 
 /** Whether what is under the pointer is part of a tab with other panes in it. */
 function belongsToATab(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
+  /*
+   * Any element, not only an HTML one. The colour behind a tab is drawn as an outline, so what is
+   * under the pointer there is an SVG element, which is an `Element` and is **not** an
+   * `HTMLElement`. Asking for the narrower type let a drop land on a tab and take a session out of
+   * it, which is the one thing this refusal exists to prevent.
+   */
+  if (!(target instanceof Element)) return false;
   return target.closest('.session-wash, .session-card[data-group]') !== null;
 }
 
@@ -287,13 +294,21 @@ function packGrid(grid: HTMLElement): void {
   }
 
   const tiles: Tile[] = items.map((item) => {
-    const [across, down, rest] = (item.dataset['tile'] ?? '1x1').split('x');
-    const columns = Number(across) || 1;
-    return {
-      columns,
-      rows: Number(down) || 1,
-      lastRow: rest === undefined ? columns : Number(rest) || columns,
-    };
+    /*
+     * A tab's shape is worked out here, where the number of columns is known.
+     *
+     * A tab of seven panes wants three across, and in a two column list it gets two: four rows of
+     * two with one on the last. Deciding that where the cards are built produced a shape for a
+     * width the list did not have.
+     */
+    const panes = Number(item.dataset['panes'] ?? '0');
+    if (panes > 0) {
+      const wide = Math.max(1, Math.min(panes, MAX_GROUP_COLUMNS, columns));
+      const rows = Math.ceil(panes / wide);
+      return { columns: wide, rows, lastRow: panes - wide * (rows - 1) };
+    }
+    const [across, down] = (item.dataset['tile'] ?? '1x1').split('x');
+    return { columns: Number(across) || 1, rows: Number(down) || 1 };
   });
 
   const places = packTiles(tiles, columns);
@@ -344,26 +359,49 @@ function packGrid(grid: HTMLElement): void {
  * needs no cutting and is left alone, which also means the ordinary case pays nothing.
  */
 function shapeWash(wash: HTMLElement, cards: readonly HTMLElement[]): void {
-  wash.style.removeProperty('clip-path');
-  if (cards.length < 2) return;
+  const ink = wash.querySelector('svg.session-wash-ink');
+  const outline = ink?.querySelector('path');
+  if (!ink || !outline) return;
   const box = wash.getBoundingClientRect();
   if (box.width < 1 || box.height < 1) return;
 
-  const last = cards[cards.length - 1]?.getBoundingClientRect();
-  const widest = Math.max(...cards.map((c) => c.getBoundingClientRect().right));
-  if (!last || widest - last.right < 8) return; // the last row is full: nothing to cut
+  const w = Math.round(box.width);
+  const h = Math.round(box.height);
+  ink.setAttribute('viewBox', `0 0 ${String(w)} ${String(h)}`);
 
   /*
-   * Halfway into the gap, so the cut sits where the eye already sees a boundary and the colour
-   * still reaches past the cards on the sides it does cover.
+   * Where the outline turns back on itself, when it does. The last card's right edge and top edge
+   * are the two cuts, measured after the browser has laid the cards out rather than worked out from
+   * the numbers: where a row falls depends on the gap, the border, and what was done with the
+   * fractions.
    */
-  const right = ((last.right - box.left + 6) / box.width) * 100;
-  const top = ((last.top - box.top - 6) / box.height) * 100;
-  wash.style.clipPath =
-    `polygon(0% 0%, 100% 0%, 100% ${String(top.toFixed(2))}%, ` +
-    `${String(right.toFixed(2))}% ${String(top.toFixed(2))}%, ` +
-    `${String(right.toFixed(2))}% 100%, 0% 100%)`;
+  const last = cards[cards.length - 1]?.getBoundingClientRect();
+  const widest = Math.max(...cards.map((c) => c.getBoundingClientRect().right));
+  const notched = last !== undefined && cards.length > 1 && widest - last.right > 8;
+
+  const corners: Point[] = notched
+    ? [
+        { x: 0, y: 0 },
+        { x: w, y: 0 },
+        { x: w, y: last.top - box.top - REACH },
+        { x: last.right - box.left + REACH, y: last.top - box.top - REACH },
+        { x: last.right - box.left + REACH, y: h },
+        { x: 0, y: h },
+      ]
+    : [
+        { x: 0, y: 0 },
+        { x: w, y: 0 },
+        { x: w, y: h },
+        { x: 0, y: h },
+      ];
+
+  outline.setAttribute('d', roundedPath(corners, WASH_RADIUS));
 }
+
+/** How far the colour reaches past the cards, which the stylesheet also uses. See `--wash-reach`. */
+const REACH = 4;
+/** The same curve the cards have, so the two read as one family. */
+const WASH_RADIUS = 12;
 
 /**
  * Pack again when the grid changes width, which is not something a rebuild is told about.
@@ -439,9 +477,16 @@ export function buildSessions(options: SessionsOptions): HTMLElement {
   wrap.append(grid);
   /*
    * Placed once the grid has a width, because how many columns there are is the whole input.
-   * Re-run whenever that width changes, which is a window resize or the sidebar opening.
+   *
+   * On a frame **and** on a timer. A hidden tab runs neither animation frames nor resize
+   * observers, so a start screen built in the background was never placed at all: its cards fell
+   * where the browser put them and the colour behind a tab was never drawn. A timer runs in a
+   * hidden tab, slowly, which is exactly the right speed for a page nobody is looking at.
+   *
+   * Placing twice costs nothing: it is the same arithmetic on the same numbers.
    */
   requestAnimationFrame(() => packGrid(grid));
+  setTimeout(() => packGrid(grid), 60);
   watchWidth(grid);
   /*
    * The whole section takes the drop, not only the grid.
@@ -482,12 +527,32 @@ function appendSharedTab(group: SessionGroup, options: SessionsOptions, grid: HT
   const wash = document.createElement('div');
   wash.className = 'session-wash';
   /*
+   * Drawn rather than styled, because the shape is not always a rectangle: a tab whose last row is
+   * short turns back on itself, and a box can only have corners at its own four. The outline is one
+   * path with every corner rounded, the inward one included. See `rounded-path.ts`.
+   */
+  const ink = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  ink.setAttribute('class', 'session-wash-ink');
+  ink.setAttribute('preserveAspectRatio', 'none');
+  const outline = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  ink.append(outline);
+  wash.append(ink);
+  /*
    * Three numbers: how wide, how tall, and how much of the last row is actually used. Seven panes
    * are three across and three down with one card on the bottom row, and the two cells it does not
    * reach belong to whoever needs them. See `pack-grid.ts`.
    */
-  const rest = members.length - across * (down - 1);
-  wash.dataset['tile'] = `${String(across)}x${String(down)}x${String(rest)}`;
+  /*
+   * How many panes, rather than a shape worked out here.
+   *
+   * The shape depends on how many columns the grid turns out to have, and a narrow window gives
+   * fewer than a tab has panes. Working it out here meant a tab of three panes in a two column
+   * list still claimed to be one row of three, and its third card was placed outside the colour
+   * that was supposed to be behind it. The count is the fact; the shape is worked out where the
+   * width is known. See `packGrid`.
+   */
+  wash.dataset['panes'] = String(members.length);
+  wash.dataset['tile'] = `${String(across)}x${String(down)}`;
   wash.dataset['group'] = id;
   if (group.workspaceId !== undefined) wash.dataset['workspaceId'] = group.workspaceId;
   wash.title = `${String(members.length)} panes in one tab`;

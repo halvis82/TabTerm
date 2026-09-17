@@ -294,6 +294,64 @@ r.ok(
 );
 
 /*
+ * A fourth pane, which is what makes the shape interesting: three across and two down, with one
+ * card on the last row. The colour has to turn back on itself there rather than reserve two cells
+ * that hold nothing, and the corner where it turns has to be rounded like every other.
+ */
+await evaluate(work.client, "window.__tabterm.split('horizontal')");
+await waitFor(work.client, 'window.__tabterm.paneIds().length === 4', 20000);
+await sleep(1200);
+const fourth = JSON.parse(
+  String(await evaluate(work.client, 'JSON.stringify(window.__tabterm.paneIds())')),
+).at(-1);
+await evaluate(work.client, `window.__tabterm.focus(${JSON.stringify(fourth)})`);
+await sleep(400);
+await type(work.client, 'echo GROUP-FOUR\r');
+await waitUntil(async () => (await shape()).inGroups >= 4, 25000);
+await sleep(1500);
+
+const outline = String(
+  await evaluate(
+    viewer.client,
+    `document.querySelector(${JSON.stringify(group)} + ' svg path')?.getAttribute('d') ?? ''`,
+  ),
+);
+const arcs = [...outline.matchAll(/A [\d.]+ [\d.]+ 0 0 (\d)/g)].map((m) => m[1]);
+r.ok('the tab colour is drawn as an outline', arcs.length > 0, outline.slice(0, 90));
+/*
+ * Whether this tab's last row is short depends on the window: three panes are one row of three in a
+ * wide list and two rows in a narrow one. So the shape is read from the cards rather than assumed,
+ * and the outline is checked against what they actually make.
+ */
+const shapeNow = JSON.parse(
+  String(
+    await evaluate(
+      viewer.client,
+      `(() => {
+         const cards = [...document.querySelectorAll(${JSON.stringify(inGroup)})];
+         const rights = cards.map((c) => Math.round(c.getBoundingClientRect().right));
+         const last = rights[rights.length - 1] ?? 0;
+         return JSON.stringify({ cards: cards.length, short: last < Math.max(...rights) - 8 });
+       })()`,
+    ),
+  ),
+);
+r.ok(
+  shapeNow.short
+    ? 'with a corner that turns inward where its last row ends'
+    : 'and it is a plain rectangle when the last row is full',
+  shapeNow.short
+    ? arcs.length === 6 && arcs.filter((a) => a === '0').length === 1
+    : arcs.length === 4 && arcs.every((a) => a === '1'),
+  `${JSON.stringify(arcs)} ${JSON.stringify(shapeNow)}`,
+);
+r.ok(
+  'and every corner of it is rounded',
+  arcs.length > 0 && !/L [\d.]+ [\d.]+ L/.test(outline),
+  outline.slice(0, 120),
+);
+
+/*
  * Moving a pane out of the tab, which is the case he asked about by name. Both sides have to
  * follow: the group loses a pane and the list gains a session that is alone.
  */
@@ -326,6 +384,44 @@ r.ok(
   (await shape()).cards >= before.cards,
   JSON.stringify(await shape()),
 );
+
+/*
+ * And with one fewer pane the colour turns back on itself, which is the shape that was drawn with
+ * knife edges before. Three cards in a two column list is two rows with one on the last, which is
+ * the same shape a seven pane tab makes in a three column one.
+ */
+await sleep(1500);
+const afterLeaving = JSON.parse(
+  String(
+    await evaluate(
+      viewer.client,
+      `(() => {
+         const cards = [...document.querySelectorAll(${JSON.stringify(inGroup)})];
+         const rights = cards.map((c) => Math.round(c.getBoundingClientRect().right));
+         const d = document.querySelector(${JSON.stringify(group)} + ' svg path')?.getAttribute('d') ?? '';
+         const arcs = [...d.matchAll(/A [\\d.]+ [\\d.]+ 0 0 (\\d)/g)].map((m) => m[1]);
+         const last = rights[rights.length - 1] ?? 0;
+         const wash = document.querySelector(${JSON.stringify(group)});
+         const wb = wash?.getBoundingClientRect();
+         return JSON.stringify({
+           arcs, short: last < Math.max(...rights) - 8, cards: cards.length,
+           washes: document.querySelectorAll('.session-wash').length,
+           box: wb ? Math.round(wb.width) + 'x' + Math.round(wb.height) : 'none',
+           hasSvg: !!wash?.querySelector('svg'), d: d.slice(0, 40),
+         });
+       })()`,
+    ),
+  ),
+);
+if (!afterLeaving.short) {
+  r.skip('the colour turns inward around a short last row', 'this width leaves no short row');
+} else {
+  r.ok(
+    'the colour turns inward around a short last row',
+    afterLeaving.arcs.length === 6 && afterLeaving.arcs.filter((a) => a === '0').length === 1,
+    JSON.stringify(afterLeaving),
+  );
+}
 
 /*
  * And a tab that goes away entirely takes its group with it rather than leaving an empty box.
