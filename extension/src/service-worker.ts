@@ -157,15 +157,23 @@ async function bringToFront(windowId: number | undefined): Promise<void> {
   }
 }
 
+/**
+ * A new terminal, opened the way a new tab opens.
+ *
+ * At the end of the focused window, not beside whatever happened to be in front, and not pulled
+ * into that tab's group. It used to do both, on the reasoning that a terminal opened from a page
+ * is about that page. Asked to change: "i like the behavior of opening at the end just like any
+ * new tab instead ... just like cmd + t". Which is also the plainer rule, and it is the one the
+ * browser's own key follows, so there is one behaviour to learn rather than two.
+ *
+ * The tab staged with text from a page is the exception and keeps its place beside it, because
+ * that one really is about the page it came from. See `openStaged`.
+ */
 async function openTerminal(): Promise<void> {
-  const [current] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const grouped = current?.groupId !== undefined && current.groupId !== -1;
   const created = await chrome.tabs.create({
     url: chrome.runtime.getURL('terminal.html'),
-    ...(grouped ? { index: current.index + 1 } : {}),
     active: true,
   });
-  if (created.id !== undefined) await placeInGroup(created.id, current?.groupId);
   await bringToFront(created.windowId);
 }
 
@@ -1270,15 +1278,10 @@ chrome.commands.onCommand.addListener((command) => {
  * worker has no opinion about what an agent is.
  */
 async function launchAgentTab(): Promise<void> {
-  const [current] = await chrome.tabs.query({ active: true, currentWindow: true });
   const url = new URL(chrome.runtime.getURL('terminal.html'));
   url.searchParams.set('agent', '1');
-  const created = await chrome.tabs.create({
-    url: url.toString(),
-    ...(current?.index === undefined ? {} : { index: current.index + 1 }),
-    active: true,
-  });
-  if (created.id !== undefined) await placeInGroup(created.id, current?.groupId);
+  // At the end of the window, like any new tab. The same rule as a plain terminal above.
+  const created = await chrome.tabs.create({ url: url.toString(), active: true });
   await bringToFront(created.windowId);
 }
 

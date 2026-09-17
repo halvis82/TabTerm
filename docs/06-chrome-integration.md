@@ -108,7 +108,13 @@ scope. Beyond that it is Chrome's decision, and the scope control in
 `chrome://extensions/shortcuts` is disabled whenever no key is bound, which accounts for most
 reports that a command "cannot" be global.
 
-New tabs open at `currentIndex + 1` and inherit the current tab's group when one exists.
+A new terminal opens **at the end of the focused window**, in no group, which is where Cmd+T puts a
+tab. It used to open beside the current tab and join its group, on the reasoning that a terminal
+opened from a page is about that page. That made the same key do two different things depending on
+what was in front of it, and the plainer rule is the one the browser's own key already teaches.
+
+The exception is a tab staged with text from a page, which keeps its place beside the tab it came
+from, because that one really is about the page.
 
 **A command also brings Chrome's window to the front.** `active: true` on a tab selects it within
 its window and does nothing to the window itself, which is invisible while Chrome is the focused
