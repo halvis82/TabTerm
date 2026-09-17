@@ -1,5 +1,6 @@
 import type { LiveSession } from '@tabterm/shared';
 import { groupSessions, isShared, orderedByLayout, type SessionGroup } from './session-groups.js';
+import { packTiles, type Tile } from './pack-grid.js';
 
 /**
  * Sessions that already exist, on the page you see when you open a tab.
@@ -250,6 +251,72 @@ function acceptDrops(area: HTMLElement, onDetach: (session: LiveSession) => void
   });
 }
 
+/**
+ * Put every tile where the packing says, once the grid has a width to pack into.
+ *
+ * The browser places these itself otherwise, in order, backfilling a gap only with something that
+ * comes after it. That left a column three rows deep empty beside a seven pane tab, because the
+ * cards that fit there were older and had already been placed above. See `pack-grid.ts`.
+ *
+ * Measured rather than assumed: how many columns there are depends on the width of the window and
+ * of whatever else Chrome is showing down the side, and it changes without this list being rebuilt.
+ */
+function packGrid(grid: HTMLElement): void {
+  const items = [...grid.children].filter((el): el is HTMLElement => el instanceof HTMLElement);
+  if (items.length === 0) return;
+  const columns = getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length;
+  if (columns < 2) {
+    // One column, or a grid that has not been laid out. Nothing to arrange, and explicit places
+    // would only get in the way of the browser doing the simple thing.
+    for (const item of items) item.style.removeProperty('grid-row');
+    return;
+  }
+
+  const tiles: Tile[] = items.map((item) => {
+    const [across, down] = (item.dataset['tile'] ?? '1x1').split('x');
+    return { columns: Number(across) || 1, rows: Number(down) || 1 };
+  });
+
+  const places = packTiles(tiles, columns);
+  items.forEach((item, at) => {
+    const place = places[at];
+    const tile = tiles[at];
+    if (!place || !tile) return;
+    const width = Math.max(1, Math.min(tile.columns, columns));
+    item.style.gridColumn = `${String(place.column)} / span ${String(width)}`;
+    item.style.gridRow = `${String(place.row)} / span ${String(Math.max(1, tile.rows))}`;
+  });
+}
+
+/**
+ * Pack again when the grid changes width, which is not something a rebuild is told about.
+ *
+ * A window resized, a sidebar opened, the browser's own tab strip moved to the side: all of them
+ * change how many columns fit and none of them redraw this list.
+ */
+function watchWidth(grid: HTMLElement): void {
+  let last = 0;
+  const observer = new ResizeObserver(() => {
+    const width = Math.round(grid.getBoundingClientRect().width);
+    if (width === last) return;
+    last = width;
+    packGrid(grid);
+  });
+  observer.observe(grid);
+  // The list is rebuilt often and each rebuild makes a new grid, so the old one's observer goes
+  // with it rather than piling up.
+  const parent = grid.parentElement;
+  if (parent) {
+    new MutationObserver((changes, self) => {
+      if (!grid.isConnected) {
+        observer.disconnect();
+        self.disconnect();
+      }
+      void changes;
+    }).observe(parent, { childList: true, subtree: true });
+  }
+}
+
 export function buildSessions(options: SessionsOptions): HTMLElement {
   const wrap = document.createElement('section');
   wrap.className = 'sessions';
@@ -283,12 +350,22 @@ export function buildSessions(options: SessionsOptions): HTMLElement {
   for (const group of groupSessions(sessions)) {
     if (!isShared(group)) {
       const only = group.sessions[0];
-      if (only) grid.append(buildSessionCard(only, options));
+      if (!only) continue;
+      const card = buildSessionCard(only, options);
+      // One card, one cell. See `packGrid`.
+      card.dataset['tile'] = '1x1';
+      grid.append(card);
       continue;
     }
     grid.append(buildSharedTab(group, options, grid));
   }
   wrap.append(grid);
+  /*
+   * Placed once the grid has a width, because how many columns there are is the whole input.
+   * Re-run whenever that width changes, which is a window resize or the sidebar opening.
+   */
+  requestAnimationFrame(() => packGrid(grid));
+  watchWidth(grid);
   /*
    * The whole section takes the drop, not only the grid.
    *
@@ -322,6 +399,13 @@ function buildSharedTab(
   if (group.workspaceId !== undefined) box.dataset['workspaceId'] = group.workspaceId;
 
   const members = orderedByLayout(group);
+  /*
+   * How much of the grid this tab takes: as many columns as it has panes up to the cap, and one
+   * row per wrapped row of cards inside it. That is what the packing works in. See `pack-grid.ts`.
+   */
+  const across = Math.min(members.length, MAX_GROUP_COLUMNS);
+  box.dataset['tile'] =
+    `${String(across)}x${String(Math.ceil(members.length / Math.max(1, across)))}`;
   /**
    * As many columns as it has panes, up to the cap, and no more.
    *
@@ -329,7 +413,8 @@ function buildSharedTab(
    * list. Each card then keeps the width it would have had on its own, which is the point: the
    * grouping is a background and an order, not a different kind of card.
    */
-  box.style.gridColumn = `span ${String(Math.min(members.length, MAX_GROUP_COLUMNS))}`;
+  // The span is set by the packing, which knows how many columns there are. See `packGrid`.
+  box.style.gridColumn = `span ${String(across)}`;
 
   const head = document.createElement('header');
   head.className = 'session-group-head';

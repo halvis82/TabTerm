@@ -1195,15 +1195,47 @@ export class Launcher {
 
     const title = document.createElement('div');
     title.className = 'template-title';
-    title.textContent = 'New layout template';
-    const where = document.createElement('div');
-    where.className = 'template-where';
-    where.textContent = path;
-    form.append(title, where);
+    // Which of the two things this is. It said "New" while editing one, which is the first line
+    // of the dialog contradicting the reason it is open.
+    title.textContent = existing ? 'Edit layout template' : 'New layout template';
+    form.append(title);
+    /**
+     * The folder, only while making one.
+     *
+     * A template is not a thing that lives in a folder: it is a shape and some commands, applied
+     * to whichever folder is open when it is used. Showing a path while editing one said the
+     * opposite, and the path shown was wherever the start screen happened to be pointing.
+     *
+     * Kept for a new one, where it is doing different work: the preview and the commands are
+     * about to be run somewhere, and that is where.
+     */
+    if (!existing) {
+      const where = document.createElement('div');
+      where.className = 'template-where';
+      where.textContent = path;
+      form.append(where);
+    }
+
+    /**
+     * A label over each box, not only inside it.
+     *
+     * A placeholder is gone the moment there is anything in the box, so a filled-in form was four
+     * boxes of text with nothing saying which was the name, which the description, which the
+     * shape, and which the command. Reported exactly that way.
+     */
+    const labelled = (text: string, control: HTMLElement): HTMLElement => {
+      const wrap = document.createElement('label');
+      wrap.className = 'template-field';
+      const caption = document.createElement('span');
+      caption.className = 'template-field-label';
+      caption.textContent = text;
+      wrap.append(caption, control);
+      return wrap;
+    };
 
     const name = document.createElement('input');
     name.className = 'launcher-input';
-    name.placeholder = 'Name, such as "review" or "server and logs"';
+    name.placeholder = 'review, or server and logs';
     name.spellcheck = false;
 
     const description = document.createElement('input');
@@ -1235,7 +1267,15 @@ export class Launcher {
     const commands = document.createElement('div');
     commands.className = 'template-commands';
 
-    form.append(name, description, layout, help, preview, problem, commands);
+    form.append(
+      labelled('Name', name),
+      labelled('Description', description),
+      labelled('Layout', layout),
+      help,
+      preview,
+      problem,
+      commands,
+    );
 
     /** Kept across redraws, so editing the shape does not throw away what has been typed. */
     const typed = new Map<number, string>();
@@ -1280,7 +1320,8 @@ export class Launcher {
         line.className = 'template-command';
         const tag = document.createElement('span');
         tag.className = 'template-command-tag';
-        tag.textContent = String(id);
+        // The pane it belongs to, and what the box is, since a filled box says neither.
+        tag.textContent = `Command in ${String(id)}`;
         const input = document.createElement('input');
         input.className = 'launcher-input';
         input.placeholder = `Command for session ${String(id)}, staged not run`;

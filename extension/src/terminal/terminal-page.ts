@@ -12,6 +12,7 @@ import type {
 } from '@tabterm/shared';
 import { linesWithContent, type BufferLike } from './screen-content.js';
 import { FindBar } from './find-bar.js';
+import { PageFind } from './page-find.js';
 import { trustMeasurement } from './measured-size.js';
 import { InputLine, rowsNeeded } from './input-line.js';
 import { DaemonClient, type ConnectionStatus } from '../transport/daemon-client.js';
@@ -763,7 +764,45 @@ function refreshTitle(status?: string): void {
     ...(lastCommandHere ? { lastCommand: lastCommandHere } : {}),
   };
   // With several panes the interesting thing is what needs attention, not the pane count.
-  document.title = composeTitle(fields, status ?? titleStatus(paneStatus, count), soleLabel());
+  const said = status ?? titleStatus(paneStatus, count);
+  /*
+   * And when nothing needs attention, something that says which tab this is.
+   *
+   * A quiet tab of several panes was called "7 panes - 7 panes". The name a person gave one of its
+   * panes is the best answer, because they wrote it; failing that, the last thing run in the tab,
+   * which is what the single pane title already uses for the same reason.
+   */
+  document.title = composeTitle(fields, said || whichTab(count), soleLabel());
+}
+
+/**
+ * What tells one quiet multi-pane tab from another.
+ *
+ * A label somebody typed first: it is the only thing on the tab they wrote themselves. Then the
+ * last command run anywhere in the tab, cut to its first words, which is exactly what a single
+ * pane tab is already called and for the same reason: the front of a command is the part that is
+ * read in a tab strip.
+ */
+function whichTab(paneCount: number): string {
+  if (paneCount < 2) return '';
+  const labelled = layout ? firstLabel(layout) : undefined;
+  if (labelled) return labelled;
+  const last = lastCommandHere.trim();
+  if (last === '') return '';
+  return last.length > 24 ? `${last.slice(0, 24)}…` : last;
+}
+
+/** The first pane label in the tab, reading the layout in the order it is drawn. */
+function firstLabel(node: LayoutNode): string | undefined {
+  if (node.type === 'terminal') {
+    const label = node.label?.trim();
+    return label === undefined || label === '' ? undefined : label;
+  }
+  for (const child of node.children) {
+    const found = firstLabel(child);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 /**
@@ -3642,8 +3681,22 @@ function buildLauncher(): void {
    * The pane is asked for at the moment of searching rather than held, because panes are split,
    * closed and swapped underneath this and a held one goes stale in every one of those cases.
    */
+  /**
+   * The start screen is searched as a page, because that is what it is.
+   *
+   * Everywhere else this bar exists because a terminal is a canvas with nothing in the page to
+   * read. Here the opposite holds: the previews, the paths and the names are all text, and the bar
+   * was searching the strip of terminal along the bottom, which is empty, so a word plainly on
+   * screen answered "no matches". See `page-find.ts`.
+   */
+  const pageFind = new PageFind(
+    () => document.querySelector('.launcher'),
+    (results) => findBar?.showResults(results),
+  );
+
   findBar = new FindBar({
     target: () => {
+      if (launcher?.isShowing === true) return pageFind;
       const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
       return pane ? pane.controller : null;
     },

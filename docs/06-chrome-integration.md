@@ -764,6 +764,22 @@ cannot drift quietly.
 Nothing is stretched to make that happen. Cards in a group are one height and lone cards another,
 and every card of a kind is identical to the others of that kind.
 
+### The list is packed, not poured
+
+The browser places grid items in order and will only move something into a gap if it comes after
+it. A tab of seven panes is three columns wide and three rows deep, which leaves a column beside it
+three rows tall, and the cards that fit there were older, so they had already been placed above.
+The list ran a whole row longer than it needed to.
+
+The places are worked out here instead, from the number of columns the grid actually has, which is
+measured rather than assumed: it depends on the window and on whatever the browser is showing down
+the side, and it changes without this list being rebuilt. A tab is a rectangle as many columns wide
+as it has panes, up to three, and one row tall per wrapped row of cards inside it.
+
+Order is kept wherever keeping it costs nothing. The packer tries the order the list is already in
+first and only prefers another if it is genuinely shorter, so nothing moves unless moving it saves
+a row. See `pack-grid.ts`.
+
 ### The badge follows the tab, live
 
 A card says `open in a tab` or `background`, and the answer is whether a tab holds that session.

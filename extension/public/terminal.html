@@ -3048,6 +3048,41 @@
     color: var(--dim);
     margin-bottom: 4px;
   }
+  /*
+   * A caption over each box, because a placeholder is gone the moment there is anything in it.
+   *
+   * A filled in form was four boxes of text with nothing saying which was the name, which the
+   * description, which the shape and which the command.
+   */
+  /*
+   * A match found on the start screen, marked where it sits.
+   *
+   * The same two colours the terminal's own search uses, so a match looks like a match wherever it
+   * was found, and the current one is the brighter of the two.
+   */
+  mark.find-hit {
+    background: #3a4a6b;
+    color: inherit;
+    border-radius: 2px;
+    padding: 0 1px;
+  }
+  mark.find-hit.is-current {
+    background: #7a6a2f;
+    outline: 1px solid #c2a94a;
+  }
+
+  .template-field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .template-field-label {
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+
   .template-help {
     font-size: 11.5px;
     line-height: 1.5;
@@ -3094,17 +3129,22 @@
     align-items: center;
     gap: 8px;
   }
+  /* Wide enough for words now: a bare number said nothing about what the box beside it was. */
   .template-command-tag {
     flex: none;
-    width: 22px;
+    min-width: 22px;
     height: 22px;
+    padding: 0 8px;
     display: flex;
     align-items: center;
     justify-content: center;
     border-radius: 6px;
     border: 1px solid var(--edge);
     color: var(--dim);
-    font-size: 11.5px;
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
   }
   .template-command .launcher-input {
     flex: 1 1 auto;

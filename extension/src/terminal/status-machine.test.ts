@@ -134,3 +134,23 @@ describe('the title', () => {
     expect(titleStatus(m, 1)).toBe('done');
   });
 });
+
+/**
+ * A quiet tab of several panes says nothing here, because the count is already its name.
+ *
+ * It used to say the count, so the tab was called "7 panes - 7 panes": one thing said twice and
+ * nothing about which tab it is. What goes in its place is decided by the page, which knows the
+ * pane labels and what was last run.
+ */
+describe('what a quiet tab of several panes says', () => {
+  it('says nothing, rather than repeating the count', () => {
+    const m = new StatusMachine();
+    expect(titleStatus(m, 7)).toBe('');
+  });
+
+  it('and still says what is happening when something is', () => {
+    const m = new StatusMachine();
+    m.set('a', 'running');
+    expect(titleStatus(m, 7)).toBe('1 running');
+  });
+});

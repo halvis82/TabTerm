@@ -72,6 +72,58 @@ const flow = String(
 r.ok('the grid lets a later card fill a gap', flow.includes('dense'), flow);
 
 /*
+ * And every tile is placed rather than left to fall where it may.
+ *
+ * The browser fills a gap only with something that comes after it, which left a column three rows
+ * deep empty beside a seven pane tab because the cards that fit there were older. The places are
+ * worked out here instead, from the number of columns the grid actually has. See `pack-grid.ts`.
+ */
+const placed = JSON.parse(
+  String(
+    await evaluate(
+      viewer.client,
+      `JSON.stringify([...document.querySelectorAll('.session-grid > *')]
+         .map((el) => ({ row: el.style.gridRow, col: el.style.gridColumn })))`,
+    ),
+  ),
+);
+r.ok(
+  'every tile is given a row and a column of its own',
+  placed.length > 0 && placed.every((p) => p.row !== '' && p.col !== ''),
+  JSON.stringify(placed),
+);
+
+/*
+ * And no two of them are on the same cell, which is the one way this can be wrong and still look
+ * plausible in a screenshot.
+ */
+const overlap = JSON.parse(
+  String(
+    await evaluate(
+      viewer.client,
+      `(() => {
+         const taken = new Set();
+         let clash = null;
+         for (const el of document.querySelectorAll('.session-grid > *')) {
+           const [cs, , cn] = el.style.gridColumn.split(' ');
+           const [rs, , rn] = el.style.gridRow.split(' ');
+           const c0 = Number(cs), r0 = Number(rs);
+           for (let c = 0; c < (Number(cn) || 1); c++) {
+             for (let r = 0; r < (Number(rn) || 1); r++) {
+               const cell = (c0 + c) + ':' + (r0 + r);
+               if (taken.has(cell)) clash = cell;
+               taken.add(cell);
+             }
+           }
+         }
+         return JSON.stringify(clash);
+       })()`,
+    ),
+  ),
+);
+r.ok('and no two tiles are on the same cell', overlap === null, String(overlap));
+
+/*
  * And folders come before resuming an agent. Both are ways to start, and the folder is the commoner
  * one; the resume list is also the one that grows without bound, so first it pushed the other down.
  */
