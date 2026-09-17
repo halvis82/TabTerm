@@ -716,12 +716,157 @@ the tree collapsed correctly and the surviving pane still drew itself at half wi
 space beside it, which read as the layout not updating at all. Filling is now the default and a
 fixed share is set only for the first child of a split, which is the right way round.
 
-### Two terminals in one tab are two rows
+### Two terminals in one tab are two cards with one colour behind them
 
-`Running now` lists sessions, not tabs, so a split tab appears twice. That is deliberate: they
-are separate shells with their own directories and their own work, and collapsing them into one
-row would hide one of them. Both rows carry the same workspace, so pressing either brings that
-tab forward.
+`Running now` lists sessions, not tabs, so a split tab appears once per pane. That part is
+deliberate: they are separate shells with their own directories and their own work, and collapsing
+them into one card would hide one of them. What was missing was any sign that they are in the same
+place, so four panes of one tab looked exactly like four unrelated terminals.
+
+Three designs, and the third is the one that holds. It mirrored the tab's own splits first, which
+made a card's size come from the shape of its tab: one pane of a three pane tab was tall with a
+stretched footer beside two short ones. Then the cards were equal but lived inside a box with a
+title, and a box is taller than what it contains, so the cards beside it lined up with nothing;
+lengthening the lone ones to compensate only moved the mismatch, and they ran past the bottom of
+the box instead.
+
+So nothing is nested. Every card is a member of the one grid, all the same size, on the same pitch,
+and a tab is a **wash**: another grid item placed over the same cells, painted before the cards and
+reaching a few pixels past them on every side. It holds nothing, which is why nothing can drift. It
+carries no title either: the tab it stands for is said by the cards on it.
+
+Three ways to press it, and they mean different things:Three ways to press it, and they mean different things:
+
+| Pressed | What happens |
+| --- | --- |
+| A card with a wash behind it | That tab comes forward, **with the keyboard in that pane** |
+| The wash itself, in the band around the cards | That tab comes forward |
+| A card dragged off its wash | That session leaves the tab. See below |
+
+The pane travels with the request. A tab of four panes is four cards, and all four of them used to
+open the tab on whichever pane it happened to be left on, so the card somebody pressed was not the
+terminal they got. The session id goes to the worker with the workspace: a tab that already exists
+is told which pane to focus, and one that has to be created is given it in its URL, because the way
+a tab takes over a workspace is to navigate and a navigation throws away everything else.
+
+### One row, whatever is in it
+
+A group is its cards plus a border, padding and the line that names it, so a row holding a group was
+taller than a row of cards on their own and the grid looked ragged. A card standing alone is given
+exactly that difference back as extra screen, so the two kinds of row come out level. The amount is
+written down once as `--group-chrome` and a check measures a group against a lone card, so it
+cannot drift quietly.
+
+Nothing is stretched to make that happen. Cards in a group are one height and lone cards another,
+and every card of a kind is identical to the others of that kind.
+
+### Whether a notification was actually shown
+
+The path from a command finishing to a banner on screen crosses four processes: the daemon decides,
+the offscreen document relays, the service worker asks Chrome, and macOS draws it. Everything up to
+the last step was covered by checks and the last step was not, which is exactly where a fault is
+invisible from everywhere else. `a-notification-actually-appears` asks Chrome itself, with
+`chrome.notifications.getAll`, from a page that is not the one that ran the command.
+
+It is skipped by default. The test daemon is told to raise none, because a full run drives real
+agent hooks and used to fire a dozen desktop notifications at whoever was running it. Ask for it
+when the question comes up:
+
+    TT_LET_NOTIFICATIONS=1 npm run t a-notification-actually-appears
+
+And the daemon says what it decided, either way. `notify.decided` records the kind, the duration,
+and whether it sent one or why it did not, so "why was I not told" can be answered from the log
+rather than by reasoning about the code.
+
+### The list is packed, not poured
+
+The browser places grid items in order and will only move something into a gap if it comes after
+it. A tab of seven panes is three columns wide and three rows deep, which leaves a column beside it
+three rows tall, and the cards that fit there were older, so they had already been placed above.
+The list ran a whole row longer than it needed to.
+
+The places are worked out here instead, from the number of columns the grid actually has, which is
+measured rather than assumed: it depends on the window and on whatever the browser is showing down
+the side, and it changes without this list being rebuilt. A tab is a rectangle as many columns wide
+as it has panes, up to three, and one row tall per wrapped row of cards inside it.
+
+Order is kept wherever keeping it costs nothing. The packer tries the order the list is already in
+first and only prefers another if it is genuinely shorter, so nothing moves unless moving it saves
+a row. See `pack-grid.ts`.
+
+### The badge follows the tab, live
+
+A card says `open in a tab` or `background`, and the answer is whether a tab holds that session.
+Closing a tab already told every start screen. A tab **coming back** did not, so a start screen open
+at the time went on saying `background` about terminals that were plainly in a tab again, and only
+refreshing that page corrected it. Reported after closing a tab and reopening it with the browser's
+own undo.
+
+The daemon announces the list when a browser's report of its open tabs **differs** from the last
+one, which is what a tab opening or closing looks like from here. Only when it differs: most of
+those reports are a poll repeating itself, and building that list serializes every screen on the
+machine.
+
+### Close tab means the tab that was pointed at
+
+Every menu on this page ended with `Close tab`, and it always closed the tab it was opened from.
+On a card in `Running now` that reads as an offer to close the tab the card is about, which is a
+different tab entirely, and it closed the one being worked in instead.
+
+A right click on a card or on the space around a group now offers **Close the tab it is in**, and
+closes that one. Anywhere else on the page the item is `Close tab` and means this one, which is
+what it has always been. A session no tab is holding gets neither: there is nothing to close, and
+falling back to meaning this tab is the original complaint again.
+
+Closing a tab is not ending a terminal. The sessions carry on in the background and the list keeps
+offering them, which is what `Kill session` further up the same menu is for.
+
+### A tab takes the room it uses, and no more
+
+Seven panes are three across and three down, and the last row holds one card. Drawn as a solid
+block that reserved two cells holding nothing, and the terminals that would have fitted were pushed
+below the hole. The packing now knows how much of a tab's last row is actually used, so those cells
+are offered to whoever comes next, and the colour is cut to match: an L rather than a square.
+
+The cut is measured from the cards after the browser has laid them out, because where a row falls
+depends on the gap, the border, and what the browser did with the fractions. A tab whose last row
+is full needs no cutting and is left alone.
+
+The notch is cut where the tab would have ended if it stopped there: the bottom of the row above,
+plus the same reach the colour has everywhere else. Cutting it from the last row's top instead put
+the edge exactly where the colour of whatever moved into the notch begins, so the two touched and
+read as one tab.
+
+And only the colour answers the pointer, not the rectangle it is drawn in. A tab that gives up cells
+gives them to somebody else's terminals, and hovering or opening a tab they have nothing to do with
+is what a rectangle does. The outline is an SVG shape, which answers only where it is painted, so
+the shape decides and nothing has to describe it twice.
+
+Two more rules keep the colours legible, and both are pinned by checks rather than left to a scene
+that happens to show them. A wash reaches less than half the grid's gap past its cards, so two of them
+can never meet and read as one tab. And the list refuses to scroll sideways: a wash reaching past
+the cards at the edge turned into a horizontal scrollbar on a list that is read downwards.
+
+### Dragging a session out of its tab
+
+A group says these panes are in one tab, so pulling one out of the picture says take it out of that
+tab. The drop is refused over any group, including the one it came from, so the gesture has exactly
+one meaning. There is no dragging **into** a tab here: that is a different operation with a
+different consequence, and it has its own way in already.
+
+The start screen asking for this is not the tab holding the pane, and may be in another window
+entirely, so it names the session and the daemon finds the pane. `detach-session-to-tab` is the
+same operation as `detach-pane-to-tab` asked from the outside, and it releases the session from
+whichever client was showing it rather than from the one that asked. Without that the daemon still
+believes the old tab has it, the new tab's attach finds it already bound, and the snapshot is never
+sent, which leaves the new pane blank.
+
+The tab it lands in opens **beside the tab it came out of** and **in the background**. At the end
+of the strip it reads as an unrelated tab that happened to appear; beside the one it left, it reads
+as the thing that just moved. In the background because the person is on the start screen doing
+something, and a new tab in front of them answers a request they did not make. The card reappears
+in its place by age, outlined once, because that can be most of a list away from where it was
+dragged and nothing else connects the two positions.
 
 ### What a card calls a session
 

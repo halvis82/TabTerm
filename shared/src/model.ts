@@ -342,6 +342,18 @@ export interface ShellIntegrationStatus {
 export interface LiveSession {
   sessionId: string;
   workspaceId?: string;
+  /**
+   * The arrangement of the tab this session is in, when it shares that tab with others.
+   *
+   * Sent so `Running now` can draw a tab the way the tab is: two panes side by side are drawn side
+   * by side, one above the other is drawn that way. Somebody recognising a terminal they left
+   * running recognises the shape of it, and a group of cards in arbitrary order is a worse answer
+   * than one that looks like what they will get back.
+   *
+   * Absent for a session that is the only pane in its tab, because there is no arrangement to
+   * describe and nothing to draw around it.
+   */
+  layout?: LayoutNode;
   cwd: string;
   /**
    * The name somebody gave this session, if they gave it one.
@@ -354,6 +366,14 @@ export interface LiveSession {
   /** What is running, when that is known. */
   process?: string;
   lastCommand?: string;
+  /**
+   * The last command that **finished** here, as opposed to one running now.
+   *
+   * Two fields because they say different things and a card treats them differently: one is what
+   * this terminal is doing, the other is the most recent thing it did. Collapsing them would make
+   * a session that ran `ls` an hour ago look like a session running `ls`.
+   */
+  ranLast?: string;
   /** Whether a tab is currently showing it, as opposed to it merely being alive. */
   attached: boolean;
   /**
@@ -375,6 +395,13 @@ export interface LiveSession {
   preview: readonly string[];
   /** A command is in flight right now. */
   busy: boolean;
+  /**
+   * The agent's own session id, for a session running one, which is what `--resume` takes.
+   *
+   * Sent so a card can offer the command that reopens the conversation. Learned from the agent's
+   * hooks and from nowhere else: it is not on the screen and not in the environment.
+   */
+  agentSessionId?: string;
   /**
    * Resident memory of this session's process tree, in bytes.
    *

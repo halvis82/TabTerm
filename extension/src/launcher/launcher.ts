@@ -1,4 +1,4 @@
-import { buildSessions } from './sessions-view.js';
+import { buildSessions, isDraggingSession } from './sessions-view.js';
 import { resolveTypedPath, unresolveTypedPath } from './typed-path.js';
 import { checkShape, previewPanes } from '@tabterm/shared';
 
@@ -67,6 +67,13 @@ export interface LauncherOptions {
   onRestore: (workspaceId: string, replayCommands: boolean) => void;
   /** Open a session that already exists, wherever it currently is. */
   onOpenSession: (session: LiveSession) => void;
+  /**
+   * Take a session out of the tab it shares, dragged out of its group in `Running now`.
+   *
+   * The session, not the pane: the tab holding it is somebody else's window or none at all, and
+   * this page has no pane to name. See `detach-session-to-tab`.
+   */
+  onDetachSession: (session: LiveSession) => void;
   /** Ask the daemon to complete a folder path. The answer arrives via pathCompletion(). */
   onCompletePath: (partial: string) => void;
   /** Ask whether a folder is there, as it is typed. The answer arrives via folderChecked(). */
@@ -163,6 +170,35 @@ export function listWindow(
  * agent keeps for the session, which is what makes six scannable rather than six to read.
  */
 const MAX_RESUME = 6;
+
+/**
+ * What a list of running sessions looks like on screen, as one string.
+ *
+ * Only the parts a card draws, at the resolution it draws them: two lists with the same signature
+ * produce the same pixels, so redrawing for the second is work nobody can see.
+ */
+function signatureOf(sessions: readonly LiveSession[]): string {
+  return sessions
+    .map((s) =>
+      [
+        s.sessionId,
+        s.workspaceId ?? '',
+        s.cwd,
+        s.name ?? '',
+        s.process ?? '',
+        s.lastCommand ?? '',
+        s.ranLast ?? '',
+        s.attached ? 'a' : '',
+        s.inTab ? 't' : '',
+        s.busy ? 'b' : '',
+        // To a tenth of a megabyte, which is what the card says.
+        Math.round(s.memoryBytes / 104_857.6),
+        s.preview.join('\n'),
+        s.layout ? JSON.stringify(s.layout) : '',
+      ].join('\u0001'),
+    )
+    .join('\u0002');
+}
 
 export class Launcher {
   readonly #opts: LauncherOptions;
@@ -267,6 +303,19 @@ export class Launcher {
     this.#renderQueued = window.setTimeout(() => {
       this.#renderQueued = undefined;
       if (this.#dismissed) return;
+      /**
+       * Never while somebody is carrying a card.
+       *
+       * Redrawing replaces the element under the pointer, and a drag whose source has been thrown
+       * away ends where it is: the gesture simply stops, with no sign of why. This list redraws
+       * whenever anything on the machine starts or finishes, which is exactly while somebody is
+       * reaching across it. Looked at again shortly, so nothing is lost, only deferred.
+       */
+      if (isDraggingSession()) {
+        this.#renderDueBy = Date.now() + 120;
+        this.#scheduleRender();
+        return;
+      }
       if (this.#stillWaiting()) {
         // The rest of the batch is still coming. Look again shortly rather than drawing half.
         this.#scheduleRender();
@@ -384,10 +433,37 @@ export class Launcher {
     return !this.#dismissed && !this.#el.hidden;
   }
 
+  /**
+   * Say which session just moved, so the card it lands on is outlined when it next renders.
+   *
+   * Set before the list that reflects the move arrives, which is the order these happen in: the
+   * daemon answers the move and pushes the new list a moment later.
+   */
+  markLanded(sessionId: string): void {
+    this.#landed = sessionId;
+  }
+
   setLiveSessions(sessions: readonly LiveSession[]): void {
+    /**
+     * A list that says the same thing as the one already here is not a change.
+     *
+     * The daemon says "what is running has changed" whenever it might have, which includes a tab
+     * opening or closing somewhere. Most of those carry a list identical to the one on screen, and
+     * redrawing for one costs a full rebuild of every card for nothing. The check that counts
+     * drawings per change is what noticed, at two drawings for one change.
+     *
+     * Compared at the resolution the cards are drawn at: memory is shown to the nearest tenth of a
+     * megabyte, so bytes ticking underneath that are not news either.
+     */
+    const now = signatureOf(sessions);
     this.#liveSessions = [...sessions];
+    if (now === this.#liveSignature) return;
+    this.#liveSignature = now;
     this.#answered('live');
   }
+
+  /** What the last list said, so an identical one can be recognised. See `setLiveSessions`. */
+  #liveSignature = '';
 
   setState(state: LauncherState): void {
     this.#state = state;
@@ -429,6 +505,9 @@ export class Launcher {
   }
 
   #liveSessions: LiveSession[] = [];
+
+  /** A session that has just been dragged out of its group. See `landed` in `sessions-view.ts`. */
+  #landed: string | undefined;
   #dirInput: HTMLInputElement | null = null;
   /** Which layout Return will run. Open, because that is what almost everybody wants. */
   #completionList: HTMLElement | null = null;
@@ -1014,6 +1093,22 @@ export class Launcher {
     input: HTMLInputElement,
     pinned = false,
   ): void {
+    /**
+     * Never once the start screen is gone.
+     *
+     * The card is shown on a timer, three hundred and twenty milliseconds after the pointer lands
+     * on a chip, so that crossing the row does not flash one card per chip. Clicking a chip opens
+     * the template and takes the start screen away, and the chip goes with it, so the `mouseleave`
+     * that would have cancelled the timer never happens: the pointer has not moved, the thing
+     * under it has. The timer then fired against a page that is now four terminals, and built a
+     * card describing a template over the top of them.
+     *
+     * Guarded here rather than by chasing the timer, because every path that shows this card is a
+     * path that can be late: the hover, the right click, and anything added later. What the card
+     * belongs to is the start screen, so the start screen being gone is the answer for all of
+     * them.
+     */
+    if (this.#dismissed || this.#el.hidden) return;
     // A pinned card stays until it is dismissed: hovering another chip does not replace it.
     if (this.#cardPinned && !pinned) return;
     this.#templateCard?.remove();
@@ -1146,15 +1241,47 @@ export class Launcher {
 
     const title = document.createElement('div');
     title.className = 'template-title';
-    title.textContent = 'New layout template';
-    const where = document.createElement('div');
-    where.className = 'template-where';
-    where.textContent = path;
-    form.append(title, where);
+    // Which of the two things this is. It said "New" while editing one, which is the first line
+    // of the dialog contradicting the reason it is open.
+    title.textContent = existing ? 'Edit layout template' : 'New layout template';
+    form.append(title);
+    /**
+     * The folder, only while making one.
+     *
+     * A template is not a thing that lives in a folder: it is a shape and some commands, applied
+     * to whichever folder is open when it is used. Showing a path while editing one said the
+     * opposite, and the path shown was wherever the start screen happened to be pointing.
+     *
+     * Kept for a new one, where it is doing different work: the preview and the commands are
+     * about to be run somewhere, and that is where.
+     */
+    if (!existing) {
+      const where = document.createElement('div');
+      where.className = 'template-where';
+      where.textContent = path;
+      form.append(where);
+    }
+
+    /**
+     * A label over each box, not only inside it.
+     *
+     * A placeholder is gone the moment there is anything in the box, so a filled-in form was four
+     * boxes of text with nothing saying which was the name, which the description, which the
+     * shape, and which the command. Reported exactly that way.
+     */
+    const labelled = (text: string, control: HTMLElement): HTMLElement => {
+      const wrap = document.createElement('label');
+      wrap.className = 'template-field';
+      const caption = document.createElement('span');
+      caption.className = 'template-field-label';
+      caption.textContent = text;
+      wrap.append(caption, control);
+      return wrap;
+    };
 
     const name = document.createElement('input');
     name.className = 'launcher-input';
-    name.placeholder = 'Name, such as "review" or "server and logs"';
+    name.placeholder = 'review, or server and logs';
     name.spellcheck = false;
 
     const description = document.createElement('input');
@@ -1186,7 +1313,15 @@ export class Launcher {
     const commands = document.createElement('div');
     commands.className = 'template-commands';
 
-    form.append(name, description, layout, help, preview, problem, commands);
+    form.append(
+      labelled('Name', name),
+      labelled('Description', description),
+      labelled('Layout', layout),
+      help,
+      preview,
+      problem,
+      commands,
+    );
 
     /** Kept across redraws, so editing the shape does not throw away what has been typed. */
     const typed = new Map<number, string>();
@@ -1231,7 +1366,8 @@ export class Launcher {
         line.className = 'template-command';
         const tag = document.createElement('span');
         tag.className = 'template-command-tag';
-        tag.textContent = String(id);
+        // The pane it belongs to, and what the box is, since a filled box says neither.
+        tag.textContent = `Command in ${String(id)}`;
         const input = document.createElement('input');
         input.className = 'launcher-input';
         input.placeholder = `Command for session ${String(id)}, staged not run`;
@@ -1414,18 +1550,35 @@ export class Launcher {
           sessions: () => this.#liveSessions,
           onOpen: (session) => this.#opts.onOpenSession(session),
           onClose: (session) => this.#opts.onCloseSession(session),
+          onDetach: (session) => this.#opts.onDetachSession(session),
+          /*
+           * Outlined once, on the rebuild that actually moved it.
+           *
+           * Taken as it is read, so the next rebuild draws an ordinary card. The list is rebuilt
+           * often, and a flag that stayed set would flash the same card every time.
+           */
+          ...(this.#landed === undefined ? {} : { landed: this.#landed }),
           home: state.home,
         }),
       );
+      this.#landed = undefined;
     }
     const restorable = this.#restoreSection(state.home);
     if (restorable) sections.push(restorable);
     const servers = this.#serverSection(state.home);
     if (servers) sections.push(servers);
-    const resume = this.#resumeSection(state.home);
-    if (resume) sections.push(resume);
 
-    // --- recent directories ----------------------------------------------
+    /*
+     * --- recent directories, above resuming an agent -----------------------
+     *
+     * Both are ways to start, and folders are the commoner one: somebody opening this page is far
+     * more often going somewhere they work than picking up a particular conversation. The list
+     * below it is also the longer of the two and grows without bound, so putting it first pushed
+     * the folders down the page as the machine was used more.
+     *
+     * The same reasoning the ports section already carries a note about, applied one section
+     * earlier: what is nearest the top is what somebody is most likely to have come for.
+     */
     if (state.recentDirs.length > 0) {
       const shown = this.#visibleCount('recent', state.recentDirs.length, MAX_RECENT);
       const dirRows = state.recentDirs.slice(0, shown).map((d) => this.#dirRow(d, state.home));
@@ -1438,6 +1591,9 @@ export class Launcher {
         }),
       );
     }
+
+    const resume = this.#resumeSection(state.home);
+    if (resume) sections.push(resume);
 
     /*
      * Below the folders, because it answers a different question.

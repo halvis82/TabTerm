@@ -31,6 +31,7 @@ import { FlowController } from './flow-control.js';
 import { debug, info, warn } from './log.js';
 import { expandHome } from './complete-path.js';
 import { plainText } from './plain-text.js';
+import { INPUT_STATE_OF_A_NEW_SHELL } from './restored-screen.js';
 import { markerBlock } from './marker-block.js';
 import {
   MAX_DROP_BYTES,
@@ -531,12 +532,28 @@ export class DaemonServer {
           return {
             sessionId: session.id,
             memoryBytes: memoryOf(session.pid),
+            // What reopens this conversation elsewhere, when it is an agent's. See `agent-bridge`.
+            ...(session.agentSessionId === undefined
+              ? {}
+              : { agentSessionId: session.agentSessionId }),
             ...(workspace ? { workspaceId: workspace.id } : {}),
+            /*
+             * And the shape of that tab, when there is more than one pane in it.
+             *
+             * `Running now` draws a shared tab the way the tab is, so the arrangement has to reach
+             * it. Left off for a single pane: there is no arrangement to describe, and sending one
+             * would put a layout tree beside every ordinary session for nothing.
+             */
+            ...(workspace && panes(workspace.layout).length > 1
+              ? { layout: workspace.layout }
+              : {}),
             cwd: session.cwd,
             // A name somebody typed beats anything derived, so it is carried and preferred.
             ...(workspace ? nameFromLayout(workspace.layout, session.id) : {}),
             ...(session.titleFields.process ? { process: session.titleFields.process } : {}),
             ...(session.pendingCommand ? { lastCommand: session.pendingCommand } : {}),
+            // And the last one that finished, which is what describes a session sitting idle.
+            ...(session.ranLast ? { ranLast: session.ranLast } : {}),
             attached: session.clients.size > 0,
             // A discarded tab is still a tab. See `inTab` in the protocol.
             inTab: this.#sessions.tabHolds(session.id),
@@ -570,6 +587,31 @@ export class DaemonServer {
    */
   notifyFinished(event: Finished, where?: string, target?: { workspaceId?: string }): void {
     const decision = decide(event, this.#notifyPolicy, where);
+    /**
+     * Logged either way, because "why did I not get told" had no answer anywhere.
+     *
+     * Reported as notifications having stopped appearing, and nothing in the log could say whether
+     * the daemon had decided against one, sent one that Chrome dropped, or never seen the thing
+     * finish at all. Those are three different faults and they were indistinguishable.
+     *
+     * The kind and the duration, never what ran: the title of one of these is built from the
+     * command and the body from the directory, and neither belongs in a diagnostic log. See
+     * `log-privacy.test.ts`.
+     */
+    info('notify.decided', {
+      kind: event.kind,
+      ms: event.durationMs,
+      sent: decision !== null,
+      ...(decision === null
+        ? {
+            why: !this.#notifyPolicy.enabled
+              ? 'notifications off'
+              : event.durationMs < this.#notifyPolicy.thresholdMs
+                ? 'under the threshold'
+                : 'this kind is off',
+          }
+        : {}),
+    });
     if (!decision) return;
     this.broadcast({
       t: 'notify',
@@ -776,6 +818,8 @@ export class DaemonServer {
       }
       for (const f of client.flow.values()) f.dispose();
       this.#clients.delete(client);
+      // And it stops being somebody to keep the list of running sessions up to date for.
+      this.#wantsLiveSessions.delete(client.id);
       // Its report about tabs went with it: a browser that has gone does not speak for them.
       this.#sessions.forgetReporter(client.id);
       debug('client.disconnected', { clientId: client.id });
@@ -1303,7 +1347,7 @@ export class DaemonServer {
           warn('tabs-open.refused', { clientId: client.id, role: client.role });
           return;
         }
-        this.#sessions.reportOpenWorkspaces(
+        const moved = this.#sessions.reportOpenWorkspaces(
           client.id,
           msg.workspaceIds,
           msg.reporterIncarnation !== undefined && msg.generation !== undefined
@@ -1317,7 +1361,23 @@ export class DaemonServer {
          * the evidence has to be withdrawn rather than merely outranked: it would otherwise sit
          * there authorizing an ending the next time the tab went quiet for any reason at all.
          */
-        for (const workspaceId of msg.workspaceIds) this.#sessions.forgetTabClosed(workspaceId);
+        let reopened = false;
+        for (const workspaceId of msg.workspaceIds) {
+          if (this.#sessions.forgetTabClosed(workspaceId)) reopened = true;
+        }
+        /**
+         * And every start screen is told, because what a card says has just changed.
+         *
+         * A card says "open in a tab" or "background", and the answer is whether a tab holds that
+         * session. Closing a tab already announced; a tab **coming back** did not, so a start
+         * screen open at the time went on saying "background" about terminals that were plainly in
+         * a tab again, and only a refresh corrected it. Reported after reopening a tab with the
+         * browser's own undo.
+         *
+         * Only when something actually moved. Most of these reports are a poll repeating itself,
+         * and building this list serializes every screen on the machine.
+         */
+        if (moved || reopened) this.#announceLiveSessions();
         return;
       }
 
@@ -1337,7 +1397,17 @@ export class DaemonServer {
           warn('tab-closed.refused', { clientId: client.id, role: client.role });
           return;
         }
-        this.#sessions.recordTabClosed(msg.workspaceId, msg.eventId);
+        // Attributed, so it can correct that browser's own earlier claim and nobody else's.
+        this.#sessions.recordTabClosed(msg.workspaceId, msg.eventId, client.id);
+        /*
+         * And the list is said again, because what it says about that tab has changed.
+         *
+         * A tab closing is not a layout change, so nothing here announced it, and a page that had
+         * already been sent the list kept a card saying a tab holds a session that no longer does.
+         * Pages used to ask for this list when they needed it and were never pushed one, so being
+         * pushed a stale one is a hazard that only exists now that it is pushed at all.
+         */
+        this.#announceLiveSessions();
         return;
       }
 
@@ -1451,6 +1521,60 @@ export class DaemonServer {
           }),
         );
         if (result.source) this.#broadcastLayout(result.source.id);
+        return;
+      }
+
+      /**
+       * The same move, asked by a tab that does not hold the pane.
+       *
+       * A session dragged out of its group on the start screen. The asking tab knows only the
+       * session: the tab it is in may be another window's, or asleep, and it certainly is not
+       * this one. So the pane is found here rather than named, and the reply says where it came
+       * from so the asking tab can put the new one beside it.
+       */
+      case 'detach-session-to-tab': {
+        const from = this.#workspaces.findBySession(msg.sessionId);
+        const pane = from
+          ? panes(from.layout).find((p) => p.sessionId === msg.sessionId)
+          : undefined;
+        if (!from || !pane) return;
+        // The only pane in a tab is already in its own tab. Nothing to do, and nothing to say.
+        if (panes(from.layout).length <= 1) return;
+
+        const moved = this.#workspaces.detachToNewWorkspace(from.id, pane.paneId);
+        if (!moved) {
+          sendError(client.socket, 'workspace-invalid-layout', 'cannot detach the only pane');
+          return;
+        }
+
+        /**
+         * Every tab that was showing it in the old workspace lets go of it.
+         *
+         * What `detach-pane-to-tab` does for the one client that asked, done for whoever actually
+         * held it, because here that is somebody else. Without it the daemon still believes that
+         * tab has the session, so the attach from the new tab finds it already bound and never
+         * sends the snapshot, which leaves the new pane blank.
+         */
+        const session = this.#sessions.get(msg.sessionId);
+        if (session) {
+          for (const c of this.#clients) {
+            if (!c.authed || !c.streams.has(msg.sessionId)) continue;
+            this.#sessions.detach(session, c.id);
+            this.#unbind(c, msg.sessionId);
+          }
+        }
+
+        send(
+          client.socket,
+          controlFrame({
+            t: 'session-detached-to-tab',
+            sessionId: msg.sessionId,
+            fromWorkspaceId: from.id,
+            newWorkspaceId: moved.newWorkspace.id,
+          }),
+        );
+        // The tab it left redraws without it, and every start screen hears the list has changed.
+        if (moved.source) this.#broadcastLayout(moved.source.id);
         return;
       }
 
@@ -2326,6 +2450,7 @@ export class DaemonServer {
       }
 
       case 'list-live-sessions': {
+        this.#wantsLiveSessions.add(client.id);
         send(client.socket, controlFrame({ t: 'live-sessions', sessions: this.#liveSessions() }));
         return;
       }
@@ -2689,6 +2814,11 @@ export class DaemonServer {
        * had none, so every timer in a reattached tab was blank until the next event, and for an
        * idle pane that is never.
        */
+      /*
+       * And the agent's own session id, for the same reason: it is learned from a hook, and no
+       * hook fires because a page reloaded.
+       */
+      const agentSession = session.agentSessionId;
       const time = {
         sessionStartedAt: session.createdAt,
         ...(session.commandRunning && session.commandStartedAt !== undefined
@@ -2716,6 +2846,7 @@ export class DaemonServer {
           ...(typed ? { hasInput: true } : {}),
           ...(atHome ? { atHome: true } : {}),
           ...(hasRun ? { hasRun: true } : {}),
+          ...(agentSession === undefined ? {} : { agentSessionId: agentSession }),
           title,
           time,
         });
@@ -2731,6 +2862,7 @@ export class DaemonServer {
         ...(typed ? { hasInput: true } : {}),
         ...(atHome ? { atHome: true } : {}),
         ...(hasRun ? { hasRun: true } : {}),
+        ...(agentSession === undefined ? {} : { agentSessionId: agentSession }),
         title,
         time,
       });
@@ -2854,7 +2986,45 @@ export class DaemonServer {
         );
       }
     }
+    /*
+     * And everybody else is told the list of running sessions has changed shape.
+     *
+     * `Running now` draws the panes of a shared tab together and in the arrangement that tab has,
+     * so a split, a pane closed, a pane moved to its own tab and a session merged in all change
+     * what that list should look like. Nothing pushed it: a page asked when it opened and when
+     * somebody went back to the start screen, so another tab's list stayed as it was until one of
+     * those happened.
+     *
+     * Sent on layout changes only, which are things a person did with their hands. It is not on a
+     * timer and not on output.
+     */
+    this.#announceLiveSessions();
   }
+
+  /**
+   * Tell every tab what is running, because the shape of it has changed.
+   *
+   * Built once and sent to everybody, rather than per client: the list is the same for all of them
+   * and building it serializes every session's screen, which is the expensive part.
+   */
+  #announceLiveSessions(): void {
+    const sessions = this.#liveSessions();
+    for (const c of this.#clients) {
+      /**
+       * Only to a page that has asked for this list, because only that one has a list to correct.
+       *
+       * A page that has just connected asks for everything it needs as it starts, and an unasked
+       * for answer arriving before that is not an update: it is a first answer, out of order,
+       * which draws the start screen once on its own and once again a second later when the batch
+       * it was waiting for lands. The check that counts drawings per change is what noticed.
+       */
+      if (!c.authed || !this.#wantsLiveSessions.has(c.id)) continue;
+      send(c.socket, controlFrame({ t: 'live-sessions', sessions }));
+    }
+  }
+
+  /** Clients that have asked what is running, and so have an answer worth keeping up to date. */
+  readonly #wantsLiveSessions = new Set<string>();
 
   /**
    * Build a workspace of N panes, all rooted in one directory.
@@ -3139,7 +3309,16 @@ export class DaemonServer {
           `This is a new shell in ${pane.cwd}. Resume it from the start screen.`
         : `This is a new shell in ${pane.cwd}, not the original process.`;
       const notice = `\r\n\x1b[2m[restored ${describeAge(pane.savedAt)}. ${what}]\x1b[0m\r\n`;
-      session.vt.write(Buffer.from(pane.screen + notice, 'utf8'));
+      /*
+       * The screen is history. The terminal it was drawn in is not restored with it.
+       *
+       * A saved screen carries the modes its program had set, and several of them govern input
+       * rather than drawing: mouse reporting, focus reporting, application cursor keys, bracketed
+       * paste. Replaying them into this new shell armed all four against a process that never
+       * asked for them, so a click or a focus change sent escape sequences nobody typed. That is
+       * what "restored sessions do not work" was. See `restored-screen.ts`.
+       */
+      session.vt.write(Buffer.from(pane.screen + INPUT_STATE_OF_A_NEW_SHELL + notice, 'utf8'));
 
       if (msg.replayCommands && pane.lastCommand) {
         // Typed, not run. The command lands at the prompt and waits, so a destructive one is

@@ -59,8 +59,23 @@ export function measurementIsTrustworthy(state: {
   waitingSince: number | null;
   graceMs: number;
   now: number;
+  /**
+   * Whether a renderer is coming at all, which decides how long waiting is worth it.
+   *
+   * A machine with no WebGL never produces one, and a pane there has to be believed or it could
+   * never follow the window: that is what the grace is for. A machine that has produced one
+   * before is a different case entirely. The context is coming, it is a moment away, and
+   * believing the DOM renderer's cell in the meantime is how a terminal gets moved four percent
+   * and moved back. Read out of a real log: every reattach of one pane went 174, attach 167,
+   * back to 174, and an agent redraws its whole interface for each of those.
+   *
+   * Longer, not forever. A pane can lose the race permanently when a browser runs out of
+   * contexts, and a pane that never resizes again would be worse than one that resizes late.
+   */
+  rendererExpected?: boolean;
 }): boolean {
   if (state.rendererAttached) return true;
   if (state.waitingSince === null) return true;
-  return state.now - state.waitingSince > state.graceMs;
+  const grace = state.rendererExpected === true ? state.graceMs * 3 : state.graceMs;
+  return state.now - state.waitingSince > grace;
 }

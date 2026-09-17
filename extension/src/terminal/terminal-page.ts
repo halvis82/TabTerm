@@ -12,6 +12,7 @@ import type {
 } from '@tabterm/shared';
 import { linesWithContent, type BufferLike } from './screen-content.js';
 import { FindBar } from './find-bar.js';
+import { PageFind } from './page-find.js';
 import { trustMeasurement } from './measured-size.js';
 import { InputLine, rowsNeeded } from './input-line.js';
 import { DaemonClient, type ConnectionStatus } from '../transport/daemon-client.js';
@@ -55,6 +56,7 @@ import { DEFAULT_PLACEMENT, type PanelPlacement } from '../launcher/command-pane
 import { buildSettings } from '../launcher/settings-view.js';
 import { buildReset, buildResetDone } from '../launcher/reset-view.js';
 import { quotePath } from './quote-path.js';
+import { resumeCommandFor } from './resume-command.js';
 import { DEFAULT_THEME, themeNamed } from './themes.js';
 import { DEFAULT_COLOR, loadRecentColors, rememberColor, type ColorUse } from './color-store.js';
 import {
@@ -762,7 +764,45 @@ function refreshTitle(status?: string): void {
     ...(lastCommandHere ? { lastCommand: lastCommandHere } : {}),
   };
   // With several panes the interesting thing is what needs attention, not the pane count.
-  document.title = composeTitle(fields, status ?? titleStatus(paneStatus, count), soleLabel());
+  const said = status ?? titleStatus(paneStatus, count);
+  /*
+   * And when nothing needs attention, something that says which tab this is.
+   *
+   * A quiet tab of several panes was called "7 panes - 7 panes". The name a person gave one of its
+   * panes is the best answer, because they wrote it; failing that, the last thing run in the tab,
+   * which is what the single pane title already uses for the same reason.
+   */
+  document.title = composeTitle(fields, said || whichTab(count), soleLabel());
+}
+
+/**
+ * What tells one quiet multi-pane tab from another.
+ *
+ * A label somebody typed first: it is the only thing on the tab they wrote themselves. Then the
+ * last command run anywhere in the tab, cut to its first words, which is exactly what a single
+ * pane tab is already called and for the same reason: the front of a command is the part that is
+ * read in a tab strip.
+ */
+function whichTab(paneCount: number): string {
+  if (paneCount < 2) return '';
+  const labelled = layout ? firstLabel(layout) : undefined;
+  if (labelled) return labelled;
+  const last = lastCommandHere.trim();
+  if (last === '') return '';
+  return last.length > 24 ? `${last.slice(0, 24)}…` : last;
+}
+
+/** The first pane label in the tab, reading the layout in the order it is drawn. */
+function firstLabel(node: LayoutNode): string | undefined {
+  if (node.type === 'terminal') {
+    const label = node.label?.trim();
+    return label === undefined || label === '' ? undefined : label;
+  }
+  for (const child of node.children) {
+    const found = firstLabel(child);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 /**
@@ -935,6 +975,15 @@ const endedSessions = new Set<string>();
 
 /** Sessions an agent has reported state for. See the `agent-state` handler. */
 const agentSessions = new Set<string>();
+
+/**
+ * The agent's own session id, by our session id, which is what `--resume` takes.
+ *
+ * Learned from the agent's hooks and sent on with the attach, so a tab that has just reloaded
+ * knows it without waiting for the agent to be spoken to again. Nothing derives it: it exists
+ * nowhere on screen and nowhere in the environment.
+ */
+const agentSessionIds = new Map<string, string>();
 
 /** Agent CLIs by name, for the case where the only thing known is what is running. */
 const AGENT_PROGRAMS = new Set(['claude', 'codex', 'aider', 'cursor-agent', 'gemini', 'copilot']);
@@ -2163,6 +2212,26 @@ function menuToggleItem(): ShellItem {
  * Revealing goes through the daemon rather than through the page, because a page cannot open
  * Finder and the daemon already resolves and checks a path before acting on it.
  */
+/** Offered on a pane running an agent, and on nothing else. */
+function resumeItems(sessionId: string): ShellItem[] {
+  const conversation = sessionId === '' ? undefined : agentSessionIds.get(sessionId);
+  if (conversation === undefined) return [];
+  const command = resumeCommandFor(conversation, sessionTitles.get(sessionId)?.cwd ?? '');
+  return [
+    {
+      label: 'Copy resume command',
+      run: () => {
+        void navigator.clipboard.writeText(command).then(
+          () => showNotice('Resume command copied'),
+          () => {
+            /* denied, and there is nothing useful to say about a clipboard that refuses */
+          },
+        );
+      },
+    },
+  ];
+}
+
 function folderItems(path: string): ShellItem[] {
   if (path === '') return [];
   return [
@@ -2286,11 +2355,18 @@ async function openLiveSession(session: LiveSession): Promise<void> {
    * The worker answers exactly, because the workspace is in the tab's URL. Only when it says there
    * is no such tab does this one show the session itself.
    */
+  /*
+   * The session travels with the workspace, so the tab lands on the pane that was pressed.
+   *
+   * A tab of four panes is four cards in Running Now, and all four of them opened the same tab on
+   * whichever pane it happened to be left on. The card somebody presses is the terminal they mean.
+   */
   const found = (await chrome.runtime
     .sendMessage({
       t: 'tabterm:focus-workspace',
       workspaceId: session.workspaceId,
       attachHere: false,
+      focusSession: session.sessionId,
     })
     .catch(() => undefined)) as { focused?: boolean } | undefined;
 
@@ -2307,7 +2383,9 @@ async function openLiveSession(session: LiveSession): Promise<void> {
   }
 
   if (spare) {
-    location.href = chrome.runtime.getURL(`terminal.html?workspace=${session.workspaceId}`);
+    location.href = chrome.runtime.getURL(
+      `terminal.html?workspace=${session.workspaceId}&pane=${encodeURIComponent(session.sessionId)}`,
+    );
     return;
   }
 
@@ -2329,6 +2407,7 @@ async function openLiveSession(session: LiveSession): Promise<void> {
     t: 'tabterm:focus-workspace',
     workspaceId: session.workspaceId,
     attachHere: true,
+    focusSession: session.sessionId,
   });
   launcher?.dismiss();
 }
@@ -2360,6 +2439,36 @@ function sessionUnder(target: Element): LiveSession | undefined {
 }
 
 /**
+ * The tab a right click in Running Now was about, when it was about one at all.
+ *
+ * "Close tab" sat at the bottom of every menu on this page and always closed **this** tab. On a
+ * card that reads as an offer to close the tab the card is about, which is the tab you are looking
+ * at a picture of, and it closed the one you were working in instead. Reported in those words:
+ * the item does not refer to the thing that was right clicked.
+ *
+ * A group answers as well as a card. Pressing a group opens the tab those panes share, so a right
+ * click on the space around the cards means that tab too.
+ *
+ * Nothing is returned for a session no tab is holding. There is no tab to close, and the honest
+ * answer to that is to leave the item out rather than to quietly go back to meaning this one.
+ */
+function tabUnder(target: Element): string | undefined {
+  const card = target.closest('.session-card');
+  if (card instanceof HTMLElement) {
+    const id = card.dataset['sessionId'];
+    const session = id === undefined ? undefined : liveElsewhere.find((s) => s.sessionId === id);
+    return session?.inTab === true ? session.workspaceId : undefined;
+  }
+  const group = target.closest('.session-group');
+  if (!(group instanceof HTMLElement)) return undefined;
+  const workspaceId = group.dataset['workspaceId'];
+  if (workspaceId === undefined) return undefined;
+  return liveElsewhere.some((s) => s.workspaceId === workspaceId && s.inTab)
+    ? workspaceId
+    : undefined;
+}
+
+/**
  * What a card in Running Now offers.
  *
  * The two things a person wants from a session they can see: go to it, or end it. Killing one
@@ -2382,6 +2491,28 @@ function sessionItems(session: LiveSession): ShellItem[] {
   const where = session.cwd === '' ? 'this session' : shortPath(session.cwd, launcherHome);
   return [
     { label: 'Open session', run: () => void openLiveSession(session) },
+    /*
+     * And the way to take the conversation somewhere else, on the card as well as on the pane.
+     *
+     * A card is often the only view of an agent left running in the background, and copying the
+     * command that reopens it is a thing to want without opening it first.
+     */
+    ...(session.agentSessionId === undefined
+      ? []
+      : [
+          {
+            label: 'Copy resume command',
+            run: () => {
+              const command = resumeCommandFor(session.agentSessionId ?? '', session.cwd);
+              void navigator.clipboard.writeText(command).then(
+                () => showNotice('Resume command copied'),
+                () => {
+                  /* denied, and there is nothing useful to say about a clipboard that refuses */
+                },
+              );
+            },
+          },
+        ]),
     {
       /**
        * Move a session into this tab, wherever it is now.
@@ -2491,6 +2622,9 @@ function pageMenuItems(target: Element): ShellItem[] {
    * between: what to do with the terminal first, then what to do with its directory.
    */
   const session = sessionUnder(target);
+  // Which tab the click was about, and whether it was about one of these cards at all.
+  const theirTab = tabUnder(target);
+  const onCard = target.closest('.session-card, .session-group') !== null;
 
   const onStartScreen = target.closest('.launcher') !== null;
   return [
@@ -2554,13 +2688,42 @@ function pageMenuItems(target: Element): ShellItem[] {
         ]
       : []),
     ...wayOutItems(onStartScreen),
-    {
-      // "Session", not "tab": what closing it gets rid of is the terminal in it. The same
-      // wording the pane's own menu uses, for the same reason.
-      label: 'Close tab',
-      separated: true,
-      run: () => window.close(),
-    },
+    /**
+     * Closing a tab, and the one that was pointed at.
+     *
+     * On a card or a group in Running Now that is the tab those sessions are in. Anywhere else on
+     * the page it is this one, which is what it has always been and is right there. See `tabUnder`
+     * for the third case: a session nothing is holding, where the item is left out because there
+     * is no tab to close and meaning this one would be the original complaint again.
+     *
+     * The sessions are not touched either way. A tab closing is not a terminal ending: they carry
+     * on in the background and the list keeps offering them. `Kill session` above is the other
+     * thing, and says so.
+     */
+    ...(theirTab === undefined
+      ? onCard
+        ? []
+        : [
+            {
+              label: 'Close tab',
+              separated: true,
+              run: () => window.close(),
+            } satisfies ShellItem,
+          ]
+      : [
+          {
+            label: 'Close the tab it is in',
+            separated: true,
+            run: () => {
+              void chrome.runtime.sendMessage({
+                t: 'tabterm:close-workspace-tab',
+                workspaceId: theirTab,
+              });
+              // Asked for again shortly, so the badge stops saying a tab has it. See `inTab`.
+              setTimeout(() => client?.send({ t: 'list-live-sessions' }), 500);
+            },
+          } satisfies ShellItem,
+        ]),
   ];
 }
 
@@ -3379,6 +3542,17 @@ function buildLauncher(): void {
     onOpenSession: (session) => {
       void openLiveSession(session);
     },
+    /**
+     * A session dragged out of its group, which takes it out of the tab it was sharing.
+     *
+     * Only the ask is here. Where the new tab goes is decided when the daemon answers, because
+     * the answer is what says which tab it came out of. See `session-detached-to-tab`.
+     */
+    onDetachSession: (session) => {
+      client?.send({ t: 'detach-session-to-tab', sessionId: session.sessionId });
+      // Set before the new list arrives, so the card is outlined by the rebuild that moves it.
+      launcher?.markLanded(session.sessionId);
+    },
     onCloseSession: (session) => {
       client?.send({ t: 'kill-session', sessionId: session.sessionId });
       // A tab showing a session that no longer exists is a tab showing an apology, so it goes
@@ -3507,8 +3681,22 @@ function buildLauncher(): void {
    * The pane is asked for at the moment of searching rather than held, because panes are split,
    * closed and swapped underneath this and a held one goes stale in every one of those cases.
    */
+  /**
+   * The start screen is searched as a page, because that is what it is.
+   *
+   * Everywhere else this bar exists because a terminal is a canvas with nothing in the page to
+   * read. Here the opposite holds: the previews, the paths and the names are all text, and the bar
+   * was searching the strip of terminal along the bottom, which is empty, so a word plainly on
+   * screen answered "no matches". See `page-find.ts`.
+   */
+  const pageFind = new PageFind(
+    () => document.querySelector('.launcher'),
+    (results) => findBar?.showResults(results),
+  );
+
   findBar = new FindBar({
     target: () => {
+      if (launcher?.isShowing === true) return pageFind;
       const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
       return pane ? pane.controller : null;
     },
@@ -3885,15 +4073,28 @@ function reportBox(when: string, paneId: string): void {
 function attachPaneSizes(): { paneId: string; cols: number; rows: number; estimated?: true }[] {
   const out: { paneId: string; cols: number; rows: number; estimated?: true }[] = [];
   for (const pane of panesHost?.all ?? []) {
-    /*
-     * Read rather than applied when it is not worth believing.
+    /**
+     * On this path a renderer that is not here yet is simply not believed, grace or no grace.
      *
-     * The same distinction as in `refitAllPanes`: this size is about to be marked as a guess, and
-     * the daemon will decline to move a session for a guess. Applying it locally anyway would
-     * move this pane for a number the daemon has already rejected, which is the disagreement the
-     * whole of `size-agreement` exists to make impossible.
+     * Everywhere else a pane that has waited long enough for a renderer is believed anyway, so a
+     * machine that never gives it one can still follow the window. Attaching is the one moment
+     * where waiting costs nothing, because the daemon already knows what size the session is
+     * running at and will say so.
+     *
+     * The two renderers do not agree about the width of a cell: the DOM one reports the font's
+     * advance and the WebGL one snaps it down to whole device pixels. Read out of this machine's
+     * own log: 7.5 from the WebGL renderer in every one of 6512 measurements, and 7.82 to 7.84
+     * from the DOM one, which is four percent, which is 120 columns against 125. Every reattach
+     * therefore moved each pane twice, once to the DOM's answer and once back, and an agent
+     * redraws its whole interface for each. That is the scrambled transcript, reported three
+     * times now and finally visible in the log as `attach 120x45` followed by `resize-pane
+     * 125x45`.
+     *
+     * Read rather than applied when it is not worth believing, for the reason `refitAllPanes`
+     * gives: the daemon will decline to move a session for a guess, and applying it here anyway
+     * would leave this pane disagreeing with the session it is showing.
      */
-    const believable = pane.controller.sizeIsTrustworthy();
+    const believable = pane.controller.rendererAttached;
     const measured = believable ? pane.controller.fit() : pane.controller.propose();
     if (!measured || measured.cols <= 1 || measured.rows <= 1) continue;
     const trusted = trustMeasurement(measured, believable);
@@ -3929,7 +4130,17 @@ function attachSize(): { cols: number; rows: number; estimated?: true } {
    * which follows within a second through `resize-pane`.
    */
   const first = panesHost?.all[0];
-  const measured = first?.controller.fit();
+  /*
+   * Read without applying while the renderer is missing, because applying is its own door.
+   *
+   * `fit` measures and applies, and applying changes the grid, and xterm then reports that change,
+   * and the page forwards it as an ordinary resize. So marking this number a guess stopped nothing:
+   * the guess had already gone out under another name. The audit log says it plainly, `attach`
+   * followed by `terminal-said-so` at the same wrong width. `refitAllPanes` learned this before;
+   * this is the same lesson on the attach path.
+   */
+  const ready = first?.controller.rendererAttached === true;
+  const measured = ready ? first?.controller.fit() : first?.controller.propose();
   if (measured && measured.cols > 1 && measured.rows > 1) {
     if (first) reportBox('attach', first.paneId);
     /*
@@ -3941,7 +4152,12 @@ function attachSize(): { cols: number; rows: number; estimated?: true } {
      * columns under the first and 195 under the second. The daemon keeps the size the session
      * has and tells this page, instead of resizing a program that is drawing in place.
      */
-    return trustMeasurement(measured, first?.controller.sizeIsTrustworthy() ?? false);
+    /*
+     * And on this path a renderer that is not here yet is not believed at all, grace or no grace.
+     * The daemon already knows what size the session is running at, so waiting costs nothing here
+     * and guessing costs a reflow of the whole history. See `attachPaneSizes`.
+     */
+    return trustMeasurement(measured, ready);
   }
   // A cell from the terminal's own font metrics when there is one, and a sane default when not.
   const cell = panesHost?.all[0]?.controller.cellSize();
@@ -4786,9 +5002,10 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
      * prompt is decoration and can be made to say anything, and the daemon follows the process.
      * Left out entirely when it is not known, rather than offered and doing nothing.
      */
-    ...folderItems(sessionTitles.get(panesHost?.get(paneId)?.sessionId ?? '')?.cwd ?? '').map(
-      (item, i) => (i === 0 ? { ...item, separated: true } : item),
-    ),
+    ...[
+      ...resumeItems(panesHost?.get(paneId)?.sessionId ?? ''),
+      ...folderItems(sessionTitles.get(panesHost?.get(paneId)?.sessionId ?? '')?.cwd ?? ''),
+    ].map((item, i) => (i === 0 ? { ...item, separated: true } : item)),
     {
       /**
        * The same panel as Command+K and the button in the corner.
@@ -5343,6 +5560,45 @@ function watchTheme(): void {
 }
 
 /**
+ * Go to the pane a session is in, when this tab has it.
+ *
+ * Running Now draws the panes of one tab as a group, and pressing one of them means that one.
+ * The tab is what gets opened, so without this the click landed on whichever pane the tab was
+ * last left on and the card you pressed was not the card you got.
+ *
+ * Silently does nothing when no pane here holds it. The message is sent to a tab believed to be
+ * showing the workspace, and a tab that has moved on since is not a thing to complain about.
+ */
+function focusPaneForSession(sessionId: string): void {
+  const pane = panesHost?.forSession(sessionId);
+  if (pane) splitView?.focus(pane.paneId);
+}
+
+/** Asked by the worker, for a session in a tab that already exists. */
+function installFocusRequests(): void {
+  chrome.runtime.onMessage.addListener((msg: { t?: string; sessionId?: string }) => {
+    if (msg.t !== 'tabterm:focus-session' || typeof msg.sessionId !== 'string') return;
+    focusPaneForSession(msg.sessionId);
+  });
+}
+
+/**
+ * And for a tab that is only now being opened, where the pane does not exist yet.
+ *
+ * Carried in the URL rather than held in a variable, because the way a tab takes over a workspace
+ * is to navigate, which throws away every variable this page has. Read once and removed, so a
+ * later reload of the same tab does not move the focus again.
+ */
+function takeRequestedPane(): string | undefined {
+  const url = new URL(location.href);
+  const wanted = url.searchParams.get('pane');
+  if (wanted === null) return undefined;
+  url.searchParams.delete('pane');
+  history.replaceState(null, '', url.toString());
+  return wanted;
+}
+
+/**
  * Shortcuts Chrome owns, relayed here by the worker.
  *
  * One, now. Splitting a pane and opening the command menu were declared to Chrome as well, which
@@ -5454,7 +5710,15 @@ function installShortcuts(): void {
        * terminal, a text box, the command menu, the start screen. A second press closes the bar
        * rather than opening anything, which is what "again" should mean for a toggle.
        */
-      if (e.key.toLowerCase() === 'f' && e.metaKey && !e.ctrlKey && !e.altKey) {
+      /*
+       * Command F and nothing else with an F in it.
+       *
+       * This asked for Command, and said nothing about Shift, so Command Shift F was taken too and
+       * prevented. That one is Chrome's, and taking a browser shortcut away costs somebody a key
+       * everywhere they go, not just here. Nothing in the find bar uses it: previous is Shift and
+       * Return inside the box, and Chrome's own find-again is Command G.
+       */
+      if (e.key.toLowerCase() === 'f' && e.metaKey && !e.shiftKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         e.stopPropagation();
         if (findBar?.isOpen === true) findBar.hide();
@@ -5599,6 +5863,8 @@ function onControl(msg: ServerMessage): void {
         // And whether anything has ever been run in it, which the screen cannot answer for a
         // pane whose snapshot has not arrived. See `panesUsed`.
         if (p.hasRun === true) panesUsed.add(p.paneId);
+        // And the conversation this pane is in, so the menu can offer to resume it elsewhere.
+        if (p.agentSessionId !== undefined) agentSessionIds.set(p.sessionId, p.agentSessionId);
         /*
          * What each pane is, so its bar can say so immediately.
          *
@@ -5668,6 +5934,16 @@ function onControl(msg: ServerMessage): void {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => refitAllPanes());
       });
+
+      /*
+       * And the pane somebody asked for, now that it exists. See `takeRequestedPane`.
+       *
+       * After the layout, because focusing a pane that has not been built is focusing nothing, and
+       * after the measurement is scheduled, because the size of a terminal is not this one's to
+       * delay.
+       */
+      const askedFor = takeRequestedPane();
+      if (askedFor !== undefined) focusPaneForSession(askedFor);
 
       /**
        * A template's commands, once each pane has a prompt to receive them.
@@ -5740,6 +6016,25 @@ function onControl(msg: ServerMessage): void {
       // A pane opened or closed is exactly when a layout may stop being the template it came
       // from, which is the one moment the title has to be worked out again.
       refreshTitle();
+      return;
+    }
+
+    /**
+     * A session this page dragged out of its group now has a tab of its own to be in.
+     *
+     * Beside the tab it came out of, and in the background. This page is the start screen: it is
+     * not the tab the session left, and the person is still on it doing something, so taking them
+     * away to the new tab would be answering a different request than the one they made.
+     *
+     * The list redraws itself from the push that follows, which is what moves the card out of the
+     * group and into its place by age.
+     */
+    case 'session-detached-to-tab': {
+      void chrome.runtime.sendMessage({
+        t: 'tabterm:open-workspace-beside',
+        workspaceId: msg.newWorkspaceId,
+        besideWorkspaceId: msg.fromWorkspaceId,
+      });
       return;
     }
 
@@ -6431,6 +6726,7 @@ function onControl(msg: ServerMessage): void {
        * gone quiet is still an agent, and the point of knowing is to refuse to print into it.
        */
       agentSessions.add(msg.sessionId);
+      if (msg.agentSessionId !== undefined) agentSessionIds.set(msg.sessionId, msg.agentSessionId);
       // Structured, from the agent's own hooks. Never inferred from what is on screen.
       const pane = panesHost?.all.find((p) => p.sessionId === msg.sessionId);
       if (pane) {
@@ -6766,6 +7062,14 @@ declare global {
       };
       /** The session behind each pane, which is what an agent hook reports against. */
       paneSessions: () => { paneId: string; sessionId: string }[];
+      /**
+       * What this pane's terminal would do with a key, a click or a focus change.
+       *
+       * None of it is visible on the screen, and all of it decides whether the terminal sends
+       * bytes nobody typed. A screen restored from a dead program used to arm every one of these
+       * against a new shell, which is what "restored sessions do not work" turned out to be.
+       */
+      inputState: () => { modes: Record<string, unknown>; cursorHidden: boolean } | null;
       /** Do what looking at the tab does, which is how an outcome stops being news. */
       lookAtTab: () => void;
       /** What the line under the path box knows, for when it is blank and should not be. */
@@ -6913,6 +7217,14 @@ function installTestHook(): void {
     },
     blockRendererForTest: (on) => {
       XtermController.blockRenderer = on;
+      // Remembered, so a check can reload the page and still come up without a renderer, which is
+      // the only way to reproduce losing the race for a GPU context. See `readBlockedRenderer`.
+      try {
+        if (on) sessionStorage.setItem('tabterm.blockRenderer', '1');
+        else sessionStorage.removeItem('tabterm.blockRenderer');
+      } catch {
+        /* storage can be refused; the flag still works for this page */
+      }
       if (on) panesHost?.releaseRenderers();
       else panesHost?.restoreRenderers();
     },
@@ -7108,6 +7420,18 @@ function installTestHook(): void {
     }),
     paneSessions: () =>
       (panesHost?.all ?? []).map((p) => ({ paneId: p.paneId, sessionId: p.sessionId })),
+    inputState: () => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : panesHost?.all[0];
+      if (!pane) return null;
+      const term = pane.controller.term;
+      // Whether the cursor is hidden is the one part of this the emulator does not publish.
+      const core = (term as unknown as { _core?: { coreService?: { isCursorHidden?: boolean } } })
+        ._core;
+      return {
+        modes: { ...term.modes },
+        cursorHidden: core?.coreService?.isCursorHidden === true,
+      };
+    },
     lookAtTab: () => lookedAtTab(),
     folderStateDebug: () => launcher?.folderStateDebug() ?? {},
     keyboardHolder: () => {
@@ -7234,7 +7558,22 @@ async function start(): Promise<void> {
   void refreshShortcuts();
   watchSharedSettings();
   installShortcuts();
+  /**
+   * A page coming up with no renderer, on purpose.
+   *
+   * The state this reproduces is a tab that lost the race for a GPU context, which happens for
+   * real when every tab reattaches at once. It has to survive the reload, because the moment being
+   * tested is the attach itself, so it lives in `sessionStorage` rather than in a variable.
+   */
+  try {
+    if (sessionStorage.getItem('tabterm.blockRenderer') === '1') {
+      XtermController.blockRenderer = true;
+    }
+  } catch {
+    /* storage can be refused, in which case there is nothing to restore */
+  }
   installForwardedCommands();
+  installFocusRequests();
   // Asked once at startup, so the palette's hints describe the keys Chrome really has.
   refreshBoundShortcuts();
   installAmbientFocus();

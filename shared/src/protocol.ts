@@ -381,6 +381,15 @@ export type ClientMessage =
       replace?: boolean;
     }
   | { t: 'detach-pane-to-tab'; workspaceId: string; paneId: string }
+  /**
+   * Take a session out of the tab it shares, asked by a tab that is not that tab.
+   *
+   * `detach-pane-to-tab` is the same operation asked from the inside, by the page holding the
+   * pane, which names the pane because it has one. This is asked from the start screen, where a
+   * session dragged out of its group in `Running now` is named by session and the tab it is in may
+   * be asleep or in another window. The daemon finds the pane, because it is the one that knows.
+   */
+  | { t: 'detach-session-to-tab'; sessionId: string }
   | {
       /**
        * Print a landmark into a session's output.
@@ -807,6 +816,15 @@ export interface WorkspacePane {
    * The same shape as the pane's name arriving with the attach, and for the same reason: a fact
    * the first paint depends on belongs on the attach rather than on the next change.
    */
+  /**
+   * The agent's own session id, for a pane running one, so the menu can offer to resume it.
+   *
+   * A fact the first paint depends on, sent with the attach for the same reason as the title and
+   * the timers below: it is learned from a hook, and a page that has just attached has had no
+   * hooks fire since it loaded. Without it a reattached tab could not offer to copy the command
+   * until the agent was next spoken to.
+   */
+  agentSessionId?: string;
   time?: {
     /** When the session began, which outlives this daemon. */
     sessionStartedAt?: number;
@@ -984,6 +1002,25 @@ export type ServerMessage =
        * after a daemon restart. A view counts up from it rather than being sent a ticking clock.
        */
       turnStartedAt?: number;
+      /**
+       * The agent's own session id, which is what `--resume` takes.
+       *
+       * Sent with the state because the hook that reports the state is where it is learned, and a
+       * page has no other way to know it.
+       */
+      agentSessionId?: string;
+    }
+  /**
+   * A session was taken out of the tab it shared, on the asking of some other tab.
+   *
+   * Sent to the tab that asked, which is the one that has to place the new tab: beside the tab it
+   * came out of rather than at the end of the strip, so it reads as the thing that just moved.
+   */
+  | {
+      t: 'session-detached-to-tab';
+      sessionId: string;
+      fromWorkspaceId: string;
+      newWorkspaceId: string;
     }
   | { t: 'session-exited'; sessionId: string; exitCode: number; signal?: string }
   | { t: 'session-detached'; sessionId: string; remainingClients: number }

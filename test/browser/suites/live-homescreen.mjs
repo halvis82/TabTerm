@@ -31,15 +31,29 @@ const before = await runningIn(watcher.client);
  * the list the other tab is showing.
  */
 await type(worker.client, 'echo LIVE-HOMESCREEN');
-const noticed = await waitFor(
-  watcher.client,
-  `document.querySelectorAll('.session-card').length > ${String(before)}`,
-  15000,
-);
+
+/**
+ * Looked for by name, rather than by the list getting longer.
+ *
+ * Every suite shares one daemon, so this list carries other suites' terminals and they come and go
+ * while this one runs. A session arriving at the same moment another ends leaves the count exactly
+ * where it was, and the check failed in a full run having watched the very thing it was waiting for
+ * happen. The card this is about carries its session id, so it can be asked for.
+ */
+const mine = JSON.parse(
+  String(await evaluate(worker.client, 'JSON.stringify(window.__tabterm.paneSessions())')),
+)[0]?.sessionId;
+const noticed =
+  mine !== undefined &&
+  (await waitFor(
+    watcher.client,
+    `!!document.querySelector('.session-card[data-session-id="${mine}"]')`,
+    15000,
+  ));
 r.ok(
   'a session started in one tab appears on another start screen, unrefreshed',
   noticed,
-  `${String(before)} -> ${String(await runningIn(watcher.client))}`,
+  `${String(mine)}: ${String(before)} -> ${String(await runningIn(watcher.client))} cards`,
 );
 
 /** And a folder made anywhere reaches the folder list. */

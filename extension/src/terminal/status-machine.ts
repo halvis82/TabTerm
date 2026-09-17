@@ -141,6 +141,12 @@ export function titleStatus(machine: StatusMachine, paneCount: number): string {
   if (machine.countIn('done') > 0) return 'finished';
   const running = machine.countIn('running');
   if (running > 0 && paneCount > 1) return `${String(running)} running`;
-  if (paneCount > 1) return `${String(paneCount)} panes`;
+  /*
+   * Nothing is happening, and the count is already the name of the tab.
+   *
+   * This said the count too, so a quiet tab of seven panes was called "7 panes - 7 panes", which
+   * says one thing twice and nothing at all about which tab it is. What goes here instead is
+   * decided by the page, which knows the pane labels and what was last run. See `refreshTitle`.
+   */
   return '';
 }

@@ -35,3 +35,35 @@ describe('turning a serialized screen into something readable', () => {
     expect(plainText(`${ESC}[2J${ESC}[H`)).toEqual([]);
   });
 });
+
+/**
+ * A gap a program drew by moving the cursor is a gap.
+ *
+ * A full screen interface lays itself out by jumping the cursor rather than by writing spaces,
+ * because it is cheaper. Deleting those along with the colours closed every gap, so a preview of
+ * an agent read "Configdialogdismissed" and "bypasspermissionson". Several hundred of those
+ * sequences in one screen, counted in a real database.
+ */
+describe('gaps a program drew rather than typed', () => {
+  const ESC = String.fromCharCode(27);
+
+  it('keeps the space where the cursor was moved across', () => {
+    expect(plainText(`Config${ESC}[1Cdialog${ESC}[1Cdismissed`)).toEqual([
+      'Config dialog dismissed',
+    ]);
+  });
+
+  it('and a wider jump is as wide as it was drawn', () => {
+    expect(plainText(`left${ESC}[12Cright`)).toEqual([`left${' '.repeat(12)}right`]);
+  });
+
+  it('and a jump with no number means one column', () => {
+    expect(plainText(`a${ESC}[Cb`)).toEqual(['a b']);
+  });
+
+  it('and still drops the colours and the modes around it', () => {
+    expect(plainText(`${ESC}[32mgreen${ESC}[0m${ESC}[2Cword${ESC}[?2004h`)).toEqual([
+      'green  word',
+    ]);
+  });
+});

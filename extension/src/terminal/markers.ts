@@ -69,6 +69,26 @@ export function rowForRulerFraction(fraction: number, bufferLength: number): num
 }
 
 /** The landmark nearest a row, so a click near a marker goes to it rather than beside it. */
+/**
+ * Where to scroll so a marked line is readable, rather than jammed against the top edge.
+ *
+ * A jump used to put the marked line two rows from the top, which is enough for a shell: the mark
+ * is on the command line and the command is what you came for.
+ *
+ * It is not enough for a pane running an agent. The mark is made when Return is pressed, and an
+ * agent's cursor at that moment sits inside its input box at the bottom of the screen, several rows
+ * **below** the line the prompt itself ends up on. Landing the mark at the top therefore scrolled
+ * the prompt off it, and the one thing the mark was for was the one thing not on screen. Reported
+ * as: click the markers and "i no longer see the prompts in view because we'd be too far down".
+ *
+ * A third of the screen, so the context above a mark scales with the pane rather than being a
+ * number that suits one window size. Two rows is the floor, for a pane too short to have thirds.
+ */
+export function landingRowFor(row: number, viewportRows: number): number {
+  const context = Math.max(2, Math.floor(viewportRows / 3));
+  return Math.max(0, row - context);
+}
+
 export function nearestMarker(markers: readonly FoundMarker[], row: number): FoundMarker | null {
   let best: FoundMarker | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
@@ -97,6 +117,14 @@ function hex(color: number): string {
 export class MarkerRail {
   readonly #rail: HTMLElement;
   #markers: FoundMarker[] = [];
+  /**
+   * How tall the pane is, as of the last time the rail was built.
+   *
+   * Kept because the click handler needs it and is bound once, at construction, while the terminal
+   * it belongs to is resized constantly. A sensible starting value rather than zero, so a click
+   * that somehow precedes the first sync still lands somewhere reasonable.
+   */
+  #viewportRows = 24;
 
   constructor(container: HTMLElement, onJump: (row: number) => void) {
     this.#rail = document.createElement('div');
@@ -105,10 +133,10 @@ export class MarkerRail {
       const pip = (e.target as HTMLElement).closest('.marker-pip');
       const row = pip ? Number((pip as HTMLElement).dataset['row']) : NaN;
       if (!Number.isFinite(row)) return;
-      // A landmark is worth a little context above it, so the jump lands just before it.
+      // A landmark is worth context above it, and how much depends on the pane. See `landingRowFor`.
       e.preventDefault();
       e.stopPropagation();
-      onJump(Math.max(0, row - 2));
+      onJump(landingRowFor(row, this.#viewportRows));
     });
     container.append(this.#rail);
   }
@@ -136,6 +164,7 @@ export class MarkerRail {
     extra: readonly FoundMarker[] = [],
     inputs: readonly FoundMarker[] = [],
   ): void {
+    this.#viewportRows = term.rows;
     this.#markers = [...findMarkers(term), ...extra].sort((a, b) => a.row - b.row);
     this.#rail.replaceChildren();
     // Hidden entirely when there is nothing to show, rather than sitting there as an empty

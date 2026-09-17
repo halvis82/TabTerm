@@ -123,6 +123,9 @@ const LAST = [
   // Kills the daemon on purpose, to reach the one state its check is about: a session adopted
   // from a previous daemon, which is what an update leaves behind.
   'offer-only-over-empty-panes',
+  // Kills the shell and then the daemon, which together are what a machine going down leaves: a
+  // saved screen with no process behind it, which is the only way to reach the restore offer.
+  'restored-view-is-clean',
   'resilience',
   'nothing-left-alive',
   // These three leave the start screen the way a person does, which runs a `cd`, and two of them
@@ -143,7 +146,20 @@ const LAST = [
  * of the phase list alone quietly promotes it into the parallel pool, where `resilience` once
  * killed a host while four browsers were using it.
  */
-const SKIP = [];
+/**
+ * Suites that are not part of an ordinary run.
+ *
+ * `a-notification-actually-appears` is the only one, and for a good reason: it checks the last
+ * step of the notification path, which is Chrome being asked to show one, and the test daemon is
+ * told not to raise any precisely so that a run does not fire a dozen desktop notifications at
+ * whoever is running it. Run it on purpose when that question is being asked:
+ *
+ *     TT_LET_NOTIFICATIONS=1 npm run t a-notification-actually-appears
+ *
+ * It really does put one notification on screen, which is the point: everything short of that was
+ * already covered and a fault there is invisible from everywhere else.
+ */
+const SKIP = process.env['TT_LET_NOTIFICATIONS'] === '1' ? [] : ['a-notification-actually-appears'];
 
 const SERIAL = [...FIRST, ...LAST];
 
@@ -230,6 +246,10 @@ const COVERS = [
   ['daemon/src/agent-', ['resume-and-tabs', 'timers-survive-refresh']],
   ['extension/src/launcher/panel-view', ['command-panel', 'stats-scrolling']],
   ['extension/src/launcher/settings-view', ['settings', 'command-panel']],
+  ['extension/src/launcher/session-groups', ['running-now-groups', 'sessions']],
+  ['extension/src/launcher/sessions-view.ts', ['running-now-layout']],
+  ['extension/src/launcher/launcher', ['template-card-goes', 'templates', 'start-screen-typing']],
+  ['extension/src/launcher/sessions-view', ['running-now-groups', 'sessions', 'pane-chooser']],
   ['extension/src/terminal/label-look', ['pane-label']],
   ['extension/src/terminal/page-shortcuts', ['pane-focus-keys', 'shortcuts']],
   ['extension/src/layout/split-view', ['pane-focus-keys', 'layout']],
@@ -644,7 +664,14 @@ function startTestDaemon() {
         TABTERM_PORT: String(state.port),
         // A suite that drives an agent's hooks is asking what the daemon does, not asking to
         // interrupt whoever is running the tests. See `QUIET` in daemon/src/server.ts.
-        TABTERM_NO_NOTIFICATIONS: '1',
+        /*
+         * Quiet unless somebody is asking about notifications themselves.
+         *
+         * The suites drive real hooks against a real daemon, and every one of them used to raise a
+         * real desktop notification on the machine running the tests. The one suite that is about
+         * the notification itself needs them let through, and says so by setting this.
+         */
+        ...(process.env['TT_LET_NOTIFICATIONS'] === '1' ? {} : { TABTERM_NO_NOTIFICATIONS: '1' }),
         // A host holding sessions refuses an ordinary SIGTERM, because exiting would make every
         // one of them unreachable. A test host holds nothing anybody wants and must stop when
         // its run does.

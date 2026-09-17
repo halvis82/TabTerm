@@ -23,12 +23,12 @@ export function menuShell(): HTMLElement {
 }
 
 /**
- * Put it where it fits, show it, and arm the dismissal.
+ * Put it where it fits, show it, and arm the dismissal. Returns the way to close it.
  *
  * Measured first: the size depends on the entries, and the entries depend on what was clicked,
  * so there is no useful constant to place it by.
  */
-export function placeAndArm(menu: HTMLElement, x: number, y: number): void {
+export function placeAndArm(menu: HTMLElement, x: number, y: number): () => void {
   menu.style.visibility = 'hidden';
   document.body.append(menu);
   const rect = menu.getBoundingClientRect();
@@ -49,11 +49,56 @@ export function placeAndArm(menu: HTMLElement, x: number, y: number): void {
     menu.remove();
     document.removeEventListener('mousedown', close, true);
     document.removeEventListener('contextmenu', close, true);
+    window.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('blur', leave);
+    document.removeEventListener('visibilitychange', leave);
   };
+
+  /**
+   * Escape closes the menu, and the terminal never hears about it.
+   *
+   * Swallowed rather than merely acted on, which is the whole point. Escape is how a menu is
+   * dismissed everywhere, and it is also the interrupt key of every agent CLI this product hosts.
+   * With the menu open and the keystroke reaching the pane underneath, pressing it to put the menu
+   * away stopped an agent mid-answer. Reported exactly that way: "i just accidentally cut claude
+   * off because i pressed esc to close the right click menu".
+   *
+   * At the capture phase on `window`, which is the outermost node and therefore before anything
+   * else in the page and long before the emulator's own handler on its textarea.
+   * `stopImmediatePropagation` as well, because another listener on `window` would otherwise still
+   * see it.
+   */
+  const onKey = (e: KeyboardEvent): void => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    close();
+  };
+
+  /**
+   * And leaving takes it with you.
+   *
+   * A menu is about a place on a page. Going to another tab or another window and coming back to
+   * find it still sitting there is a menu about a moment that has passed, and the next click lands
+   * on an entry somebody opened for something else. Both events are listened for: changing tab
+   * hides the page, changing window only blurs it.
+   */
+  const leave = (): void => close();
+
   setTimeout(() => {
     document.addEventListener('mousedown', close, true);
     document.addEventListener('contextmenu', close, true);
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('blur', leave);
+    document.addEventListener('visibilitychange', leave);
   }, 0);
+
+  /*
+   * Handed back, so an entry that has just been chosen can put the menu away and take its
+   * listeners with it. Removing the element alone would leave those armed against a menu that is
+   * no longer there.
+   */
+  return () => close();
 }
 
 /** One entry. `enabled: false` greys it rather than hiding it, so the menu keeps its shape. */

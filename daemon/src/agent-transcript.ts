@@ -15,6 +15,7 @@
  */
 import { readTail } from './file-slice.js';
 import { debug } from './log.js';
+import { isMachinery, readableTurn } from './readable-turn.js';
 
 export interface TranscriptTurn {
   role: 'you' | 'agent';
@@ -35,8 +36,18 @@ const TAIL_BYTES = 256 * 1024;
 /** No single turn is worth more than this on a card. Long tool output is not conversation. */
 const MAX_CHARACTERS = 600;
 
+/**
+ * A turn as a person reads it, which is not what is in the file.
+ *
+ * The file holds markdown, tables written with pipes, fenced code, and wrappers that are not
+ * conversation at all. Flattened into one line for a row in a list, that came out as noise: rows
+ * made entirely of `<task-notification>`, and a paragraph whose middle was
+ * `| 8 | 52.0, 46.0, 42.3 | 9.7 points |`. What tells one session from another is the sentences.
+ * See `readable-turn.ts`.
+ */
 function clean(text: string): string {
-  const flat = text.replace(/\s+/g, ' ').trim();
+  if (isMachinery(text)) return '';
+  const flat = readableTurn(text);
   return flat.length > MAX_CHARACTERS ? `${flat.slice(0, MAX_CHARACTERS)}…` : flat;
 }
 

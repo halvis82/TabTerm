@@ -411,23 +411,90 @@ r.ok(
   }
 }
 
-/** A new command opens its own editor, since filling it in is the next thing either way. */
+/**
+ * Adding a command writes nothing until it is saved, and refuses to save an empty one.
+ *
+ * Pressing add used to create the row first and open its editor afterwards, so Cancel left a
+ * command called "New command" behind: the thing somebody had just said no to. And an empty one
+ * could be saved, which puts a row in the list that pastes nothing.
+ */
 {
   await evaluate(
     client,
     `[...document.querySelectorAll('.cmd-tab')].find(t => t.textContent === 'Favorites')?.click()`,
   );
   await sleep(400);
+  const favorites = () =>
+    evaluate(client, `String(document.querySelectorAll('.cmd-row.is-favorite').length)`).then(
+      Number,
+    );
+  const before = await favorites();
+
   await evaluate(client, `document.querySelector('.cmd-add')?.click()`);
   const editing = await waitFor(client, `!!document.querySelector('.cmd-edit')`, 8000);
+  r.ok('adding a command opens the form for it', editing);
+
   r.ok(
-    'adding a command opens the form for it',
-    editing,
-    String(
-      await evaluate(
-        client,
-        `JSON.stringify({ hidden: document.querySelector('.cmd-panel')?.hidden, favorites: document.querySelectorAll('.cmd-row.is-favorite').length, add: document.querySelector('.cmd-add') !== null, edit: document.querySelector('.cmd-edit') !== null })`,
-      ),
+    'and nothing is saved until it is',
+    (await favorites()) === before,
+    `${String(await favorites())}, was ${String(before)}`,
+  );
+
+  r.ok(
+    'and it cannot be saved while the command is empty',
+    Boolean(
+      await evaluate(client, `document.querySelector('.cmd-edit .cmd-button.primary')?.disabled`),
+    ),
+  );
+
+  // Cancel, which must leave nothing behind at all.
+  await evaluate(
+    client,
+    `[...document.querySelectorAll('.cmd-edit .cmd-button')].find(b => b.textContent === 'Cancel')?.click()`,
+  );
+  await sleep(500);
+  r.ok(
+    'and cancelling creates nothing',
+    (await favorites()) === before,
+    `${String(await favorites())}, was ${String(before)}`,
+  );
+
+  /*
+   * And a command with something in it saves, taking its name from the command when none was
+   * typed, because a row with no name cannot be picked out of a list.
+   */
+  await evaluate(client, `document.querySelector('.cmd-add')?.click()`);
+  await waitFor(client, `!!document.querySelector('.cmd-edit')`, 8000);
+  await evaluate(
+    client,
+    `(() => {
+       const boxes = [...document.querySelectorAll('.cmd-edit input')];
+       const body = boxes[1];
+       body.value = 'echo saved-without-a-name';
+       body.dispatchEvent(new Event('input', { bubbles: true }));
+     })()`,
+  );
+  r.ok(
+    'and saving is offered once there is a command',
+    (await evaluate(
+      client,
+      `document.querySelector('.cmd-edit .cmd-button.primary')?.disabled`,
+    )) === false,
+  );
+  await evaluate(
+    client,
+    `[...document.querySelectorAll('.cmd-edit .cmd-button')].find(b => b.textContent === 'Save')?.click()`,
+  );
+  const saved = await waitFor(
+    client,
+    `document.querySelectorAll('.cmd-row.is-favorite').length === ${String(before + 1)}`,
+    8000,
+  );
+  r.ok('and saving it keeps it', saved, `${String(await favorites())}, was ${String(before)}`);
+  r.ok(
+    'and it is called what the command says, since nothing else was typed',
+    String(await evaluate(client, `document.body.textContent`)).includes(
+      'echo saved-without-a-name',
     ),
   );
 }

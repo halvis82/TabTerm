@@ -7,7 +7,10 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { installCurrentWidths } from '@tabterm/shared';
 import type { ILinkProvider, IMarker } from '@xterm/xterm';
 import { classifyKey, xtermShouldHandle } from './keymap.js';
-import { placeMenu } from './menu-position.js';
+import { placeAndArm } from './menu-shell.js';
+
+/** Where this browser records that it has given a pane a WebGL context. See `rendererWorksHere`. */
+const WEBGL_WORKS_KEY = 'tabterm.webgl-works';
 import { MarkerRail } from './markers.js';
 import { HighlightLayer } from './highlights.js';
 import { closeColorPicker, openColorPicker } from './color-picker.js';
@@ -404,6 +407,21 @@ export class XtermController {
   #showMenu(x: number, y: number): void {
     document.querySelector('.term-menu')?.remove();
 
+    /**
+     * How an entry puts the menu away, filled in once the menu has been placed.
+     *
+     * The entries are built before the menu is on screen and each one closes it before acting, so
+     * they close over this rather than over the closer itself. Taking the element away is not
+     * enough on its own: the listeners that watch for a press elsewhere, for Escape, and for the
+     * page being left have to come off with it.
+     *
+     * A named placeholder rather than nothing, because the name `close` on its own is `window
+     * .close` in a browser. Deleting the local one and leaving the calls behind typechecked
+     * perfectly and turned every entry in this menu into "close the tab", which is what the check
+     * that caught it saw: a page that answered nothing afterwards because it was gone.
+     */
+    let dismiss = (): void => menu.remove();
+
     const menu = document.createElement('div');
     menu.className = 'term-menu';
 
@@ -437,7 +455,7 @@ export class XtermController {
         b.classList.add('is-toggle');
       }
       b.addEventListener('click', () => {
-        close();
+        dismiss();
         run();
       });
       menu.append(b);
@@ -490,7 +508,7 @@ export class XtermController {
       label.textContent = 'Highlight';
       label.disabled = selected.length === 0;
       label.addEventListener('click', () => {
-        close();
+        dismiss();
         this.highlightSelection(this.#opts.highlightColor?.() ?? '#ffd54a');
       });
 
@@ -511,7 +529,7 @@ export class XtermController {
             // The picker is its own element beside the menu, so closing the menu does not
             // take it with it. Both go, because the choice has been made.
             closeColorPicker();
-            close();
+            dismiss();
             this.highlightSelection(color);
           },
         });
@@ -548,43 +566,15 @@ export class XtermController {
       }
     }
 
-    // Measured, then placed. The size depends on the entries, which depend on the pane, so
-    // there is no useful constant to place it by.
-    menu.style.visibility = 'hidden';
-    document.body.append(menu);
-    const rect = menu.getBoundingClientRect();
-    const at = placeMenu({
-      x,
-      y,
-      menuWidth: rect.width,
-      menuHeight: rect.height,
-      viewportWidth: window.innerWidth,
-      viewportHeight: window.innerHeight,
-    });
-    menu.style.left = `${String(at.left)}px`;
-    menu.style.top = `${String(at.top)}px`;
-    menu.style.visibility = 'visible';
     /**
-     * Dismiss on the next interaction anywhere **except inside the menu**.
+     * Placed and armed by the one piece of code that does it. See `menu-shell.ts`.
      *
-     * Without that exception the menu was unusable with a real mouse. This runs on `mousedown`,
-     * in the capture phase, so pressing a menu item removed the button before the release, and
-     * a `click` is only dispatched when press and release land on the same element. So no entry
-     * ever ran: the menu vanished and nothing happened.
-     *
-     * It survived every test because a synthetic `element.click()` dispatches the click
-     * directly and never produces the mousedown that caused this.
+     * This was a second copy of that, and the two drifted: Escape closed the page's menus and not
+     * this one, so pressing it over a pane put the menu away in some places and sent an interrupt
+     * to the program in others. The copy measured, placed and dismissed exactly as the original
+     * did, which is why it survived as a copy for so long.
      */
-    const close = (e?: Event) => {
-      if (e && e.target instanceof Node && menu.contains(e.target)) return;
-      menu.remove();
-      document.removeEventListener('mousedown', close, true);
-      document.removeEventListener('contextmenu', close, true);
-    };
-    setTimeout(() => {
-      document.addEventListener('mousedown', close, true);
-      document.addEventListener('contextmenu', close, true);
-    }, 0);
+    dismiss = placeAndArm(menu, x, y);
   }
 
   async copySelection(override?: string): Promise<void> {
@@ -840,6 +830,19 @@ export class XtermController {
    * a default that looks like one.
    */
   fit(): { cols: number; rows: number } | null {
+    /**
+     * A measurement that is not worth believing moves nothing at all. Not even this pane.
+     *
+     * Stated at the call sites first, one at a time, and it never held: `fit` applies what it
+     * measures, applying changes the grid, xterm reports that change, and the page forwards it as
+     * an ordinary resize. So a guarded call site still let the guess out under another name. The
+     * audit log says it plainly: `attach` at 91 columns, then `terminal-said-so` at 91, for a
+     * session running at 101.
+     *
+     * Here it is one rule in one place. The pane keeps the size the daemon gave it, which is the
+     * size the program is actually running at, and asks again the moment its renderer arrives.
+     */
+    if (!this.sizeIsTrustworthy()) return null;
     if (!this.propose()) return null;
     try {
       this.#fit.fit();
@@ -965,7 +968,34 @@ export class XtermController {
       waitingSince: this.#waitingForRendererSince,
       graceMs: XtermController.RENDERER_GRACE_MS,
       now: Date.now(),
+      rendererExpected: XtermController.rendererWorksHere,
     });
+  }
+
+  /**
+   * Whether a WebGL renderer has ever attached in this browser.
+   *
+   * Remembered across reloads, because the moment it matters most is the first measurement after
+   * one: every tab reattaches at once, they contend for a capped number of contexts, and a page
+   * that has just started has no evidence of its own yet. A browser that produced one yesterday
+   * will produce one in a moment, and a measurement taken before it arrives is four percent out.
+   */
+  static rendererWorksHere = ((): boolean => {
+    try {
+      return localStorage.getItem(WEBGL_WORKS_KEY) === '1';
+    } catch {
+      return false;
+    }
+  })();
+
+  static rememberRendererWorks(): void {
+    if (XtermController.rendererWorksHere) return;
+    XtermController.rendererWorksHere = true;
+    try {
+      localStorage.setItem(WEBGL_WORKS_KEY, '1');
+    } catch {
+      /* storage can be refused, and this page still knows for itself */
+    }
   }
 
   get rendererAttached(): boolean {
@@ -1091,6 +1121,9 @@ export class XtermController {
       this.#webgl = addon;
       // The cell is now the one this pane will keep, so a size measured from here is worth having.
       this.#waitingForRendererSince = null;
+      // And this browser has proved it gives out contexts, which is what tells the next page that
+      // a missing renderer means "not yet" rather than "never". See `rendererWorksHere`.
+      XtermController.rememberRendererWorks();
       this.#opts.onRendererReady?.();
     } catch {
       // No WebGL to be had right now. xterm draws without it, and this asks again shortly.

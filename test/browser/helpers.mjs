@@ -446,6 +446,174 @@ export async function boxOf(client, selector) {
   return raw === 'null' ? null : JSON.parse(raw);
 }
 
+/**
+ * Drag one element onto another, the way a hand does it.
+ *
+ * A real drag rather than three `DragEvent`s constructed in the page. A constructed drag proves
+ * that the handlers work if they are called, which is the half that was never in doubt: whether
+ * the browser starts a drag at all depends on `draggable`, on what the press landed on, and on the
+ * page not swallowing the press first, and none of that is exercised by dispatching events by
+ * hand. Chrome hands the drag to the debugger instead of to its own compositor once drags are
+ * intercepted, so the payload the page put in `dataTransfer` comes back here and goes into the
+ * drop unchanged.
+ *
+ * Returns the empty string when the drag happened, and otherwise why it did not, which is a real
+ * answer and not a broken test: an element that refuses to be dragged is exactly what this looks
+ * like, and a suite reporting that has to be able to say which of the reasons it was.
+ */
+export async function dragOnto(client, fromSelector, toSelector, attempts = 3) {
+  for (let attempt = 1; ; attempt += 1) {
+    /*
+     * Tried again when no drag begins, because that is usually the list having moved.
+     *
+     * `Running now` redraws whenever anything on the machine starts or finishes, and under a full
+     * run that is constantly. A redraw between working out where to press and pressing there
+     * replaces the element under the pointer, and a press on an element that no longer exists
+     * starts nothing. The page refuses to redraw **during** a drag for the same reason, which
+     * leaves only this window. An element that genuinely cannot be dragged still answers false,
+     * after trying.
+     */
+    const why = await oneDrag(client, fromSelector, toSelector);
+    if (why === '' || attempt >= attempts) return why;
+    await sleep(500);
+  }
+}
+
+async function oneDrag(client, fromSelector, toSelector) {
+  /*
+   * Scrolled into view and checked against what is actually at the point, the same care a real
+   * click takes here. The list this drags in scrolls once there are a few sessions on it, and a
+   * card below the fold has a box that is off screen: the press then lands on whatever happens to
+   * be at those coordinates and the drag never starts, which reads as the feature being broken.
+   */
+  const answer = String(
+    await evaluate(
+      client,
+      `(() => {
+         const from = document.querySelector(${JSON.stringify(fromSelector)});
+         const to = document.querySelector(${JSON.stringify(toSelector)});
+         if (!from) return 'no:no source element';
+         if (!to) return 'no:no target element';
+
+         /* The middle of the source, when the source is really there. */
+         const grabPoint = () => {
+           const r = from.getBoundingClientRect();
+           const p = {
+             x: Math.round((r.left + r.right) / 2),
+             y: Math.round((r.top + r.bottom) / 2),
+           };
+           return from.contains(document.elementFromPoint(p.x, p.y)) ? p : null;
+         };
+         /*
+          * A point on the target that is actually on screen, sampled across its box rather than
+          * taken from its middle: a target that is half out of the window still has somewhere to
+          * drop on, and its middle may be the half that is gone.
+          */
+         const dropPoint = () => {
+           const r = to.getBoundingClientRect();
+           for (const fy of [0.5, 0.3, 0.7, 0.1, 0.9]) {
+             for (const fx of [0.5, 0.2, 0.8]) {
+               const x = Math.round(Math.min(innerWidth - 2, Math.max(2, r.left + r.width * fx)));
+               const y = Math.round(Math.min(innerHeight - 2, Math.max(2, r.top + r.height * fy)));
+               if (to.contains(document.elementFromPoint(x, y))) return { x, y };
+             }
+           }
+           return null;
+         };
+
+         /*
+          * Both ends have to be on screen at once, and scrolling one into view moves the other.
+          * So: as they are, then with the source centred, then with the target centred. The list
+          * scrolls as soon as there are a few sessions on it, which is the ordinary case rather
+          * than the awkward one.
+          */
+         for (const scroll of [
+           () => {},
+           () => from.scrollIntoView({ block: 'center' }),
+           () => to.scrollIntoView({ block: 'center' }),
+           () => to.scrollIntoView({ block: 'nearest' }),
+         ]) {
+           scroll();
+           const start = grabPoint();
+           const end = start === null ? null : dropPoint();
+           if (start && end) return JSON.stringify({ start, end });
+         }
+         const r1 = from.getBoundingClientRect();
+         const r2 = to.getBoundingClientRect();
+         return 'no:the two ends are never on screen together ' + JSON.stringify({
+           from: [Math.round(r1.top), Math.round(r1.bottom)],
+           to: [Math.round(r2.top), Math.round(r2.bottom)],
+           window: innerHeight,
+         });
+       })()`,
+    ),
+  );
+  if (answer.startsWith('no:') || answer === '') return answer || 'no:no answer at all';
+  const { start, end } = JSON.parse(answer);
+
+  let payload;
+  const caught = new Promise((resolve) => {
+    client.on((message) => {
+      if (message.method !== 'Input.dragIntercepted' || payload) return;
+      payload = message.params?.data;
+      resolve();
+    });
+    setTimeout(resolve, 4000);
+  });
+
+  await client.send('Input.setInterceptDrags', { enabled: true });
+  await client.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: start.x,
+    y: start.y,
+    button: 'left',
+    buttons: 1,
+    clickCount: 1,
+  });
+  // Several small moves rather than one jump: a drag is started by the movement, and Chrome needs
+  // to see the press travel past its own threshold before it will begin one.
+  for (const step of [4, 12, 30, 60]) {
+    await client.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: start.x + step,
+      y: start.y + Math.round((step * (end.y - start.y)) / Math.max(1, end.x - start.x || 1)),
+      button: 'left',
+      buttons: 1,
+    });
+    await sleep(40);
+  }
+  await caught;
+
+  if (!payload) {
+    await client.send('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x: start.x,
+      y: start.y,
+      button: 'left',
+      buttons: 0,
+      clickCount: 1,
+    });
+    await client.send('Input.setInterceptDrags', { enabled: false }).catch(() => undefined);
+    return 'no:the browser never began a drag';
+  }
+
+  for (const type of ['dragEnter', 'dragOver', 'drop']) {
+    await client.send('Input.dispatchDragEvent', { type, x: end.x, y: end.y, data: payload });
+    await sleep(60);
+  }
+  await client.send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: end.x,
+    y: end.y,
+    button: 'left',
+    buttons: 0,
+    clickCount: 1,
+  });
+  await client.send('Input.setInterceptDrags', { enabled: false }).catch(() => undefined);
+  await sleep(300);
+  return '';
+}
+
 /** Enough of PNG to read a screenshot: 8-bit, non-interlaced, RGB or RGBA. */
 function decodePng(buffer) {
   let at = 8; // past the signature

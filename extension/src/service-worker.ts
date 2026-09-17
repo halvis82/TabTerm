@@ -178,7 +178,10 @@ interface NotifyMessage {
   target?: { workspaceId?: string; paneId?: string };
   suppressIfVisible?: boolean;
   workspaceId?: string;
+  besideWorkspaceId?: string;
   attachHere?: boolean;
+  /** Which pane of the workspace was asked for, when the ask came from a card in Running Now. */
+  focusSession?: string;
 }
 
 /**
@@ -901,6 +904,7 @@ async function tabShowingWorkspace(workspaceId: string): Promise<chrome.tabs.Tab
 async function focusOrOpenWorkspace(
   workspaceId: string,
   attachHere: boolean,
+  focusSession?: string,
 ): Promise<{ focused: boolean }> {
   const existing = await tabShowingWorkspace(workspaceId);
   if (existing?.id !== undefined) {
@@ -908,11 +912,39 @@ async function focusOrOpenWorkspace(
     if (existing.windowId !== undefined) {
       await chrome.windows.update(existing.windowId, { focused: true });
     }
+    /*
+     * And on the pane that was asked for, told to the tab rather than put in its URL.
+     *
+     * The tab already exists and is showing its workspace. Changing its URL to say which pane
+     * would reload it, which throws away the scrollback of every terminal in it to move a focus
+     * ring. A page that is not listening, or has moved on, simply ignores this.
+     */
+    if (focusSession !== undefined) {
+      chrome.tabs
+        .sendMessage(existing.id, { t: 'tabterm:focus-session', sessionId: focusSession })
+        .catch(() => undefined);
+    }
     return { focused: true };
   }
   if (!attachHere) return { focused: false };
-  await chrome.tabs.create({ url: `${base(workspaceId)}`, active: true });
+  const pane = focusSession === undefined ? '' : `&pane=${encodeURIComponent(focusSession)}`;
+  await chrome.tabs.create({ url: `${base(workspaceId)}${pane}`, active: true });
   return { focused: true };
+}
+
+async function openWorkspaceBeside(workspaceId: string, besideWorkspaceId: string): Promise<void> {
+  // Never a second view of one workspace, the same rule as focusing one. See `focusOrOpenWorkspace`.
+  const already = await tabShowingWorkspace(workspaceId);
+  if (already !== undefined) return;
+  const neighbour =
+    besideWorkspaceId === '' ? undefined : await tabShowingWorkspace(besideWorkspaceId);
+  await chrome.tabs.create({
+    url: base(workspaceId),
+    active: false,
+    ...(neighbour?.id === undefined || neighbour.index === undefined
+      ? {}
+      : { windowId: neighbour.windowId, index: neighbour.index + 1 }),
+  });
 }
 
 const base = (workspaceId: string): string =>
@@ -997,6 +1029,20 @@ chrome.runtime.onMessage.addListener((msg: NotifyMessage, _sender, sendResponse)
     return false;
   }
 
+  /**
+   * A tab for a workspace, beside the tab another workspace is in, and not focused.
+   *
+   * For a session dragged out of its group on the start screen. It moved out of a tab, so the tab
+   * it moved into belongs next to that one: at the end of the strip it reads as an unrelated tab
+   * that happened to appear. And it is opened in the background, because the person is on the
+   * start screen doing something and a new tab in front of them would take them off it.
+   */
+  if (msg.t === 'tabterm:open-workspace-beside' && msg.workspaceId) {
+    void openWorkspaceBeside(msg.workspaceId, msg.besideWorkspaceId ?? '');
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (msg.t === 'tabterm:focus-workspace' && msg.workspaceId) {
     /*
      * Answered rather than acknowledged.
@@ -1007,7 +1053,7 @@ chrome.runtime.onMessage.addListener((msg: NotifyMessage, _sender, sendResponse)
      */
     const wanted = msg.workspaceId;
     const attachHere = msg.attachHere === true;
-    void focusOrOpenWorkspace(wanted, attachHere).then(
+    void focusOrOpenWorkspace(wanted, attachHere, msg.focusSession).then(
       (r) => sendResponse({ ok: true, focused: r.focused }),
       () => sendResponse({ ok: false, focused: false }),
     );

@@ -9,6 +9,17 @@ const { SerializeAddon } = serializeAddon;
 const { Unicode11Addon } = unicode11;
 
 /**
+ * The parts of the emulator that are not on its public interface.
+ *
+ * Declared rather than cast at the point of use, so what is being reached for is written down.
+ * Every field is optional: this is somebody else's private shape and it is allowed to change.
+ */
+interface Internals {
+  coreService?: { isCursorHidden?: boolean };
+  coreMouseService?: { activeEncoding?: string; activeProtocol?: string };
+}
+
+/**
  * Server-side terminal state, one per session.
  *
  * This is what makes reattach exact. Replaying a raw byte log does not work: the moment an
@@ -93,6 +104,17 @@ export class VtState {
     this.#term.write(data);
   }
 
+  /**
+   * Wait for everything written so far to have been parsed.
+   *
+   * Writing is queued and parsed a task later, so anything that reads this terminal's state
+   * immediately after writing to it reads the state from before the write. Nothing in the daemon
+   * needs this, because nothing there writes and reads in the same breath. A check does.
+   */
+  flush(): Promise<void> {
+    return new Promise((resolve) => this.#term.write('', () => resolve()));
+  }
+
   resize(cols: number, rows: number): void {
     if (cols === this.#cols && rows === this.#rows) return;
     this.#cols = cols;
@@ -112,13 +134,63 @@ export class VtState {
     rows: number;
     altScreen: boolean;
   } {
+    /*
+     * An empty screen stays empty, suffix and all.
+     *
+     * "There is nothing on this screen" is a fact other code acts on: the restore record refuses
+     * to overwrite a screen it captured while a pane was alive with an empty one taken after the
+     * process had gone. Describing the modes of a screen with nothing on it turned that empty
+     * string into six bytes, the guard stopped recognising it, and a dead pane erased the work it
+     * was supposed to be keeping. Caught by a check that restored a tab and found a bare prompt.
+     */
+    const drawn = this.#serializer.serialize({ scrollback });
     return {
-      screen: this.#serializer.serialize({ scrollback }),
+      screen: drawn === '' ? '' : drawn + this.#modesTheSerializerMisses(),
       seq: this.#seq,
       cols: this.#cols,
       rows: this.#rows,
       altScreen: this.#term.buffer.active.type === 'alternate',
     };
+  }
+
+  /**
+   * The two pieces of terminal state the serialize addon leaves out.
+   *
+   * It restores the alternate screen, bracketed paste, the keypad and cursor key modes, wrapping,
+   * focus reporting and whether the mouse is being tracked. It says nothing about either of these,
+   * and both are things a program set deliberately and is still relying on.
+   *
+   * **Whether the cursor is hidden.** An agent's interface hides the real cursor and draws its own.
+   * Replay the screen without that and the real cursor comes back: a block sitting wherever the
+   * last frame left it, which for that interface is the bottom left, jumping about as the frame is
+   * redrawn on each keystroke. Reported as a second typing indicator in every restored tab, which
+   * is exactly what it is.
+   *
+   * **Which format mouse reports are in.** Tracking is restored and the encoding is not, so a
+   * program that asked for the modern format is told about clicks in the 1980s one. That format
+   * cannot express a column past 95, which is most of a full width terminal, and reports a release
+   * as an anonymous button. The program sees clicks in the wrong place, or none.
+   *
+   * Read off the emulator rather than tracked here, so a reset sequence or anything else that
+   * changes them is accounted for without this having to know about it. The path is private, so it
+   * is checked rather than trusted: an xterm that stops exposing it leaves the snapshot exactly as
+   * it was before this existed, which is a worse screen and not a broken one.
+   */
+  #modesTheSerializerMisses(): string {
+    const core = (this.#term as unknown as { _core?: Internals })._core;
+    let out = '';
+    const hidden = core?.coreService?.isCursorHidden;
+    if (typeof hidden === 'boolean') out += hidden ? '\u001b[?25l' : '\u001b[?25h';
+    const encoding = core?.coreMouseService?.activeEncoding;
+    const protocol = core?.coreMouseService?.activeProtocol;
+    // Only alongside tracking that is actually on: an encoding on its own says nothing and would
+    // be a mode set on a terminal whose program never asked for one.
+    if (protocol !== undefined && protocol !== 'NONE') {
+      if (encoding === 'SGR') out += '\u001b[?1006h';
+      else if (encoding === 'UTF8') out += '\u001b[?1005h';
+      else if (encoding === 'URXVT') out += '\u001b[?1015h';
+    }
+    return out;
   }
 
   dispose(): void {

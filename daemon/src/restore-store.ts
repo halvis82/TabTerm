@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import type { Database } from './database.js';
 import { debug, info, warn } from './log.js';
 import { safeError } from './safe-error.js';
+import { plainText } from './plain-text.js';
 
 /**
  * What survives a macOS restart.
@@ -266,8 +267,10 @@ export class RestoreStore {
          command_json = excluded.command_json,
          agent_resume = COALESCE(excluded.agent_resume, agent_resume),
          agent = COALESCE(excluded.agent, agent),
-         -- An empty screen never overwrites one that was captured. A pane whose renderer was
-         -- already gone must not erase what was recorded while it was alive.
+         -- A screen with nothing on it never overwrites one that was captured. A pane whose
+         -- process was already gone must not erase what was recorded while it was alive. What
+         -- counts as nothing is decided before the write, by visibleContent, because a screen
+         -- can be blank and still carry a few bytes describing the terminal it was drawn in.
          screen = CASE WHEN excluded.screen = '' THEN screen ELSE excluded.screen END,
          saved_at = excluded.saved_at`,
     );
@@ -286,7 +289,7 @@ export class RestoreStore {
         data.command ? JSON.stringify(data.command) : null,
         data.agentResume ?? null,
         data.agent ?? null,
-        data.screen.slice(-MAX_SCREEN_BYTES),
+        visibleContent(data.screen) ? data.screen.slice(-MAX_SCREEN_BYTES) : '',
         now,
       );
     }
@@ -463,6 +466,18 @@ export class RestoreStore {
  * The same question `isTrivial` asked about a single-pane workspace, asked of one pane, so a
  * layout of several is judged by the same rule rather than escaping it by being bigger.
  */
+/**
+ * Whether a serialized screen has anything on it that a person would see.
+ *
+ * Not `screen !== ''`. A screen can be blank and still be a few bytes long, because a snapshot
+ * describes the terminal as well as the picture: whether the cursor is hidden, which format mouse
+ * reports are in. Asking the plain question let six bytes of that count as work and overwrite a
+ * real screen with nothing, which is the one thing this record exists to prevent.
+ */
+function visibleContent(screen: string): boolean {
+  return plainText(screen).length > 0;
+}
+
 function isEmptyPane(pane: PaneSnapshot): boolean {
   if (pane.lastCommand || (pane.command?.length ?? 0) > 0) return false;
   return pane.cwd === homedir();

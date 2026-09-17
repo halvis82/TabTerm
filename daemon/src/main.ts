@@ -506,9 +506,11 @@ async function main(): Promise<void> {
   const agentBridge = new AgentBridge({
     port: config.agentBridgePort,
     verifyToken,
-    onEvent: ({ sessionId, state, detail, hook }) => {
+    onEvent: ({ sessionId, state, detail, hook, agentSessionId }) => {
       const session = sessions.get(sessionId);
       if (!session) return;
+      // Learned once and kept. Every hook carries it, and it does not change within a session.
+      if (agentSessionId !== undefined) session.agentSessionId = agentSessionId;
       const previous = session.agentState;
       session.agentState = state;
       server.recordAgentEvent(Date.now());
@@ -534,6 +536,24 @@ async function main(): Promise<void> {
         session.lastTurnMs = turn.durationMs;
         session.lastTurnEndedAt = Date.now();
       }
+      /**
+       * Every hook that arrives, at a level somebody will actually have on.
+       *
+       * The state change was recorded at debug, which is off, so a report of "the timer never
+       * stops and no notification arrives" had nothing behind it: whether the agent's `Stop` hook
+       * was reaching this daemon at all was unanswerable, and that is the single fact that decides
+       * between a broken hook, a broken turn, and a broken notification.
+       *
+       * Hook names and states only. Nothing an agent said or was asked passes through here.
+       */
+      info('agent.hook', {
+        sessionId,
+        hook,
+        state,
+        from: previous ?? 'none',
+        endedTurn: turn !== null,
+      });
+
       const turnStartedAt = turns.startedAt(sessionId);
       // Kept on the session as well as pushed, so a tab attaching later can be told when this
       // turn began rather than waiting for the next hook to fire.
@@ -547,6 +567,7 @@ async function main(): Promise<void> {
         // How long somebody has been waiting, which is the one number a pane running an agent
         // can usefully show and the one it did not have.
         ...(turnStartedAt === undefined ? {} : { turnStartedAt }),
+        ...(session.agentSessionId === undefined ? {} : { agentSessionId: session.agentSessionId }),
       });
 
       /**

@@ -61,6 +61,13 @@ export interface Session {
    */
   agentTurnStartedAt?: number;
   /**
+   * The agent's own session id, learned from its hooks, which is what `--resume` takes.
+   *
+   * Kept on the session because it outlives the tab: the whole use of it is to go back to a
+   * conversation later, including from a terminal that is not this one. See `agent-bridge.ts`.
+   */
+  agentSessionId?: string;
+  /**
    * Somebody has typed into this session, whether or not they pressed Enter.
    *
    * A tab goes back to the start screen only when its one terminal is genuinely untouched, and
@@ -150,6 +157,8 @@ export interface Session {
   commandStartedAt?: number;
   pendingCommand?: string;
   lastExitCode?: number;
+  /** The last command that finished here, which is what an idle session is described by. */
+  ranLast?: string;
   /** How long the last command took and when it ended, so a reattaching tab can say so. */
   lastDurationMs?: number;
   lastFinishedAt?: number;
@@ -570,6 +579,15 @@ export class SessionManager {
         // simply nothing to record, and history stays empty rather than guessing.
         const text = session.pendingCommand;
         delete session.pendingCommand;
+        /*
+         * Kept after it has finished, because it is what the card has to say about this terminal.
+         *
+         * `pendingCommand` is the command running **now** and is deleted the moment one ends, so a
+         * session that had run `ls` and gone quiet had nothing to describe it and was labelled
+         * "shell" like every other idle shell. Kept separately rather than by leaving the pending
+         * one in place: a finished command must not be able to read as a running one.
+         */
+        if (text) session.ranLast = text;
         if (text) {
           this.#events.onCommand?.(session, text, exitCode, startedAt ? Date.now() - startedAt : 0);
         }
@@ -1315,12 +1333,19 @@ export class SessionManager {
    */
   readonly #reporterMark = new Map<string, { incarnation: string; generation: number }>();
 
-  /** Told by each extension, on every tab event and on a poll. */
+  /**
+   * Told by each extension, on every tab event and on a poll.
+   *
+   * Answers whether this changed anything. A poll that repeats what it said last time is most of
+   * these, and whoever is listening should not redraw the world for it: building the list of live
+   * sessions serializes every screen on the machine. A report that **differs** has moved a tab,
+   * which is the one thing that changes which sessions a tab is holding.
+   */
   reportOpenWorkspaces(
     clientId: string,
     ids: readonly string[],
     from?: { incarnation: string; generation: number },
-  ): void {
+  ): boolean {
     if (from !== undefined) {
       const mark = this.#reporterMark.get(clientId);
       if (mark !== undefined && mark.incarnation === from.incarnation) {
@@ -1330,7 +1355,7 @@ export class SessionManager {
             generation: from.generation,
             latest: mark.generation,
           });
-          return;
+          return false;
         }
       }
       this.#reporterMark.set(clientId, {
@@ -1339,7 +1364,11 @@ export class SessionManager {
       });
     }
     if (!this.#reporterSince.has(clientId)) this.#reporterSince.set(clientId, Date.now());
-    this.#openWorkspaces.set(clientId, new Set(ids));
+    const before = this.#openWorkspaces.get(clientId);
+    const now = new Set(ids);
+    const changed =
+      before === undefined || before.size !== now.size || [...now].some((id) => !before.has(id));
+    this.#openWorkspaces.set(clientId, now);
     /*
      * Remembered beyond the connection that said it, for the label only.
      *
@@ -1356,6 +1385,7 @@ export class SessionManager {
     // A session whose tab has come back must lose the clock it was put on, and one whose tab has
     // gone must be given one. Both are just the policy run again.
     for (const session of this.all) this.#rescheduleReapIfIdle(session);
+    return changed;
   }
 
   /**
@@ -1458,6 +1488,16 @@ export class SessionManager {
     const workspaceId = this.#workspaceOf?.(sessionId);
     if (workspaceId === undefined) return false;
     if (this.#closedWorkspaces.has(workspaceId)) return false;
+    /**
+     * Only when nobody is here to say otherwise.
+     *
+     * A browser that is connected and does not list this workspace is saying the tab is gone, and
+     * that is far better evidence than something it said earlier. The memory is for the gap where
+     * there is no browser to ask: the worker asleep, its connection dropped, nothing reporting at
+     * all. Using it while a reporter is connected and silent made a closed tab go on claiming to
+     * hold a session.
+     */
+    if (this.#openWorkspaces.size > 0) return false;
     return this.#everReportedOpen.has(workspaceId);
   }
 
@@ -1578,20 +1618,48 @@ export class SessionManager {
    * The daemon takes this at face value and does not second-guess it. It cannot: nothing on this
    * side can distinguish a person closing a tab from a browser taking its windows down.
    */
-  recordTabClosed(workspaceId: string, eventId: string): void {
+  recordTabClosed(workspaceId: string, eventId: string, closedBy?: string): void {
     this.#closedWorkspaces.set(workspaceId, { at: Date.now(), eventId });
     // And it stops being somewhere a terminal is. See `tabHolds`.
     this.#everReportedOpen.delete(workspaceId);
+    /**
+     * And it comes out of the list belonging to the browser that closed it. Only that one.
+     *
+     * A reporter's list is the last thing that browser said, and "open beats closed" reads it
+     * first, deliberately: a workspace reopened inside the window has to cancel a timer. That is
+     * right about a **newer** list and wrong about an older one, and a tab closing does not
+     * rewrite a list sent before it. So a session whose tab was closed went on being described as
+     * open until the next report happened to arrive, which on a quiet browser is minutes. Seen on
+     * a real machine: a workspace with three `tab-closed` events against it, still held.
+     *
+     * Only the closer's own list, because **one of two closing is not both**. A workspace open in
+     * two browsers, one of which closes its tab, is still open in the other, and clearing every
+     * list would end a terminal somebody is looking at. That is the one outcome this product does
+     * not accept, and a test pins it.
+     *
+     * Without an attributed closer nothing is cleared, which is the conservative half of the same
+     * rule: an unattributed close cannot be known to contradict anybody in particular.
+     */
+    const closer = closedBy === undefined ? undefined : profileOf(closedBy);
+    if (closer !== undefined) {
+      for (const [clientId, open] of this.#openWorkspaces) {
+        if (profileOf(clientId) !== closer || !open.has(workspaceId)) continue;
+        const without = new Set(open);
+        without.delete(workspaceId);
+        this.#openWorkspaces.set(clientId, without);
+      }
+    }
     info('workspace.tab-closed', { workspaceId, eventId });
     this.rescheduleReaps();
   }
 
   /** A workspace open again, so whatever was recorded about closing it is no longer true. */
-  forgetTabClosed(workspaceId: string): void {
-    if (this.#closedWorkspaces.delete(workspaceId)) {
-      info('workspace.tab-reopened', { workspaceId });
-      this.rescheduleReaps();
-    }
+  /** Answers whether there was anything to forget, which is a tab having come back. */
+  forgetTabClosed(workspaceId: string): boolean {
+    if (!this.#closedWorkspaces.delete(workspaceId)) return false;
+    info('workspace.tab-reopened', { workspaceId });
+    this.rescheduleReaps();
+    return true;
   }
 
   /** What authorized an automatic ending, for the log that records it. */

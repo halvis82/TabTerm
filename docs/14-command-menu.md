@@ -301,3 +301,45 @@ survived the session it described would be a different feature.
 Favorites are `saved_items` rows of kind `command`, with `title` as the display name and a
 `hotstring` column. Panel position and the last tab live in extension storage, since they are
 properties of a view rather than of the data. See `03-data-model.md`.
+
+## Escape closes a menu, and the terminal never hears it
+
+Escape is how a menu is dismissed everywhere, and it is also the interrupt key of every agent CLI
+this product hosts. With a menu open and the keystroke reaching the pane underneath, pressing it to
+put the menu away stopped an agent mid answer.
+
+So the menu takes the key rather than merely acting on it: the listener is at the capture phase on
+`window`, which is the outermost node and therefore ahead of everything in the page and long ahead
+of the emulator's own handler on its textarea, and it stops the event there.
+
+Leaving takes the menu with it too. A menu is about a place on a page, and coming back to a tab to
+find one still sitting there means the next click lands on an entry opened for something else.
+Changing tab hides the page and changing window blurs it, so both are listened for.
+
+**One implementation.** The pane's menu was a second copy of the placing and dismissing code, and
+the two drifted: Escape closed the page's menus and not a pane's. Fixing the copy meant deleting
+its local `close`, and the entries that called it silently began calling `window.close` instead, so
+every entry in that menu closed the tab. `no-restricted-globals` now refuses the bare names that do
+that, and the check that caught it is in `escape-closes-the-menu`.
+
+## Adding a command writes nothing until it is saved
+
+Pressing add used to create the row in the daemon and open its editor afterwards, so Cancel left a
+command called "New command" behind: the thing somebody had just said no to. Nothing exists until
+Save now, and Cancel leaves nothing.
+
+Two rules go with it, and the same ones apply to editing an existing command:
+
+- **A command with nothing in it is not a command.** Save is offered only once there is one, which
+  says why without a message to dismiss. Emptying an existing one and saving is refused for the
+  same reason: it would leave a row that pastes nothing and a hotstring that expands to nothing.
+- **The name falls back to the command.** A row with no name cannot be picked out of a list, and
+  the command is what somebody would have called it anyway.
+
+## Everything that speaks from the corner shares one column
+
+The undo for a clear, the undo for a closed pane, and the notice that something is listening on a
+port all used to place themselves, so each had to know about the others: one moved the next down by
+a hand written offset, and the third knew about neither and sat over the terminal at the bottom of
+the screen. They are one column under the menu button now, and the spacing follows whatever is
+showing.

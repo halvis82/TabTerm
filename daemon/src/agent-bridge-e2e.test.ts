@@ -43,6 +43,39 @@ describe('agent hook endpoint', () => {
     expect(received[0]?.detail).toBe('edit main.ts');
   });
 
+  /**
+   * The agent's own session id, which is the only thing that can carry it.
+   *
+   * It is in the payload the agent hands its hooks and nowhere else: not in the environment the
+   * session was started with, and not anywhere on the screen. Without this the product could show
+   * that a pane is running an agent and still have no way to say which conversation it is in.
+   */
+  it('carries the agent session id when the hook sends one', async () => {
+    received.length = 0;
+    expect(
+      await post({ sessionId: 's1', hook: 'UserPromptSubmit', agentSessionId: 'a1-b2_c3' }),
+    ).toBe(204);
+    expect(received[0]?.agentSessionId).toBe('a1-b2_c3');
+  });
+
+  /*
+   * And drops anything that is not one. It ends up in text somebody is invited to paste into a
+   * shell, so a semicolon or a backtick in it would be a command of theirs rather than an id.
+   */
+  it('and drops one that is not a plain identifier', async () => {
+    received.length = 0;
+    expect(await post({ sessionId: 's1', hook: 'Stop', agentSessionId: 'x; rm -rf ~' })).toBe(204);
+    expect(received[0]?.agentSessionId).toBeUndefined();
+  });
+
+  it('and one long enough to be something other than an id', async () => {
+    received.length = 0;
+    expect(await post({ sessionId: 's1', hook: 'Stop', agentSessionId: 'a'.repeat(200) })).toBe(
+      204,
+    );
+    expect(received[0]?.agentSessionId).toBeUndefined();
+  });
+
   it('rejects a request with the wrong token', async () => {
     received.length = 0;
     expect(await post({ sessionId: 's1', hook: 'Stop' }, 'f'.repeat(64))).toBe(401);
