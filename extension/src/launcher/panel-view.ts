@@ -98,6 +98,14 @@ export class CommandPanel {
   #open = false;
   #placement: PanelPlacement = { ...DEFAULT_PLACEMENT };
   #editing: string | null = null;
+  /**
+   * A command being written that does not exist yet.
+   *
+   * Pressing "add" used to create an empty row in the daemon and then open its editor, so Cancel
+   * left a command called "New command" behind: the thing somebody had just said no to. Nothing
+   * is created until Save, which is what Cancel means.
+   */
+  #draft: { title: string; body: string; hotstring: string } | null = null;
   #showingSettings = false;
 
   constructor(opts: PanelOptions) {
@@ -196,26 +204,9 @@ export class CommandPanel {
    * Cleared as soon as one arrives, so a list that changes for some other reason later does not
    * open an editor over whatever somebody was reading.
    */
-  #awaitingNew: Set<string> | null = null;
 
   setFavorites(items: readonly SavedItem[]): void {
-    const before = this.#awaitingNew;
     this.#favorites = items;
-    /**
-     * A command just created opens its own editor.
-     *
-     * It arrives called "New command" with nothing in it, which is not a favorite yet: filling it
-     * in is the next thing to do either way, and every other route to that form is a second
-     * deliberate act. Making it happen here rather than in the button, because the item does not
-     * exist until the daemon says it does.
-     */
-    if (before) {
-      const fresh = items.find((item) => !before.has(item.id));
-      if (fresh) {
-        this.#awaitingNew = null;
-        this.#editing = fresh.id;
-      }
-    }
     if (this.#open) this.render();
   }
 
@@ -536,6 +527,11 @@ export class CommandPanel {
       this.#renderFooter(undefined);
       return;
     }
+    if (this.#draft) {
+      this.#body.replaceChildren(this.#editForm(null));
+      this.#renderFooter(undefined);
+      return;
+    }
     if (this.#editing) {
       const item = this.#favorites.find((f) => f.id === this.#editing);
       if (item) {
@@ -575,15 +571,10 @@ export class CommandPanel {
     add.className = 'cmd-add';
     add.textContent = '+  Add a command';
     add.addEventListener('click', () => {
-      /**
-       * What is here now, so the one that arrives can be told from it.
-       *
-       * Creating goes to the daemon and comes back as a new list, and nothing in that reply says
-       * which row is the new one. Comparing against what was here is the only honest way to know,
-       * and it is exact: an id that was not there a moment ago is the id that was just made.
-       */
-      this.#awaitingNew = new Set(this.#favorites.map((f) => f.id));
-      this.#opts.onCreate({ title: 'New command', body: '', hotstring: '' });
+      // Nothing exists until Save. See `#draft`.
+      this.#draft = { title: '', body: '', hotstring: '' };
+      this.#editing = null;
+      this.render();
     });
     return add;
   }
@@ -902,9 +893,17 @@ export class CommandPanel {
     this.#footer.replaceChildren(hints, gear);
   }
 
-  #editForm(item: SavedItem): HTMLElement {
+  /**
+   * The form for one command, whether it exists yet or not.
+   *
+   * `null` is a command being written: nothing has been created, Save creates it, and Cancel
+   * leaves nothing behind. That is the whole of the difference, so it is one form rather than two
+   * that would drift apart.
+   */
+  #editForm(item: SavedItem | null): HTMLElement {
     const form = document.createElement('div');
     form.className = 'cmd-edit';
+    const start = item ?? this.#draft ?? { title: '', body: '', hotstring: '' };
 
     const field = (label: string, value: string, placeholder: string) => {
       const wrap = document.createElement('label');
@@ -922,9 +921,9 @@ export class CommandPanel {
       return input;
     };
 
-    const title = field('Name', item.title, 'What the list shows');
-    const body = field('Command', item.body, 'What gets pasted');
-    const hotstring = field('Hotstring', item.hotstring ?? '', 'Type this, then space, to expand');
+    const title = field('Name', start.title, 'What the list shows');
+    const body = field('Command', start.body, 'What gets pasted');
+    const hotstring = field('Hotstring', start.hotstring ?? '', 'Type this, then space, to expand');
 
     const note = document.createElement('div');
     note.className = 'cmd-note';
@@ -937,21 +936,36 @@ export class CommandPanel {
     const save = document.createElement('button');
     save.className = 'cmd-button primary';
     save.textContent = 'Save';
-    save.addEventListener('click', () => {
-      this.#opts.onEdit(item.id, {
-        title: title.value,
-        body: body.value,
-        hotstring: hotstring.value.trim() || null,
-      });
-      this.#editing = null;
-      this.render();
-    });
 
-    const remove = document.createElement('button');
-    remove.className = 'cmd-button';
-    remove.textContent = 'Delete';
-    remove.addEventListener('click', () => {
-      this.#opts.onDelete(item.id);
+    /**
+     * A command with nothing in it is not a command.
+     *
+     * It could be saved empty, and then the list held a row that pasted nothing and a hotstring
+     * that expanded to nothing. The same is true of editing one: emptying the command and saving
+     * left the row behind with nothing to do. So the button is only live when there is something
+     * to save, which says why without a message to dismiss.
+     */
+    const check = (): void => {
+      save.disabled = body.value.trim() === '';
+    };
+    body.addEventListener('input', check);
+    check();
+
+    save.addEventListener('click', () => {
+      const command = body.value.trim();
+      if (command === '') return;
+      /*
+       * The name falls back to the command, because a row with no name is a row nobody can pick
+       * out of a list, and the command is what somebody would have called it anyway.
+       */
+      const named = title.value.trim() || command;
+      const shortcut = hotstring.value.trim() || null;
+      if (item) {
+        this.#opts.onEdit(item.id, { title: named, body: command, hotstring: shortcut });
+      } else {
+        this.#opts.onCreate({ title: named, body: command, hotstring: shortcut ?? '' });
+      }
+      this.#draft = null;
       this.#editing = null;
       this.render();
     });
@@ -960,11 +974,26 @@ export class CommandPanel {
     cancel.className = 'cmd-button';
     cancel.textContent = 'Cancel';
     cancel.addEventListener('click', () => {
+      this.#draft = null;
       this.#editing = null;
       this.render();
     });
 
-    buttons.append(save, cancel, remove);
+    buttons.append(save, cancel);
+
+    // Only a command that exists can be deleted, and a draft has nothing to delete.
+    if (item) {
+      const remove = document.createElement('button');
+      remove.className = 'cmd-button';
+      remove.textContent = 'Delete';
+      remove.addEventListener('click', () => {
+        this.#opts.onDelete(item.id);
+        this.#editing = null;
+        this.render();
+      });
+      buttons.append(remove);
+    }
+
     form.append(buttons);
     return form;
   }

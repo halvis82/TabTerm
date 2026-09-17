@@ -198,6 +198,44 @@ r.ok(
   r.ok('and offers a way back', offered);
 
   /**
+   * And it stands in the corner's column, clear of the menu button and of anything else there.
+   *
+   * Each of these used to place itself, so each had to know about the others: the undo for a
+   * clear moved the undo for a closed pane down by a hand written offset, and a notice about a
+   * port knew about neither and sat over the terminal instead. They share one column now, and
+   * what this pins is that nothing in it lands on the menu button or on its neighbour.
+   */
+  const corner = JSON.parse(
+    String(
+      await evaluate(
+        fresh.client,
+        `(() => {
+           const menu = document.getElementById('cmd-button')?.getBoundingClientRect();
+           const stack = document.getElementById('notices')?.getBoundingClientRect();
+           const undo = document.getElementById('clear-undo')?.getBoundingClientRect();
+           if (!menu || !stack || !undo) return 'null';
+           return JSON.stringify({
+             belowMenu: Math.round(stack.top - menu.bottom),
+             insideStack: undo.top >= stack.top - 1 && undo.right <= stack.right + 1,
+             column: getComputedStyle(document.getElementById('notices')).flexDirection,
+             gap: parseFloat(getComputedStyle(document.getElementById('notices')).rowGap) || 0,
+           });
+         })()`,
+      ),
+    ),
+  );
+  r.ok(
+    'the corner notices stand below the menu button, not on it',
+    corner !== null && corner.belowMenu >= 0,
+    JSON.stringify(corner),
+  );
+  r.ok(
+    'and they are one column with room between them',
+    corner !== null && corner.column === 'column' && corner.gap > 0 && corner.insideStack,
+    JSON.stringify(corner),
+  );
+
+  /**
    * Made the active tab first.
    *
    * Input events go to whichever target the browser considers active, and with several tabs open

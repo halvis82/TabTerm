@@ -802,12 +802,35 @@
     color: var(--text);
     border-color: var(--accent);
   }
-  /* Under the menu icon, and only there for a few seconds after a clear. */
-  #clear-undo {
+  /**
+   * Everything that speaks to you from the corner, in one column under the menu button.
+   *
+   * Each of these used to place itself, which meant each had to know about the others: the undo
+   * for a clear moved the undo for a closed pane down by a hand written thirty two pixels, and a
+   * server notice that knew about neither sat at the bottom of the screen on its own, over the
+   * terminal. Reported as wanting them in one stack, not overlapping, and not over the menu.
+   *
+   * A column with a gap does that once. Anything hidden takes no room, because `[hidden]` is
+   * honoured below, so the order is fixed and the spacing follows whatever is showing.
+   */
+  #notices {
     position: absolute;
-    top: 40px;
+    /* Clear of the menu button, which is 26 tall at 4 from the top. */
+    top: 38px;
     right: 10px;
-    z-index: 30;
+    z-index: 35;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    /* The column is only a place to stand: the gaps between its children are not clickable. */
+    pointer-events: none;
+  }
+  #notices > * {
+    pointer-events: auto;
+  }
+
+  #clear-undo {
     padding: 4px 9px;
     border-radius: 7px;
     border: 1px solid #2f3346;
@@ -841,10 +864,6 @@
     display: none !important;
   }
   #undo-offer {
-    position: absolute;
-    top: 40px;
-    right: 10px;
-    z-index: 30;
     display: flex;
     align-items: stretch;
     border-radius: 7px;
@@ -852,10 +871,6 @@
     background: var(--panel);
     backdrop-filter: blur(6px);
     overflow: hidden;
-  }
-  /* Both at once would sit on top of each other, and a clear is the more urgent of the two. */
-  #clear-undo:not([hidden]) ~ #undo-offer {
-    top: 72px;
   }
   #undo-offer-do,
   #undo-offer-hide {
@@ -2115,10 +2130,8 @@
   .term-menu-item.is-danger:hover:not(:disabled) {
     background: #5c2a26;
   }
+  /* In the same column as the other two, rather than alone at the bottom over the terminal. */
   #server-offer {
-    position: absolute;
-    right: 16px;
-    bottom: 16px;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -3832,23 +3845,30 @@
     <div id="recovery-actions"></div>
   </div>
   <button id="cmd-button" title="Commands (Command+K)">⌘</button>
-  <button id="clear-undo" hidden title="Bring back what was just cleared">Undo clear</button>
   <!--
-    A way back from closing a pane or moving one to its own tab. Under the menu button, in the
-    same place and the same shape as the undo for a clear, because it is the same promise.
-    The cross dismisses the button without giving up the way back: Command+Z still works for
-    the rest of the five minutes, which is what was asked for and is also right, since hiding a
-    reminder is not the same as saying no.
+    One column in the corner for everything that speaks from it. Each of these used to place
+    itself and therefore had to know about the others; the order and the spacing are the
+    stylesheet's business now. See `#notices`.
   -->
-  <div id="undo-offer" hidden>
-    <button id="undo-offer-do" type="button"></button>
-    <button id="undo-offer-hide" type="button" title="Hide this. Command+Z still works.">×</button>
-  </div>
-
-  <div id="server-offer" hidden>
-    <span id="server-text"></span>
-    <button id="server-open" class="staged-button primary"></button>
-    <button id="server-dismiss" class="staged-button">Dismiss</button>
+  <div id="notices">
+    <button id="clear-undo" hidden title="Bring back what was just cleared">Undo clear</button>
+    <!--
+      A way back from closing a pane or moving one to its own tab, in the same shape as the undo
+      for a clear because it is the same promise. The cross dismisses the button without giving up
+      the way back: Command+Z still works for the rest of the five minutes, since hiding a
+      reminder is not the same as saying no.
+    -->
+    <div id="undo-offer" hidden>
+      <button id="undo-offer-do" type="button"></button>
+      <button id="undo-offer-hide" type="button" title="Hide this. Command+Z still works.">
+        ×
+      </button>
+    </div>
+    <div id="server-offer" hidden>
+      <span id="server-text"></span>
+      <button id="server-open" class="staged-button primary"></button>
+      <button id="server-dismiss" class="staged-button">Dismiss</button>
+    </div>
   </div>
   <div id="staged" hidden>
     <h1>Send this to the terminal?</h1>
