@@ -2468,6 +2468,11 @@ function tabUnder(target: Element): string | undefined {
     : undefined;
 }
 
+/** How many sessions the list says are in one tab, which is what closing it takes off screen. */
+function panesIn(workspaceId: string): number {
+  return liveElsewhere.filter((s) => s.workspaceId === workspaceId).length;
+}
+
 /**
  * What a card in Running Now offers.
  *
@@ -2712,7 +2717,17 @@ function pageMenuItems(target: Element): ShellItem[] {
           ]
       : [
           {
-            label: 'Close the tab it is in',
+            /*
+             * How many terminals go with it, when it is more than one.
+             *
+             * A tab of one is "the tab it is in" and says enough. A tab of seven is a different
+             * proposition and the menu should say so before the press, not after: the panes are
+             * not ended, but seven of them do leave the screen at once.
+             */
+            label:
+              panesIn(theirTab) > 1
+                ? `Close the tab with these ${String(panesIn(theirTab))} panes`
+                : 'Close the tab it is in',
             separated: true,
             run: () => {
               void chrome.runtime.sendMessage({

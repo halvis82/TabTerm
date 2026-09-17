@@ -818,6 +818,10 @@ closes that one. Anywhere else on the page the item is `Close tab` and means thi
 what it has always been. A session no tab is holding gets neither: there is nothing to close, and
 falling back to meaning this tab is the original complaint again.
 
+A tab holding more than one session says how many: **Close the tab with these 7 panes**. A tab of
+one needs no number and keeps the shorter wording. Seven terminals leaving the screen at once is a
+different proposition from one, and the menu should say so before the press rather than after.
+
 Closing a tab is not ending a terminal. The sessions carry on in the background and the list keeps
 offering them, which is what `Kill session` further up the same menu is for.
 
