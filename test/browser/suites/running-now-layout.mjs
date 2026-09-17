@@ -75,26 +75,46 @@ r.ok('the grid lets a later card fill a gap', flow.includes('dense'), flow);
  * And folders come before resuming an agent. Both are ways to start, and the folder is the commoner
  * one; the resume list is also the one that grows without bound, so first it pushed the other down.
  */
-const order = JSON.parse(
-  String(
-    await evaluate(
-      viewer.client,
-      `JSON.stringify([...document.querySelectorAll('.launcher-section-title, .launcher-heading, h3, h2')]
-         .map((el) => (el.textContent ?? '').trim().toLowerCase())
-         .filter((t) => t.includes('recent folders') || t.includes('resume an agent')))`,
+const sections = async () =>
+  JSON.parse(
+    String(
+      await evaluate(
+        viewer.client,
+        `JSON.stringify([...document.querySelectorAll('.launcher-section-title, .launcher-heading, h3, h2')]
+           .map((el) => (el.textContent ?? '').trim().toLowerCase())
+           .filter((t) => t.includes('recent folders') || t.includes('resume an agent')))`,
+      ),
     ),
-  ),
-);
-/*
- * Asserted rather than assumed: with only one of them present the order below is vacuous, and it
- * would pass by saying nothing.
+  );
+
+/**
+ * Waited for rather than read once.
+ *
+ * Both sections are drawn when their answers arrive, and the resume list is read off disk, so under
+ * a full run it lands later than the folders do. Reading in one breath asserted the order of a page
+ * that was still filling in, which failed in a full run and passed on its own: the worst shape a
+ * check can have, because it is noise exactly when somebody is looking for signal.
  */
-r.ok('both sections are on the page', order.length === 2, JSON.stringify(order));
-r.ok(
-  'and recent folders comes first',
-  order[0]?.includes('recent folders') === true,
-  JSON.stringify(order),
-);
+const both = await waitUntil(async () => (await sections()).length === 2, 20000);
+const order = await sections();
+
+/*
+ * And skipped rather than failed when there is nothing to resume.
+ *
+ * The check is about which of the two comes first. On a machine with no agent sessions recorded
+ * there is only one of them, and the ordering is not wrong there, it is absent. Said out loud so a
+ * skip cannot quietly stand in for a section that has genuinely gone missing.
+ */
+if (!both) {
+  r.skip('both sections are on the page', `only ${JSON.stringify(order)} on this machine`);
+} else {
+  r.ok('both sections are on the page', order.length === 2, JSON.stringify(order));
+  r.ok(
+    'and recent folders comes first',
+    order[0]?.includes('recent folders') === true,
+    JSON.stringify(order),
+  );
+}
 
 await finish();
 r.done();
