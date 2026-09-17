@@ -376,6 +376,14 @@
      */
     grid-auto-flow: row dense;
     /*
+     * Wide enough apart that two tabs' colours never meet.
+     *
+     * Each wash reaches four pixels past its cards on every side, so anything less than nine here
+     * puts two of them within a hair of each other and they read as one group, which is the one
+     * thing this colour exists to say.
+     */
+    gap: 14px;
+    /*
      * Nothing is stretched to the height of whatever is tallest in its row.
      *
      * A card is one size everywhere: a head, a picture of a screen, a line underneath. Grid items
@@ -384,9 +392,16 @@
      * the bottom of an empty box. Reported twice, and it was the same rule both times.
      */
     align-items: start;
-    /* Room for the lift on hover. Without it a card in the top row moved up under the edge of
-       whatever is above and its top border was clipped off. */
-    padding-top: 2px;
+    /*
+     * Room for the lift on hover, and for the wash reaching past the cards at the edges.
+     *
+     * Without it the leftmost wash hung four pixels outside the list, which a scrolling box turns
+     * into a horizontal scrollbar: reported as the list scrolling sideways, which it should never
+     * do.
+     */
+    padding: 6px;
+    /* And nothing sideways, ever. A list of terminals is read downwards. */
+    overflow-x: hidden;
   }
 
   /**
@@ -409,8 +424,9 @@
     border: 1px solid rgba(140, 155, 190, 0.22);
     border-radius: 12px;
     background: color-mix(in srgb, var(--hover) 55%, transparent);
-    /* Past the cards it sits under, which is what makes it read as around them. */
-    margin: -6px;
+    /* Past the cards it sits under, which is what makes it read as around them. Less than half
+       the gap, so two of them can never touch. */
+    margin: -4px;
     cursor: pointer;
     transition:
       background 120ms ease,

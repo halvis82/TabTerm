@@ -20,6 +20,15 @@ export interface Tile {
   columns: number;
   /** How many rows of cards tall it is: one for a card, one per wrapped row for a group. */
   rows: number;
+  /**
+   * How many columns the **last** row of this tile actually uses, when it is not a full one.
+   *
+   * A tab of seven panes is three across and three down, and its last row holds one card. Treating
+   * it as a solid nine cell block reserved two cells that hold nothing, so other terminals were
+   * pushed below a hole. Said here so the packing can offer those cells to somebody else and the
+   * colour behind the tab can be cut to the shape it really occupies.
+   */
+  lastRow?: number;
 }
 
 export interface Placement {
@@ -125,8 +134,14 @@ function placeInOrder(
 
     const { tile, index } = left.splice(next, 1)[0] as { tile: Tile; index: number };
     const width = Math.max(1, Math.min(tile.columns, columns));
+    const tall = Math.max(1, tile.rows);
+    const last = Math.max(1, Math.min(tile.lastRow ?? width, width));
     out[index] = { column: start + 1, row: row + 1 };
-    for (let at = start; at < start + width; at += 1) filled[at] = row + Math.max(1, tile.rows);
+    for (let at = start; at < start + width; at += 1) {
+      // The columns its last row does not reach are free one row earlier, which is the hole the
+      // next tile is offered.
+      filled[at] = row + (at < start + last ? tall : tall - 1);
+    }
   }
 
   return out.map((place) => place ?? { column: 1, row: 1 });

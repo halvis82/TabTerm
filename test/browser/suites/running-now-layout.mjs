@@ -94,34 +94,116 @@ r.ok(
 );
 
 /*
- * And no two of them are on the same cell, which is the one way this can be wrong and still look
- * plausible in a screenshot.
+ * And no two cards are on the same cell, which is the one way this can be wrong and still look
+ * plausible in a screenshot. A wash is left out of this on purpose: it is painted over the cells
+ * of its own cards, which is what it is for.
  */
-const overlap = JSON.parse(
+const overlap = String(
+  await evaluate(
+    viewer.client,
+    `(() => {
+       const taken = new Set();
+       let clash = null;
+       for (const el of document.querySelectorAll('.session-grid > .session-card')) {
+         const [cs, , cn] = el.style.gridColumn.split(' ');
+         const [rs, , rn] = el.style.gridRow.split(' ');
+         const c0 = Number(cs), r0 = Number(rs);
+         for (let c = 0; c < (Number(cn) || 1); c++) {
+           for (let r = 0; r < (Number(rn) || 1); r++) {
+             const cell = (c0 + c) + ':' + (r0 + r);
+             if (taken.has(cell)) clash = cell;
+             taken.add(cell);
+           }
+         }
+       }
+       return String(clash);
+     })()`,
+  ),
+);
+r.ok('and no two cards are on the same cell', overlap === 'null', overlap);
+
+/*
+ * And no two tabs' colours touch, because two that meet read as one tab. Measured as drawn rather
+ * than as placed: what matters is the pixels, and each wash deliberately reaches past its cards.
+ */
+const washesApart = String(
+  await evaluate(
+    viewer.client,
+    `(() => {
+       const washes = [...document.querySelectorAll('.session-wash')].map((w) => {
+         const b = w.getBoundingClientRect();
+         return { l: b.left, r: b.right, t: b.top, b: b.bottom };
+       });
+       for (let i = 0; i < washes.length; i++) {
+         for (let j = i + 1; j < washes.length; j++) {
+           const a = washes[i], c = washes[j];
+           const overlaps = a.l < c.r && c.l < a.r && a.t < c.b && c.t < a.b;
+           if (overlaps) return 'two washes overlap';
+         }
+       }
+       return 'apart';
+     })()`,
+  ),
+);
+r.ok('and no two tab colours touch each other', washesApart === 'apart', washesApart);
+
+/*
+ * And the list never scrolls sideways. A wash reaches past its cards, and at the edge of the grid
+ * that turned into a horizontal scrollbar on a list that is read downwards.
+ */
+const sideways = JSON.parse(
+  String(
+    await evaluate(
+      viewer.client,
+      `(() => { const g = document.querySelector('.session-grid');
+         return JSON.stringify({ scroll: g.scrollWidth, client: g.clientWidth }); })()`,
+    ),
+  ),
+);
+r.ok(
+  'and the list never scrolls sideways',
+  sideways.scroll <= sideways.client + 1,
+  JSON.stringify(sideways),
+);
+
+/*
+ * And the two rules that keep it that way, pinned rather than left to a scene that happens to
+ * show them. A wash reaches past its cards, so it can only be safe if it reaches less than half
+ * the gap, and the list must refuse sideways scrolling whatever anything else does.
+ */
+const rules = JSON.parse(
   String(
     await evaluate(
       viewer.client,
       `(() => {
-         const taken = new Set();
-         let clash = null;
-         for (const el of document.querySelectorAll('.session-grid > *')) {
-           const [cs, , cn] = el.style.gridColumn.split(' ');
-           const [rs, , rn] = el.style.gridRow.split(' ');
-           const c0 = Number(cs), r0 = Number(rs);
-           for (let c = 0; c < (Number(cn) || 1); c++) {
-             for (let r = 0; r < (Number(rn) || 1); r++) {
-               const cell = (c0 + c) + ':' + (r0 + r);
-               if (taken.has(cell)) clash = cell;
-               taken.add(cell);
-             }
-           }
-         }
-         return JSON.stringify(clash);
+         const grid = document.querySelector('.session-grid');
+         const wash = document.querySelector('.session-wash');
+         const g = getComputedStyle(grid);
+         return JSON.stringify({
+           gap: parseFloat(g.columnGap) || 0,
+           overflowX: g.overflowX,
+           padding: parseFloat(g.paddingLeft) || 0,
+           reach: wash ? Math.abs(parseFloat(getComputedStyle(wash).marginLeft) || 0) : null,
+         });
        })()`,
     ),
   ),
 );
-r.ok('and no two tiles are on the same cell', overlap === null, String(overlap));
+r.ok(
+  'a tab colour reaches less than half the gap, so two can never meet',
+  rules.reach === null || rules.reach * 2 < rules.gap,
+  JSON.stringify(rules),
+);
+r.ok(
+  'and the list refuses to scroll sideways at all',
+  rules.overflowX === 'hidden' || rules.overflowX === 'clip',
+  JSON.stringify(rules),
+);
+r.ok(
+  'and leaves room at its edge for the colour to reach into',
+  rules.reach === null || rules.padding >= rules.reach,
+  JSON.stringify(rules),
+);
 
 /*
  * And every card in the list is the same size, whether it belongs to a tab or not.

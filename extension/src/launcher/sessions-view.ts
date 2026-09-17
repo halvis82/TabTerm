@@ -287,8 +287,13 @@ function packGrid(grid: HTMLElement): void {
   }
 
   const tiles: Tile[] = items.map((item) => {
-    const [across, down] = (item.dataset['tile'] ?? '1x1').split('x');
-    return { columns: Number(across) || 1, rows: Number(down) || 1 };
+    const [across, down, rest] = (item.dataset['tile'] ?? '1x1').split('x');
+    const columns = Number(across) || 1;
+    return {
+      columns,
+      rows: Number(down) || 1,
+      lastRow: rest === undefined ? columns : Number(rest) || columns,
+    };
   });
 
   const places = packTiles(tiles, columns);
@@ -315,7 +320,49 @@ function packGrid(grid: HTMLElement): void {
       card.style.gridColumn = String(place.column + (index % width));
       card.style.gridRow = String(place.row + Math.floor(index / width));
     });
+    /*
+     * And the colour is cut to the shape the cards actually make, so a short last row leaves a
+     * notch rather than a block of empty blue. Measured from the cards themselves, which is the
+     * only thing that knows where the rows fall once the browser has laid them out.
+     */
+    shapeWash(
+      item,
+      cards.filter((c): c is HTMLElement => c instanceof HTMLElement),
+    );
   });
+}
+
+/**
+ * Cut a wash to the shape of the cards it belongs to.
+ *
+ * A tab of seven panes is three across and three down with one card on the last row, so its colour
+ * is an L rather than a square: "the group should only be the size it actually needs to be", and
+ * the two cells its last row does not reach are for other terminals.
+ *
+ * Measured from the cards rather than worked out from the numbers, because where the rows fall
+ * depends on the gap, the border and whatever the browser did with the fractions. A full block
+ * needs no cutting and is left alone, which also means the ordinary case pays nothing.
+ */
+function shapeWash(wash: HTMLElement, cards: readonly HTMLElement[]): void {
+  wash.style.removeProperty('clip-path');
+  if (cards.length < 2) return;
+  const box = wash.getBoundingClientRect();
+  if (box.width < 1 || box.height < 1) return;
+
+  const last = cards[cards.length - 1]?.getBoundingClientRect();
+  const widest = Math.max(...cards.map((c) => c.getBoundingClientRect().right));
+  if (!last || widest - last.right < 8) return; // the last row is full: nothing to cut
+
+  /*
+   * Halfway into the gap, so the cut sits where the eye already sees a boundary and the colour
+   * still reaches past the cards on the sides it does cover.
+   */
+  const right = ((last.right - box.left + 6) / box.width) * 100;
+  const top = ((last.top - box.top - 6) / box.height) * 100;
+  wash.style.clipPath =
+    `polygon(0% 0%, 100% 0%, 100% ${String(top.toFixed(2))}%, ` +
+    `${String(right.toFixed(2))}% ${String(top.toFixed(2))}%, ` +
+    `${String(right.toFixed(2))}% 100%, 0% 100%)`;
 }
 
 /**
@@ -434,7 +481,13 @@ function appendSharedTab(group: SessionGroup, options: SessionsOptions, grid: HT
    */
   const wash = document.createElement('div');
   wash.className = 'session-wash';
-  wash.dataset['tile'] = `${String(across)}x${String(down)}`;
+  /*
+   * Three numbers: how wide, how tall, and how much of the last row is actually used. Seven panes
+   * are three across and three down with one card on the bottom row, and the two cells it does not
+   * reach belong to whoever needs them. See `pack-grid.ts`.
+   */
+  const rest = members.length - across * (down - 1);
+  wash.dataset['tile'] = `${String(across)}x${String(down)}x${String(rest)}`;
   wash.dataset['group'] = id;
   if (group.workspaceId !== undefined) wash.dataset['workspaceId'] = group.workspaceId;
   wash.title = `${String(members.length)} panes in one tab`;

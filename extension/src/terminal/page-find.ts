@@ -25,6 +25,16 @@ export class PageFind implements FindTarget {
   #term = '';
   #hits: HTMLElement[] = [];
   #at = -1;
+  /**
+   * The list redraws itself whenever anything on the machine starts or finishes, and a redraw
+   * replaces every node that was marked. So the marks are put back after one.
+   *
+   * Its own mutations are ignored, or marking would trigger marking. The guard is a flag rather
+   * than disconnecting, because disconnecting and reconnecting around a batch is the same thing
+   * written less clearly.
+   */
+  #watcher: MutationObserver | null = null;
+  #marking = false;
 
   constructor(
     root: () => HTMLElement | null,
@@ -40,6 +50,7 @@ export class PageFind implements FindTarget {
     if (term !== this.#term) {
       this.#term = term;
       this.#mark(root, term);
+      this.#watch(root);
       this.#at = this.#hits.length > 0 ? 0 : -1;
     } else if (this.#hits.length > 0) {
       /*
@@ -57,6 +68,8 @@ export class PageFind implements FindTarget {
   clearFind(): void {
     this.#term = '';
     this.#at = -1;
+    this.#watcher?.disconnect();
+    this.#watcher = null;
     for (const hit of this.#hits) {
       const parent = hit.parentNode;
       if (!parent) continue;
@@ -80,6 +93,27 @@ export class PageFind implements FindTarget {
    * further. The check that Command Shift F still reaches the page is what caught it.
    */
   focus(): void {}
+
+  /** Put the marks back when the page they were on is rebuilt underneath them. */
+  #watch(root: HTMLElement): void {
+    if (this.#watcher) return;
+    this.#watcher = new MutationObserver(() => {
+      if (this.#marking || this.#term === '') return;
+      // Still there? Then nothing was lost and there is nothing to do.
+      if (this.#hits.length > 0 && this.#hits.every((hit) => hit.isConnected)) return;
+      this.#marking = true;
+      const term = this.#term;
+      this.#hits = [];
+      this.#mark(root, term);
+      this.#term = term;
+      this.#at =
+        this.#hits.length > 0 ? Math.min(Math.max(this.#at, 0), this.#hits.length - 1) : -1;
+      this.#showCurrent();
+      this.#onResults({ resultIndex: Math.max(0, this.#at), resultCount: this.#hits.length });
+      this.#marking = false;
+    });
+    this.#watcher.observe(root, { childList: true, subtree: true });
+  }
 
   /** Wrap every occurrence, in the order they appear on the page. */
   #mark(root: HTMLElement, term: string): void {

@@ -821,6 +821,22 @@ falling back to meaning this tab is the original complaint again.
 Closing a tab is not ending a terminal. The sessions carry on in the background and the list keeps
 offering them, which is what `Kill session` further up the same menu is for.
 
+### A tab takes the room it uses, and no more
+
+Seven panes are three across and three down, and the last row holds one card. Drawn as a solid
+block that reserved two cells holding nothing, and the terminals that would have fitted were pushed
+below the hole. The packing now knows how much of a tab's last row is actually used, so those cells
+are offered to whoever comes next, and the colour is cut to match: an L rather than a square.
+
+The cut is measured from the cards after the browser has laid them out, because where a row falls
+depends on the gap, the border, and what the browser did with the fractions. A tab whose last row
+is full needs no cutting and is left alone.
+
+Two rules keep the colours legible, and both are pinned by checks rather than left to a scene that
+happens to show them. A wash reaches less than half the grid's gap past its cards, so two of them
+can never meet and read as one tab. And the list refuses to scroll sideways: a wash reaching past
+the cards at the edge turned into a horizontal scrollbar on a list that is read downwards.
+
 ### Dragging a session out of its tab
 
 A group says these panes are in one tab, so pulling one out of the picture says take it out of that
