@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Terminal } from '@xterm/xterm';
-import { findMarkers, nearestMarker, rowForRulerFraction } from './markers.js';
+import { findMarkers, landingRowFor, nearestMarker, rowForRulerFraction } from './markers.js';
 
 /**
  * A buffer described by what each line's ends look like.
@@ -106,5 +106,29 @@ describe('jumping from a marker beside the scrollbar', () => {
 
   it('has nothing to go to when there are no landmarks', () => {
     expect(nearestMarker([], 5)).toBeNull();
+  });
+
+  /**
+   * A jump lands the mark where it can be read, not against the top edge.
+   *
+   * Two rows of context was enough for a shell, where the mark is on the command line itself. It
+   * is not enough for a pane running an agent: the mark is made when Return is pressed, and the
+   * cursor is then inside the agent's input box at the bottom of the screen, several rows below
+   * the line the prompt ends up on. Landing the mark at the top scrolled the prompt off it, so
+   * pressing the marker hid the one thing it was for.
+   */
+  it('leaves a third of the pane above the mark, so what is above it is readable', () => {
+    expect(landingRowFor(100, 45)).toBe(85);
+    expect(landingRowFor(100, 30)).toBe(90);
+  });
+
+  it('and never scrolls past the top of the buffer', () => {
+    expect(landingRowFor(3, 45)).toBe(0);
+    expect(landingRowFor(0, 45)).toBe(0);
+  });
+
+  it('and keeps two rows of context in a pane too short to have thirds', () => {
+    expect(landingRowFor(10, 4)).toBe(8);
+    expect(landingRowFor(10, 1)).toBe(8);
   });
 });

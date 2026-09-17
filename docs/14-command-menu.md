@@ -301,3 +301,23 @@ survived the session it described would be a different feature.
 Favorites are `saved_items` rows of kind `command`, with `title` as the display name and a
 `hotstring` column. Panel position and the last tab live in extension storage, since they are
 properties of a view rather than of the data. See `03-data-model.md`.
+
+## Escape closes a menu, and the terminal never hears it
+
+Escape is how a menu is dismissed everywhere, and it is also the interrupt key of every agent CLI
+this product hosts. With a menu open and the keystroke reaching the pane underneath, pressing it to
+put the menu away stopped an agent mid answer.
+
+So the menu takes the key rather than merely acting on it: the listener is at the capture phase on
+`window`, which is the outermost node and therefore ahead of everything in the page and long ahead
+of the emulator's own handler on its textarea, and it stops the event there.
+
+Leaving takes the menu with it too. A menu is about a place on a page, and coming back to a tab to
+find one still sitting there means the next click lands on an entry opened for something else.
+Changing tab hides the page and changing window blurs it, so both are listened for.
+
+**One implementation.** The pane's menu was a second copy of the placing and dismissing code, and
+the two drifted: Escape closed the page's menus and not a pane's. Fixing the copy meant deleting
+its local `close`, and the entries that called it silently began calling `window.close` instead, so
+every entry in that menu closed the tab. `no-restricted-globals` now refuses the bare names that do
+that, and the check that caught it is in `escape-closes-the-menu`.

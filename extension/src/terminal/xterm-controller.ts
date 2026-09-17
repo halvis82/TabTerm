@@ -7,7 +7,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { installCurrentWidths } from '@tabterm/shared';
 import type { ILinkProvider, IMarker } from '@xterm/xterm';
 import { classifyKey, xtermShouldHandle } from './keymap.js';
-import { placeMenu } from './menu-position.js';
+import { placeAndArm } from './menu-shell.js';
 import { MarkerRail } from './markers.js';
 import { HighlightLayer } from './highlights.js';
 import { closeColorPicker, openColorPicker } from './color-picker.js';
@@ -404,6 +404,21 @@ export class XtermController {
   #showMenu(x: number, y: number): void {
     document.querySelector('.term-menu')?.remove();
 
+    /**
+     * How an entry puts the menu away, filled in once the menu has been placed.
+     *
+     * The entries are built before the menu is on screen and each one closes it before acting, so
+     * they close over this rather than over the closer itself. Taking the element away is not
+     * enough on its own: the listeners that watch for a press elsewhere, for Escape, and for the
+     * page being left have to come off with it.
+     *
+     * A named placeholder rather than nothing, because the name `close` on its own is `window
+     * .close` in a browser. Deleting the local one and leaving the calls behind typechecked
+     * perfectly and turned every entry in this menu into "close the tab", which is what the check
+     * that caught it saw: a page that answered nothing afterwards because it was gone.
+     */
+    let dismiss = (): void => menu.remove();
+
     const menu = document.createElement('div');
     menu.className = 'term-menu';
 
@@ -437,7 +452,7 @@ export class XtermController {
         b.classList.add('is-toggle');
       }
       b.addEventListener('click', () => {
-        close();
+        dismiss();
         run();
       });
       menu.append(b);
@@ -490,7 +505,7 @@ export class XtermController {
       label.textContent = 'Highlight';
       label.disabled = selected.length === 0;
       label.addEventListener('click', () => {
-        close();
+        dismiss();
         this.highlightSelection(this.#opts.highlightColor?.() ?? '#ffd54a');
       });
 
@@ -511,7 +526,7 @@ export class XtermController {
             // The picker is its own element beside the menu, so closing the menu does not
             // take it with it. Both go, because the choice has been made.
             closeColorPicker();
-            close();
+            dismiss();
             this.highlightSelection(color);
           },
         });
@@ -548,43 +563,15 @@ export class XtermController {
       }
     }
 
-    // Measured, then placed. The size depends on the entries, which depend on the pane, so
-    // there is no useful constant to place it by.
-    menu.style.visibility = 'hidden';
-    document.body.append(menu);
-    const rect = menu.getBoundingClientRect();
-    const at = placeMenu({
-      x,
-      y,
-      menuWidth: rect.width,
-      menuHeight: rect.height,
-      viewportWidth: window.innerWidth,
-      viewportHeight: window.innerHeight,
-    });
-    menu.style.left = `${String(at.left)}px`;
-    menu.style.top = `${String(at.top)}px`;
-    menu.style.visibility = 'visible';
     /**
-     * Dismiss on the next interaction anywhere **except inside the menu**.
+     * Placed and armed by the one piece of code that does it. See `menu-shell.ts`.
      *
-     * Without that exception the menu was unusable with a real mouse. This runs on `mousedown`,
-     * in the capture phase, so pressing a menu item removed the button before the release, and
-     * a `click` is only dispatched when press and release land on the same element. So no entry
-     * ever ran: the menu vanished and nothing happened.
-     *
-     * It survived every test because a synthetic `element.click()` dispatches the click
-     * directly and never produces the mousedown that caused this.
+     * This was a second copy of that, and the two drifted: Escape closed the page's menus and not
+     * this one, so pressing it over a pane put the menu away in some places and sent an interrupt
+     * to the program in others. The copy measured, placed and dismissed exactly as the original
+     * did, which is why it survived as a copy for so long.
      */
-    const close = (e?: Event) => {
-      if (e && e.target instanceof Node && menu.contains(e.target)) return;
-      menu.remove();
-      document.removeEventListener('mousedown', close, true);
-      document.removeEventListener('contextmenu', close, true);
-    };
-    setTimeout(() => {
-      document.addEventListener('mousedown', close, true);
-      document.addEventListener('contextmenu', close, true);
-    }, 0);
+    dismiss = placeAndArm(menu, x, y);
   }
 
   async copySelection(override?: string): Promise<void> {

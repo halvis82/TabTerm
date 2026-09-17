@@ -34,6 +34,23 @@ export default tseslint.config(
       '@typescript-eslint/switch-exhaustiveness-check': 'error',
       eqeqeq: ['error', 'always'],
       'no-console': ['warn', { allow: ['warn', 'error'] }],
+
+      /**
+       * The window's own names, which a local of the same name can stop shadowing without a word.
+       *
+       * A menu's entries each called a local `close()` before acting. The local was replaced by a
+       * shared helper and the calls were left behind: `close` is `window.close` in a browser, so
+       * every entry in that menu became "close the tab". It typechecked, and the only sign was a
+       * page that stopped answering. Naming these deliberately is cheap; finding that again is
+       * not. `window.close()` still works when it is meant, and says so.
+       */
+      'no-restricted-globals': [
+        'error',
+        { name: 'close', message: 'Say window.close() when the tab is what you mean.' },
+        { name: 'open', message: 'Say window.open() when a window is what you mean.' },
+        { name: 'name', message: 'Say window.name when the window is what you mean.' },
+        { name: 'status', message: 'Say window.status when the window is what you mean.' },
+      ],
     },
   },
 

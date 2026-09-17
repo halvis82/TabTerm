@@ -442,6 +442,19 @@ that passes through something the page might have wanted.
 Drag selects, double-click selects a word or path, triple-click selects a line, and shift-click
 extends, all from xterm.
 
+### A landmark is landed with context, not at the top edge
+
+Pressing a marker beside the scrollbar used to put the marked line two rows from the top. That is
+right for a shell, where the mark is on the command line and the command is what you came for.
+
+It is wrong for a pane running an agent. The mark is made when Return is pressed, and an agent's
+cursor at that moment is inside its input box at the bottom of the screen, several rows below the
+line the prompt itself ends up on. Landing the mark at the top scrolled the prompt off it, so
+pressing the marker hid the one thing it was for.
+
+A third of the pane is left above the mark, with a floor of two rows for a pane too short to have
+thirds, so the context scales with the window rather than being a number that suits one size.
+
 ### Landmarks
 
 A pane can print a landmark: a solid colored bar with a label, from its own menu. It is written
