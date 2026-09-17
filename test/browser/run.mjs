@@ -146,7 +146,20 @@ const LAST = [
  * of the phase list alone quietly promotes it into the parallel pool, where `resilience` once
  * killed a host while four browsers were using it.
  */
-const SKIP = [];
+/**
+ * Suites that are not part of an ordinary run.
+ *
+ * `a-notification-actually-appears` is the only one, and for a good reason: it checks the last
+ * step of the notification path, which is Chrome being asked to show one, and the test daemon is
+ * told not to raise any precisely so that a run does not fire a dozen desktop notifications at
+ * whoever is running it. Run it on purpose when that question is being asked:
+ *
+ *     TT_LET_NOTIFICATIONS=1 npm run t a-notification-actually-appears
+ *
+ * It really does put one notification on screen, which is the point: everything short of that was
+ * already covered and a fault there is invisible from everywhere else.
+ */
+const SKIP = process.env['TT_LET_NOTIFICATIONS'] === '1' ? [] : ['a-notification-actually-appears'];
 
 const SERIAL = [...FIRST, ...LAST];
 
@@ -651,7 +664,14 @@ function startTestDaemon() {
         TABTERM_PORT: String(state.port),
         // A suite that drives an agent's hooks is asking what the daemon does, not asking to
         // interrupt whoever is running the tests. See `QUIET` in daemon/src/server.ts.
-        TABTERM_NO_NOTIFICATIONS: '1',
+        /*
+         * Quiet unless somebody is asking about notifications themselves.
+         *
+         * The suites drive real hooks against a real daemon, and every one of them used to raise a
+         * real desktop notification on the machine running the tests. The one suite that is about
+         * the notification itself needs them let through, and says so by setting this.
+         */
+        ...(process.env['TT_LET_NOTIFICATIONS'] === '1' ? {} : { TABTERM_NO_NOTIFICATIONS: '1' }),
         // A host holding sessions refuses an ordinary SIGTERM, because exiting would make every
         // one of them unreachable. A test host holds nothing anybody wants and must stop when
         // its run does.

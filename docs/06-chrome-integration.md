@@ -764,6 +764,24 @@ cannot drift quietly.
 Nothing is stretched to make that happen. Cards in a group are one height and lone cards another,
 and every card of a kind is identical to the others of that kind.
 
+### Whether a notification was actually shown
+
+The path from a command finishing to a banner on screen crosses four processes: the daemon decides,
+the offscreen document relays, the service worker asks Chrome, and macOS draws it. Everything up to
+the last step was covered by checks and the last step was not, which is exactly where a fault is
+invisible from everywhere else. `a-notification-actually-appears` asks Chrome itself, with
+`chrome.notifications.getAll`, from a page that is not the one that ran the command.
+
+It is skipped by default. The test daemon is told to raise none, because a full run drives real
+agent hooks and used to fire a dozen desktop notifications at whoever was running it. Ask for it
+when the question comes up:
+
+    TT_LET_NOTIFICATIONS=1 npm run t a-notification-actually-appears
+
+And the daemon says what it decided, either way. `notify.decided` records the kind, the duration,
+and whether it sent one or why it did not, so "why was I not told" can be answered from the log
+rather than by reasoning about the code.
+
 ### The list is packed, not poured
 
 The browser places grid items in order and will only move something into a gap if it comes after
