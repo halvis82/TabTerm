@@ -379,12 +379,29 @@ function shapeWash(wash: HTMLElement, cards: readonly HTMLElement[]): void {
   const widest = Math.max(...cards.map((c) => c.getBoundingClientRect().right));
   const notched = last !== undefined && cards.length > 1 && widest - last.right > 8;
 
+  /**
+   * Where the notch is cut, and it is measured from the row **above** rather than from the row
+   * below it.
+   *
+   * Cutting at the last row's top less the reach put the edge exactly where the colour of whatever
+   * sits in the notch begins, so the two touched and read as one tab. Every other boundary in this
+   * list is a gap less twice the reach, and this one has to be the same: the bottom of the row
+   * above, plus the reach, exactly as if the tab ended there.
+   */
+  const above = notched
+    ? Math.max(
+        ...cards
+          .map((c) => c.getBoundingClientRect().bottom)
+          .filter((bottom) => bottom <= (last?.top ?? 0) + 1),
+      )
+    : 0;
+
   const corners: Point[] = notched
     ? [
         { x: 0, y: 0 },
         { x: w, y: 0 },
-        { x: w, y: last.top - box.top - REACH },
-        { x: last.right - box.left + REACH, y: last.top - box.top - REACH },
+        { x: w, y: above - box.top + REACH },
+        { x: last.right - box.left + REACH, y: above - box.top + REACH },
         { x: last.right - box.left + REACH, y: h },
         { x: 0, y: h },
       ]

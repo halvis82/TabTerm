@@ -832,8 +832,18 @@ The cut is measured from the cards after the browser has laid them out, because 
 depends on the gap, the border, and what the browser did with the fractions. A tab whose last row
 is full needs no cutting and is left alone.
 
-Two rules keep the colours legible, and both are pinned by checks rather than left to a scene that
-happens to show them. A wash reaches less than half the grid's gap past its cards, so two of them
+The notch is cut where the tab would have ended if it stopped there: the bottom of the row above,
+plus the same reach the colour has everywhere else. Cutting it from the last row's top instead put
+the edge exactly where the colour of whatever moved into the notch begins, so the two touched and
+read as one tab.
+
+And only the colour answers the pointer, not the rectangle it is drawn in. A tab that gives up cells
+gives them to somebody else's terminals, and hovering or opening a tab they have nothing to do with
+is what a rectangle does. The outline is an SVG shape, which answers only where it is painted, so
+the shape decides and nothing has to describe it twice.
+
+Two more rules keep the colours legible, and both are pinned by checks rather than left to a scene
+that happens to show them. A wash reaches less than half the grid's gap past its cards, so two of them
 can never meet and read as one tab. And the list refuses to scroll sideways: a wash reaching past
 the cards at the edge turned into a horizontal scrollbar on a list that is read downwards.
 

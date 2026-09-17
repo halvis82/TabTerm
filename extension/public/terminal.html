@@ -421,6 +421,16 @@
      * The list does not stretch its items by default, which is what keeps the cards their own size.
      */
     align-self: stretch;
+    /*
+     * Only the colour answers the pointer, not the rectangle it is drawn in.
+     *
+     * A tab whose last row is short covers less than its own bounding box, and the cells it gives
+     * up hold somebody else's terminals. Hovering or clicking those was lighting up and opening a
+     * tab they have nothing to do with. The outline below takes pointer events back, and an SVG
+     * shape only answers where it is painted, so the shape decides and nothing has to describe it
+     * twice.
+     */
+    pointer-events: none;
     /* Past the cards it sits under, which is what makes it read as around them. Less than half
        the gap, so two of them can never touch. See REACH in `sessions-view.ts`. */
     margin: -4px;
@@ -439,6 +449,8 @@
     height: 100%;
   }
   .session-wash-ink path {
+    /* The painted shape is the hit area. See `pointer-events` above. */
+    pointer-events: auto;
     fill: color-mix(in srgb, var(--hover) 55%, transparent);
     stroke: rgba(140, 155, 190, 0.22);
     stroke-width: 1;

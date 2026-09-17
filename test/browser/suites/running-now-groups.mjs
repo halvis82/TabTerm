@@ -345,6 +345,37 @@ r.ok(
     : arcs.length === 4 && arcs.every((a) => a === '1'),
   `${JSON.stringify(arcs)} ${JSON.stringify(shapeNow)}`,
 );
+/*
+ * And only the colour answers the pointer. The cells a short last row gives up hold other people's
+ * terminals, and hovering or opening a tab they have nothing to do with is what the rectangle did.
+ */
+const hitArea = JSON.parse(
+  String(
+    await evaluate(
+      viewer.client,
+      `(() => {
+         const wash = document.querySelector(${JSON.stringify(group)});
+         const path = wash?.querySelector('svg path');
+         if (!wash || !path) return 'null';
+         return JSON.stringify({
+           box: getComputedStyle(wash).pointerEvents,
+           paint: getComputedStyle(path).pointerEvents,
+         });
+       })()`,
+    ),
+  ),
+);
+r.ok(
+  'the rectangle it is drawn in answers nothing',
+  hitArea !== null && hitArea.box === 'none',
+  JSON.stringify(hitArea),
+);
+r.ok(
+  'and the colour itself does',
+  hitArea !== null && hitArea.paint !== 'none',
+  JSON.stringify(hitArea),
+);
+
 r.ok(
   'and every corner of it is rounded',
   arcs.length > 0 && !/L [\d.]+ [\d.]+ L/.test(outline),
@@ -421,6 +452,49 @@ if (!afterLeaving.short) {
     afterLeaving.arcs.length === 6 && afterLeaving.arcs.filter((a) => a === '0').length === 1,
     JSON.stringify(afterLeaving),
   );
+
+  /*
+   * And the notch is cut where a tab ending there would end, so whatever moves into those cells is
+   * the same distance away as any other neighbour.
+   *
+   * It was cut from the last row's top instead, which put the edge exactly where the colour of the
+   * thing in the notch begins: the two touched and read as one tab.
+   */
+  const notchGap = JSON.parse(
+    String(
+      await evaluate(
+        viewer.client,
+        `(() => {
+           const wash = document.querySelector(${JSON.stringify(group)});
+           const cards = [...document.querySelectorAll(${JSON.stringify(inGroup)})];
+           const d = wash?.querySelector('svg path')?.getAttribute('d') ?? '';
+           const box = wash?.getBoundingClientRect();
+           if (!box || cards.length < 2) return 'null';
+           const rects = cards.map((c) => c.getBoundingClientRect());
+           const lastTop = rects[rects.length - 1].top;
+           const above = Math.max(...rects.map((r2) => r2.bottom).filter((b) => b <= lastTop + 1));
+           /* The y the outline turns inward at, in page coordinates. */
+           const ys = [...d.matchAll(/[ML] [-\\d.]+ ([-\\d.]+)/g)].map((m) => Number(m[1]) + box.top);
+           /* The lowest turn above the last row, which is the one the notch is cut at: the
+              corners at the top of the outline are far higher. */
+           const above_ = ys.filter((y) => y < lastTop - 1);
+           const turn = above_.length > 0 ? Math.max(...above_) : undefined;
+           return JSON.stringify({
+             reachPastRowAbove: turn === undefined ? null : Math.round(turn - above),
+             gapToNextRow: Math.round(lastTop - above),
+           });
+         })()`,
+      ),
+    ),
+  );
+  r.ok(
+    'and the notch is cut the same distance past the row above as anywhere else',
+    notchGap !== null &&
+      notchGap.reachPastRowAbove !== null &&
+      notchGap.reachPastRowAbove >= 3 &&
+      notchGap.reachPastRowAbove <= 6,
+    JSON.stringify(notchGap),
+  );
 }
 
 /*
@@ -467,10 +541,72 @@ await evaluate(
 }))`,
 ).catch(() => undefined);
 await sleep(300);
-const pressedGroup = await realClick(viewer.client, group);
+/*
+ * Pressed on the colour itself, in the band it reaches past the cards.
+ *
+ * The cards are not inside it any more: they are members of the grid and the colour is painted
+ * behind them, so the middle of its box is a card and the band around them is the part that
+ * belongs to the tab. Only the paint answers the pointer, which is the point.
+ */
+/*
+ * Waited for the outline, because a hidden tab places its list on a throttled timer.
+ *
+ * Neither animation frames nor resize observers run in a tab nobody is looking at, so the list is
+ * placed by a timer instead, and a timer there fires about once a second. Measuring before that is
+ * measuring a grid the browser has arranged for itself.
+ */
+await waitUntil(async () => {
+  const drawn = String(
+    await evaluate(
+      viewer.client,
+      `document.querySelector(${JSON.stringify(group)} + ' svg path')?.getAttribute('d') ?? ''`,
+    ),
+  );
+  return drawn.length > 0;
+}, 15000);
+
+const bandAt = JSON.parse(
+  String(
+    await evaluate(
+      viewer.client,
+      `(() => {
+         const wash = document.querySelector(${JSON.stringify(group)});
+         if (!wash) return 'null';
+         wash.scrollIntoView({ block: 'center' });
+         const b = wash.getBoundingClientRect();
+         const x = Math.round(b.left + 2);
+         const y = Math.round(b.top + b.height / 2);
+         const at = document.elementFromPoint(x, y);
+         const path = wash.querySelector('svg path');
+         const pb = path?.getBoundingClientRect();
+         return JSON.stringify({
+           x, y,
+           hit: at ? (at.tagName + '.' + (at.getAttribute('class') ?? '')) : 'nothing',
+           box: [Math.round(b.left), Math.round(b.top), Math.round(b.width), Math.round(b.height)],
+           d: (path?.getAttribute('d') ?? '').slice(0, 30),
+           pathBox: pb ? [Math.round(pb.left), Math.round(pb.top), Math.round(pb.width), Math.round(pb.height)] : null,
+           pe: path ? getComputedStyle(path).pointerEvents : 'none',
+         });
+       })()`,
+    ),
+  ),
+);
+let pressedGroup = bandAt !== null;
+if (bandAt) {
+  for (const kind of ['mousePressed', 'mouseReleased']) {
+    await viewer.client.send('Input.dispatchMouseEvent', {
+      type: kind,
+      x: bandAt.x,
+      y: bandAt.y,
+      button: 'left',
+      clickCount: 1,
+    });
+  }
+  await sleep(400);
+}
 r.ok('the group itself can be pressed', pressedGroup);
 const cameForward = await waitUntil(async () => isActive(work.client), 15000);
-r.ok('and pressing it opens the tab those panes are in', cameForward);
+r.ok('and pressing it opens the tab those panes are in', cameForward, JSON.stringify(bandAt));
 
 /*
  * And pressing one card in a group opens that tab **on that pane**.
