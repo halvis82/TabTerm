@@ -397,12 +397,18 @@ const panesNow = JSON.parse(
 await evaluate(work.client, `window.__tabterm.focus(${JSON.stringify(panesNow.at(-1))})`);
 await sleep(400);
 await evaluate(work.client, 'window.__tabterm.detachPane()');
-await sleep(500);
-r.ok(
-  'a pane was asked to move to its own tab',
-  Number(await evaluate(work.client, 'window.__tabterm.paneIds().length')) < panesNow.length,
-  `${String(panesNow.length)} panes before`,
+/*
+ * Waited for rather than slept at. Moving a pane out is a round trip through the service worker
+ * and a new tab at the end of it, which on a machine running two browsers of suites takes longer
+ * than any number written here would be right for. Half a second was, until a full run was busy
+ * enough that it was not.
+ */
+const left = await waitUntil(
+  async () =>
+    Number(await evaluate(work.client, 'window.__tabterm.paneIds().length')) < panesNow.length,
+  15000,
 );
+r.ok('a pane was asked to move to its own tab', left, `${String(panesNow.length)} panes before`);
 
 const shrank = await waitUntil(async () => (await shape()).inGroups < before.inGroups, 25000);
 r.ok(

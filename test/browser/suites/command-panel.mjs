@@ -434,9 +434,22 @@ r.ok(
   const editing = await waitFor(client, `!!document.querySelector('.cmd-edit')`, 8000);
   r.ok('adding a command opens the form for it', editing);
 
+  /*
+   * Nothing was **added**, rather than the list being exactly as long as it was.
+   *
+   * Favourites are kept in extension storage and every tab on the machine shares them, so a suite
+   * running beside this one can take one away between these two reads. The fault this is about
+   * puts a row in, and the row it used to put in was called `New command`.
+   */
+  const named = () =>
+    evaluate(
+      client,
+      `String([...document.querySelectorAll('.cmd-row.is-favorite')].filter((r2) =>
+         (r2.textContent ?? '').includes('New command')).length)`,
+    ).then(Number);
   r.ok(
     'and nothing is saved until it is',
-    (await favorites()) === before,
+    (await favorites()) <= before && (await named()) === 0,
     `${String(await favorites())}, was ${String(before)}`,
   );
 
@@ -455,7 +468,7 @@ r.ok(
   await sleep(500);
   r.ok(
     'and cancelling creates nothing',
-    (await favorites()) === before,
+    (await favorites()) <= before && (await named()) === 0,
     `${String(await favorites())}, was ${String(before)}`,
   );
 
