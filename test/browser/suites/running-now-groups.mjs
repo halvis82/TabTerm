@@ -697,10 +697,23 @@ const labels = JSON.parse(
     ),
   ),
 );
+/*
+ * The wording depends on how many panes go with it. This card is in a tab of three, so the entry
+ * counts them: seven terminals leaving the screen at once is a different proposition from one and
+ * the menu says so before the press. A tab of one keeps the shorter wording.
+ */
+const closesTheirTab = labels.find(
+  (l) => l === 'Close the tab it is in' || /^Close the tab with these \d+ panes$/.test(l),
+);
 r.ok(
   'the menu on a card offers to close the tab that card is in',
-  labels.some((l) => l === 'Close the tab it is in'),
+  closesTheirTab !== undefined,
   JSON.stringify(labels),
+);
+r.ok(
+  'and says how many panes go with it',
+  closesTheirTab === 'Close the tab with these 3 panes',
+  String(closesTheirTab),
 );
 r.ok(
   'and does not offer to close this one',
@@ -722,7 +735,7 @@ const stillOpen = async () =>
     ),
   );
 r.ok('the tab it names is open before the press', (await stillOpen()) === 1);
-await realClick(watcher, '.term-menu button', 'Close the tab it is in');
+await realClick(watcher, '.term-menu button', closesTheirTab);
 /*
  * The tab is named rather than counted. Other tabs in this run close themselves at moments of
  * their own, so a count going down by one proves nothing about which one went.
