@@ -847,6 +847,30 @@ plus the same reach the colour has everywhere else. Cutting it from the last row
 the edge exactly where the colour of whatever moved into the notch begins, so the two touched and
 read as one tab.
 
+### The packing reads the window, never its own last answer
+
+Everything is put back where the browser would place it before the columns are counted. **A place
+in a column that is not there makes that column**: a grid of two tracks holding something in its
+fifth column reports `258px 258px 0px 0px 125px`, implicit tracks and all. Reading that back means
+counting the columns the last pack invented rather than the ones the window allows, and then every
+pack after it agrees with the one before: the cards are squeezed under their own minimum and the
+list runs off the side of the page until the tab is reloaded.
+
+Reported after zooming out and back in, which is one way in and not the only one.
+
+**And the list is packed when the tab comes back into view**, whatever the width says. A hidden tab
+runs no animation frames and a resize observer tells it nothing, and Chrome's zoom is per origin,
+so zooming any TabTerm tab changes the width of every start screen open anywhere, including the
+ones nobody is looking at. Zoom out and back in and the width ends where it started, so there is
+nothing for the observer to report when the tab returns, while whatever packed in between packed
+for a window that is no longer there.
+
+**It is also packed in the same task it is put in the document**, rather than on the next frame. A
+hidden tab runs no frames at all, and Chrome slows its timers to one a second and eventually to one
+a minute, so a start screen rebuilt in the background spent up to a minute with its cards wherever
+the browser happened to put them and no colour behind any tab. A hidden tab measures perfectly well
+when it is asked; it is only being told that it cannot do.
+
 And only the colour answers the pointer, not the rectangle it is drawn in. A tab that gives up cells
 gives them to somebody else's terminals, and hovering or opening a tab they have nothing to do with
 is what a rectangle does. The outline is an SVG shape, which answers only where it is painted, so

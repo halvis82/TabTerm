@@ -285,11 +285,28 @@ function packGrid(grid: HTMLElement): void {
     (el): el is HTMLElement => el instanceof HTMLElement && el.dataset['tile'] !== undefined,
   );
   if (items.length === 0) return;
+
+  /*
+   * Everything goes back where the browser would put it before anything is counted.
+   *
+   * A place in a column that is not there makes the column: a grid of two tracks with something
+   * placed in the fifth reports `258px 258px 0px 0px 125px`, so the count read back is the one the
+   * last pack invented rather than the one the window allows. Every later pack then agreed with it,
+   * the cards were squeezed below their own minimum, and the list ran off the side of the page
+   * until it was reloaded. Reported after zooming out and back in.
+   *
+   * The placements are put back below in the same task, so nothing is ever drawn unplaced.
+   */
+  const placed = [...grid.querySelectorAll<HTMLElement>('[style*="grid-"]')];
+  for (const el of placed) {
+    el.style.removeProperty('grid-column');
+    el.style.removeProperty('grid-row');
+  }
+
   const columns = getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length;
-  if (columns < 2) {
-    // One column, or a grid that has not been laid out. Nothing to arrange, and explicit places
-    // would only get in the way of the browser doing the simple thing.
-    for (const item of items) item.style.removeProperty('grid-row');
+  if (columns < 1) {
+    // A grid nothing has laid out yet. There is no width to pack into, and inventing one is how
+    // the fault above happened in the first place.
     return;
   }
 
@@ -310,6 +327,17 @@ function packGrid(grid: HTMLElement): void {
     const [across, down] = (item.dataset['tile'] ?? '1x1').split('x');
     return { columns: Number(across) || 1, rows: Number(down) || 1 };
   });
+
+  /*
+   * What this pack was done for, said out loud on the grid itself.
+   *
+   * The number is the whole input and it is read back from the browser, so when it is wrong every
+   * position on the page is wrong together and nothing on the page says why. It is also what a
+   * check has to ask about: the fault this exists to prevent is a pack done for more columns than
+   * the window has, and the placements alone do not show it when there are few enough cards to fit
+   * in the first row either way.
+   */
+  grid.dataset['columns'] = String(columns);
 
   const places = packTiles(tiles, columns);
   items.forEach((item, at) => {
@@ -435,6 +463,22 @@ function watchWidth(grid: HTMLElement): void {
     packGrid(grid);
   });
   observer.observe(grid);
+
+  /*
+   * And again whenever the tab comes back into view, whatever the width says.
+   *
+   * A hidden tab runs no animation frames, and a resize observer reports nothing to it either.
+   * Chrome's zoom is per origin, so zooming any TabTerm tab changes the width of every start
+   * screen open anywhere, including the ones nobody is looking at. Zoom out and back in and the
+   * width ends where it started, so when the tab returns the observer has nothing to say, while
+   * whatever packed in between packed for a window that is no longer there. Reported as the list
+   * going weird after a zoom out and back, and coming right on a refresh.
+   */
+  const onVisible = (): void => {
+    if (document.visibilityState === 'visible') packGrid(grid);
+  };
+  document.addEventListener('visibilitychange', onVisible);
+
   // The list is rebuilt often and each rebuild makes a new grid, so the old one's observer goes
   // with it rather than piling up.
   const parent = grid.parentElement;
@@ -442,10 +486,27 @@ function watchWidth(grid: HTMLElement): void {
     new MutationObserver((changes, self) => {
       if (!grid.isConnected) {
         observer.disconnect();
+        document.removeEventListener('visibilitychange', onVisible);
         self.disconnect();
       }
       void changes;
     }).observe(parent, { childList: true, subtree: true });
+  }
+}
+
+/**
+ * Place the list now, for a caller that has just put it in the document.
+ *
+ * The frame and the timer below cover a list that is built and left alone. Neither is any use to a
+ * tab nobody is looking at: it runs no animation frames at all, and Chrome slows a timer in a
+ * hidden tab to once a second and eventually to once a minute, so a start screen rebuilt in the
+ * background spent up to a minute with its cards wherever the browser happened to put them and no
+ * colour behind the tabs at all. A hidden tab measures perfectly well when it is asked; it is only
+ * being told that it cannot do.
+ */
+export function placeSessions(root: ParentNode): void {
+  for (const grid of root.querySelectorAll('.session-grid')) {
+    if (grid instanceof HTMLElement) packGrid(grid);
   }
 }
 

@@ -1,4 +1,4 @@
-import { buildSessions, isDraggingSession } from './sessions-view.js';
+import { buildSessions, isDraggingSession, placeSessions } from './sessions-view.js';
 import { resolveTypedPath, unresolveTypedPath } from './typed-path.js';
 import { checkShape, previewPanes } from '@tabterm/shared';
 
@@ -1659,6 +1659,14 @@ export class Launcher {
      * browser paints at the end of the task, so the only frame ever drawn is the right one.
      */
     if (wasScrolled > 0) body.scrollTop = wasScrolled;
+    /*
+     * And the list is packed here, in the same task, now that it has a width to be packed into.
+     *
+     * For the same reason the scroll position is put back here rather than before: a detached
+     * element has no layout. Waiting for a frame is no use to a tab nobody is looking at, which
+     * runs none. See `placeSessions`.
+     */
+    placeSessions(body);
     /**
      * Drawn, not shown. Whether it is on screen is `show`'s business and nobody else's.
      *
