@@ -847,6 +847,20 @@ plus the same reach the colour has everywhere else. Cutting it from the last row
 the edge exactly where the colour of whatever moved into the notch begins, so the two touched and
 read as one tab.
 
+### The colour is drawn over the layout, never part of it
+
+A tab's colour is an `svg`, and an `svg` with a `viewBox` and a width has a height: the ratio gives
+it one. Its height was a percentage of a box whose own height is not settled while the row is being
+sized, so the browser fell back to that ratio and **the row grew to fit the shape drawn for the row
+before it**. A row that was tall for any reason could then never be short again, because the outline
+it had drawn went on asking for the height it had been given. Reported as the bottom of the blue
+running too far past the cards.
+
+The outline is taken out of the flow, so it contributes nothing to sizing: the row is as tall as the
+cards in it, and the colour is stretched over whatever that turns out to be. Asked of it directly
+rather than through the symptom: a shape four times as tall as it is wide must change nothing.
+Before the fix it took a row of 177 pixels to 1399.
+
 ### The packing reads the window, never its own last answer
 
 Everything is put back where the browser would place it before the columns are counted. **A place

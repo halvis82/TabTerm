@@ -383,6 +383,67 @@ r.ok(
 );
 
 /*
+ * And the colour ends where its cards end.
+ *
+ * Reported as the bottom of the blue running too far past them. The colour is drawn as an `svg`,
+ * and an `svg` with a `viewBox` and a width has a height, so it was being asked how tall the row
+ * should be and answering with the shape it had drawn for the row before. A row that was tall for
+ * any reason could then never be short again.
+ */
+const overhang = JSON.parse(
+  String(
+    await evaluate(
+      viewer.client,
+      `(() => {
+         const wash = document.querySelector(${JSON.stringify(group)});
+         const cards = [...document.querySelectorAll(${JSON.stringify(inGroup)})];
+         if (!wash || cards.length === 0) return 'null';
+         const b = wash.getBoundingClientRect();
+         const lowest = Math.max(...cards.map((c) => c.getBoundingClientRect().bottom));
+         return JSON.stringify({ past: Math.round(b.bottom - lowest) });
+       })()`,
+    ),
+  ),
+);
+r.ok(
+  'the colour stops just past the cards, not a row past them',
+  overhang !== null && overhang.past >= 0 && overhang.past <= 8,
+  `${String(overhang?.past)}px past the last card`,
+);
+
+/*
+ * And it cannot make a row taller, whatever shape it is asked to draw.
+ *
+ * Asked directly, because the ratio is the mechanism and the overhang above is only what it looks
+ * like: a shape that is four times as tall as it is wide must change nothing. Reverted, this took
+ * a row of 177 pixels to 1399.
+ */
+const ratio = JSON.parse(
+  String(
+    await evaluate(
+      viewer.client,
+      `(() => {
+         const grid = document.querySelector('.session-grid');
+         const svg = document.querySelector(${JSON.stringify(group)} + ' svg');
+         if (!grid || !svg) return 'null';
+         const before = getComputedStyle(grid).gridTemplateRows;
+         const was = svg.getAttribute('viewBox');
+         svg.setAttribute('viewBox', '0 0 100 400');
+         void grid.getBoundingClientRect();
+         const after = getComputedStyle(grid).gridTemplateRows;
+         svg.setAttribute('viewBox', was ?? '');
+         return JSON.stringify({ before, after });
+       })()`,
+    ),
+  ),
+);
+r.ok(
+  'and the shape it draws cannot decide how tall the rows are',
+  ratio !== null && ratio.before === ratio.after,
+  `${String(ratio?.before)} -> ${String(ratio?.after)}`,
+);
+
+/*
  * Moving a pane out of the tab, which is the case he asked about by name. Both sides have to
  * follow: the group loses a pane and the list gains a session that is alone.
  */

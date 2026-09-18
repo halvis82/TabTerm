@@ -421,6 +421,8 @@
      * The list does not stretch its items by default, which is what keeps the cards their own size.
      */
     align-self: stretch;
+    /* The frame the outline inside it is measured against. See `.session-wash-ink`. */
+    position: relative;
     /*
      * Only the colour answers the pointer, not the rectangle it is drawn in.
      *
@@ -443,8 +445,24 @@
     background: none;
     border: 0;
   }
+  /*
+   * The outline is taken out of the flow, so the colour can never decide how tall a row is.
+   *
+   * An `svg` with a `viewBox` and a width has a height: the ratio gives it one. The height here is
+   * a percentage of a box whose own height is not settled while the row is being sized, so the
+   * browser fell back to that ratio, and the row grew to fit the shape drawn for the row it had
+   * last time. Once a row was tall for any reason it could never be short again, because the
+   * outline it had drawn kept asking for the height it had been given. Reported as the bottom of
+   * the colour running too far past the cards: forcing the ratio taller in a check took a row of
+   * 177 pixels to 1399.
+   *
+   * Out of the flow it contributes nothing, the row is the height of the cards in it, and the
+   * colour is stretched over whatever that turns out to be.
+   */
   .session-wash-ink {
     display: block;
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
   }
