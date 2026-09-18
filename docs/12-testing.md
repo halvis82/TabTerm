@@ -284,7 +284,12 @@ and the developer's own Chrome profile is never opened.
 |---|---|---|
 | First, alone | `reset`, `pane-chooser`, `resume-and-tabs`, `sessions`, `no-busy-loop` | They wipe state everything reads, or count things belonging to the whole browser |
 | Middle, parallel | everything else, across `TT_JOBS` browsers | Independent: each opens its own tab and its own sessions |
-| Last, alone | `survives-restart`, `resilience` | They take the daemon away on purpose |
+| Last, alone | `survives-restart`, `offer-only-over-empty-panes`, `restored-view-is-clean`, `resilience`, `nothing-left-alive`, and the four that leave the list and the history changed | The first four take the daemon away on purpose, and the rest leave shared state behind |
+
+How many restarts a clean run should report is read out of those suites rather than listed: the
+runner counts the ones that actually ran and contain the kill. The list it used to keep was true
+when it was written and stopped being true as two more suites learned to kill the daemon, so every
+full run ended on a warning about its own checks doing what they were written to do.
 
 Running a first-phase suite beside another does not produce a flake, it produces a confident
 wrong answer. Running a last-phase suite early is worse: while the daemon is down every other

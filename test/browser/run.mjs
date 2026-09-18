@@ -1155,15 +1155,26 @@ function hostPidUnder(home) {
 /**
  * A restart per suite that kills the daemon is the point, not a fault.
  *
- * `survives-restart` and `resilience` each kill it deliberately, so a clean full run reports
- * two. More than that means something is falling over, and for two days it meant thirteen: the
- * agent bridge was on a hardcoded port, so a second daemon on the machine died on a number that
- * had nothing to do with the one it had been given.
+ * More than that means something is falling over, and for two days it meant thirteen: the agent
+ * bridge was on a hardcoded port, so a second daemon on the machine died on a number that had
+ * nothing to do with the one it had been given.
+ *
+ * Read out of the suites rather than listed here. The list said `survives-restart` and
+ * `resilience`, which was true when it was written and stopped being true as two more suites
+ * learned to kill the daemon, so every full run since has ended on a warning about its own
+ * checks doing what they were written to do. A warning nobody can act on is a warning nobody
+ * reads, which is worse than not having one.
  *
  * Counted from the suites that actually ran, because a run of one suite should not be warned at
  * for the restarts of suites it did not include.
  */
-const killers = ['survives-restart', 'resilience'].filter((n) => names.includes(n)).length;
+const killers = names.filter((name) => {
+  try {
+    return readFileSync(join(SUITES, `${name}.mjs`), 'utf8').includes('process.kill(daemonPid');
+  } catch {
+    return false;
+  }
+}).length;
 if (daemon.state.restarts > killers) {
   console.log(
     `  WARNING: the test daemon restarted ${String(daemon.state.restarts)} times, expected ${String(killers)}`,
