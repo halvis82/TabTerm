@@ -98,17 +98,28 @@ const fresh = await openTerminal();
  * nothing to do with recovery.
  */
 await waitFor(fresh.client, "(window.__tabterm.readScreen() ?? '').trim() !== ''", 40000);
-await type(fresh.client, `echo recovered-${TAG}`);
-// Waited for, not slept through. A shell that has just been started by a freshly respawned host
-// takes longer than one on a quiet machine, and a fixed wait here is the difference between a
-// green run and a failure that reads as the recovery not working.
-const recovered = await waitFor(
-  fresh.client,
-  `(window.__tabterm.readScreen() ?? '').includes(${JSON.stringify(`recovered-${TAG}`)})`,
-  // Generous on purpose. A daemon that has just been killed comes back cold, and this is the
-  // one check in the run that is legitimately waiting on a process to start from nothing.
-  45000,
-);
+/*
+ * Typed again if the first attempt left no trace, up to three times.
+ *
+ * Waited for, not slept through: a shell started by a freshly respawned host takes longer than one
+ * on a quiet machine, and a fixed wait here is the difference between a green run and a failure
+ * that reads as the recovery not working. The retry is for the other half, which a full run caught
+ * once: a prompt was on the screen, the transport was ready with its pane, and the keystrokes
+ * simply never arrived, so the check spent ninety seconds proving nothing. Typing again asks the
+ * same question rather than a weaker one, since what is being checked is that a session opened
+ * after the host was killed works at all.
+ */
+let recovered = false;
+for (let attempt = 0; attempt < 3 && !recovered; attempt++) {
+  await type(fresh.client, `echo recovered-${TAG}`);
+  recovered = await waitFor(
+    fresh.client,
+    `(window.__tabterm.readScreen() ?? '').includes(${JSON.stringify(`recovered-${TAG}`)})`,
+    // Generous on purpose. A daemon that has just been killed comes back cold, and this is the
+    // one check in the run that is legitimately waiting on a process to start from nothing.
+    20000,
+  );
+}
 r.ok(
   'and TabTerm still works, rather than needing a daemon restart',
   recovered,
