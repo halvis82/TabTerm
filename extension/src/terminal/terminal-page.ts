@@ -6937,6 +6937,8 @@ declare global {
       scrollLines: (lines: number) => void;
       /** Rebuild the marker rail now, for measuring what that costs on a full buffer. */
       syncMarkersNow: () => void;
+      /** The buffer row a piece of text is on, which is what a mark beside the scrollbar claims. */
+      bufferRowOf: (text: string) => number | null;
       /** What the daemon last said about how long a tabless terminal is kept. */
       keepAlive: () => number | null | undefined;
       /**
@@ -7384,6 +7386,21 @@ function installTestHook(): void {
     syncMarkersNow: () => {
       const pane = splitView?.focused ? panesHost?.get(splitView.focused) : panesHost?.all[0];
       pane?.controller.syncMarkersForTest();
+    },
+    /*
+     * Where a line of text actually is, so a check can ask whether a mark points at it.
+     *
+     * The rail draws rows as a fraction of the scrollback and nothing on the page says which row
+     * a pip means except the pip's own record of it. Comparing the two is the whole question.
+     */
+    bufferRowOf: (text) => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : panesHost?.all[0];
+      const buffer = pane?.controller.term.buffer.active;
+      if (!buffer) return null;
+      for (let row = buffer.length - 1; row >= 0; row--) {
+        if (buffer.getLine(row)?.translateToString(true).includes(text) === true) return row;
+      }
+      return null;
     },
     scrollLines: (lines) => {
       const pane = splitView?.focused ? panesHost?.get(splitView.focused) : panesHost?.all[0];

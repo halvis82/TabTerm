@@ -171,7 +171,16 @@ export class MarkerRail {
     // stripe beside every terminal anybody ever opens.
     this.#rail.classList.toggle('has-markers', this.#markers.length > 0);
 
-    const length = Math.max(1, term.buffer.active.length - 1);
+    /*
+     * The scroll area, not the last row.
+     *
+     * A row is placed at its own fraction of the buffer, which is the same mapping the native
+     * scrollbar uses for its thumb: xterm's scroll area is one row tall per buffer line, so a pip
+     * at `row / length` sits exactly where the top of the thumb is when that row is the first one
+     * in view. Against `length - 1` it was a row short of that, and the rail is only worth having
+     * if pressing where it points goes where it says.
+     */
+    const length = Math.max(1, term.buffer.active.length);
     for (const marker of this.#markers) {
       const pip = document.createElement('div');
       pip.className = 'marker-pip';

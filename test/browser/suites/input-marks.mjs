@@ -59,5 +59,50 @@ r.ok(
   JSON.stringify(rows.slice(0, 6)),
 );
 
+/*
+ * And the mark is on the line the prompt is on, not on the line the cursor happened to be on.
+ *
+ * Reported as "the prompt indicators in the scroll bar still don't line up with the actual
+ * prompts". A pane running an agent takes input in a box at the bottom of the screen and prints
+ * what it was told further up, so the cursor at the moment Return is pressed is several rows below
+ * the line the mark is meant for.
+ *
+ * The agent here is a shell one-liner, which is the whole of the behavior that matters: echo off,
+ * so the typed line never appears where it was typed, and the line printed somewhere else
+ * afterwards. Nothing is being recognised in the output. The check is that a string this test sent
+ * and a mark this test made end up on the same row.
+ */
+const PROMPT = 'marker lands on this line';
+await type(
+  client,
+  `stty -echo; printf 'AGENT READY\\n\\n\\n\\n\\n\\n'; read -r line; printf '\\0337\\033[4A%s\\0338\\n' "$line"; stty echo`,
+);
+await waitFor(client, `(window.__tabterm.readScreen() ?? '').includes('AGENT READY')`, 20000);
+
+await type(client, PROMPT);
+await waitFor(
+  client,
+  `(window.__tabterm.readScreen() ?? '').includes(${JSON.stringify(PROMPT)})`,
+  20000,
+);
+
+/** Where the line really is, and where the newest mark says it is. */
+const printedRow = async () =>
+  Number(await evaluate(client, `window.__tabterm.bufferRowOf(${JSON.stringify(PROMPT)})`));
+const newestMark = async () =>
+  Number(
+    await evaluate(
+      client,
+      `(() => { const p = [...document.querySelectorAll('.input-pip')]; return p.length ? Number(p[p.length - 1].dataset.row) : -1; })()`,
+    ),
+  );
+
+const landed = await waitUntil(async () => (await newestMark()) === (await printedRow()), 8000);
+r.ok(
+  'and the mark moves to the line the prompt was printed on',
+  landed,
+  `mark at ${String(await newestMark())}, prompt on ${String(await printedRow())}`,
+);
+
 await finish();
 r.done();

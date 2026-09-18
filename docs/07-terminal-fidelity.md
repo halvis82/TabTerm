@@ -467,6 +467,52 @@ pressing the marker hid the one thing it was for.
 A third of the pane is left above the mark, with a floor of two rows for a pane too short to have
 thirds, so the context scales with the window rather than being a number that suits one size.
 
+### A mark moves to the line it is a mark for
+
+The mark is made where the cursor is, which in a shell is the command line and is the end of it.
+In a pane running an agent the cursor at that moment is inside an input box at the bottom of the
+screen, and a moment later the agent has redrawn: the box is empty again and what was typed has
+been printed further up, as part of the transcript. The mark was then several rows below the
+prompt it was made for, which is what "the prompt indicators in the scroll bar still don't line up
+with the actual prompts" was.
+
+So half a second after Return, and again a second later if that found nothing, the mark goes
+looking for its own line and moves to it. What it looks for is **a string this end sent**, matched
+as text. It is not a reading of what the program is doing: nothing here decides that an agent is
+busy, or idle, or has answered, and ADR-0009 stands. If the line is not found the mark stays where
+the cursor was, which is where it used to be in every case.
+
+Three rules keep it from pointing at a stranger:
+
+- A line under six characters is not looked for at all. `y`, `no` and `ok` are typed constantly
+  and appear all over the output of the program they were typed at
+- The **nearest** copy to the cursor wins. A prompt typed twice is two rows saying the same thing,
+  and the one this mark belongs to is the one beside it
+- Whitespace is flattened on both sides of the comparison, so a line the program reflowed,
+  indented or drew a box around still matches what was typed. The first forty characters are
+  looked for, then the first sixteen, which is what survives the program wrapping the line
+
+The line is kept from the keystrokes rather than read off the screen, in `input-anchor.ts`, for the
+same reason the length of the line being typed is: what is on the screen depends on the program,
+and the program this matters most for draws its box wherever it likes. A key sequence, a kill or a
+completion means the line is given up, and giving up means the mark stays at the cursor. A paste is
+unwrapped and counts, because pasting a long instruction into an agent is one of the commonest ways
+this line gets typed at all. Shift and Return is the one key sequence that does not end it: that is
+a new line inside the program's own box, and the line goes on.
+
+### The rail covers what the scrollbar covers
+
+A mark is drawn at its row's fraction of the scrollback, and that fraction is only true against the
+whole of it. The rail used to start thirty pixels down, to keep the command button in the same
+corner from swallowing the clicks meant for the topmost landmarks, and every mark on it was
+therefore a little below the row it meant. It now spans exactly what the terminal scrolls, passes
+clicks through itself, and sits above the button: only the pips take clicks, so what the button
+gives up is four pixels of itself and only where a mark really is.
+
+Rows are placed against the length of the buffer rather than against its last row, which is the
+mapping xterm's own scroll area uses. A pip is then exactly where the top of the scrollbar thumb
+is when that row is the first one in view.
+
 ### Landmarks
 
 A pane can print a landmark: a solid colored bar with a label, from its own menu. It is written

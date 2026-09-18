@@ -18,6 +18,7 @@ import { dragIsTakenByProgram, MOUSE_HINT } from './mouse-hint.js';
 import { encodeModifiedKey, modifyOtherKeysLevel } from './modified-keys.js';
 import type { Highlight } from './highlight-anchor.js';
 import { measurementIsTrustworthy } from './measured-size.js';
+import { rowOfTyped, TypedLine } from './input-anchor.js';
 
 export interface ControllerOptions {
   container: HTMLElement;
@@ -170,6 +171,12 @@ export class XtermController {
   #markers: MarkerRail | null = null;
   /** Lines somebody pressed Return on. See `markInputHere`. */
   readonly #inputMarks: IMarker[] = [];
+  /** The line being typed, so a mark can be moved to wherever the program drew it. */
+  readonly #typedLine = new TypedLine();
+  /** The line just submitted, set only while the chunk that submitted it is being handled. */
+  #submittedNow: string | null = null;
+  /** Timers waiting for a program to redraw, so they can be dropped when the pane is. */
+  readonly #anchorTimers = new Set<number>();
   #markerTimer = 0;
   #highlights: HighlightLayer | null = null;
   readonly #opts: ControllerOptions;
@@ -257,7 +264,20 @@ export class XtermController {
     this.term.open(opts.container);
     this.#tryWebgl();
 
-    this.term.onData(opts.onData);
+    /*
+     * What is typed passes through here on its way to the program, so this is where the line
+     * being typed is kept. `#submittedNow` is set only for the chunk that submitted it, and
+     * `markInputHere` runs inside that same chunk, so a mark can be moved to the line it is for
+     * without any chance of picking up the line before it. See `input-anchor.ts`.
+     */
+    this.term.onData((data) => {
+      this.#submittedNow = this.#typedLine.consume(data);
+      try {
+        opts.onData(data);
+      } finally {
+        this.#submittedNow = null;
+      }
+    });
     /**
      * The other half of what the terminal has to say back.
      *
@@ -656,6 +676,79 @@ export class XtermController {
       this.#inputMarks.shift()?.dispose();
     }
     this.#markers?.sync(this.term, this.#highlights?.places() ?? [], this.#inputRows());
+
+    /*
+     * The cursor is not always where the line ends up.
+     *
+     * In a shell it is: the command is on the line the cursor is on, and the search below finds
+     * it there and changes nothing. In a pane running an agent the cursor is inside an input box
+     * at the bottom of the screen, and the prompt is printed further up once the agent redraws.
+     * See `input-anchor.ts`.
+     */
+    const typed = this.#submittedNow;
+    if (typed !== null) this.#followTheTypedLine(marker, typed);
+  }
+
+  /**
+   * How long a program is given to redraw, before and then after the answer starts arriving.
+   *
+   * Twice rather than once because the two cases have different timing: an agent redraws its box
+   * within a frame or two of the submit, while one that was busy may not repaint until it comes
+   * back. The second try is skipped once the first has found the line.
+   */
+  static readonly REDRAW_TRIES = [500, 1600];
+
+  /** How far above the cursor to look. An input box is a few rows tall, not a screenful. */
+  static readonly LOOK_BACK = 80;
+
+  #followTheTypedLine(mark: IMarker, typed: string): void {
+    let found = false;
+    for (const delay of XtermController.REDRAW_TRIES) {
+      const timer = window.setTimeout(() => {
+        this.#anchorTimers.delete(timer);
+        if (!found) found = this.#moveMarkToItsLine(mark, typed);
+      }, delay);
+      this.#anchorTimers.add(timer);
+    }
+  }
+
+  /**
+   * Put the mark on the line the typed text was drawn on. True once there is nothing left to do.
+   *
+   * A marker cannot be told to move, so the move is a new marker in the old one's place in the
+   * list. The mark is a place in the buffer either way, and which object holds it is nobody's
+   * business outside here.
+   */
+  #moveMarkToItsLine(mark: IMarker, typed: string): boolean {
+    if (mark.isDisposed || mark.line < 0) return true;
+    const buffer = this.term.buffer.active;
+    // The alternate screen is not scrollback. Nothing on it can be scrolled back to, so there is
+    // nothing there for a mark to point at.
+    if (buffer.type === 'alternate') return true;
+
+    const at = mark.line;
+    const from = Math.max(0, at - XtermController.LOOK_BACK);
+    const lines: string[] = [];
+    for (let row = from; row < buffer.length; row++) {
+      lines.push(buffer.getLine(row)?.translateToString(true) ?? '');
+    }
+
+    const row = rowOfTyped({ from, lines }, typed, at);
+    if (row === null) return false;
+    if (row === at) return true;
+
+    const moved = this.term.registerMarker(row - (buffer.baseY + buffer.cursorY));
+    if (!moved) return false;
+    const index = this.#inputMarks.indexOf(mark);
+    if (index < 0) {
+      // The mark has already aged out of the list while the program was redrawing.
+      moved.dispose();
+      return true;
+    }
+    this.#inputMarks[index] = moved;
+    mark.dispose();
+    this.#markers?.sync(this.term, this.#highlights?.places() ?? [], this.#inputRows());
+    return true;
   }
 
   /** How many places the rail will point at before it stops being a rail. */
@@ -1061,6 +1154,8 @@ export class XtermController {
   dispose(): void {
     clearTimeout(this.#markerTimer);
     clearTimeout(this.#retryTimer);
+    for (const timer of this.#anchorTimers) clearTimeout(timer);
+    this.#anchorTimers.clear();
     this.#markers?.dispose();
     this.#webgl?.dispose();
     this.term.dispose();

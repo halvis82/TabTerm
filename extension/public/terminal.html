@@ -1778,16 +1778,28 @@
   /* Landmarks beside the scrollbar. Inside it rather than over it: Chrome handles a scrollbar
      click itself and dispatches no DOM event, so markers drawn on top of one can be seen and
      never clicked. */
+  /* The rail covers exactly what the terminal scrolls, top to bottom, because a mark is drawn at
+     its row's fraction of the scrollback and that fraction is only true against the whole of it.
+     Inset by the padding the terminal itself has. It passes clicks through: only the pips take
+     them, so the command button in the same corner keeps its own. */
   .marker-rail {
     position: absolute;
-    /* Clear of the command button, which sits in the same corner and would swallow the clicks
-       meant for the topmost landmarks. */
-    top: 34px;
+    top: 4px;
     bottom: 4px;
     right: 11px;
     width: 6px;
-    z-index: 5;
+    /* Above the command button, which sits in the same corner and covers the first thirty pixels
+       of the rail. The button used to win, so a landmark near the top of the scrollback could be
+       seen and never pressed, and the rail was pushed down out of its way, which put every mark on
+       it a little below the row it meant. The rail passes clicks through and a pip is four pixels
+       tall, so what the button gives up is that much of itself and only where a mark really is. */
+    z-index: 31;
     display: none;
+    pointer-events: none;
+  }
+  /* A pane with a bar above it starts lower down, and so does the terminal it is a rail for. */
+  .many-panes .marker-rail {
+    top: 26px;
   }
   .marker-rail.has-markers {
     display: block;
@@ -1816,6 +1828,7 @@
     border-radius: 2px;
     cursor: pointer;
     opacity: 0.85;
+    pointer-events: auto;
   }
   .marker-pip:hover {
     opacity: 1;
