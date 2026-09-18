@@ -180,7 +180,7 @@ const whileHidden = JSON.parse(
          return JSON.stringify({
            state: document.visibilityState,
            washes: document.querySelectorAll('.session-wash').length,
-           drawn: (wash?.querySelector('path')?.getAttribute('d') ?? '').length,
+           drawn: (wash?.querySelector('path.session-wash-edge')?.getAttribute('d') ?? '').length,
            packed: document.querySelector('.session-grid')?.dataset.columns ?? '-',
          });
        })()`,

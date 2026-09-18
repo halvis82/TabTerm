@@ -313,7 +313,7 @@ await sleep(1500);
 const outline = String(
   await evaluate(
     viewer.client,
-    `document.querySelector(${JSON.stringify(group)} + ' svg path')?.getAttribute('d') ?? ''`,
+    `document.querySelector(${JSON.stringify(group)} + ' svg path.session-wash-edge')?.getAttribute('d') ?? ''`,
   ),
 );
 const arcs = [...outline.matchAll(/A [\d.]+ [\d.]+ 0 0 (\d)/g)].map((m) => m[1]);
@@ -355,7 +355,7 @@ const hitArea = JSON.parse(
       viewer.client,
       `(() => {
          const wash = document.querySelector(${JSON.stringify(group)});
-         const path = wash?.querySelector('svg path');
+         const path = wash?.querySelector('svg path.session-wash-edge');
          if (!wash || !path) return 'null';
          return JSON.stringify({
            box: getComputedStyle(wash).pointerEvents,
@@ -380,6 +380,39 @@ r.ok(
   'and every corner of it is rounded',
   arcs.length > 0 && !/L [\d.]+ [\d.]+ L/.test(outline),
   outline.slice(0, 120),
+);
+
+/*
+ * And the edge around it stays inside it.
+ *
+ * A stroke sits half in and half out, so a line heavy enough to see would reach into the gap that
+ * says two tabs are two. It is clipped to the shape it draws, which throws the outer half away.
+ * Asked for as a harder blue in exactly the same place, overlapping nothing further.
+ */
+const edge = JSON.parse(
+  String(
+    await evaluate(
+      viewer.client,
+      `(() => {
+         const wash = document.querySelector(${JSON.stringify(group)});
+         const path = wash?.querySelector('svg path.session-wash-edge');
+         const clip = wash?.querySelector('clipPath > path');
+         if (!path || !clip) return 'null';
+         const style = getComputedStyle(path);
+         return JSON.stringify({
+           clipped: (path.getAttribute('clip-path') ?? '').startsWith('url(#'),
+           sameShape: clip.getAttribute('d') === path.getAttribute('d'),
+           width: style.strokeWidth,
+           stroke: style.stroke,
+         });
+       })()`,
+    ),
+  ),
+);
+r.ok(
+  'the edge is clipped to the shape it draws, so it cannot reach past it',
+  edge !== null && edge.clipped && edge.sameShape,
+  JSON.stringify(edge),
 );
 
 /*
@@ -496,7 +529,7 @@ const afterLeaving = JSON.parse(
       `(() => {
          const cards = [...document.querySelectorAll(${JSON.stringify(inGroup)})];
          const rights = cards.map((c) => Math.round(c.getBoundingClientRect().right));
-         const d = document.querySelector(${JSON.stringify(group)} + ' svg path')?.getAttribute('d') ?? '';
+         const d = document.querySelector(${JSON.stringify(group)} + ' svg path.session-wash-edge')?.getAttribute('d') ?? '';
          const arcs = [...d.matchAll(/A [\\d.]+ [\\d.]+ 0 0 (\\d)/g)].map((m) => m[1]);
          const last = rights[rights.length - 1] ?? 0;
          const wash = document.querySelector(${JSON.stringify(group)});
@@ -534,7 +567,7 @@ if (!afterLeaving.short) {
         `(() => {
            const wash = document.querySelector(${JSON.stringify(group)});
            const cards = [...document.querySelectorAll(${JSON.stringify(inGroup)})];
-           const d = wash?.querySelector('svg path')?.getAttribute('d') ?? '';
+           const d = wash?.querySelector('svg path.session-wash-edge')?.getAttribute('d') ?? '';
            const box = wash?.getBoundingClientRect();
            if (!box || cards.length < 2) return 'null';
            const rects = cards.map((c) => c.getBoundingClientRect());
@@ -626,7 +659,7 @@ await waitUntil(async () => {
   const drawn = String(
     await evaluate(
       viewer.client,
-      `document.querySelector(${JSON.stringify(group)} + ' svg path')?.getAttribute('d') ?? ''`,
+      `document.querySelector(${JSON.stringify(group)} + ' svg path.session-wash-edge')?.getAttribute('d') ?? ''`,
     ),
   );
   return drawn.length > 0;
@@ -644,7 +677,7 @@ const bandAt = JSON.parse(
          const x = Math.round(b.left + 2);
          const y = Math.round(b.top + b.height / 2);
          const at = document.elementFromPoint(x, y);
-         const path = wash.querySelector('svg path');
+         const path = wash.querySelector('svg path.session-wash-edge');
          const pb = path?.getBoundingClientRect();
          return JSON.stringify({
            x, y,

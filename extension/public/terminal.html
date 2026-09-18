@@ -466,21 +466,29 @@
     width: 100%;
     height: 100%;
   }
-  .session-wash-ink path {
+  /*
+   * The edge, in the palette's own blue and heavy enough to be seen at a glance.
+   *
+   * Three units wide and clipped to the shape it draws, so half of it is thrown away and what is
+   * left is a line a pixel and a half thick lying entirely inside the tab. A stroke sits half in
+   * and half out by default, and the half outside would eat into the gap that says two tabs are
+   * two. Asked for as a harder blue in exactly the same place, overlapping nothing further.
+   */
+  .session-wash-ink path.session-wash-edge {
     /* The painted shape is the hit area. See `pointer-events` above. */
     pointer-events: auto;
     fill: color-mix(in srgb, var(--hover) 55%, transparent);
-    stroke: rgba(140, 155, 190, 0.22);
-    stroke-width: 1;
+    stroke: color-mix(in srgb, var(--selected-edge) 62%, transparent);
+    stroke-width: 3;
     transition:
       fill 120ms ease,
       stroke 120ms ease;
   }
   /* Lit by any of its cards, so the tab reads as one thing under the pointer. */
-  .session-wash.is-lit .session-wash-ink path,
-  .session-wash:hover .session-wash-ink path {
+  .session-wash.is-lit .session-wash-ink path.session-wash-edge,
+  .session-wash:hover .session-wash-ink path.session-wash-edge {
     fill: color-mix(in srgb, var(--hover) 78%, transparent);
-    stroke: rgba(140, 170, 230, 0.4);
+    stroke: var(--selected-edge);
   }
 
   /*

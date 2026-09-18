@@ -847,6 +847,18 @@ plus the same reach the colour has everywhere else. Cutting it from the last row
 the edge exactly where the colour of whatever moved into the notch begins, so the two touched and
 read as one tab.
 
+### The edge is drawn inside the colour, not around it
+
+A tab's colour carries a blue edge, heavy enough to see where one tab ends and the next begins.
+Asked for as a harder blue in exactly the same place, overlapping nothing further, which is what
+decides how it is drawn: a stroke sits half in and half out, so a line thick enough to read would
+reach into the gap that says two tabs are two, and that gap is only six pixels wide once each
+colour has taken its four.
+
+So the line is three units wide and **clipped to the shape it draws**. The outer half is thrown
+away and what is left lies entirely inside the tab, in the palette's own `--selected-edge`, going
+to full strength when the tab is under the pointer along with the wash behind it.
+
 ### The colour is drawn over the layout, never part of it
 
 A tab's colour is an `svg`, and an `svg` with a `viewBox` and a width has a height: the ratio gives

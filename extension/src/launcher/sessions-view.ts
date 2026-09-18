@@ -388,7 +388,8 @@ function packGrid(grid: HTMLElement): void {
  */
 function shapeWash(wash: HTMLElement, cards: readonly HTMLElement[]): void {
   const ink = wash.querySelector('svg.session-wash-ink');
-  const outline = ink?.querySelector('path');
+  // By class, because the clip below is a path too and comes first in the document.
+  const outline = ink?.querySelector('path.session-wash-edge');
   if (!ink || !outline) return;
   const box = wash.getBoundingClientRect();
   if (box.width < 1 || box.height < 1) return;
@@ -440,7 +441,10 @@ function shapeWash(wash: HTMLElement, cards: readonly HTMLElement[]): void {
         { x: 0, y: h },
       ];
 
-  outline.setAttribute('d', roundedPath(corners, WASH_RADIUS));
+  const d = roundedPath(corners, WASH_RADIUS);
+  outline.setAttribute('d', d);
+  // The same shape again, as the clip that keeps the edge inside it. See `appendSharedTab`.
+  wash.querySelector('clipPath > path')?.setAttribute('d', d);
 }
 
 /** How far the colour reaches past the cards, which the stylesheet also uses. See `--wash-reach`. */
@@ -613,7 +617,22 @@ function appendSharedTab(group: SessionGroup, options: SessionsOptions, grid: HT
   ink.setAttribute('class', 'session-wash-ink');
   ink.setAttribute('preserveAspectRatio', 'none');
   const outline = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  ink.append(outline);
+  outline.setAttribute('class', 'session-wash-edge');
+  /*
+   * The edge is drawn **inside** the shape, by clipping the line to the shape it is drawing.
+   *
+   * A stroke sits half in and half out, so a heavier one would reach further into the gap between
+   * two tabs, and that gap is the whole of what says they are two. Asked for in those words: a
+   * harder blue in exactly the same place, without overlapping anything more than the colour
+   * already does. Clipped, the outer half is thrown away and the line is entirely the tab's own.
+   */
+  const clip = document.createElementNS('http://www.w3.org/2000/svg', 'clipPath');
+  const clipId = `wash-edge-${id.replace(/[^A-Za-z0-9_-]/g, '')}`;
+  clip.setAttribute('id', clipId);
+  const clipShape = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  clip.append(clipShape);
+  outline.setAttribute('clip-path', `url(#${clipId})`);
+  ink.append(clip, outline);
   wash.append(ink);
   /*
    * Three numbers: how wide, how tall, and how much of the last row is actually used. Seven panes
