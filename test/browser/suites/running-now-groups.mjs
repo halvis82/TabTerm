@@ -14,6 +14,7 @@ import {
   waitUntil,
   realClick,
   openPaneMenu,
+  press,
 } from '../helpers.mjs';
 import { reporter, closeTab } from '../cdp.mjs';
 
@@ -768,6 +769,73 @@ await waitUntil(
  * a card in Running Now that reads as an offer to close the tab the card is about, and it closed
  * the one you were working in instead. Reported in those words.
  */
+/*
+ * And the colour behind a tab answers for that tab, the same as the cards on it.
+ *
+ * Reported one surface later: "we still didn't fix the thing where we right click on the actual
+ * group background itself ... there's a close tab option but it still refers to the tab we're
+ * currently on". It was looked for by the class the group had when it was a box around the cards,
+ * and it is a colour drawn behind them now.
+ *
+ * The point pressed is the gap between two cards of the same tab, which is the colour and nothing
+ * else: a card would answer for itself and prove nothing about the colour.
+ */
+const washAt = JSON.parse(
+  String(
+    await evaluate(
+      watcher,
+      `(() => {
+         const cards = [...document.querySelectorAll(${JSON.stringify(inGroup)})];
+         if (cards.length < 2) return 'null';
+         cards[0].scrollIntoView({ block: 'center' });
+         const a = cards[0].getBoundingClientRect();
+         const b = cards[1].getBoundingClientRect();
+         /* Side by side or stacked, whichever this window made of them. */
+         const point =
+           b.left > a.right
+             ? { x: (a.right + b.left) / 2, y: a.top + 20 }
+             : { x: a.left + 20, y: (a.bottom + b.top) / 2 };
+         const x = Math.round(point.x);
+         const y = Math.round(point.y);
+         /* What is actually there, so this cannot quietly become a check about a card. */
+         const at = document.elementFromPoint(x, y);
+         return JSON.stringify({
+           x,
+           y,
+           on: at === null ? 'nothing' : at.getAttribute('class') ?? at.tagName,
+         });
+       })()`,
+    ),
+  ),
+);
+r.ok(
+  'the colour between two cards can be pointed at',
+  washAt !== null && String(washAt.on).includes('session-wash-edge'),
+  JSON.stringify(washAt),
+);
+await openPaneMenu(watcher, washAt.x, washAt.y);
+const washLabels = JSON.parse(
+  String(
+    await evaluate(
+      watcher,
+      `JSON.stringify([...document.querySelectorAll('.term-menu button, .term-menu [role="menuitem"], .term-menu div')]
+         .map((el) => (el.textContent ?? '').trim()).filter(Boolean))`,
+    ),
+  ),
+);
+r.ok(
+  'a right click on the colour offers to close the tab it stands for',
+  washLabels.some((l) => /^Close the tab/.test(l)),
+  JSON.stringify(washLabels),
+);
+r.ok(
+  'and not to close the one being looked at',
+  !washLabels.some((l) => l === 'Close tab'),
+  JSON.stringify(washLabels),
+);
+await press(watcher, 'Escape', 'Escape', 0, 27);
+await sleep(400);
+
 const cardAt = JSON.parse(
   String(
     await evaluate(

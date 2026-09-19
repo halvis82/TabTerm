@@ -2459,7 +2459,15 @@ function tabUnder(target: Element): string | undefined {
     const session = id === undefined ? undefined : liveElsewhere.find((s) => s.sessionId === id);
     return session?.inTab === true ? session.workspaceId : undefined;
   }
-  const group = target.closest('.session-group');
+  /*
+   * The colour behind a tab answers for that tab, the same as the cards on it.
+   *
+   * It was looked for by a class that no longer exists: the group was a box around the cards once
+   * and is a colour drawn behind them now, so a right click on the colour itself found nothing and
+   * fell through to the page's own menu, where `Close tab` means the tab you are looking at. That
+   * is the report this whole entry exists to answer, one surface later.
+   */
+  const group = target.closest('.session-wash');
   if (!(group instanceof HTMLElement)) return undefined;
   const workspaceId = group.dataset['workspaceId'];
   if (workspaceId === undefined) return undefined;
@@ -2629,7 +2637,7 @@ function pageMenuItems(target: Element): ShellItem[] {
   const session = sessionUnder(target);
   // Which tab the click was about, and whether it was about one of these cards at all.
   const theirTab = tabUnder(target);
-  const onCard = target.closest('.session-card, .session-group') !== null;
+  const onCard = target.closest('.session-card, .session-wash') !== null;
 
   const onStartScreen = target.closest('.launcher') !== null;
   return [

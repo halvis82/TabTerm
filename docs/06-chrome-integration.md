@@ -824,6 +824,12 @@ closes that one. Anywhere else on the page the item is `Close tab` and means thi
 what it has always been. A session no tab is holding gets neither: there is nothing to close, and
 falling back to meaning this tab is the original complaint again.
 
+**The colour behind a tab answers for that tab**, the same as the cards drawn on it. It was being
+looked for by the class the group had when it was a box around the cards, and it is a colour behind
+them now, so a right click on the colour itself found nothing and fell through to the page's own
+menu, where `Close tab` means the tab you are looking at. Reported one surface after the cards were
+fixed, which is exactly what that class rename cost.
+
 A tab holding more than one session says how many: **Close the tab with these 7 panes**. A tab of
 one needs no number and keeps the shorter wording. Seven terminals leaving the screen at once is a
 different proposition from one, and the menu should say so before the press rather than after.
