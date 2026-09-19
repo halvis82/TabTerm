@@ -91,7 +91,7 @@ import type {
   ShellIntegrationStatus,
 } from '@tabterm/shared';
 import { distinctSizes, HISTORY_MS, isResizeStorm, recordChange } from './resize-storm.js';
-import { shortPath } from '../launcher/sessions-view.js';
+import { isInATab, shortPath } from '../launcher/sessions-view.js';
 import { fillMenu, menuShell, placeAndArm, type ShellItem } from './menu-shell.js';
 import { shouldRedrawAfterAway } from './wake-redraw.js';
 import { buildStats } from '../launcher/stats-view.js';
@@ -2457,7 +2457,16 @@ function tabUnder(target: Element): string | undefined {
   if (card instanceof HTMLElement) {
     const id = card.dataset['sessionId'];
     const session = id === undefined ? undefined : liveElsewhere.find((s) => s.sessionId === id);
-    return session?.inTab === true ? session.workspaceId : undefined;
+    /*
+     * The same question the card's own badge asks, answered by the same function.
+     *
+     * This asked only whether the browser had listed the tab, while the badge asks that **or**
+     * whether a page is holding the session, which is what it was changed to after terminals in a
+     * window nobody had looked at for an hour were labelled `background`. The two drifted: a card
+     * saying `open in a tab` whose menu would not offer to close that tab, because a report from
+     * the browser had not come round yet. A full run caught it.
+     */
+    return session !== undefined && isInATab(session) ? session.workspaceId : undefined;
   }
   /*
    * The colour behind a tab answers for that tab, the same as the cards on it.
@@ -2471,7 +2480,7 @@ function tabUnder(target: Element): string | undefined {
   if (!(group instanceof HTMLElement)) return undefined;
   const workspaceId = group.dataset['workspaceId'];
   if (workspaceId === undefined) return undefined;
-  return liveElsewhere.some((s) => s.workspaceId === workspaceId && s.inTab)
+  return liveElsewhere.some((s) => s.workspaceId === workspaceId && isInATab(s))
     ? workspaceId
     : undefined;
 }

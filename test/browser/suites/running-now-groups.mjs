@@ -873,10 +873,31 @@ const labels = JSON.parse(
 const closesTheirTab = labels.find(
   (l) => l === 'Close the tab it is in' || /^Close the tab with these \d+ panes$/.test(l),
 );
+/*
+ * What the card itself says about where that session is, which must be the same question.
+ *
+ * A full run caught them disagreeing: the badge asks whether a tab lists the session **or** a page
+ * is holding it, and the menu asked only the first, so a card reading `open in a tab` had a menu
+ * that would not offer to close that tab whenever the browser's report had not come round yet.
+ */
+const badge = String(
+  await evaluate(
+    watcher,
+    `(() => {
+       const card = document.querySelector(${JSON.stringify(inGroup)});
+       return card?.querySelector('.session-badge')?.textContent?.trim() ?? 'no card';
+     })()`,
+  ),
+);
 r.ok(
   'the menu on a card offers to close the tab that card is in',
   closesTheirTab !== undefined,
-  JSON.stringify(labels),
+  `${badge} — ${JSON.stringify(labels)}`,
+);
+r.ok(
+  'and the card and its menu agree about whether a tab holds it',
+  (badge === 'open in a tab') === (closesTheirTab !== undefined),
+  `card says "${badge}", menu ${closesTheirTab === undefined ? 'does not offer' : 'offers'} to close it`,
 );
 r.ok(
   'and says how many panes go with it',

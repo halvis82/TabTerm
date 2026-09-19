@@ -824,6 +824,13 @@ closes that one. Anywhere else on the page the item is `Close tab` and means thi
 what it has always been. A session no tab is holding gets neither: there is nothing to close, and
 falling back to meaning this tab is the original complaint again.
 
+**The card and its menu ask one question.** Whether a tab holds a session is `isInATab`: the
+browser lists it, **or** a page is holding it. The badge was changed to that after terminals in a
+window nobody had looked at for an hour were labelled `background`, and the menu was left asking
+only the first half, so a card reading `open in a tab` could have a menu that would not offer to
+close that tab, whenever a report from the browser had not come round yet. A full run caught them
+disagreeing, and a check now asserts the two answers match rather than checking each alone.
+
 **The colour behind a tab answers for that tab**, the same as the cards drawn on it. It was being
 looked for by the class the group had when it was a box around the cards, and it is a colour behind
 them now, so a right click on the colour itself found nothing and fell through to the page's own
