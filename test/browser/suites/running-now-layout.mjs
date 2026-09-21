@@ -46,17 +46,34 @@ const labels = async () =>
 /*
  * The session that ran `ls` says so. Every idle terminal used to be called "shell", which made the
  * one line meant to tell them apart the one line they all shared.
+ *
+ * Asked about **this suite's own session**, by its id. Reading every card on the page meant the
+ * first of these passed on somebody else's terminal, and the second, which is the one that is
+ * actually about the command run above, was left with no wait in front of it at all: a full run
+ * caught it reading the list before the daemon had pushed what this session last ran.
  */
-const named = await waitUntil(
-  async () => (await labels()).some((l) => l.startsWith('shell - ')),
-  20000,
-);
-r.ok('a shell that has run something says what it ran', named, JSON.stringify(await labels()));
+const mine = JSON.parse(
+  String(await evaluate(worker.client, 'JSON.stringify(window.__tabterm.paneSessions())')),
+)[0]?.sessionId;
+r.ok('this suite knows which session is its own', typeof mine === 'string' && mine !== '', mine);
 
+/** What this suite's own card calls itself. */
+const myLabel = async () =>
+  String(
+    await evaluate(
+      viewer.client,
+      `(document.querySelector('.session-card[data-session-id="' + ${JSON.stringify(mine ?? '')} + '"] .session-what')?.textContent ?? '').trim()`,
+    ),
+  );
+
+const named = await waitUntil(async () => (await myLabel()).startsWith('shell - '), 20000);
+r.ok('a shell that has run something says what it ran', named, await myLabel());
+
+const saysWhat = await waitUntil(async () => (await myLabel()).startsWith('shell - ls'), 20000);
 r.ok(
   'and a bare "shell" is not what a used session is called',
-  (await labels()).some((l) => l.startsWith('shell - ls')),
-  JSON.stringify(await labels()),
+  saysWhat,
+  `${await myLabel()} — ${JSON.stringify(await labels())}`,
 );
 
 /*
