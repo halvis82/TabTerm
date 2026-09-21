@@ -294,6 +294,24 @@ what every attempt to resume a Codex session produced. The table lives in
 different files in front of it: for Claude that is a different project, and for Codex it is a
 conversation about the wrong tree.
 
+### Started in the room it is going to run in
+
+Everything the start screen starts is started at the size of the pane it will have, **after** that
+screen has gone. The strip under the start screen is a few rows tall on purpose, because the
+terminal keeps the bottom of the window while the screen is up, and that strip was what every
+launch measured and asked the daemon for.
+
+For a shell it is one reflow and invisible. For an agent it is fatal: three rows is no room to draw
+an interface in at all. Read out of his own daemon log, `pty.spawned cols 163 rows 3`, followed by
+a resize to 47 rows and then `session.exited` twenty four seconds later. Reported as resuming an
+agent session "just not working at all", with a prompt answered by `Interrupted`.
+
+So the screen is dismissed first and the size taken afterwards: dismissing takes the strip off the
+terminal and refits the panes in the same task, so the number that goes to the daemon describes the
+pane the session is actually going to run in. One function does both, because they are one act, and
+every launch from that screen goes through it: a layout, a template, a project, a restore, a custom
+action, and a resumed agent.
+
 ### Both agents are always reachable
 
 The merged list takes turns between the agents rather than sorting purely by recency. One agent

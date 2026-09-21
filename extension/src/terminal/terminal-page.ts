@@ -527,6 +527,32 @@ function showActionForm(existing?: CustomAction): void {
   name.focus();
 }
 
+/**
+ * Room for something new, and the size of the room.
+ *
+ * The start screen goes first, and the size is taken after it. Both halves are here because they
+ * are one act: what is measured is only true once the screen that was covering the pane has gone.
+ *
+ * The strip under the start screen is a few rows tall on purpose, and it is the pane this
+ * measures. A shell started at that size reflows once and is fine. An agent started at it has
+ * nowhere to draw its interface at all: read out of his own daemon log, `pty.spawned cols 163
+ * rows 3`, and that session was gone twenty four seconds later. Reported as resuming an agent
+ * session "just not working at all", with a prompt answered by `Interrupted`.
+ *
+ * Dismissing takes `panel-open` off the terminal and refits the panes in the same task, so what
+ * this measures is the pane the session is actually going to run in. It is safe to call when the
+ * start screen is not up: dismissing something already dismissed does nothing.
+ */
+function roomForSomethingNew(): { cols: number; rows: number; estimated?: true } {
+  launcher?.dismiss();
+  const size = panesHost?.fit(splitView?.focused ?? '') ?? attachSize();
+  lastRoomAsked = { cols: size.cols, rows: size.rows };
+  return size;
+}
+
+/** The last size a launch asked for, which is the number the fault was made of. */
+let lastRoomAsked: { cols: number; rows: number } | null = null;
+
 function runCustomAction(action: CustomAction): void {
   if (action.kind === 'template') {
     const template = knownTemplates.find((t) => t.id === action.templateId);
@@ -537,7 +563,7 @@ function runCustomAction(action: CustomAction): void {
     }
     pendingTemplate = template;
     layoutRequestedHere = true;
-    const size = panesHost?.fit(splitView?.focused ?? '') ?? attachSize();
+    const size = roomForSomethingNew();
     client?.send({
       t: 'create-layout',
       path: currentCwd || template.path,
@@ -1415,7 +1441,7 @@ function renderRecoveryActions(recall: WorkspaceRecall): void {
           t: 'resume-agent',
           sessionId: resumable.sessionId,
           cwd,
-          ...(panesHost?.fit(splitView?.focused ?? '') ?? attachSize()),
+          ...roomForSomethingNew(),
         });
       });
     }
@@ -3511,7 +3537,7 @@ function buildLauncher(): void {
       openedTemplate = template.name;
       openedTemplatePanes = template.panes;
       layoutRequestedHere = true;
-      const size = panesHost?.fit(splitView?.focused ?? '') ?? attachSize();
+      const size = roomForSomethingNew();
       client?.send({
         t: 'create-layout',
         /**
@@ -3538,7 +3564,7 @@ function buildLauncher(): void {
     },
     onCreateLayout: (path, panesWanted, direction, shape) => {
       layoutRequestedHere = true;
-      const size = panesHost?.fit(splitView?.focused ?? '') ?? attachSize();
+      const size = roomForSomethingNew();
       client?.send({
         t: 'create-layout',
         path,
@@ -3548,7 +3574,6 @@ function buildLauncher(): void {
         createIfMissing: true,
         ...size,
       });
-      launcher?.dismiss();
     },
     onPinDir: (path, pinned) => {
       client?.send({ t: 'pin-dir', path, pinned });
@@ -3598,9 +3623,8 @@ function buildLauncher(): void {
       setTimeout(() => client?.send({ t: 'list-live-sessions' }), 400);
     },
     onRestore: (workspaceId, replayCommands) => {
-      const size = panesHost?.fit(splitView?.focused ?? '') ?? attachSize();
+      const size = roomForSomethingNew();
       client?.send({ t: 'restore-workspace', workspaceId, replayCommands, ...size });
-      launcher?.dismiss();
     },
     onReadAgentSession: (sessionId) => {
       client?.send({ t: 'read-agent-session', sessionId, limit: 14 });
@@ -3657,9 +3681,12 @@ function buildLauncher(): void {
       void chrome.storage.local.set({ 'tabterm.hiddenResumes': [...hiddenResumes] });
     },
     onResumeAgent: (session) => {
-      const size = panesHost?.fit(splitView?.focused ?? '') ?? attachSize();
-      // Resumed into this tab, not beside it. Asked for here, so it belongs here.
+      /*
+       * Asked before the start screen goes, because going is what makes it false: dismissing
+       * records that this tab has launched something, which is exactly what this question asks.
+       */
       if (thisTabIsUnused()) layoutRequestedHere = true;
+      const size = roomForSomethingNew();
       client?.send({
         t: 'resume-agent',
         sessionId: session.sessionId,
@@ -3667,12 +3694,10 @@ function buildLauncher(): void {
         agent: session.agent,
         ...size,
       });
-      launcher?.dismiss();
     },
     onOpenProject: (path) => {
-      const size = panesHost?.fit(splitView?.focused ?? '') ?? attachSize();
+      const size = roomForSomethingNew();
       client?.send({ t: 'launch-project-template', cwd: path, ...size });
-      launcher?.dismiss();
     },
     onWantsTerminal: () => {
       // The shell under the start screen takes the keyboard, so typing is never going nowhere.
@@ -6956,6 +6981,8 @@ declare global {
       syncMarkersNow: () => void;
       /** The buffer row a piece of text is on, which is what a mark beside the scrollbar claims. */
       bufferRowOf: (text: string) => number | null;
+      /** The size the last launch from the start screen asked the daemon for. */
+      lastRoomAsked: () => { cols: number; rows: number } | null;
       /** What the daemon last said about how long a tabless terminal is kept. */
       keepAlive: () => number | null | undefined;
       /**
@@ -7410,6 +7437,11 @@ function installTestHook(): void {
      * The rail draws rows as a fraction of the scrollback and nothing on the page says which row
      * a pip means except the pip's own record of it. Comparing the two is the whole question.
      */
+    /*
+     * What a launch asked for, which is the whole of the fault it exists to prevent: a session
+     * started at the size of the strip under the start screen rather than the pane it will run in.
+     */
+    lastRoomAsked: () => lastRoomAsked,
     bufferRowOf: (text) => {
       const pane = splitView?.focused ? panesHost?.get(splitView.focused) : panesHost?.all[0];
       const buffer = pane?.controller.term.buffer.active;
