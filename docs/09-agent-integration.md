@@ -335,6 +335,28 @@ the section opens and the control vanishes with no way to close the list again.
 Being open is held in memory rather than stored. Opening a list out answers "where is that other
 one", which is a question somebody has while looking, not a preference to carry between sessions.
 
+### What is typed at an agent that is still starting is held, not lost
+
+A resumed agent draws its input box seconds before it will act on anything: it reads a transcript
+that can be tens of megabytes, sets the terminal up, and only then listens. A prompt typed into
+that window came back with its first characters missing and the turn reported as
+`[Request interrupted by user]`.
+
+Measured through the product, typing as soon as the box appeared: **four of nine** attempts came
+back interrupted, at a person's typing speed as well as at a synthetic one. The same conversations,
+resumed in a plain terminal and typed into at the same moment, answered **eight times out of
+eight**. So it is something about a session started here, and the cause is not found. This is not a
+claim to have found it.
+
+What it does is stop the loss. Keystrokes at a resumed agent are held until the pane has printed
+something and then been quiet for 900 ms, with a floor of two seconds and a ceiling of twelve, and
+then sent in the order they were typed. Nothing is dropped, because losing what somebody typed is
+the fault being fixed and swallowing it silently would be the same fault wearing different clothes.
+
+Only a resumed agent, and only its first moments. A shell is ready when it prints its prompt and
+none of this goes near one. Somebody who types into the window is told once, in a line at the
+corner, that what they type is being held; a resume nobody types at says nothing at all.
+
 ### The folder comes from the session, not from the directory it is filed under
 
 The store names a directory after the project path with `/`, `_` and `.` all replaced by the same

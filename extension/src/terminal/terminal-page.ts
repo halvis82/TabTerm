@@ -50,6 +50,7 @@ import { needsAttention, StatusMachine, titleStatus } from './status-machine.js'
 import { describeTime, isLongRunning, type TimeState } from './elapsed.js';
 import { applyFavicon, composeTitle, drawFavicon, type FaviconState } from './titles.js';
 import { TabFlasher, flashingSessions, setFlashing } from './flash-on-finish.js';
+import { HeldInput } from './held-input.js';
 import { Launcher } from '../launcher/launcher.js';
 import { CommandPanel } from '../launcher/panel-view.js';
 import { DEFAULT_PLACEMENT, type PanelPlacement } from '../launcher/command-panel.js';
@@ -1467,6 +1468,42 @@ let lastStats: StatsReport | null = null;
 let lastStatsAskedAt = 0;
 /** Faster than anybody reads a count of commands, and slow enough that it cannot feed itself. */
 const STATS_ASK_EVERY_MS = 1000;
+
+/**
+ * Keystrokes typed at an agent that is still starting, held until it is ready. See `held-input.ts`.
+ *
+ * Only a resumed agent, and only for its first few seconds. That is the one case measured to lose
+ * what was typed: four of nine prompts typed as soon as the box appeared came back with their
+ * first characters missing and the turn reported as interrupted, where the same conversations in a
+ * plain terminal answered eight times out of eight.
+ */
+const heldInput = new HeldInput();
+let heldTimer = 0;
+/** Sessions somebody has been told about the holding, so it is said once and not per keystroke. */
+const toldAboutHolding = new Set<string>();
+
+/** Set between asking to resume an agent and the session that comes back from it. */
+let resumeIsComing = false;
+
+/**
+ * Deliver what was held, to whichever sessions are ready, and keep looking while any are left.
+ *
+ * On a timer rather than on output alone, because "it has gone quiet" is a thing that happens when
+ * nothing arrives, and nothing arriving does not call anybody.
+ */
+function watchHeldInput(): void {
+  if (heldTimer !== 0 || heldInput.size === 0) return;
+  heldTimer = window.setInterval(() => {
+    for (const { sessionId, text } of heldInput.release(Date.now())) {
+      const pane = panesHost?.forSession(sessionId);
+      if (pane && text !== '') client?.write(pane.streamId, new TextEncoder().encode(text));
+    }
+    if (heldInput.size === 0) {
+      clearInterval(heldTimer);
+      heldTimer = 0;
+    }
+  }, 200);
+}
 
 /** What the daemon last reported as resumable, so the recovery page can offer it too. */
 let resumableSessions: readonly ResumableAgentSession[] = [];
@@ -3250,6 +3287,25 @@ function buildHosts(): void {
         launcher?.dismiss();
         paneChoosers.get(paneId)?.dismiss();
       }
+
+      /*
+       * Held, if this pane holds an agent that is still starting. Nothing is dropped: it goes the
+       * moment the pane is ready, in the order it was typed. See `held-input.ts`.
+       *
+       * Said out loud the first time it happens in a session, because typing and seeing nothing
+       * appear is alarming, and an explanation costs one line. Only when somebody actually types
+       * into the window: a resume nobody types at says nothing at all.
+       */
+      if (heldInput.take(pane.sessionId, data)) {
+        if (!toldAboutHolding.has(pane.sessionId)) {
+          toldAboutHolding.add(pane.sessionId);
+          showNotice(
+            'The agent is still starting. What you type is held and sent when it is ready',
+          );
+        }
+        return;
+      }
+
       client?.write(pane.streamId, new TextEncoder().encode(data));
     },
     onResize: (paneId, cols, rows) => {
@@ -3687,6 +3743,8 @@ function buildLauncher(): void {
        */
       if (thisTabIsUnused()) layoutRequestedHere = true;
       const size = roomForSomethingNew();
+      // The session that comes back from this is an agent starting up. See `heldInput`.
+      resumeIsComing = true;
       client?.send({
         t: 'resume-agent',
         sessionId: session.sessionId,
@@ -5869,6 +5927,18 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'session-created': {
+      /*
+       * A resumed agent is held for a moment before it is typed at. See `heldInput`.
+       *
+       * Marked here because this is where the session this page asked to resume comes back, and
+       * cleared whatever happens next, so a later session started some other way is not held.
+       */
+      if (resumeIsComing) {
+        resumeIsComing = false;
+        heldInput.begin(msg.sessionId, Date.now());
+        watchHeldInput();
+      }
+
       /**
        * A session for a different workspace usually belongs in a new tab.
        *
@@ -7773,6 +7843,11 @@ async function start(): Promise<void> {
     onControl,
     onOutput: (streamId, data) => {
       panesHost?.write(streamId, data, (bytes) => client?.ack(streamId, bytes));
+      // A pane that is printing is a pane still starting up, for as long as it keeps printing.
+      if (heldInput.size > 0) {
+        const speaking = panesHost?.paneForStream(streamId);
+        if (speaking) heldInput.spoke(speaking.sessionId, Date.now());
+      }
       // Output after a clear is the shell's redraw arriving, which is the clear finishing.
       if (clearSettling.size > 0) {
         const pane = panesHost?.paneForStream(streamId);
