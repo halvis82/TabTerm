@@ -1182,6 +1182,14 @@ Clicking one focuses the tab that holds its workspace, raising that window if th
 in front, and opens the workspace in a new tab if none is showing it. It has always done this and
 said nothing about it, so the notification now carries the line `Click to open this tab`.
 
+**One notice per tab, replaced rather than stacked.** The notification's id is the workspace, so
+Chrome updates the one that tab already has instead of adding another beside it. Three commands
+finishing in one terminal used to be three notices, and a morning of them was a column to clear by
+hand: "i see a lot of stale ones. i keep having to remove them. because they stack". The newest is
+also the truer one, since what a tab has to say is its latest state rather than a history of the
+states it passed through. A notice with no tab behind it keeps an id of its own, because there is
+nothing to replace and nothing to go to.
+
 **It stays until its tab has actually been reached.** Withdrawn on a click, when its tab becomes the
 active one, when the window that tab is already active in comes forward, or when the tab is closed.
 Those are the moments the thing it was about stops being news, and they are all the moments there

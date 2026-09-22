@@ -105,7 +105,25 @@ export function shouldNotify(req: NotifyRequest, paneIsVisible: boolean): boolea
 export async function notify(req: NotifyRequest, paneIsVisible = false): Promise<string | null> {
   if (!shouldNotify(req, paneIsVisible)) return null;
 
-  const id = `tabterm:${String(Date.now())}:${Math.random().toString(36).slice(2, 8)}`;
+  /**
+   * One notification per tab, replaced rather than stacked.
+   *
+   * The id is the workspace, so Chrome updates the notice that tab already has instead of adding
+   * another beside it. Three commands finishing in one terminal used to be three notices, and a
+   * morning of them was a column to clear by hand: "i see a lot of stale ones. i keep having to
+   * remove them. because they stack ... only one notification at most per tab".
+   *
+   * The newest is also the true one. What a tab has to say is its latest state, not a history of
+   * the states it passed through, and the older notice is describing a moment that has gone.
+   *
+   * Anything with no tab behind it keeps a unique id: there is nothing to replace and nothing to
+   * go to, and those are withdrawn on a timer instead.
+   */
+  const workspaceId = req.target?.workspaceId;
+  const id =
+    typeof workspaceId === 'string' && workspaceId !== ''
+      ? `tabterm:tab:${workspaceId}`
+      : `tabterm:${String(Date.now())}:${Math.random().toString(36).slice(2, 8)}`;
   /**
    * A notification that can take you somewhere stays until it has.
    *
@@ -119,7 +137,7 @@ export async function notify(req: NotifyRequest, paneIsVisible = false): Promise
    * tab is gone, or somebody clicks it. A notification with nowhere to go has none of those
    * moments, so it keeps the timer, because nothing else would ever remove it.
    */
-  const canBeVisited = typeof req.target?.workspaceId === 'string';
+  const canBeVisited = typeof workspaceId === 'string' && workspaceId !== '';
   if (req.target) await rememberTarget(id, req.target);
 
   const created = await new Promise<boolean>((resolve) => {

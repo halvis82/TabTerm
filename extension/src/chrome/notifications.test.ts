@@ -105,11 +105,13 @@ describe('a notification that points at a tab', () => {
   const fakeChrome = () => {
     const cleared: string[] = [];
     const options: Record<string, unknown>[] = [];
+    const ids: string[] = [];
     let stored: Record<string, unknown> = {};
     (globalThis as unknown as { chrome: unknown }).chrome = {
       runtime: { getURL: (p: string) => p, lastError: undefined },
       notifications: {
-        create: (_id: string, opts: Record<string, unknown>, done: () => void) => {
+        create: (id: string, opts: Record<string, unknown>, done: () => void) => {
+          ids.push(id);
           options.push(opts);
           done();
         },
@@ -125,7 +127,7 @@ describe('a notification that points at a tab', () => {
         },
       },
     };
-    return { cleared, options };
+    return { cleared, options, ids };
   };
 
   const target = { workspaceId: 'ws-1' };
@@ -140,6 +142,46 @@ describe('a notification that points at a tab', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  /*
+   * One notice per tab, replaced rather than stacked.
+   *
+   * Three commands finishing in one terminal used to be three notices, and a morning of them was
+   * a column to clear by hand. The id is the workspace, so Chrome updates the one that tab
+   * already has. Reported as: "i see a lot of stale ones ... only one notification at most per
+   * tab".
+   */
+  it('reuses one id per tab, so a new one replaces the one before it', async () => {
+    const { ids } = fakeChrome();
+    await notify({ priority: 'important', title: 'Agent', body: 'first', target });
+    await notify({ priority: 'important', title: 'Agent', body: 'second', target });
+    await notify({ priority: 'important', title: 'Agent', body: 'third', target });
+    expect(new Set(ids).size).toBe(1);
+    expect(ids[0]).toContain('ws-1');
+  });
+
+  it('and a different tab gets its own', async () => {
+    const { ids } = fakeChrome();
+    await notify({ priority: 'important', title: 'Agent', body: 'one', target });
+    await notify({
+      priority: 'important',
+      title: 'Agent',
+      body: 'two',
+      target: { workspaceId: 'ws-2' },
+    });
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  /*
+   * And one with no tab behind it keeps an id of its own: there is nothing to replace, nothing to
+   * go to, and these are the ones withdrawn on a timer instead.
+   */
+  it('while a notice with no tab is not folded into anything', async () => {
+    const { ids } = fakeChrome();
+    await notify({ priority: 'important', title: 'tabtermd', body: 'one' });
+    await notify({ priority: 'important', title: 'tabtermd', body: 'two' });
+    expect(new Set(ids).size).toBe(2);
   });
 
   it('is withdrawn when its workspace is reached', async () => {
