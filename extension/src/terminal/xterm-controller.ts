@@ -15,6 +15,7 @@ import { MarkerRail } from './markers.js';
 import { HighlightLayer } from './highlights.js';
 import { closeColorPicker, openColorPicker } from './color-picker.js';
 import { dragIsTakenByProgram, MOUSE_HINT } from './mouse-hint.js';
+import { keysForClick } from './click-to-move.js';
 import { encodeModifiedKey, modifyOtherKeysLevel } from './modified-keys.js';
 import type { Highlight } from './highlight-anchor.js';
 import { measurementIsTrustworthy } from './measured-size.js';
@@ -236,6 +237,19 @@ export class XtermController {
      * On the way down and not preventing anything: the drag still belongs to the program. This only
      * answers the question it raises.
      */
+    /*
+     * A click puts the cursor where it was clicked, in a program that never asked for the mouse.
+     *
+     * On the way up, so a drag that selected something is already visible and is left alone, and
+     * only when every one of the conditions in `click-to-move.ts` holds. What is sent is arrow
+     * keys, which is what a person would press to get there.
+     */
+    opts.container.addEventListener('mouseup', (e) => {
+      if (e.button !== 0) return;
+      const keys = this.#keysForClickAt(e);
+      if (keys !== '') opts.onData(keys);
+    });
+
     opts.container.addEventListener(
       'mousedown',
       (e) => {
@@ -405,6 +419,39 @@ export class XtermController {
       if (this.#opts.shouldOpenMenu?.() === false) return;
       e.preventDefault();
       this.#showMenu(e.clientX, e.clientY);
+    });
+  }
+
+  /**
+   * Where a click landed, in cells, and what that means for the cursor.
+   *
+   * The geometry is read from the screen element rather than from xterm, which does not expose
+   * where a pixel lands. Rounded down, so a click anywhere in a cell means that cell.
+   */
+  #keysForClickAt(e: MouseEvent): string {
+    const screen = this.term.element?.querySelector('.xterm-screen');
+    if (!screen) return '';
+    const box = screen.getBoundingClientRect();
+    if (box.width < 1 || box.height < 1) return '';
+
+    const cellWidth = box.width / this.term.cols;
+    const cellHeight = box.height / this.term.rows;
+    if (cellWidth < 1 || cellHeight < 1) return '';
+
+    const column = Math.floor((e.clientX - box.left) / cellWidth);
+    const row = Math.floor((e.clientY - box.top) / cellHeight);
+    if (column < 0 || row < 0 || column >= this.term.cols || row >= this.term.rows) return '';
+
+    const buffer = this.term.buffer.active;
+    return keysForClick({
+      column,
+      row,
+      cursorColumn: buffer.cursorX,
+      cursorRow: buffer.cursorY,
+      mouseIsTaken: this.term.modes.mouseTrackingMode !== 'none',
+      onAlternateScreen: buffer.type === 'alternate',
+      selected: this.term.hasSelection(),
+      applicationCursorKeys: this.term.modes.applicationCursorKeysMode,
     });
   }
 

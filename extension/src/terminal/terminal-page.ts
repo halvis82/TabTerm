@@ -7053,6 +7053,8 @@ declare global {
       syncMarkersNow: () => void;
       /** The buffer row a piece of text is on, which is what a mark beside the scrollbar claims. */
       bufferRowOf: (text: string) => number | null;
+      /** Where the cursor is on screen, in cells, which is what a click is measured against. */
+      cursorCell: () => { column: number; row: number };
       /** The size the last launch from the start screen asked the daemon for. */
       lastRoomAsked: () => { cols: number; rows: number } | null;
       /** What the daemon last said about how long a tabless terminal is kept. */
@@ -7514,6 +7516,15 @@ function installTestHook(): void {
      * started at the size of the strip under the start screen rather than the pane it will run in.
      */
     lastRoomAsked: () => lastRoomAsked,
+    /*
+     * Where the caret is, in cells. A check that clicks at the caret needs to know where it is,
+     * and nothing on the page says: the terminal is drawn on a canvas.
+     */
+    cursorCell: () => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : panesHost?.all[0];
+      const buffer = pane?.controller.term.buffer.active;
+      return { column: buffer?.cursorX ?? 0, row: buffer?.cursorY ?? 0 };
+    },
     bufferRowOf: (text) => {
       const pane = splitView?.focused ? panesHost?.get(splitView.focused) : panesHost?.all[0];
       const buffer = pane?.controller.term.buffer.active;

@@ -783,6 +783,26 @@ terminal at all, and no way back to the useful one without a click. It is claime
 the capture phase now, so a terminal, a text box, the command menu and the start screen all answer
 it the same way.
 
+### A click puts the cursor where it was clicked
+
+A program that asks for the mouse is told exactly where a click landed, in the encoding it asked
+for, and always has been. **Claude does not ask.** Measured by reading what it sets on a fresh
+start: `?1004h` focus, `?2004h` bracketed paste, `?2026` synchronized output, `?2031` and `?25`,
+and no `?1000`, `?1002`, `?1003` or `?1006` anywhere. So no mouse report will ever move its caret,
+in this terminal or any other, and what iTerm does there is an emulation.
+
+TabTerm does the same emulation: arrow keys, one per column, which is what a person would press to
+get there. Nothing is invented about the program's state, and a program that ignores arrows ignores
+these too. It is deliberately narrow, because an arrow key means other things elsewhere:
+
+- Only when the program has **not** asked for the mouse. One that has gets the real report
+- Only on the row the cursor is on, which is what a line being edited looks like from outside
+- Only on the normal screen, never the alternate one, where an arrow is navigation
+- Only for a click that selected nothing, so dragging out a selection is untouched
+- Never more than four hundred columns, so a stray click cannot send a burst of keys
+
+`extension/src/terminal/click-to-move.ts` holds the decision, away from any pixels.
+
 Mouse reporting mode conflicts with browser selection. When an application has enabled mouse
 reporting, a modifier override allows selection anyway, matching normal terminal convention. Nobody
 arrives knowing that, so a drag with no modifier held says so once per pane rather than appearing
