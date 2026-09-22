@@ -253,7 +253,8 @@ Drop a `.mjs` file in `~/.config/tabterm/plugins/` and restart the daemon. See
 | A command touching `~/Documents`, `~/Desktop` or `~/Downloads` hangs | macOS is waiting on a privacy prompt you have not answered. Answer it; the command continues |
 | The same command fails with `Operation not permitted` | You denied that folder. Re-allow it in System Settings, Privacy & Security, Files and Folders, then `launchctl kickstart -k gui/$(id -u)/com.tabterm.daemon` |
 
-Anything else: `node scripts/diagnostics.mjs` writes a redacted bundle to your Desktop. It
+Anything else: `node scripts/diagnostics.mjs` writes a redacted bundle to
+`~/.local/state/tabterm/diagnostics/` and prints the path. It
 contains no scrollback, command text, or environment values, and it says what it redacted.
 
 ## The site, and the privacy policy

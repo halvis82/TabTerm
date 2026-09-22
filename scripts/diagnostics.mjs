@@ -8,13 +8,13 @@
 //
 // Nothing from a terminal is ever included. No scrollback, no command text, no environment.
 //
-//   node scripts/diagnostics.mjs              -> ~/Desktop/tabterm-diagnostics-<stamp>.txt
+//   node scripts/diagnostics.mjs              -> ~/.local/state/tabterm/diagnostics/<stamp>.txt
 //   node scripts/diagnostics.mjs --stdout     -> print instead of writing
 //   node scripts/diagnostics.mjs --raw        -> skip redaction. Deliberate, and warned about.
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, hostname, release, arch } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 const STATE = join(homedir(), '.local', 'state', 'tabterm');
 const LOGS = join(STATE, 'logs');
@@ -130,7 +130,15 @@ if (toStdout) {
   process.stdout.write(`${bundle}\n`);
 } else {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const target = join(HOME, 'Desktop', `tabterm-diagnostics-${stamp}.txt`);
+  /*
+   * Beside the rest of the state, not on the Desktop.
+   *
+   * It went to the Desktop so somebody could find it to send it. Running it a few times while
+   * chasing one fault leaves a row of near identical files on the one surface a person cannot
+   * avoid looking at, and the path is printed here anyway. Asked for directly: do not do that.
+   */
+  const target = join(HOME, '.local', 'state', 'tabterm', 'diagnostics', `${stamp}.txt`);
+  mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, bundle, { mode: 0o600 });
   process.stdout.write(`Wrote ${target}\n`);
   if (!redact) {

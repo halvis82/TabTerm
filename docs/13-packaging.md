@@ -355,7 +355,10 @@ SQLite `integrity_check` with the schema version.
 
 ### The diagnostic bundle
 
-`node scripts/diagnostics.mjs` writes a redacted bundle to the Desktop.
+`node scripts/diagnostics.mjs` writes a redacted bundle to `~/.local/state/tabterm/diagnostics/`
+and prints where it went. It used to land on the Desktop so it could be found to be sent, which
+meant a row of near identical files on the one surface a person cannot avoid looking at whenever
+one fault took a few runs to chase.
 
 Redaction is the point rather than a nicety: a bundle nobody dares share is a bundle nobody
 sends. It removes tokens, credential-shaped strings, emails, long hex strings, the hostname, and
