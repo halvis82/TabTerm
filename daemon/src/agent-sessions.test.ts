@@ -209,6 +209,52 @@ describe('a conversation in a folder the directory name cannot spell', () => {
  * machine while checking something else: three rows for one conversation and two each for two
  * others, inside the first twelve offered.
  */
+/**
+ * A session somebody opened and never said anything in is not one to offer.
+ *
+ * Found by pressing one: the row came up, the agent said "No conversation found with session ID"
+ * and exited. The file was 1 KB of settings records with no turn in it. A row that fails when it
+ * is pressed costs the same click as a real one and teaches nobody anything.
+ */
+describe('a session with nothing said in it', () => {
+  it('is not offered', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'tt-store-'));
+    const project = await mkdtemp(join(tmpdir(), 'tt-proj-'));
+    const dir = join(home, project.replaceAll('/', '-'));
+    await mkdir(dir, { recursive: true });
+    const id = '99999999-0000-0000-0000-00000000000f';
+    await writeFile(
+      join(dir, `${id}.jsonl`),
+      [
+        JSON.stringify({ type: 'agent-setting', sessionId: id, cwd: project }),
+        JSON.stringify({ type: 'mode', sessionId: id, cwd: project }),
+        JSON.stringify({ type: 'permission-mode', sessionId: id, cwd: project }),
+        JSON.stringify({ type: 'system', subtype: 'informational', sessionId: id, cwd: project }),
+      ].join('\n'),
+    );
+
+    expect(await listResumable({ store: home, knownDirs: [project], limit: 10 })).toEqual([]);
+  });
+
+  it('while one that was spoken in is', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'tt-store-'));
+    const project = await mkdtemp(join(tmpdir(), 'tt-proj-'));
+    const dir = join(home, project.replaceAll('/', '-'));
+    await mkdir(dir, { recursive: true });
+    const id = '99999999-0000-0000-0000-00000000000e';
+    await writeFile(
+      join(dir, `${id}.jsonl`),
+      [
+        JSON.stringify({ type: 'agent-setting', sessionId: id, cwd: project }),
+        JSON.stringify({ type: 'user', sessionId: id, cwd: project }),
+      ].join('\n'),
+    );
+
+    const rows = await listResumable({ store: home, knownDirs: [project], limit: 10 });
+    expect(rows.map((s) => s.sessionId)).toEqual([id]);
+  });
+});
+
 describe('a conversation that has been resumed before', () => {
   it('is offered once, from its newest file', async () => {
     const home = await mkdtemp(join(tmpdir(), 'tt-store-'));

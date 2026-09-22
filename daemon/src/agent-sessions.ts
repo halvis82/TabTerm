@@ -148,7 +148,7 @@ export async function listResumable(options?: {
     return [];
   }
 
-  const found: { session: ResumableSession; storeDir: string }[] = [];
+  const found: { session: ResumableSession; storeDir: string; size: number }[] = [];
   for (const dir of dirs) {
     /*
      * A directory whose name cannot be decoded is **kept**, with its folder left unknown.
@@ -186,6 +186,7 @@ export async function listResumable(options?: {
             path: full,
           },
           storeDir: dir,
+          size: info.size,
         });
       } catch {
         /* vanished between listing and stat, which is normal for a live store */
@@ -252,7 +253,7 @@ export async function listResumable(options?: {
      * Read here rather than after the list is filled, so a duplicate does not take one of the
      * places and leave the list short.
      */
-    const recordedId = await readSessionId(candidate.session.path ?? '');
+    const recordedId = await readSessionId(candidate.session.path ?? '', candidate.size);
     if (recordedId === null || seen.has(recordedId)) continue;
     seen.add(recordedId);
     candidate.session.sessionId = recordedId;
@@ -313,7 +314,9 @@ async function resolveStoreDir(name: string): Promise<string | null> {
  * Null is the answer for a file that is not a conversation, and is what keeps unresumable rows
  * out of the list rather than leaving them to fail when somebody picks one.
  */
-async function readSessionId(path: string): Promise<string | null> {
+async function readSessionId(path: string, size = 0): Promise<string | null> {
+  let id: string | null = null;
+  let hasATurn = false;
   try {
     const head = await readHead(path, HEAD_BYTES);
     for (const line of head.split('\n')) {
@@ -324,13 +327,31 @@ async function readSessionId(path: string): Promise<string | null> {
       } catch {
         continue;
       }
-      const id = (parsed as Record<string, unknown>)['sessionId'];
-      if (typeof id === 'string' && id !== '') return id;
+      const record = parsed as Record<string, unknown>;
+      const found = record['sessionId'];
+      if (id === null && typeof found === 'string' && found !== '') id = found;
+      const kind = record['type'];
+      if (kind === 'user' || kind === 'assistant') hasATurn = true;
+      if (id !== null && hasATurn) return id;
     }
   } catch {
     debug('agent-sessions.id.unreadable', { path });
+    return null;
   }
-  return null;
+
+  /**
+   * A session somebody opened and never said anything in is not one to offer.
+   *
+   * It records its settings, its mode and its permission mode, and then nothing, and the agent
+   * CLI refuses it: "No conversation found with session ID". That row costs the same click as a
+   * real one and teaches nobody anything, which is the rule the rest of this list already follows.
+   * Found by pressing one: a 1 KB file with four records and no turn in it.
+   *
+   * Only when the whole file was read. A conversation whose first turn sits past the head read is
+   * kept, because the question could not be answered cheaply and dropping it would be a guess.
+   */
+  if (!hasATurn && size > 0 && size <= HEAD_BYTES) return null;
+  return id;
 }
 
 /** What one read of the end of a file can say about a session. */

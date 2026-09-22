@@ -377,6 +377,18 @@ one no longer throws its conversations away.
 Nothing is guessed. A session whose file does not say where it was is left out, and so is one whose
 folder has since been moved or deleted, on the same reasoning as the rest of this section.
 
+### A session nobody said anything in is not offered
+
+It records its settings, its mode and its permission mode, and then nothing, and the agent CLI
+refuses it: `No conversation found with session ID`. Found by pressing one, in a 1 KB file with
+four records and no turn in it. A row that fails when it is pressed costs the same click as a real
+one and teaches nobody anything, which is the rule the rest of this list already follows.
+
+So a row is offered only when the file holds a `user` or an `assistant` record. Only when the whole
+file was read, which is the case for anything that small: a conversation whose first turn sits past
+the head read is kept, because the question could not be answered cheaply and dropping it would be
+a guess.
+
 ### One row per conversation, not one per file
 
 Resuming writes a **new** file that records the same conversation id, so a conversation picked up
