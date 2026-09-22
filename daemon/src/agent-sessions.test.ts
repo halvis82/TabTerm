@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -198,6 +198,43 @@ describe('a conversation in a folder the directory name cannot spell', () => {
 
     const rows = await listResumable({ store: home, cwd: wanted, limit: 10 });
     expect(rows.map((r) => r.cwd)).toEqual([wanted]);
+  });
+});
+
+/**
+ * One row per conversation, not one per file.
+ *
+ * Resuming writes a new file that records the **same** conversation id, so a conversation picked
+ * up twice was offered three times over, every row resuming the same thing. Measured on this
+ * machine while checking something else: three rows for one conversation and two each for two
+ * others, inside the first twelve offered.
+ */
+describe('a conversation that has been resumed before', () => {
+  it('is offered once, from its newest file', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'tt-store-'));
+    const project = await mkdtemp(join(tmpdir(), 'tt-proj-'));
+    const dir = join(home, project.replaceAll('/', '-'));
+    await mkdir(dir, { recursive: true });
+
+    // Three files, one conversation: the original and what two resumes of it left behind.
+    for (const [name, when] of [
+      ['11111111-0000-0000-0000-00000000000a.jsonl', 1],
+      ['22222222-0000-0000-0000-00000000000b.jsonl', 2],
+      ['33333333-0000-0000-0000-00000000000c.jsonl', 3],
+    ] as const) {
+      const file = join(dir, name);
+      await writeFile(
+        file,
+        `${JSON.stringify({ type: 'user', sessionId: 'the-one-conversation', cwd: project })}\n`,
+      );
+      const at = new Date(2026, 0, when);
+      await utimes(file, at, at);
+    }
+
+    const rows = await listResumable({ store: home, knownDirs: [project], limit: 10 });
+    expect(rows.map((r) => r.sessionId)).toEqual(['the-one-conversation']);
+    // The newest file, which is the one a resume would have just written.
+    expect(rows[0]?.path).toContain('33333333');
   });
 });
 

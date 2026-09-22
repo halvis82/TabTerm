@@ -355,6 +355,16 @@ one no longer throws its conversations away.
 Nothing is guessed. A session whose file does not say where it was is left out, and so is one whose
 folder has since been moved or deleted, on the same reasoning as the rest of this section.
 
+### One row per conversation, not one per file
+
+Resuming writes a **new** file that records the same conversation id, so a conversation picked up
+twice was offered three times over and every one of those rows resumed the same thing. Found on a
+real store while checking something else: three rows for one conversation and two each for two more,
+inside the first twelve offered.
+
+The newest file wins, which is where the walk already is, and the conversation is taken as soon as
+it is seen rather than after the list is filled, so a duplicate never takes one of the places.
+
 ### Nothing is offered that would fail
 
 A row is a promise. Before a conversation is listed, three things are checked, none of which the

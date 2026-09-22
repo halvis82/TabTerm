@@ -209,6 +209,8 @@ export async function listResumable(options?: {
   const top: { session: ResumableSession; storeDir: string; title: string | null }[] = [];
   /** Folders already asked about, since a store holds many conversations per folder. */
   const exists = new Map<string, boolean>();
+  /** Conversations already taken, so the same one is never offered twice. */
+  const seen = new Set<string>();
   const isADirectory = async (path: string): Promise<boolean> => {
     const known = exists.get(path);
     if (known !== undefined) return known;
@@ -238,6 +240,22 @@ export async function listResumable(options?: {
       if (options?.cwd && facts.cwd !== options.cwd) continue;
       candidate.session.cwd = facts.cwd;
     }
+
+    /*
+     * One row per conversation, not one per file.
+     *
+     * Resuming writes a **new** file that records the same conversation id, so a conversation
+     * picked up twice was offered three times, all of them resuming the same thing. Measured on
+     * this machine: three rows for one conversation and two for two others, inside the first
+     * twelve. The newest file wins, which is where the walk already is.
+     *
+     * Read here rather than after the list is filled, so a duplicate does not take one of the
+     * places and leave the list short.
+     */
+    const recordedId = await readSessionId(candidate.session.path ?? '');
+    if (recordedId === null || seen.has(recordedId)) continue;
+    seen.add(recordedId);
+    candidate.session.sessionId = recordedId;
     top.push({ ...candidate, title: facts.title });
   }
 
@@ -256,17 +274,15 @@ export async function listResumable(options?: {
    * renames a file cannot make every row resume the wrong thing.
    */
   const described = await Promise.all(
-    top.map(async ({ session, storeDir, title }) => {
-      const path = join(STORE, storeDir, `${session.sessionId}.jsonl`);
-      const [summary, recordedId] = await Promise.all([readSummary(path), readSessionId(path)]);
-      if (recordedId === null) return null;
+    top.map(async ({ session, title }) => {
+      // The file this row was read from, which is not named after the conversation it records.
+      const summary = await readSummary(session.path ?? '');
       // The agent's own title first: a few words describing the session as a whole, kept current
       // as the work moves on, which is what somebody scanning a list needs. The first thing typed
       // is the fallback, and a weak one. It is often a pasted path, or a request whose subject
       // only became clear later.
       const label = title ?? summary;
       if (label) session.summary = label;
-      session.sessionId = recordedId;
       return session;
     }),
   );
