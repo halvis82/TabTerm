@@ -387,6 +387,11 @@ inside the first twelve offered.
 The newest file wins, which is where the walk already is, and the conversation is taken as soon as
 it is seen rather than after the list is filled, so a duplicate never takes one of the places.
 
+**Both stores have this and both are fixed.** Codex writes a new rollout for a resumed conversation
+in the same way, and its list showed the same row twice, minutes apart. There the newest rollout
+wins too, which also means the label describes the conversation as it stands rather than as it
+began.
+
 ### Nothing is offered that would fail
 
 A row is a promise. Before a conversation is listed, three things are checked, none of which the

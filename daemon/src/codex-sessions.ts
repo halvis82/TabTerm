@@ -151,6 +151,15 @@ export async function listCodexResumable(options?: {
   // one whose directory has since been deleted.
   const files = await newestFiles(store, limit * 3);
   const out: CodexSession[] = [];
+  /*
+   * One row per conversation, not one per rollout file.
+   *
+   * Resuming writes a new rollout that records the same conversation id, so a conversation picked
+   * up before was offered again beside itself, every row resuming the same thing. Seen on a real
+   * store as two rows a few minutes apart. The files are walked newest first, so the first one
+   * seen is the one to keep. The same fault was fixed for the other agent's store.
+   */
+  const seen = new Set<string>();
 
   for (const file of files) {
     if (out.length >= limit) break;
@@ -164,6 +173,8 @@ export async function listCodexResumable(options?: {
     const meta = metaFrom(head);
     if (!meta) continue;
     if (options?.cwd && meta.cwd !== options.cwd) continue;
+    if (seen.has(meta.sessionId)) continue;
+    seen.add(meta.sessionId);
 
     const session: CodexSession = {
       sessionId: meta.sessionId,
