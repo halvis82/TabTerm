@@ -174,17 +174,22 @@ const chips = String(
   ),
 );
 r.ok('and the layout can be reopened', took, chips);
-await sleep(3500);
 
 /*
  * The reopened layout arrives in a tab of its own.
  *
  * Which is right: this tab is a start screen somebody is using, and taking it over would be a
  * second thing happening that nobody asked for. So the checks below are about that new tab.
+ *
+ * Waited for rather than slept at. A restore spawns every session the layout had and then asks
+ * the service worker for a tab, and three and a half seconds was long enough until a full run
+ * was busy enough that it was not: the suite looked once, a moment early, and failed a restore
+ * that had worked.
  */
-const fresh = (await listTargets()).find(
-  (t) => !known.has(t.id) && (t.url ?? '').includes('terminal.html'),
-);
+const newTab = async () =>
+  (await listTargets()).find((t) => !known.has(t.id) && (t.url ?? '').includes('terminal.html'));
+await waitUntil(async () => (await newTab()) !== undefined, 25000);
+const fresh = await newTab();
 r.ok('the reopened layout gets a tab', fresh !== undefined);
 if (fresh === undefined) {
   await finish();
