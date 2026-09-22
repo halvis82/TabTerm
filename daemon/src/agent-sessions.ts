@@ -150,9 +150,21 @@ export async function listResumable(options?: {
 
   const found: { session: ResumableSession; storeDir: string }[] = [];
   for (const dir of dirs) {
-    const cwd = byEncoded.get(dir) ?? (await resolveStoreDir(dir));
-    if (!cwd) continue;
-    if (options?.cwd && cwd !== options.cwd) continue;
+    /*
+     * A directory whose name cannot be decoded is **kept**, with its folder left unknown.
+     *
+     * The store encodes a path by replacing `/`, `_` and `.` all with `-`, and only the first of
+     * those can be put back, so any folder with an underscore or a dot in it decodes to nothing
+     * that exists. On this machine that was 9 conversations in `personal_coding/TabTerm` alone,
+     * invisible in a list that showed 47 from the home directory: "does it only get the ones from
+     * ~/ or the ones from any folder it was started in?"
+     *
+     * The answer is in the file. Every record carries the folder the session was in, and the tail
+     * of it is already read to learn the two other things a row needs, so the folder comes back
+     * exactly and the directory name stops being evidence at all. See the walk below.
+     */
+    const cwd = byEncoded.get(dir) ?? (await resolveStoreDir(dir)) ?? '';
+    if (options?.cwd && cwd !== '' && cwd !== options.cwd) continue;
 
     let files: string[];
     try {
@@ -195,10 +207,37 @@ export async function listResumable(options?: {
    * and little else: that yields a short list rather than an unbounded scan.
    */
   const top: { session: ResumableSession; storeDir: string; title: string | null }[] = [];
+  /** Folders already asked about, since a store holds many conversations per folder. */
+  const exists = new Map<string, boolean>();
+  const isADirectory = async (path: string): Promise<boolean> => {
+    const known = exists.get(path);
+    if (known !== undefined) return known;
+    let answer = false;
+    try {
+      answer = (await stat(path)).isDirectory();
+    } catch {
+      answer = false;
+    }
+    exists.set(path, answer);
+    return answer;
+  };
+
   for (const candidate of found.slice(0, MAX_INSPECTED)) {
     if (top.length >= limit) break;
     const facts = await readTailFacts(candidate.session.path ?? '');
     if (startedByAProgram(facts.entrypoint)) continue;
+
+    /*
+     * A folder the directory name could not give up, taken from the session itself.
+     *
+     * Confirmed to exist like any other, because resuming into a folder that has been moved or
+     * deleted fails immediately, and a row that errors when pressed is worse than no row.
+     */
+    if (candidate.session.cwd === '') {
+      if (facts.cwd === null || !(await isADirectory(facts.cwd))) continue;
+      if (options?.cwd && facts.cwd !== options.cwd) continue;
+      candidate.session.cwd = facts.cwd;
+    }
     top.push({ ...candidate, title: facts.title });
   }
 
@@ -284,6 +323,13 @@ interface TailFacts {
   entrypoint: string | null;
   /** The title the agent kept for it, when there is one. */
   title: string | null;
+  /**
+   * The folder the session was in, as the session itself records it.
+   *
+   * Every record in these files carries it, which makes it the one exact answer to a question the
+   * store's directory names cannot answer at all. See `listResumable`.
+   */
+  cwd: string | null;
 }
 
 /**
@@ -297,9 +343,10 @@ interface TailFacts {
  * will not parse.
  */
 async function readTailFacts(path: string): Promise<TailFacts> {
-  if (path === '') return { entrypoint: null, title: null };
+  if (path === '') return { entrypoint: null, title: null, cwd: null };
   let entrypoint: string | null = null;
   let title: string | null = null;
+  let cwd: string | null = null;
   try {
     const tail = await readTail(path, TAIL_BYTES);
     for (const line of tail.split('\n')) {
@@ -313,6 +360,9 @@ async function readTailFacts(path: string): Promise<TailFacts> {
       const record = parsed as Record<string, unknown>;
       const entry = record['entrypoint'];
       if (typeof entry === 'string' && entry !== '') entrypoint = entry;
+      // The last one, because a session that moved belongs to where it ended up.
+      const where = record['cwd'];
+      if (typeof where === 'string' && where.startsWith('/')) cwd = where;
       if (record['type'] === 'ai-title') {
         const found = record['aiTitle'];
         // The last one wins: earlier titles describe a session the work has since moved past.
@@ -325,6 +375,7 @@ async function readTailFacts(path: string): Promise<TailFacts> {
   return {
     entrypoint,
     title: title === null ? null : title.replace(/\s+/g, ' ').slice(0, 100),
+    cwd,
   };
 }
 

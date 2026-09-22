@@ -335,6 +335,26 @@ the section opens and the control vanishes with no way to close the list again.
 Being open is held in memory rather than stored. Opening a list out answers "where is that other
 one", which is a question somebody has while looking, not a preference to carry between sessions.
 
+### The folder comes from the session, not from the directory it is filed under
+
+The store names a directory after the project path with `/`, `_` and `.` all replaced by the same
+hyphen. Only the first of those can be put back, so any project with an underscore or a dot in its
+path decoded to nothing that exists, and **every conversation in it was invisible**. Asked directly:
+"does it only get the ones from ~/ or the ones from any folder it was started in?" It was very
+nearly the first. Measured on this machine: 50 conversations across 4 folders, with 9 of TabTerm's
+own among the ones that could not be reached, because the path contains `personal_coding`.
+
+Every record in a session file carries the folder the session was in, and the end of the file is
+already read to learn the two other things a row needs, so the folder comes back exactly and the
+directory's name stops being evidence at all. Afterwards: 66 conversations across 13 folders.
+
+The directory name is still used when it happens to work, and a folder the daemon already knows is
+still encoded forward, because both are cheaper than a read. What changed is that failing to decode
+one no longer throws its conversations away.
+
+Nothing is guessed. A session whose file does not say where it was is left out, and so is one whose
+folder has since been moved or deleted, on the same reasoning as the rest of this section.
+
 ### Nothing is offered that would fail
 
 A row is a promise. Before a conversation is listed, three things are checked, none of which the
