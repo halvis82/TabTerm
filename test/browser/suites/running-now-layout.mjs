@@ -22,6 +22,17 @@ await sleep(400);
 await type(worker.client, 'cd ~\r');
 await sleep(1200);
 
+/*
+ * Which session is this suite's own, read now rather than later.
+ *
+ * Suites share a browser, and one of them opening a session into a tab can change what the first
+ * pane of any tab is. Asking at the moment the check runs meant asking a question about whoever
+ * had been there most recently: a full run had this suite reading a card labelled `claude`.
+ */
+const mine = JSON.parse(
+  String(await evaluate(worker.client, 'JSON.stringify(window.__tabterm.paneSessions())')),
+)[0]?.sessionId;
+
 // And then the command the card is judged by, run last so it is the last one.
 await type(worker.client, 'ls /usr\r');
 await waitFor(worker.client, `(window.__tabterm.readScreen() ?? '').includes('bin')`, 20000);
@@ -52,9 +63,6 @@ const labels = async () =>
  * actually about the command run above, was left with no wait in front of it at all: a full run
  * caught it reading the list before the daemon had pushed what this session last ran.
  */
-const mine = JSON.parse(
-  String(await evaluate(worker.client, 'JSON.stringify(window.__tabterm.paneSessions())')),
-)[0]?.sessionId;
 r.ok('this suite knows which session is its own', typeof mine === 'string' && mine !== '', mine);
 
 /** What this suite's own card calls itself. */
