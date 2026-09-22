@@ -55,12 +55,15 @@ await evaluate(
      box.value = 'zqxbanana';
      box.dispatchEvent(new Event('input', { bubbles: true })); })()`,
 );
-await sleep(700);
-
-const hits = Number(
-  await evaluate(viewer.client, `document.querySelectorAll('mark.find-hit').length`),
-);
-r.ok('and the word in the preview is found', hits > 0, `${String(hits)} marks`);
+/*
+ * Waited for, not slept at. The list redraws whenever a session anywhere changes, and a redraw
+ * takes the marks with it until the search puts them back. Seven hundred milliseconds was long
+ * enough until a full run was busy enough that it was not.
+ */
+const marks = async () =>
+  Number(await evaluate(viewer.client, `document.querySelectorAll('mark.find-hit').length`));
+const found = await waitUntil(async () => (await marks()) > 0, 10000);
+r.ok('and the word in the preview is found', found, `${String(await marks())} marks`);
 
 const count = String(
   await evaluate(viewer.client, `document.getElementById('find-count')?.textContent ?? ''`),
