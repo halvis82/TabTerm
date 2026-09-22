@@ -25,6 +25,8 @@ const fake = () => {
     hidden: true,
     value: '',
     textContent: '',
+    /** Enough of a node for the bar to ask whether a press landed on one of its own controls. */
+    contains: () => false,
     addEventListener: (name: string, fn: Handler) => on.set(name, fn),
     focus: vi.fn(),
     select: vi.fn(),
@@ -168,6 +170,43 @@ describe('the find bar', () => {
     expect(cleared()).toBe(true);
     // Otherwise the next thing typed goes into a box nobody can see.
     expect(focused()).toBe(true);
+  });
+
+  /*
+   * And it closes when the keyboard leaves it, which is what clicking into a terminal does.
+   *
+   * Asked for: the bar is only shown while it is being used. What was typed stays in the box, so
+   * the next press opens with the same words, selected, and typing replaces them.
+   */
+  it('closes when the keyboard goes somewhere else', () => {
+    const { bar, input } = setup();
+    bar.show('hit');
+    input.fire('blur');
+    expect(bar.isOpen).toBe(false);
+  });
+
+  it('and does not drag the keyboard back when it went of its own accord', () => {
+    // Somebody who clicked into a terminal has already said where they want it.
+    const { bar, focused, input } = setup();
+    bar.show('hit');
+    input.fire('blur');
+    expect(focused()).toBe(false);
+  });
+
+  it('but closing it deliberately does give the keyboard back', () => {
+    const { bar, focused, input } = setup();
+    bar.show('hit');
+    input.fire('keydown', { key: 'Escape' });
+    expect(focused()).toBe(true);
+  });
+
+  it('opens again with what was searched for, selected so typing replaces it', () => {
+    const { bar, input } = setup();
+    bar.show('hit');
+    input.fire('blur');
+    bar.show('');
+    expect(input.value).toBe('hit');
+    expect(input.select).toHaveBeenCalled();
   });
 
   it('says when there is nothing to find, rather than leaving the screen unchanged', () => {

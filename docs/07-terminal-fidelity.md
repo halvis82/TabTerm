@@ -769,6 +769,16 @@ line scrollback answers with the oldest copy of it. So the first match is the la
 Return walks further back into the history and Shift Return comes back towards the newest. Asked
 for by name, and it is what every other terminal does.
 
+**It is only up while it is being used.** The keyboard leaving the box closes it, which is what
+clicking into a terminal does, and the keyboard is not dragged back: somebody who clicked
+somewhere has already said where they want it. What was typed stays in the box, so the next press
+opens with the same words **selected**, which makes typing replace them and Return search for the
+same thing again. A word highlighted in the terminal still wins over the remembered one, because
+pressing the key with something selected is how somebody asks "where else is this".
+
+A press on the bar's own buttons keeps the keyboard in the box, or the press would move focus, the
+rule above would close the bar, and the button would be gone before its click arrived.
+
 **Escape closes the bar from anywhere, and the session never hears it.** The bar's own box had
 this and the terminal behind it did not, so pressing Escape after jumping to a match, or after
 clicking back into the output, sent an interrupt to whatever was running. For an agent that is the

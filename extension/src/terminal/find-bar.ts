@@ -73,6 +73,32 @@ export class FindBar {
       }
     });
 
+    /*
+     * The bar goes when the keyboard leaves it, and takes nothing with it.
+     *
+     * Asked for: "it should only show that menu when it is focused. so when we go to the actual
+     * terminal session instead like clicking on it or something, close the cmd f search menu."
+     * What was typed stays in the box, so the next press opens with the same words, selected,
+     * and typing replaces them.
+     *
+     * The keyboard is **not** taken back here, unlike closing it deliberately: somebody who
+     * clicked into a terminal or a text box has already said where they want it, and pulling it
+     * somewhere else would be a second thing happening that nobody asked for.
+     */
+    opts.input.addEventListener('blur', () => {
+      if (this.isOpen) this.hide(false);
+    });
+
+    /*
+     * A press on the bar's own controls keeps the keyboard in the box.
+     *
+     * Without this the press moves focus first, the blur above closes the bar, and the button is
+     * gone before the click it was given arrives.
+     */
+    opts.root.addEventListener('mousedown', (e) => {
+      if (e.target !== opts.input) e.preventDefault();
+    });
+
     opts.next.addEventListener('click', () => this.#run(false));
     opts.previous.addEventListener('click', () => this.#run(true));
     opts.close.addEventListener('click', () => this.hide());
@@ -82,12 +108,6 @@ export class FindBar {
     return !this.#opts.root.hidden;
   }
 
-  /**
-   * Open it, and take whatever is selected as the thing to look for.
-   *
-   * Selecting a word and pressing the key is how somebody asks "where else is this", and making
-   * them type it again is the difference between a feature and a chore.
-   */
   /**
    * Escape closes the bar, from anywhere, and the session never hears it.
    *
@@ -106,6 +126,14 @@ export class FindBar {
     this.hide();
   };
 
+  /**
+   * Open it, with what was last searched for still in the box and selected.
+   *
+   * Selected rather than merely present: the commonest thing to do next is search for something
+   * else, and typing then replaces it, while Return searches for the same thing again. A word
+   * highlighted in the terminal wins over the remembered one, because pressing the key with
+   * something selected is how somebody asks "where else is this".
+   */
   show(selected: string): void {
     if (selected !== '' && !selected.includes('\n')) {
       this.#opts.input.value = selected;
@@ -118,13 +146,17 @@ export class FindBar {
     this.#opts.window?.addEventListener('keydown', this.#onEscape, true);
   }
 
-  hide(): void {
+  /**
+   * Close it. `giveKeyboardBack` is false when it closed because the keyboard already went
+   * somewhere else, which is what losing focus means.
+   */
+  hide(giveKeyboardBack = true): void {
     this.#opts.window?.removeEventListener('keydown', this.#onEscape, true);
     this.#opts.root.hidden = true;
     this.#opts.count.textContent = '';
     this.#opts.target()?.clearFind();
     // Back to the terminal, or the next thing typed goes nowhere anybody can see.
-    this.#opts.target()?.focus();
+    if (giveKeyboardBack) this.#opts.target()?.focus();
   }
 
   /** Called when the pane being searched has gone, so the bar does not point at nothing. */

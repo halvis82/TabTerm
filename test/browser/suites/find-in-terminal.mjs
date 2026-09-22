@@ -4,7 +4,16 @@
 // and matches nothing, and drawing with elements would not help: xterm renders the rows in view and
 // the scrollback is the part worth searching. So the search asks the emulator, and this checks that
 // it reaches the scrollback rather than only what is on screen.
-import { openTerminal, evaluate, sleep, type, finish, waitFor } from '../helpers.mjs';
+import {
+  openTerminal,
+  evaluate,
+  sleep,
+  type,
+  finish,
+  waitFor,
+  waitUntil,
+  press,
+} from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -107,6 +116,51 @@ r.ok(
     (await findBar('document.getElementById("find")?.hidden === true')) === 'true',
   );
 }
+
+/*
+ * The bar is only up while it is being used, and it remembers what it was looking for.
+ *
+ * Asked for: clicking into the terminal closes it, and the next press opens it with the same
+ * words, selected, so typing replaces them and Return searches for the same thing again.
+ */
+await evaluate(
+  client,
+  `(() => {
+     const bar = document.getElementById('find-input');
+     bar.value = 'remembered';
+     bar.dispatchEvent(new Event('input', { bubbles: true }));
+     return 'typed';
+   })()`,
+);
+await sleep(300);
+await evaluate(client, `document.querySelector('.pane.focused .xterm-helper-textarea')?.focus()`);
+const closedOnClick = await waitUntil(
+  async () =>
+    String(await evaluate(client, `document.getElementById('find')?.hidden === true`)) === 'true',
+  6000,
+);
+r.ok('clicking into the terminal closes the bar', closedOnClick);
+
+await press(client, 'f', 'KeyF', 4, 70);
+await sleep(400);
+const reopened = JSON.parse(
+  String(
+    await evaluate(
+      client,
+      `JSON.stringify({
+         open: document.getElementById('find')?.hidden === false,
+         value: document.getElementById('find-input')?.value ?? '',
+         selected: (document.getElementById('find-input')?.selectionEnd ?? 0) -
+           (document.getElementById('find-input')?.selectionStart ?? 0),
+       })`,
+    ),
+  ),
+);
+r.ok(
+  'and it opens again with the same words, selected',
+  reopened.open && reopened.value === 'remembered' && reopened.selected === 'remembered'.length,
+  JSON.stringify(reopened),
+);
 
 await finish();
 r.done();
