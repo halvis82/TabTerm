@@ -3821,6 +3821,8 @@ function buildLauncher(): void {
     next: document.getElementById('find-next') as HTMLElement,
     previous: document.getElementById('find-prev') as HTMLElement,
     close: document.getElementById('find-close') as HTMLElement,
+    // Escape belongs to the bar while it is open, wherever the keyboard is. See `#onEscape`.
+    window,
   });
 
   palette = new Palette({

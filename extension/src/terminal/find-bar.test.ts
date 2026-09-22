@@ -34,7 +34,10 @@ const fake = () => {
   };
 };
 
-const setup = () => {
+const setup = (windowStub?: {
+  addEventListener: (name: string, fn: (e: KeyboardEvent) => void, capture: boolean) => void;
+  removeEventListener: (name: string, fn: (e: KeyboardEvent) => void, capture: boolean) => void;
+}) => {
   const calls: { term: string; back?: boolean }[] = [];
   let didClear = false;
   let didFocus = false;
@@ -64,6 +67,7 @@ const setup = () => {
     next: next as unknown as HTMLElement,
     previous: previous as unknown as HTMLElement,
     close: close as unknown as HTMLElement,
+    ...(windowStub ? { window: windowStub } : {}),
   });
   return {
     bar,
@@ -95,13 +99,65 @@ describe('the find bar', () => {
     expect(input.value).toBe('');
   });
 
-  it('searches forward on Return and backward on Shift Return', () => {
+  /*
+   * A terminal is read from the bottom, so the search starts there: the first match is the last
+   * thing printed, and Return walks up into the history from it. Asked for by name, and it is
+   * what every other terminal does.
+   */
+  it('starts at the newest match rather than the oldest', () => {
+    const { bar, calls } = setup();
+    bar.show('hit');
+    expect(calls.map((c) => c.back === true)).toEqual([true]);
+  });
+
+  it('and searches further back on Return, back towards the newest on Shift Return', () => {
     const { bar, calls, input } = setup();
     bar.show('hit');
     calls.length = 0;
     input.fire('keydown', { key: 'Enter' });
     input.fire('keydown', { key: 'Enter', shiftKey: true });
-    expect(calls.map((c) => c.back === true)).toEqual([false, true]);
+    expect(calls.map((c) => c.back === true)).toEqual([true, false]);
+  });
+
+  /*
+   * And Escape closes it from anywhere, without the session hearing it.
+   *
+   * The bar's own box had this and the terminal behind it did not, so pressing Escape after
+   * jumping to a match sent an interrupt to whatever was running. For an agent that is the key
+   * that stops it mid-answer.
+   */
+  it('takes Escape from the whole window while it is open, and stops it there', () => {
+    const listeners = new Map<string, (e: KeyboardEvent) => void>();
+    const windowStub = {
+      addEventListener: (name: string, fn: (e: KeyboardEvent) => void) => {
+        listeners.set(name, fn);
+      },
+      removeEventListener: (name: string) => {
+        listeners.delete(name);
+      },
+    };
+    const { bar } = setup(windowStub);
+    bar.show('hit');
+    const onKey = listeners.get('keydown');
+    expect(onKey).toBeDefined();
+
+    let stopped = false;
+    let prevented = false;
+    onKey?.({
+      key: 'Escape',
+      preventDefault: () => {
+        prevented = true;
+      },
+      stopImmediatePropagation: () => {
+        stopped = true;
+      },
+    } as unknown as KeyboardEvent);
+
+    expect(bar.isOpen).toBe(false);
+    expect(prevented).toBe(true);
+    expect(stopped).toBe(true);
+    // And it lets go, so Escape means what it usually means once the bar has gone.
+    expect(listeners.has('keydown')).toBe(false);
   });
 
   it('closes on Escape, clears what it lit up, and gives the keyboard back', () => {

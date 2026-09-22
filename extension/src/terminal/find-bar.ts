@@ -25,6 +25,16 @@ export interface FindBarOptions {
   next: HTMLElement;
   previous: HTMLElement;
   close: HTMLElement;
+  /**
+   * Where the Escape key is caught while the bar is open.
+   *
+   * Passed in rather than reached for, so this class can be checked without a browser, which is
+   * the whole reason the rest of it can be.
+   */
+  window?: {
+    addEventListener: (name: string, fn: (e: KeyboardEvent) => void, capture: boolean) => void;
+    removeEventListener: (name: string, fn: (e: KeyboardEvent) => void, capture: boolean) => void;
+  };
 }
 
 export class FindBar {
@@ -36,8 +46,15 @@ export class FindBar {
 
     opts.input.addEventListener('input', () => {
       this.#term = opts.input.value;
-      // Searched as it is typed, from the top, so the first match is the first one above.
-      this.#run(false);
+      /*
+       * Searched backwards, so the first match is the **last thing printed**.
+       *
+       * A terminal is read from the bottom: what somebody is looking for is nearly always
+       * something they have just seen go past, and starting at the top of a ten thousand line
+       * scrollback answers with the oldest copy of it. Asked for by name, and it is what every
+       * terminal does. Return then walks up into the history and Shift Return comes back down.
+       */
+      this.#run(true);
     });
 
     opts.input.addEventListener('keydown', (e) => {
@@ -50,7 +67,9 @@ export class FindBar {
       if (e.key === 'Enter') {
         e.preventDefault();
         e.stopPropagation();
-        this.#run(e.shiftKey);
+        // Return goes further back, which is the direction the search started in. Shift comes
+        // back towards what was printed most recently.
+        this.#run(!e.shiftKey);
       }
     });
 
@@ -69,6 +88,24 @@ export class FindBar {
    * Selecting a word and pressing the key is how somebody asks "where else is this", and making
    * them type it again is the difference between a feature and a chore.
    */
+  /**
+   * Escape closes the bar, from anywhere, and the session never hears it.
+   *
+   * The bar's own box had this and the terminal behind it did not, so pressing Escape after
+   * jumping to a match, or after clicking back into the output, sent an interrupt to whatever was
+   * running. For an agent that is the key that stops it mid-answer. The same rule the pane menus
+   * have, for the same reason: "it can cancel claude".
+   *
+   * In the capture phase and stopped immediately, so nothing downstream sees it, and bound only
+   * while the bar is open.
+   */
+  #onEscape = (e: KeyboardEvent): void => {
+    if (e.key !== 'Escape' || !this.isOpen) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    this.hide();
+  };
+
   show(selected: string): void {
     if (selected !== '' && !selected.includes('\n')) {
       this.#opts.input.value = selected;
@@ -77,10 +114,12 @@ export class FindBar {
     this.#opts.root.hidden = false;
     this.#opts.input.focus();
     this.#opts.input.select();
-    if (this.#term !== '') this.#run(false);
+    if (this.#term !== '') this.#run(true);
+    this.#opts.window?.addEventListener('keydown', this.#onEscape, true);
   }
 
   hide(): void {
+    this.#opts.window?.removeEventListener('keydown', this.#onEscape, true);
     this.#opts.root.hidden = true;
     this.#opts.count.textContent = '';
     this.#opts.target()?.clearFind();

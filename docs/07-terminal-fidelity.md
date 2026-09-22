@@ -763,6 +763,18 @@ the matches, Escape closes it and gives the keyboard back, and every match is li
 one in its own color. `extension/src/terminal/find-bar.ts` holds the part that has no renderer in
 it, so the policy is testable on its own.
 
+**The search starts at the bottom.** A terminal is read from the end: what somebody is looking for
+is nearly always something they saw go past a moment ago, and starting at the top of a ten thousand
+line scrollback answers with the oldest copy of it. So the first match is the last thing printed,
+Return walks further back into the history and Shift Return comes back towards the newest. Asked
+for by name, and it is what every other terminal does.
+
+**Escape closes the bar from anywhere, and the session never hears it.** The bar's own box had
+this and the terminal behind it did not, so pressing Escape after jumping to a match, or after
+clicking back into the output, sent an interrupt to whatever was running. For an agent that is the
+key that stops it mid-answer. It is claimed at the window in the capture phase while the bar is
+open, and let go the moment it closes, which is the same rule the pane menus have.
+
 **The key belongs to that bar in every state the page can be in, and a second press closes it.**
 It used to be answered inside the terminal's own key handler, which only runs while the terminal has
 the keyboard. Opening the bar moves the keyboard into its box, so the next press reached nothing of
