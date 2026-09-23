@@ -793,6 +793,27 @@ terminal at all, and no way back to the useful one without a click. It is claime
 the capture phase now, so a terminal, a text box, the command menu and the start screen all answer
 it the same way.
 
+### A scroll moves the content by the distance it was scrolled
+
+The emulator converts a pixel delta into rows and then **damps anything under fifty pixels to
+thirty percent** of itself. A wheel mouse never notices, because one notch is more than that. A
+trackpad is nothing but small deltas, so a slow drag barely moved and a flick moved properly, and
+the same distance gave a different answer depending on how it was delivered. Measured, before:
+a ten row scroll moved **3 rows**, the same distance in nine small pushes moved **25**, and three
+scrolls of a third of a row moved **8**. Reported as scrolling being weird and unnatural.
+
+TabTerm takes the wheel for pixel deltas and moves the content by exactly those pixels, carrying
+the part of a row left over so a slow drag adds up rather than rounding to nothing. Afterwards,
+each of those three is ten rows.
+
+Three cases are left to the emulator, because in them a scroll is not a scroll:
+
+- a program that asked for the mouse is told about the wheel instead, and that is its business
+- the alternate screen, where a wheel becomes arrow keys for a pager
+- a wheel mouse reporting in lines or pages, where a notch is a notch
+
+`extension/src/terminal/wheel-rows.ts` holds the arithmetic, away from any events.
+
 ### A click puts the cursor where it was clicked
 
 A program that asks for the mouse is told exactly where a click landed, in the encoding it asked

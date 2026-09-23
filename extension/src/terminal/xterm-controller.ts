@@ -16,6 +16,7 @@ import { HighlightLayer } from './highlights.js';
 import { closeColorPicker, openColorPicker } from './color-picker.js';
 import { dragIsTakenByProgram, MOUSE_HINT } from './mouse-hint.js';
 import { keysForClick } from './click-to-move.js';
+import { WheelRows } from './wheel-rows.js';
 import { encodeModifiedKey, modifyOtherKeysLevel } from './modified-keys.js';
 import type { Highlight } from './highlight-anchor.js';
 import { measurementIsTrustworthy } from './measured-size.js';
@@ -121,6 +122,9 @@ export class XtermController {
   #webgl: WebglAddon | null = null;
   /** Said once per pane. A program that keeps the mouse would otherwise say it on every click. */
   #saidMouseHint = false;
+
+  /** The part of a row left over from the last scroll. See `wheel-rows.ts`. */
+  readonly #wheel = new WheelRows();
 
   /**
    * Whether a program has asked to be told which modifier was held, and how much.
@@ -237,6 +241,40 @@ export class XtermController {
      * On the way down and not preventing anything: the drag still belongs to the program. This only
      * answers the question it raises.
      */
+    /*
+     * Scrolling moves the content by the pixels the pointer moved, and nothing else.
+     *
+     * The emulator converts a pixel delta to rows and then damps anything under fifty pixels to
+     * thirty percent of itself. A wheel mouse never notices, because one notch is more than that.
+     * A trackpad is nothing but small deltas, so a slow drag barely moved and a flick moved
+     * properly, which is what "scrolling is still really weird" was made of.
+     *
+     * Taken here, in the capture phase, and kept from the emulator entirely when it is taken. The
+     * cases it is **not** taken in are the cases where a scroll is not a scroll:
+     *
+     * - a program that asked for the mouse is told about the wheel instead, and that is its business
+     * - the alternate screen, where the emulator turns a wheel into arrow keys for a pager
+     * - a wheel mouse reporting in lines or pages, where a notch is a notch and the emulator is right
+     *
+     * See `wheel-rows.ts` for the arithmetic, which is where the remainder is carried.
+     */
+    opts.container.addEventListener(
+      'wheel',
+      (e) => {
+        if (e.deltaMode !== 0 || e.shiftKey || e.ctrlKey || e.altKey) return;
+        if (this.term.modes.mouseTrackingMode !== 'none') return;
+        if (this.term.buffer.active.type === 'alternate') return;
+
+        const cell = this.cellSize();
+        const rows = this.#wheel.take(e.deltaY, cell?.height ?? 0);
+        if (cell === null) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (rows !== 0) this.term.scrollLines(rows);
+      },
+      { capture: true, passive: false },
+    );
+
     /*
      * A click puts the cursor where it was clicked, in a program that never asked for the mouse.
      *

@@ -105,6 +105,37 @@ r.ok(
 );
 
 /*
+ * And a program that asked for the mouse is told about the wheel, rather than the terminal
+ * scrolling its own scrollback under it.
+ *
+ * The scroll handling added for trackpads takes the wheel and keeps it from the emulator, so this
+ * is the line it must not cross: a program holding the mouse still gets every wheel event.
+ */
+await evaluate(
+  client,
+  `window.__tabterm.writeToPane(window.__tabterm.paneIds()[0], '\u001b[?1000h\u001b[?1006h')`,
+);
+await sleep(400);
+const beforeWheel = await screen();
+await client.send('Input.dispatchMouseEvent', {
+  type: 'mouseWheel',
+  x: Math.round(geo.left + geo.cellWidth * 4),
+  y: Math.round(geo.top + geo.cellHeight * 4),
+  deltaX: 0,
+  deltaY: -120,
+  pointerType: 'mouse',
+});
+const wheelReported = await waitUntil(
+  async () => (await screen()).length > beforeWheel.length,
+  8000,
+);
+r.ok(
+  'a wheel over a program that holds the mouse is reported to it',
+  wheelReported && /\^\[\[<6[45];\d+;\d+M/.test(await screen()),
+  (await screen()).slice(-60),
+);
+
+/*
  * And a click moves the cursor in a program that never asked for the mouse.
  *
  * Which is the case that was reported: Claude does not turn mouse reporting on at all, measured by
