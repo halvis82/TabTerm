@@ -629,6 +629,12 @@ so markers there could be seen and never clicked.
 
 ---
 
+**The mouse hint is said once on this machine, and then never again.** It answers a question
+somebody asks by trying to select text in a program that has taken the mouse, and the answer is
+the same every time: hold Option. Once learned it is noise, and it was appearing again in every
+new pane. Remembered in extension storage, because a pane, a tab and a reload are all new pages
+and none of them is a new person.
+
 **A path shows it is clickable only while the pointer is on it.** The cursor used to change for
 the whole screen the moment the modifier went down, which announced that something was clickable
 without saying what, and said it over blank space too. Pointer and underline are xterm's own and

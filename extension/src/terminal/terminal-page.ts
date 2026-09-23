@@ -51,6 +51,7 @@ import { describeTime, isLongRunning, type TimeState } from './elapsed.js';
 import { applyFavicon, composeTitle, drawFavicon, type FaviconState } from './titles.js';
 import { TabFlasher, flashingSessions, setFlashing } from './flash-on-finish.js';
 import { HeldInput } from './held-input.js';
+import { MOUSE_HINT } from './mouse-hint.js';
 import { Launcher } from '../launcher/launcher.js';
 import { CommandPanel } from '../launcher/panel-view.js';
 import { DEFAULT_PLACEMENT, type PanelPlacement } from '../launcher/command-panel.js';
@@ -2328,6 +2329,18 @@ function folderItems(path: string): ShellItem[] {
  * on screen at once is a log, and nobody reads a log in the corner of a terminal.
  */
 let noticeTimer = 0;
+/** Whether the mouse hint has ever been given on this machine. See `onNotice`. */
+const MOUSE_HINT_KEY = 'tabterm.saidMouseHint';
+let saidMouseHint = false;
+void (async () => {
+  try {
+    const held = await chrome.storage.local.get(MOUSE_HINT_KEY);
+    if (held[MOUSE_HINT_KEY] === true) saidMouseHint = true;
+  } catch {
+    // Storage refusing means the hint may be said once more, which is the harmless direction.
+  }
+})();
+
 function showNotice(text: string): void {
   const el = document.getElementById('notice');
   if (!el) return;
@@ -3224,7 +3237,25 @@ function buildHosts(): void {
      * daemon already has, and then nothing is resized at all.
      */
     onFind: (selected) => findBar?.show(selected),
-    onNotice: (text) => showNotice(text),
+    onNotice: (text) => {
+      /*
+       * The mouse hint is said once on this machine, and then never again.
+       *
+       * It answers a question somebody asks by trying to select text in a program that has taken
+       * the mouse, and the answer is the same every time: hold Option. Once learned it is noise,
+       * and it was appearing again in every new pane. Asked for directly: "stop showing that ...
+       * maybe only the first time ... but never again".
+       *
+       * Remembered in extension storage rather than in the page, because a pane, a tab and a
+       * reload are all new pages and none of them is a new person.
+       */
+      if (text === MOUSE_HINT) {
+        if (saidMouseHint) return;
+        saidMouseHint = true;
+        void chrome.storage.local.set({ [MOUSE_HINT_KEY]: true });
+      }
+      showNotice(text);
+    },
     onFindResults: (results) => findBar?.showResults(results),
     onRendererReady: (paneId) => {
       const size = panesHost?.fit(paneId);
