@@ -1219,6 +1219,20 @@ looked, so the thing they were told about was never told to them at all.
 A notification with no workspace to open keeps the eight second timer, because none of those moments
 can ever happen to it and nothing else would take it away.
 
+**And so does one whose tab has gone**, which is the same case wearing a different hat. All three
+of those moments need the tab to exist, so a notice left behind by a closed tab could never be
+withdrawn by anything and stood there for the rest of the day. Reported as notifications stacking
+up with only a few tabs open: eleven arrived in one second on this machine, one per workspace, and
+every one of those tabs had been closed minutes earlier. A session outlives its tab, so the notice
+is still raised and clicking it still opens a tab on that workspace. It is the keeping that
+changes, not the saying.
+
+The ones already standing are swept whenever another is raised, and once more when the service
+worker starts, since a notification outlives the worker that raised it. The workspace is read out
+of the notification's own id rather than from the map of click targets, so a sweep still knows what
+it is looking at after the worker has died and taken that map with it. Notices that never belonged
+to a tab are left to their own timer.
+
 The listeners for this are registered at the top level of the service worker, which is what makes it
 work at all: the worker is usually dead by the time somebody switches tabs, and only a listener
 registered before it slept will wake it. For the same reason the record of which workspace each

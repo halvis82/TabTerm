@@ -3,6 +3,7 @@ import {
   clearNotificationsFor,
   notify,
   shouldNotify,
+  withdrawNoticesWithoutATab,
   type NotifyRequest,
 } from './notifications.js';
 
@@ -214,6 +215,135 @@ describe('a notification that points at a tab', () => {
       await notify({ priority: 'important', title: 'Terminal', body: 'done' });
       vi.advanceTimersByTime(30_000);
       expect(cleared).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+/**
+ * A notification whose tab has gone is taken back rather than left standing.
+ *
+ * One that points at a tab is kept until that tab is reached, and the three ways that happens
+ * all need the tab to exist: switching to it, focusing its window, or closing it. A tab that has
+ * already gone gives none of them, so what it left behind could never be withdrawn by anything.
+ *
+ * Reported as notifications stacking up with only a few tabs open. Eleven arrived in one second
+ * on this machine, each for a workspace whose tab had gone minutes before.
+ */
+describe('a notification whose tab is no longer there', () => {
+  /** Enough of Chrome to answer which tabs are open and which notices are on screen. */
+  const fakeChrome = (openWorkspaces: string[], showing: string[] = []) => {
+    const cleared: string[] = [];
+    const options: Record<string, unknown>[] = [];
+    const ids: string[] = [];
+    const onScreen = new Set(showing);
+    let stored: Record<string, unknown> = {};
+    (globalThis as unknown as { chrome: unknown }).chrome = {
+      runtime: { getURL: (p: string) => `chrome-extension://x/${p}`, lastError: undefined },
+      tabs: {
+        query: () =>
+          Promise.resolve(
+            openWorkspaces.map((w) => ({
+              url: `chrome-extension://x/terminal.html?workspace=${w}`,
+            })),
+          ),
+      },
+      notifications: {
+        create: (id: string, opts: Record<string, unknown>, done: () => void) => {
+          ids.push(id);
+          options.push(opts);
+          onScreen.add(id);
+          done();
+        },
+        clear: (id: string) => {
+          cleared.push(id);
+          onScreen.delete(id);
+        },
+        getAll: (done: (all: Record<string, boolean>) => void) => {
+          done(Object.fromEntries([...onScreen].map((id) => [id, true])));
+        },
+      },
+      storage: {
+        session: {
+          get: (key: string) => Promise.resolve({ [key]: stored[key] }),
+          set: (values: Record<string, unknown>) => {
+            stored = { ...stored, ...values };
+            return Promise.resolve();
+          },
+        },
+      },
+    };
+    return { cleared, options, ids };
+  };
+
+  it('is withdrawn when the next one is raised', async () => {
+    // The worker is asleep most of the time, so a notification arriving is the one moment
+    // something is certain to be awake to look at what is already there.
+    const { cleared } = fakeChrome(['ws-open'], ['tabterm:tab:ws-gone']);
+    await notify({
+      priority: 'important',
+      title: 'Agent',
+      body: 'done',
+      target: { workspaceId: 'ws-open' },
+    });
+    expect(cleared).toEqual(['tabterm:tab:ws-gone']);
+  });
+
+  it('and the ones whose tabs are still open are left alone', async () => {
+    const { cleared } = fakeChrome(
+      ['ws-a', 'ws-b'],
+      ['tabterm:tab:ws-a', 'tabterm:tab:ws-b', 'tabterm:tab:ws-gone'],
+    );
+    await withdrawNoticesWithoutATab();
+    expect(cleared).toEqual(['tabterm:tab:ws-gone']);
+  });
+
+  it('leaves a notice that never belonged to a tab to its own timer', async () => {
+    // Those carry an id of their own and are withdrawn after a few seconds. Sweeping them by
+    // this rule would take them back the instant they appeared.
+    const { cleared } = fakeChrome([], ['tabterm:1758000000000:abc123']);
+    await withdrawNoticesWithoutATab();
+    expect(cleared).toEqual([]);
+  });
+
+  /*
+   * A session outlives the tab it was opened in, so an agent finishing in one is still worth
+   * saying. It is the keeping that changes, not the saying.
+   */
+  it('still raises one for a workspace with no tab, on a timer', async () => {
+    const { cleared, options, ids } = fakeChrome([]);
+    vi.useFakeTimers();
+    try {
+      await notify({
+        priority: 'important',
+        title: 'Agent',
+        body: 'done',
+        target: { workspaceId: 'ws-closed' },
+      });
+      expect(ids).toEqual(['tabterm:tab:ws-closed']);
+      expect(options[0]?.['requireInteraction']).toBe(false);
+      expect(cleared).toEqual([]);
+      vi.advanceTimersByTime(30_000);
+      expect(cleared).toEqual(['tabterm:tab:ws-closed']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('while one whose tab is open is kept until that tab is reached', async () => {
+    const { cleared, options } = fakeChrome(['ws-here']);
+    vi.useFakeTimers();
+    try {
+      await notify({
+        priority: 'important',
+        title: 'Agent',
+        body: 'done',
+        target: { workspaceId: 'ws-here' },
+      });
+      expect(options[0]?.['requireInteraction']).toBe(true);
+      vi.advanceTimersByTime(300_000);
+      expect(cleared).toEqual([]);
     } finally {
       vi.useRealTimers();
     }

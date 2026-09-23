@@ -69,6 +69,67 @@ async function forgetTarget(id: string): Promise<void> {
   }
 }
 
+/** The prefix that says a notification belongs to one tab, and carries which one. */
+const TAB_NOTICE = 'tabterm:tab:';
+
+/**
+ * The workspaces this browser has a terminal tab open on, or null when it cannot be asked.
+ *
+ * Null rather than an empty set, because "no tabs" and "no way to tell" lead to opposite
+ * decisions: the first means a notification has nowhere to be read, and the second means carry
+ * on as before. The offscreen document has no `chrome.tabs` at all, so this is a real case.
+ */
+async function workspacesWithATab(): Promise<Set<string> | null> {
+  try {
+    if (typeof chrome.tabs?.query !== 'function') return null;
+    const base = chrome.runtime.getURL('terminal.html');
+    const tabs = await chrome.tabs.query({ url: `${base}*` });
+    const found = new Set<string>();
+    for (const tab of tabs) {
+      const workspaceId = workspaceOf(tab.url);
+      if (workspaceId !== null) found.add(workspaceId);
+    }
+    return found;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Withdraw every notification whose tab is no longer here to be looked at.
+ *
+ * One that points at a tab is deliberately kept until that tab is reached, and the three ways
+ * that happens all need the tab to exist: switching to it, focusing its window, or closing it.
+ * A tab that has already gone gives none of them, so the notification it left behind could never
+ * be taken back by anything and sat there for the rest of the day.
+ *
+ * Reported as notifications stacking up with only a few tabs open. Eleven of them arrived in one
+ * second on this machine, each for a workspace whose tab had gone minutes earlier.
+ *
+ * The workspace is read out of the notification's own id rather than from the map of click
+ * targets, so this still works after the worker has died and taken that map with it.
+ */
+export async function withdrawNoticesWithoutATab(): Promise<void> {
+  if (typeof chrome.notifications?.getAll !== 'function') return;
+  const showing = await new Promise<string[]>((resolve) => {
+    try {
+      // Typed as `Object` by Chrome's own definitions, which is a map of id to true.
+      chrome.notifications.getAll((all) => resolve(Object.keys(all ?? {})));
+    } catch {
+      resolve([]);
+    }
+  });
+  const mine = showing.filter((id) => id.startsWith(TAB_NOTICE));
+  if (mine.length === 0) return;
+  const open = await workspacesWithATab();
+  if (open === null) return;
+  for (const id of mine) {
+    if (open.has(id.slice(TAB_NOTICE.length))) continue;
+    await forgetTarget(id);
+    void chrome.notifications.clear(id);
+  }
+}
+
 /**
  * Take back every notification that was pointing at this workspace.
  *
@@ -122,7 +183,7 @@ export async function notify(req: NotifyRequest, paneIsVisible = false): Promise
   const workspaceId = req.target?.workspaceId;
   const id =
     typeof workspaceId === 'string' && workspaceId !== ''
-      ? `tabterm:tab:${workspaceId}`
+      ? `${TAB_NOTICE}${workspaceId}`
       : `tabterm:${String(Date.now())}:${Math.random().toString(36).slice(2, 8)}`;
   /**
    * A notification that can take you somewhere stays until it has.
@@ -137,7 +198,24 @@ export async function notify(req: NotifyRequest, paneIsVisible = false): Promise
    * tab is gone, or somebody clicks it. A notification with nowhere to go has none of those
    * moments, so it keeps the timer, because nothing else would ever remove it.
    */
-  const canBeVisited = typeof workspaceId === 'string' && workspaceId !== '';
+  const pointsAtATab = typeof workspaceId === 'string' && workspaceId !== '';
+  /*
+   * First, take back the ones whose tab has gone, so this does not land on a pile of them.
+   *
+   * Done here as well as when the worker starts, because the worker is usually asleep and a
+   * notification arriving is the one moment something is certain to be awake to look.
+   */
+  await withdrawNoticesWithoutATab();
+  /**
+   * Kept until it is read only while there is something to read it in.
+   *
+   * A workspace whose tab has been closed still has a session behind it, and telling somebody
+   * their agent is waiting in one is worth doing: clicking opens a tab on it. But none of the
+   * three moments that withdraw a notification can happen without a tab, so it would never
+   * leave. It gets the timer instead, the same as a notification that points nowhere at all.
+   */
+  const open = await workspacesWithATab();
+  const canBeVisited = pointsAtATab && (open === null || open.has(workspaceId));
   if (req.target) await rememberTarget(id, req.target);
 
   const created = await new Promise<boolean>((resolve) => {
@@ -212,6 +290,15 @@ export async function workspaceIsOnScreen(workspaceId: string | undefined): Prom
 }
 
 export function installClickHandler(): void {
+  /*
+   * Whatever is left over from before this worker existed.
+   *
+   * A notification outlives the worker that raised it, so the ones whose tab has since gone are
+   * still on screen when the next worker starts. This is the first chance anything has to take
+   * them back.
+   */
+  void withdrawNoticesWithoutATab();
+
   chrome.notifications.onClicked.addListener((id) => {
     void (async () => {
       const target = (await readTargets())[id];
