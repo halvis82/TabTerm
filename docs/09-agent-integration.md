@@ -367,6 +367,27 @@ Only a resumed agent, and only its first moments. A shell is ready when it print
 none of this goes near one. Somebody who types into the window is told once, in a line at the
 corner, that what they type is being held; a resume nobody types at says nothing at all.
 
+#### What the interrupt is not
+
+It came back after the holding was in place, with a prompt typed a full five seconds after the box
+appeared, so the list below is what a second pass could rule out. Every line of it was measured on
+this machine, against real conversations, with the agent command reduced to a program that prints
+every byte it is given.
+
+| Ruled out | How |
+|---|---|
+| A stray key from the terminal | The only bytes the pty was given were the prompt, one character at a time, and one carriage return. No escape, no `^C` |
+| A signal | The agent was run under a wrapper that logs every signal sent to its process group. A run that was interrupted logged none |
+| The terminal itself | The same conversation resumed by typing `claude --resume <id>` into a TabTerm shell answered normally |
+| A new agent | One started the same way this one is, without `--resume`, answered normally |
+| The environment | A plain terminal given the same minimal environment the daemon spawns with answered normally |
+| The agent's own settings | A plain terminal, same machine, same hooks, same conversation, answered every time |
+
+What is left is the conversation aborting itself: the transcript records the prompt and, forty to
+sixty milliseconds later, `[Request interrupted by user]`, with nothing arriving in between. It is
+intermittent, it happens only to a conversation resumed from the list, and the mechanism inside the
+agent is not claimed here.
+
 ### The folder comes from the session, not from the directory it is filed under
 
 The store names a directory after the project path with `/`, `_` and `.` all replaced by the same
