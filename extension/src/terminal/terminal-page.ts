@@ -787,7 +787,15 @@ function refreshTitle(status?: string): void {
   const fields = {
     ...titleFields,
     paneCount: count,
-    ...(launcher && !launcher.dismissed ? { startScreen: true } : {}),
+    /*
+     * On screen, rather than merely not dismissed.
+     *
+     * A launcher that was built and never shown is not dismissed either, so a tab reloaded onto a
+     * session it already had was called `<name> — TabTerm` until something dismissed a screen
+     * nobody had seen. Reported as the title being one thing after naming a session and another
+     * after a refresh.
+     */
+    ...(launcher?.isShowing === true ? { startScreen: true } : {}),
     ...(openedTemplate && openedTemplatePanes === count ? { template: openedTemplate } : {}),
     ...(lastCommandHere ? { lastCommand: lastCommandHere } : {}),
   };
@@ -818,6 +826,23 @@ function whichTab(paneCount: number): string {
   const last = lastCommandHere.trim();
   if (last === '') return '';
   return last.length > 24 ? `${last.slice(0, 24)}…` : last;
+}
+
+/**
+ * Write a name into the layout this page is holding, so the title can be composed from it at once.
+ *
+ * The daemon owns the layout and will say the same thing a moment later. This is the same
+ * optimism the pane itself already shows while the name is being typed.
+ */
+function nameInLayout(paneId: string, label: string): void {
+  const write = (node: LayoutNode): void => {
+    if (node.type === 'terminal') {
+      if (node.paneId === paneId) node.label = label;
+      return;
+    }
+    for (const child of node.children) write(child);
+  };
+  if (layout) write(layout);
 }
 
 /** The first pane label in the tab, reading the layout in the order it is drawn. */
@@ -5004,6 +5029,15 @@ function renameSession(paneId: string): void {
     onSubmit: (label, color) => {
       document.querySelector('.pane-label-form')?.remove();
       if (label !== '') useColor('title', color);
+      /*
+       * The tab takes the name now, rather than when the daemon echoes the layout back.
+       *
+       * The name was already drawn on the pane as it was typed; only the tab's own title waited
+       * for the round trip, so it changed a moment later than everything else. The echo arrives
+       * and says the same thing.
+       */
+      nameInLayout(paneId, label);
+      refreshTitle();
       client?.send({ t: 'set-pane-label', workspaceId, paneId, label, color });
       requestAnimationFrame(() => pane.controller.focus());
     },

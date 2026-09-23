@@ -75,7 +75,18 @@ function describeWhat(fields: TitleFields): string {
    * strip will not show more than that anyway.
    */
   const last = fields.lastCommand?.trim();
-  if (last) return last.length > 24 ? `${last.slice(0, 24)}…` : last;
+  if (last) {
+    /*
+     * An agent is called by its name, whatever it was started with.
+     *
+     * The command that starts one carries the flags somebody configured, and a tab strip read
+     * `<name> — claude --dangerously-skip-permissions`, where every character past the first word
+     * is the same on every agent tab they have. The name is the part that identifies it.
+     */
+    const first = last.split(/\s+/)[0]?.split('/').pop() ?? '';
+    if (AGENTS.has(first)) return first;
+    return last.length > 24 ? `${last.slice(0, 24)}…` : last;
+  }
   return running || fields.custom || 'zsh';
 }
 

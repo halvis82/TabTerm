@@ -8,6 +8,40 @@ import { composeTitle } from './titles.js';
  * what this is, then where it is. Where is the folder's own name rather than a path, because a
  * path puts the answer at the end of a string that has already been truncated.
  */
+/**
+ * An agent is called by its name, not by the command that started it.
+ *
+ * The configured command carries flags, and a tab strip read
+ * `<name> — claude --dangerously-skip-permissions`, where everything past the first word is the
+ * same on every agent tab somebody has.
+ */
+describe('a tab running an agent', () => {
+  it('is called by the agent, not by its flags', () => {
+    expect(
+      composeTitle({ lastCommand: 'claude --dangerously-skip-permissions', cwd: '/Users/me/app' }),
+    ).toBe('claude — app');
+  });
+
+  it('and by the agent when it was started through a path', () => {
+    expect(composeTitle({ lastCommand: '/opt/wrap/codex --search', cwd: '/Users/me/app' })).toBe(
+      'codex — app',
+    );
+  });
+
+  it('while an ordinary command is still said as it was typed', () => {
+    expect(composeTitle({ lastCommand: 'npm run build', cwd: '/Users/me/app' })).toBe(
+      'npm run build — app',
+    );
+  });
+
+  it('and a long one is still cut', () => {
+    const long = 'npm run build --workspace daemon --verbose';
+    expect(composeTitle({ lastCommand: long, cwd: '/Users/me/app' })).toBe(
+      'npm run build --workspac… — app',
+    );
+  });
+});
+
 describe('what a tab is called', () => {
   it('is just the product on the page you land on', () => {
     expect(composeTitle({ startScreen: true, cwd: '/Users/someone' })).toBe('TabTerm — ~');

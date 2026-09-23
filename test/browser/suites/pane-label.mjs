@@ -11,6 +11,7 @@ import {
   realClick,
   openPaneMenu,
   waitFor,
+  waitUntil,
 } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
@@ -143,6 +144,29 @@ const after = JSON.parse(
   ),
 );
 r.ok('and it survives a reload', after.includes('build watch'), after.join(' | '));
+
+/*
+ * And the tab is called by the name, after a reload as well as before it.
+ *
+ * The title said `<name> — TabTerm` once a tab was reloaded onto a session it already had: the
+ * start screen was counted as showing whenever it had not been dismissed, and one that was built
+ * and never shown is not dismissed either. Reported as the title being one thing after naming a
+ * session and another after a refresh.
+ */
+const titled = await waitUntil(
+  async () => String(await evaluate(client, 'document.title')).includes('build watch'),
+  15000,
+);
+r.ok(
+  'the tab is called by the name after a reload',
+  titled,
+  String(await evaluate(client, 'document.title')),
+);
+r.ok(
+  'and not by the start screen it is not showing',
+  !String(await evaluate(client, 'document.title')).includes('TabTerm'),
+  String(await evaluate(client, 'document.title')),
+);
 
 await finish();
 r.done();

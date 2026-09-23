@@ -232,6 +232,22 @@ left, so it has to be the half that survives being cut off. Only for a tab holdi
 several there are several names, and taking the focused pane's would make the tab rename itself as
 somebody clicked between them, which is a worse title than none.
 
+The name appears the moment it is typed. The daemon owns the layout and echoes the new name back a
+moment later, but the pane already draws it optimistically, so only the tab's own title waited for
+the round trip and changed after everything else had. The page writes the name into the layout it
+is holding and recomposes the title from it; the echo arrives and says the same thing.
+
+**An agent is called by its name, not by the command line that started it.** That command carries
+whatever flags somebody configured, so a strip of agent tabs read `<name> - claude
+--dangerously-skip-permissions`, where every character past the first word is identical on all of
+them. The first word is the part that identifies it, and it is matched against the known agents so
+an ordinary long command is still shown as itself, truncated.
+
+**The start screen only counts while it is on screen.** A launcher that was built and never shown
+is not dismissed either, so a tab reloaded onto a session it already had composed its title as if
+the start screen were up and came back as `<name> - TabTerm`, which is the second half of the same
+report: the title was one thing after naming a session and another after a refresh.
+
 ### A reopened tab comes back where it was
 
 Reloading the extension destroys every terminal tab and the terminals themselves carry on in the
