@@ -220,6 +220,8 @@ async function main(): Promise<void> {
    * fresh countdown.
    */
   sessions.rememberOwner = (workspaceId, profile) => restore.noteOwner(workspaceId, profile);
+  // The same provenance, read back after a restart. See `#tabDisposition`.
+  sessions.ownersOfWorkspace = (workspaceId) => restore.ownersOf(workspaceId);
   sessions.rememberBackgroundSince = (workspaceId, at) =>
     restore.noteBackgroundSince(workspaceId, at);
   sessions.restoreProvenance(restore.provenance());

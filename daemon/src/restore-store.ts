@@ -148,6 +148,25 @@ export class RestoreStore {
     return out;
   }
 
+  /**
+   * Which browsers are known to have held one workspace, from the durable record.
+   *
+   * The same question `allOwners` answers for every workspace at once, asked for one, because the
+   * rule that reads a browser's silence asks it per session on every sweep.
+   */
+  ownersOf(workspaceId: string): Set<string> {
+    const out = new Set<string>();
+    try {
+      const rows = this.#db.handle
+        .prepare('SELECT profile FROM workspace_owners WHERE workspace_id = ?')
+        .all(workspaceId) as { profile: string }[];
+      for (const row of rows) out.add(row.profile);
+    } catch {
+      /* an unreadable table means no provenance, which is the same as a fresh machine */
+    }
+    return out;
+  }
+
   /** When a workspace went to the background, or null when it came back. */
   noteBackgroundSince(workspaceId: string, at: number | null): void {
     try {

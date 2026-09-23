@@ -276,6 +276,61 @@ describe('a browser that has settled and does not have the workspace', () => {
     expect(backend.kills).toEqual([]);
   });
 
+  /**
+   * And it still means that after the daemon has been restarted.
+   *
+   * What a browser has held was remembered in memory only, so a restart emptied it, and a tab
+   * closed before that restart was never reported by anybody again: its workspace could not enter
+   * the map, no browser could be the one that had held it, and the answer stayed `unknown` for
+   * ever. On a real machine that was sessions marked background for nineteen hours against a
+   * thirty minute setting.
+   *
+   * Modelled as the daemon sees it after a restart: a session and its workspace are here, and
+   * **nothing has reported that workspace this run**. The only provenance is the durable record.
+   */
+  const asAfterARestart = (): { sessionId: string; workspaceId: string } => {
+    const session = sessions.create({ cwd: '/tmp', cols: 80, rows: 24 });
+    session.hasRun = true;
+    const { workspace } = workspaces.create(session.id);
+    // Deliberately no `noteWorkspaceOwner`: that is the memory a restart takes away.
+    sessions.attach(session, { clientId: 'chrome:page-1', cols: 80, rows: 24, onOutput: () => {} });
+    sessions.detach(session, 'chrome:page-1');
+    return { sessionId: session.id, workspaceId: workspace.id };
+  };
+
+  it('and after a restart, on the record that survived it', async () => {
+    sessions.settledAfterMs = 10;
+    const ctx = asAfterARestart();
+    sessions.ownersOfWorkspace = (id) =>
+      id === ctx.workspaceId ? new Set(['chrome']) : new Set<string>();
+    // A browser that connects and reports its tabs, none of which is this workspace.
+    sessions.reportOpenWorkspaces('chrome', ['some-other-workspace']);
+    await untilKilled(ctx.sessionId);
+    expect(backend.kills.map((k) => k.sessionId)).toEqual([ctx.sessionId]);
+  });
+
+  it('but not for a browser that never held it, however settled it is', async () => {
+    // Somebody else's browser, connected and settled, saying nothing about a workspace it has
+    // never had. That is not an account of this session at all.
+    sessions.settledAfterMs = 10;
+    const ctx = asAfterARestart();
+    sessions.ownersOfWorkspace = () => new Set(['a-different-profile']);
+    sessions.reportOpenWorkspaces('chrome', ['some-other-workspace']);
+    await sleep(WELL_PAST_EVERY_TIMER);
+    expect(backend.kills).toEqual([]);
+    expect(sessions.get(ctx.sessionId)).toBeTruthy();
+  });
+
+  it('and not at all when the durable record is empty, which is a fresh machine', async () => {
+    sessions.settledAfterMs = 10;
+    const ctx = asAfterARestart();
+    sessions.ownersOfWorkspace = () => new Set<string>();
+    sessions.reportOpenWorkspaces('chrome', ['some-other-workspace']);
+    await sleep(WELL_PAST_EVERY_TIMER);
+    expect(backend.kills).toEqual([]);
+    expect(sessions.get(ctx.sessionId)).toBeTruthy();
+  });
+
   it('keeps it when the last browser goes away, since nobody is left to say anything', async () => {
     // Chrome quitting takes its reporter with it. That is silence again, not an account.
     sessions.settledAfterMs = 10;

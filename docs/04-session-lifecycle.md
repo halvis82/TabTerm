@@ -103,7 +103,12 @@ The rules are deliberately asymmetric, and all in the safe direction:
 | Pinned, persistent, or a listening server | Still outrank it entirely |
 
 Both the provenance and the background time are written to the database, so a daemon update does
-not lose them. Without the first, every session adopted across a restart is unattributable, since
+not lose them, **and the provenance is read back from there when judging a tab closed**. It was
+written and never read, so in practice the rule ran on an in-memory record that every restart
+emptied: a tab closed before the restart is never reported by anybody again, its workspace could
+not enter that record, no browser could be the one that had held it, and the answer stayed unknown
+for ever. On a real machine that was sessions marked `background` for nineteen hours against a
+thirty minute setting, which is the exact failure this row was written to prevent. Without the first, every session adopted across a restart is unattributable, since
 no browser in the new daemon's lifetime has reported its workspace or asked for it, and nothing
 could ever authorise the timeout: safe, and still the wrong answer. Without the second, each update
 hands every waiting session a fresh countdown.

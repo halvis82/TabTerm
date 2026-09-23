@@ -1250,6 +1250,9 @@ export class SessionManager {
    * durability rather than correctness while the daemon runs.
    */
   rememberOwner?: (workspaceId: string, profile: string) => void;
+
+  /** Which browsers have held a workspace, from the record that survives a restart. */
+  ownersOfWorkspace?: (workspaceId: string) => Set<string>;
   rememberBackgroundSince?: (workspaceId: string, at: number | null) => void;
 
   /**
@@ -1592,7 +1595,24 @@ export class SessionManager {
      */
     for (const [clientId, since] of this.#reporterSince) {
       if (now - since < this.settledAfterMs) continue;
-      if (this.#reporterSeen.get(profileOf(clientId))?.has(workspaceId) === true) return 'closed';
+      const profile = profileOf(clientId);
+      if (this.#reporterSeen.get(profile)?.has(workspaceId) === true) return 'closed';
+
+      /*
+       * And the record that survives a restart, which is what made this rule unreachable.
+       *
+       * `#reporterSeen` is built from reports as they arrive, and a daemon restart empties it. A
+       * tab closed **before** that restart is never reported again by anybody, so its workspace
+       * could never enter the map, so no browser could ever be the one that had held it, so the
+       * answer stayed `unknown` and the timeout somebody chose applied to nothing. On a real
+       * machine that was sessions marked background for nineteen hours with a thirty minute
+       * setting: "it's just not killing background sessions based on the 30 min timer".
+       *
+       * The durable half is `workspace_owners`, written whenever a browser reports a workspace,
+       * and it answers the same question across restarts: this profile, connected and settled
+       * now, has held this workspace and does not list it any more.
+       */
+      if (this.ownersOfWorkspace?.(workspaceId).has(profile) === true) return 'closed';
     }
     return 'unknown';
   }
