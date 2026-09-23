@@ -3,25 +3,55 @@ import { interleaveByAgent, resumeCommand } from './agent-resume.js';
 
 describe('asking an agent to resume', () => {
   it('uses a flag for claude', () => {
-    expect(resumeCommand('claude', 'claude', 'abc')).toEqual(['claude', '--resume', 'abc']);
+    expect(resumeCommand('claude', ['claude'], 'abc')).toEqual(['claude', '--resume', 'abc']);
   });
 
   it('uses a subcommand for codex, which is the whole bug', () => {
     // `codex --resume <id>` is rejected. Every resume of a Codex session was that.
-    expect(resumeCommand('codex', 'codex', 'abc')).toEqual(['codex', 'resume', 'abc']);
+    expect(resumeCommand('codex', ['codex'], 'abc')).toEqual(['codex', 'resume', 'abc']);
   });
 
   it('keeps a configured executable, including a wrapper script', () => {
-    expect(resumeCommand('claude', '/opt/wrap/claude', 'x')).toEqual([
+    expect(resumeCommand('claude', ['/opt/wrap/claude'], 'x')).toEqual([
       '/opt/wrap/claude',
       '--resume',
       'x',
     ]);
-    expect(resumeCommand('codex', '/opt/wrap/codex', 'x')).toEqual([
+    expect(resumeCommand('codex', ['/opt/wrap/codex'], 'x')).toEqual([
       '/opt/wrap/codex',
       'resume',
       'x',
     ]);
+  });
+
+  /**
+   * And the rest of the configured command, which is what a conversation picked back up was
+   * missing.
+   *
+   * It took the executable and dropped everything after it, so an agent started from the list came
+   * up unconfigured: with `--dangerously-skip-permissions` set, a resumed session asked whether to
+   * trust the folder, and that dialog took the keystrokes meant for the conversation.
+   */
+  it('keeps the flags the agent is configured with', () => {
+    expect(resumeCommand('claude', ['claude', '--dangerously-skip-permissions'], 'abc')).toEqual([
+      'claude',
+      '--dangerously-skip-permissions',
+      '--resume',
+      'abc',
+    ]);
+  });
+
+  it('and puts them before the subcommand, where a subcommand CLI wants them', () => {
+    expect(resumeCommand('codex', ['codex', '--search'], 'abc')).toEqual([
+      'codex',
+      '--search',
+      'resume',
+      'abc',
+    ]);
+  });
+
+  it('and falls back to the plain name when nothing is configured', () => {
+    expect(resumeCommand('claude', [], 'abc')).toEqual(['claude', '--resume', 'abc']);
   });
 });
 

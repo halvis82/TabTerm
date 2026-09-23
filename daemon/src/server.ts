@@ -2184,7 +2184,7 @@ export class DaemonServer {
           cwd: msg.cwd,
           cols: msg.cols,
           rows: msg.rows,
-          command: resumeCommand(agent, this.#agentExecutable(agent), msg.sessionId),
+          command: resumeCommand(agent, this.#agentArgv(agent), msg.sessionId),
         });
         if (this.#launcher.recordDir(msg.cwd)) this.launcherChanged();
         const { workspace } = this.#workspaces.create(session.id);
@@ -3540,9 +3540,26 @@ export class DaemonServer {
    * wrapper script keeps their wrapper. The other agent falls back to its usual name.
    */
   #agentExecutable(agent: AgentKind): string {
-    const configured = this.#config.agentCommand[0];
-    if (configured !== undefined && configured.endsWith(agent)) return configured;
-    return AGENT_EXECUTABLE[agent];
+    return this.#agentArgv(agent)[0] ?? AGENT_EXECUTABLE[agent];
+  }
+
+  /**
+   * The command this person has set for one agent, flags and all.
+   *
+   * Read from the live setting rather than from the defaults, which is what somebody changing it
+   * in the settings pane actually changes, and it is the whole argv rather than its first word: a
+   * conversation picked back up has to run the way a new one does. Resuming used to take the
+   * executable alone, so `--dangerously-skip-permissions` was dropped and the agent came up asking
+   * whether to trust the folder.
+   *
+   * Only when the configured command is for **this** agent. Somebody who has set Claude's flags is
+   * not asking for them to be handed to Codex, which would not understand them.
+   */
+  #agentArgv(agent: AgentKind): readonly string[] {
+    const configured = this.#agentCommand;
+    const executable = configured[0];
+    if (executable !== undefined && executable.endsWith(agent)) return configured;
+    return [AGENT_EXECUTABLE[agent]];
   }
 
   /**

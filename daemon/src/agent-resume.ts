@@ -19,13 +19,25 @@ export const AGENT_EXECUTABLE: Record<AgentKind, string> = {
 /**
  * The full argv for resuming one conversation.
  *
- * `executable` is passed in rather than assumed, so a configured command still wins: somebody
- * whose `claude` is a wrapper script keeps their wrapper.
+ * The whole configured command is passed in rather than only its executable, so a conversation
+ * picked back up runs the way a new one does. It used to take the executable alone and drop
+ * everything after it, so an agent started from the list came up **unconfigured**: with
+ * `claude --dangerously-skip-permissions` set, a resumed session asked "Do you trust the files in
+ * this folder?", and the dialog took the first keystrokes meant for the conversation. Reported as
+ * resuming still not working, with that dialog in the screenshot.
+ *
+ * The flags go before the subcommand, which is where a subcommand CLI expects the global ones,
+ * and where a flag CLI does not care.
  */
-export function resumeCommand(agent: AgentKind, executable: string, sessionId: string): string[] {
+export function resumeCommand(
+  agent: AgentKind,
+  argv: readonly string[],
+  sessionId: string,
+): string[] {
+  const [executable = AGENT_EXECUTABLE[agent], ...flags] = argv;
   return agent === 'codex'
-    ? [executable, 'resume', sessionId]
-    : [executable, '--resume', sessionId];
+    ? [executable, ...flags, 'resume', sessionId]
+    : [executable, ...flags, '--resume', sessionId];
 }
 
 /**

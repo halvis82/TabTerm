@@ -290,6 +290,16 @@ subcommand:
 what every attempt to resume a Codex session produced. The table lives in
 `daemon/src/agent-resume.ts` so a third agent is a row rather than a branch.
 
+**A resumed conversation runs with the same command a new one does**, flags and all, read from the
+live setting rather than from the defaults. Resuming used to take the executable alone and drop
+everything after it, so with `claude --dangerously-skip-permissions` configured a conversation
+picked back up came up unconfigured and asked "Do you trust the files in this folder?". The dialog
+then took the keystrokes meant for the conversation, which is what reached the person as a prompt
+being answered with `Interrupted by user`. The flags go before the subcommand, where a subcommand
+CLI expects the global ones and where a flag CLI does not care, and they are only used when the
+configured command is for that agent: Claude's flags are not handed to Codex, which would reject
+them.
+
 **In the session's own directory**, which the row carries. An agent resumed somewhere else has
 different files in front of it: for Claude that is a different project, and for Codex it is a
 conversation about the wrong tree.
