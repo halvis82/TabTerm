@@ -131,14 +131,39 @@ r.ok(
   ),
 );
 
-// `..` goes back up. Waited for: the box is rewritten after the daemon answers about the folder.
-await realClick(client, '.launcher-completion', '..');
-const wentUp = await waitFor(
-  client,
-  `(document.querySelector('.launcher-input')?.value ?? 'x') === ''`,
-  15000,
-);
+/*
+ * `..` goes back up. Waited for: the box is rewritten after the daemon answers about the folder.
+ *
+ * Pressed again if the press did not land. The start screen redraws whenever a session starts
+ * anywhere, including in another tab, and a redraw builds a new list: a row found a moment before
+ * the press can be gone by the time it arrives, and the press then reaches nothing at all. On an
+ * idle machine that never happens; in a parallel run it failed a run with nothing wrong in it.
+ * A person whose click missed presses again, which is what this does.
+ */
+let wentUp = false;
+for (let attempt = 0; attempt < 6 && !wentUp; attempt++) {
+  await realClick(client, '.launcher-completion', '..');
+  wentUp = await waitFor(
+    client,
+    `(document.querySelector('.launcher-input')?.value ?? 'x') === ''`,
+    2500,
+  );
+}
 r.ok('and `..` goes back up', wentUp, String(await boxValue()));
+
+/*
+ * And it stays up.
+ *
+ * The answer to a folder that was asked about on the way down arrives after the way back up, and
+ * an answer applied whenever it turns up would put the old path back in the box. That has happened
+ * here once already, in the listing rather than the box, so it is asserted rather than assumed.
+ */
+await sleep(1500);
+r.ok(
+  'and does not get the old path put back',
+  String(await boxValue()) === '',
+  String(await boxValue()),
+);
 
 /**
  * A path typed several levels deep, without a tilde.

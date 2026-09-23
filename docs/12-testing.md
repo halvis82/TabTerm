@@ -302,6 +302,14 @@ session the run created.
 suites sharing one fight over which tab that is and keystrokes land in another suite's terminal.
 Two suites crashed in parallel that passed alone.
 
+**A press at a list that is being rebuilt reaches nothing.** The start screen redraws whenever a
+session starts anywhere, including in another tab, so in a parallel run a row found a moment before
+the press can be gone by the time it lands. A press is located and then dispatched at a point, and
+a point over a list that has just been rebuilt is over nothing in particular. The folder picker's
+`..` failed a full run this way and passed alone. Pressing again is what a person does and is what
+the suite does now, and the check after it asserts the state holds rather than only that it was
+reached once, so a real regression still fails.
+
 ### A suite may not spend somebody's money or need their credentials
 
 A check that drove a real agent CLI answered a question exactly once and was then deleted rather
