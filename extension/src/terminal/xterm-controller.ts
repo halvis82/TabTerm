@@ -266,8 +266,26 @@ export class XtermController {
         if (this.term.buffer.active.type === 'alternate') return;
 
         const cell = this.cellSize();
-        const rows = this.#wheel.take(e.deltaY, cell?.height ?? 0);
         if (cell === null) return;
+
+        /*
+         * At the end of the scrollback, the scroll is let go rather than swallowed.
+         *
+         * A session that has printed less than a screenful has nothing above it, and a trackpad
+         * keeps sending events for a second after the fingers leave. Consuming those silently is
+         * what "scrolling in a session that hasn't had a lot printed is awkward" is: the gesture
+         * goes nowhere and nothing says so. Released, the browser gives it the usual end-of-scroll
+         * feel, and the remainder of a row is dropped so it cannot jump later.
+         */
+        const buffer = this.term.buffer.active;
+        const lowest = Math.max(0, buffer.length - this.term.rows);
+        const canGo = e.deltaY < 0 ? buffer.viewportY > 0 : buffer.viewportY < lowest;
+        if (!canGo) {
+          this.#wheel.reset();
+          return;
+        }
+
+        const rows = this.#wheel.take(e.deltaY, cell.height);
         e.preventDefault();
         e.stopPropagation();
         if (rows !== 0) this.term.scrollLines(rows);

@@ -820,6 +820,18 @@ Three cases are left to the emulator, because in them a scroll is not a scroll:
 
 `extension/src/terminal/wheel-rows.ts` holds the arithmetic, away from any events.
 
+**At the end of the scrollback the scroll is let go rather than swallowed.** A trackpad keeps
+sending events for a second after the fingers leave, and a session that has printed less than a
+screenful has nothing above it to reach. Consuming those silently is what "scrolling in a session
+that hasn't had a lot printed is awkward" was: the gesture went nowhere and nothing said so.
+Released, the browser gives the usual end-of-scroll feel, and the part of a row left over is
+dropped so it cannot jump once there is something to scroll to.
+
+Worth saying plainly, because it was the other half of that report: an agent that has just started
+has **no scrollback at all**. Measured, a fresh pane holds 24 lines against a 24 row window. Nothing
+has scrolled off yet, so there is nothing to scroll to, in this terminal or any other. It comes
+right on its own as the conversation grows past the window.
+
 ### A click puts the cursor where it was clicked
 
 A program that asks for the mouse is told exactly where a click landed, in the encoding it asked
