@@ -141,15 +141,25 @@ r.ok(
  * A person whose click missed presses again, which is what this does.
  */
 let wentUp = false;
+let landed = 0;
 for (let attempt = 0; attempt < 6 && !wentUp; attempt++) {
-  await realClick(client, '.launcher-completion', '..');
+  // Counted, because a press that never reached the row and a row that ignored a press are
+  // different faults, and a retry loop that does not count cannot tell them apart. What the
+  // state does under a redraw is `the-folder-box-under-a-redraw`; this is about the mouse.
+  if (await realClick(client, '.launcher-completion', '..')) landed++;
   wentUp = await waitFor(
     client,
     `(document.querySelector('.launcher-input')?.value ?? 'x') === ''`,
     2500,
   );
 }
-r.ok('and `..` goes back up', wentUp, String(await boxValue()));
+r.ok(
+  'and `..` goes back up',
+  wentUp,
+  landed === 0
+    ? 'no press ever reached the row, which is the list being rebuilt under the mouse'
+    : `${String(landed)} press(es) landed, box is ${String(await boxValue())}`,
+);
 
 /*
  * And it stays up.
