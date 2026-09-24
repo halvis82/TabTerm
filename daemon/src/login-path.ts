@@ -16,27 +16,58 @@ import { safeError } from './safe-error.js';
  * Asking the login shell is the same mechanism a terminal already relies on, so what a command
  * gets and what a person gets in a shell are the same thing by construction rather than by a
  * list somebody has to maintain.
+ *
+ * **Interactive, because that is the shell a person has.** `.zshrc` is read by interactive shells
+ * only, and it is where `export PATH="$HOME/.local/bin:$PATH"` lives on this machine and on most
+ * others. Asking a login shell that is not interactive answered with a PATH nobody has: it put
+ * `/usr/local/bin` ahead of `~/.local/bin`, so `claude` resolved to a copy from May 2025 that had
+ * been superseded fifteen months earlier and still asked for a model that no longer exists. Every
+ * prompt came back `API Error: 404 ... model: claude-opus-4-20250514`, in a conversation started
+ * minutes before. A terminal inside TabTerm found the right one all along, because a terminal is
+ * interactive; only what the daemon spawned itself was affected.
+ *
+ * The answer is fenced with a marker, since an interactive shell prints whatever somebody's
+ * profile prints. A shell whose profile refuses to run interactively falls back to the plain
+ * login shell, and then to a guess.
  */
+
+/** Fences the answer off from whatever an interactive profile decides to print. */
+const MARK = '__tabterm_path__';
 
 let cached: string | null = null;
 
 /** Kept small: this runs a shell, and the answer does not change while the host lives. */
 export function loginPath(shell = process.env['SHELL'] ?? '/bin/zsh'): string {
   if (cached !== null) return cached;
-  try {
-    // A constant argument, never anything a user typed. See docs/05-security.md §4.
-    const out = execFileSync(shell, ['-l', '-c', 'printf %s "$PATH"'], {
-      encoding: 'utf8',
-      timeout: 4000,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    cached = out.trim() || fallback();
-  } catch (e: unknown) {
-    warn('login-path.failed', { shell, error: safeError(e) });
-    cached = fallback();
-  }
+  cached =
+    ask(shell, ['-l', '-i', '-c', `printf '\n%s%s\n' ${MARK} "$PATH"`], true) ??
+    ask(shell, ['-l', '-c', 'printf %s "$PATH"'], false) ??
+    fallback();
   debug('login-path.resolved', { entries: cached.split(':').length });
   return cached;
+}
+
+/** One attempt at asking a shell, or null when it could not answer. */
+function ask(shell: string, argv: readonly string[], fenced: boolean): string | null {
+  try {
+    // Constant arguments, never anything a user typed. See docs/05-security.md §4.
+    const out = execFileSync(shell, [...argv], {
+      encoding: 'utf8',
+      timeout: 8000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const answer = fenced ? afterMark(out) : out.trim();
+    return answer === '' ? null : answer;
+  } catch (e: unknown) {
+    warn('login-path.failed', { shell, interactive: fenced, error: safeError(e) });
+    return null;
+  }
+}
+
+/** The PATH out of a shell's output, ignoring anything its profile printed around it. */
+export function afterMark(output: string, mark = MARK): string {
+  const line = output.split('\n').find((l) => l.startsWith(mark));
+  return line === undefined ? '' : line.slice(mark.length).trim();
 }
 
 function fallback(): string {

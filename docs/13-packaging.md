@@ -216,6 +216,22 @@ why it cannot be relied on. A login shell is the only spawn that works regardles
 A non-login shell produces a missing toolchain that presents as a mysterious per-command bug.
 `10-limitations.md` tier 2.10.
 
+**And the shell the daemon asks has to be interactive too.** A terminal is a login shell *and* an
+interactive one, so it reads `.zshrc`, which is where `export PATH="$HOME/.local/bin:$PATH"` lives
+on this machine and on most others. Asking `zsh -l -c` alone answers with a PATH nobody has:
+measured here, `/usr/local/bin` came fourth and `~/.local/bin` eighteenth, the exact reverse of
+what the same person gets in a terminal.
+
+What that cost: `claude` resolved to a copy installed in May 2025 and superseded fifteen months
+later, which still asks for `claude-opus-4-20250514`. That model no longer exists, so every prompt
+in an agent the daemon started came back `API Error: 404`, in conversations begun minutes earlier.
+Terminals inside TabTerm were never affected, because a terminal is interactive and finds the
+right one itself, which is what made it look like a fault in the agent rather than in the PATH.
+
+`daemon/src/login-path.ts` asks `zsh -l -i -c` and fences the answer with a marker, since an
+interactive profile prints whatever it likes. A shell that will not run interactively falls back to
+the plain login shell, and then to a guess.
+
 ---
 
 ## 3. Extension distribution
