@@ -276,10 +276,11 @@ Codex writes to `~/.codex/sessions/YYYY/MM/DD/`. TabTerm reads both, in
 - **Never auto-resumes.** Listing is not resuming; a person clicks
 - It runs in an ordinary terminal, as a command at that terminal's own prompt
 
-### A resumed conversation runs in a terminal, not instead of one
+### An agent runs in a terminal, not instead of one
 
-The session that a resume creates is a plain login shell in the conversation's folder. Once it has
-drawn its prompt, `claude --resume <id>` is written into it, exactly as if somebody had typed it.
+The session an agent starts in is a plain login shell, in the conversation's folder for a resume
+and in the folder it was launched from for a new one. Once it has drawn its prompt, the command is
+written into it, exactly as if somebody had typed it: `claude --resume <id>`, or `claude`.
 
 It used to be spawned as the session's own command, and that had the conversation *be* the
 terminal. Two things followed from that, both reported:
@@ -303,6 +304,15 @@ The shell is typed at when it goes quiet rather than at a fixed moment, because 
 reliable signal for "a prompt is on screen" without shell integration, which is opt in. A login
 profile that prints a banner in several chunks simply pauses later. Nothing is written for the
 first quarter second of quiet, and nothing waits longer than five seconds.
+
+**And the shell finds the program, which the daemon cannot be trusted to do.** The PTY host is
+durable on purpose: it outlives daemon restarts so that sessions survive them, and it works out
+`PATH` once and keeps it for as long as it lives. A host that started before a fix to how that
+`PATH` is read keeps the old answer until every session in it has gone. On this machine that meant
+an agent the daemon spawned ran `/usr/local/bin/claude`, version 1.0.6 from May 2025, while every
+terminal on the same machine ran 2.1.281. The old one asks for a model that has been retired, so
+each prompt came back `API Error: 404`. A shell resolves the name itself, at the moment it runs,
+with the `PATH` its own profile built, so it cannot drift from what the person gets.
 
 A session that runs something at its prompt counts as a session something was launched in: the
 folder box does not offer itself over it, and the reap policy does not treat it as a shell nobody

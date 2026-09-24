@@ -48,7 +48,21 @@ export function resumeCommandLine(
   argv: readonly string[],
   sessionId: string,
 ): string {
-  return resumeCommand(agent, argv, sessionId).map(shellQuote).join(' ');
+  return commandLine(resumeCommand(agent, argv, sessionId));
+}
+
+/**
+ * An argv as one line a shell will read back as the same argv.
+ *
+ * Used for starting an agent as well as for resuming one, and for the same two reasons. A shell
+ * resolves the program the way the person would: the daemon's own idea of `PATH` comes from a
+ * login shell that is not interactive, and the durable PTY host caches it for as long as it
+ * lives, so an agent it spawns can be a different copy of the program than the one a terminal on
+ * the same machine finds. And when the agent exits there is a prompt left behind rather than a
+ * dead pane.
+ */
+export function commandLine(argv: readonly string[]): string {
+  return argv.map(shellQuote).join(' ');
 }
 
 /** A single argument as a shell will read it back unchanged. */

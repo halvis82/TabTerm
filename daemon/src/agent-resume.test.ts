@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { interleaveByAgent, resumeCommand, resumeCommandLine } from './agent-resume.js';
+import {
+  commandLine,
+  interleaveByAgent,
+  resumeCommand,
+  resumeCommandLine,
+} from './agent-resume.js';
 
 describe('asking an agent to resume', () => {
   it('uses a flag for claude', () => {
@@ -153,6 +158,32 @@ describe('the command line a shell is given', () => {
     // A line somebody reads back off their own screen should look like one they could have typed.
     expect(resumeCommandLine('claude', ['/usr/local/bin/claude'], 'id-1')).toBe(
       '/usr/local/bin/claude --resume id-1',
+    );
+  });
+});
+
+/**
+ * Starting an agent is a line for a shell too, for the same two reasons resuming one is.
+ *
+ * The durable PTY host caches its idea of `PATH` for as long as it lives, and that idea came from
+ * a login shell that is not interactive. An agent it spawned could therefore be a different copy
+ * of the program than the one a terminal on the same machine finds, which is how every prompt in
+ * a fresh conversation came back `API Error: 404` for a model retired fifteen months earlier.
+ */
+describe('the line an agent is started with', () => {
+  it('is the configured command', () => {
+    expect(commandLine(['claude'])).toBe('claude');
+  });
+
+  it('keeps its flags', () => {
+    expect(commandLine(['claude', '--dangerously-skip-permissions'])).toBe(
+      'claude --dangerously-skip-permissions',
+    );
+  });
+
+  it('quotes what a shell would otherwise read as syntax', () => {
+    expect(commandLine(['/opt/my tools/claude', '--flag=a b'])).toBe(
+      "'/opt/my tools/claude' '--flag=a b'",
     );
   });
 });

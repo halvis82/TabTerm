@@ -59,6 +59,7 @@ import {
   AGENT_EXECUTABLE,
   agentInForeground,
   interleaveByAgent,
+  commandLine,
   resumeCommandLine,
   type AgentKind,
 } from './agent-resume.js';
@@ -1877,10 +1878,16 @@ export class DaemonServer {
             if (from) cwd = await this.#liveCwd(from);
           }
 
+          /*
+           * Started in a terminal, the same as a resumed one. See `commandLine`.
+           *
+           * The shell finds the program the way this person's own terminal finds it, and when
+           * the agent exits there is a prompt left rather than a dead pane.
+           */
           const session = this.#sessions.create({
             cols: msg.cols,
             rows: msg.rows,
-            command: this.#agentCommand,
+            runAtPrompt: commandLine(this.#agentCommand),
             ...(cwd ? { cwd } : {}),
           });
           if (cwd) this.#launcher.recordDir(cwd);
