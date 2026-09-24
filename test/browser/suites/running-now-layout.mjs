@@ -74,6 +74,23 @@ const myLabel = async () =>
     ),
   );
 
+/*
+ * Asked again, rather than trusted from before the command was run.
+ *
+ * Reading it once at the start was supposed to settle which session is this suite's own, and it
+ * did not: a full run read a card labelled `claude`, which belongs to whichever suite launched an
+ * agent, twice now. The page this asks is this suite's own worker tab, so the answer is its
+ * session by construction, and asking at the last moment leaves no window for it to become
+ * somebody else's.
+ */
+const nowMine = JSON.parse(
+  String(await evaluate(worker.client, 'JSON.stringify(window.__tabterm.paneSessions())')),
+)[0]?.sessionId;
+r.ok(
+  'and it is still the same session it was',
+  nowMine === mine,
+  `${String(mine)} then, ${String(nowMine)} now`,
+);
 const named = await waitUntil(async () => (await myLabel()).startsWith('shell - '), 20000);
 r.ok('a shell that has run something says what it ran', named, await myLabel());
 
