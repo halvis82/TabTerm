@@ -252,13 +252,16 @@ export function reapInputFor(
       session.hasRun !== true &&
       session.hasInput !== true &&
       session.command === undefined &&
+      // Something was launched here at its own prompt, which is a used terminal by any reading.
+      session.startedWithCommand !== true &&
       session.cwd === session.startedIn,
     exited: session.state === 'exited',
     listeningPort: opts.listeningPort,
     keepBackgroundSeconds:
       opts.keepBackgroundSeconds === undefined ? null : opts.keepBackgroundSeconds,
     foregroundProgram: session.foregroundProcess ?? session.command?.[0],
-    hasExplicitCommand: Boolean(session.command),
+    // Either kind of launch counts: as the session's own command, or run at its prompt.
+    hasExplicitCommand: Boolean(session.command) || session.startedWithCommand === true,
     detachedForSeconds: Math.max(0, (Date.now() - session.lastAttachedAt) / 1000),
   };
 }

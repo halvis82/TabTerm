@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { interleaveByAgent, resumeCommand } from './agent-resume.js';
+import { interleaveByAgent, resumeCommand, resumeCommandLine } from './agent-resume.js';
 
 describe('asking an agent to resume', () => {
   it('uses a flag for claude', () => {
@@ -109,5 +109,50 @@ describe('showing both agents in one short list', () => {
   it('loses nothing', () => {
     const many = [at('claude', 5), at('codex', 4), at('claude', 3), at('codex', 2), at('codex', 1)];
     expect(interleaveByAgent(many)).toHaveLength(many.length);
+  });
+});
+
+/**
+ * The same thing as one line, because a resumed conversation now runs in a shell.
+ *
+ * It used to be spawned as the session's own command, which made the conversation the terminal
+ * rather than a program running in one: interrupting it left a dead pane and no prompt.
+ */
+describe('the command line a shell is given', () => {
+  it('is the argv, joined', () => {
+    expect(resumeCommandLine('claude', ['claude'], 'abc-123')).toBe('claude --resume abc-123');
+  });
+
+  it('keeps the flags somebody configured', () => {
+    expect(
+      resumeCommandLine('claude', ['claude', '--dangerously-skip-permissions'], 'abc-123'),
+    ).toBe('claude --dangerously-skip-permissions --resume abc-123');
+  });
+
+  it('puts a subcommand agent back together the same way', () => {
+    expect(resumeCommandLine('codex', ['codex'], '01a0-ff')).toBe('codex resume 01a0-ff');
+  });
+
+  /*
+   * This line is read by a shell, unlike the argv, so anything that is not plainly safe is
+   * quoted. A wrapper script in a folder with a space in it is the ordinary case.
+   */
+  it('quotes a path with a space in it', () => {
+    expect(resumeCommandLine('claude', ['/Applications/My Tools/claude'], 'id-1')).toBe(
+      "'/Applications/My Tools/claude' --resume id-1",
+    );
+  });
+
+  it('and a quote inside one', () => {
+    expect(resumeCommandLine('claude', ["/home/o'brien/claude"], 'id-1')).toBe(
+      "'/home/o'\\''brien/claude' --resume id-1",
+    );
+  });
+
+  it('leaves an ordinary path alone rather than quoting everything', () => {
+    // A line somebody reads back off their own screen should look like one they could have typed.
+    expect(resumeCommandLine('claude', ['/usr/local/bin/claude'], 'id-1')).toBe(
+      '/usr/local/bin/claude --resume id-1',
+    );
   });
 });

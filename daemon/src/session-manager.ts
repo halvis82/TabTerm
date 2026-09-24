@@ -10,6 +10,17 @@ import { decideReap, describeReap, reapInputFor, type TabDisposition } from './c
 import { plainText } from './plain-text.js';
 import { expandHome } from './complete-path.js';
 import { listeningPorts } from './server-detect.js';
+
+/**
+ * How quiet a new shell must go before a command is written at its prompt.
+ *
+ * Long enough that a profile printing a banner in several chunks is not mistaken for a prompt,
+ * short enough that nobody watches an empty terminal wondering whether it worked.
+ */
+const PROMPT_QUIET_MS = 250;
+
+/** And the longest anything waits, for a shell whose profile never stops printing. */
+const PROMPT_CAP_MS = 5000;
 import { assertTransition } from './session-state.js';
 import { VtState } from './vt-state.js';
 import { safeError } from './safe-error.js';
@@ -46,6 +57,25 @@ export interface Session {
   signal?: number;
   pinned: boolean;
   persistent: boolean;
+  /**
+   * A command to run at this session's own prompt, once it has one.
+   *
+   * For starting something in an ordinary terminal rather than in place of one. An agent spawned
+   * as the session's `command` **is** the session: interrupting it leaves a dead pane with
+   * `[finished]` in it and no shell to come back to, which is what resuming a conversation used
+   * to do. A shell that runs the same command has a prompt to return to.
+   *
+   * Written when the shell has drawn its prompt and not before. Text typed at a shell that has
+   * not started reading yet is thrown away by the terminal, and what is on screen then is a
+   * command sitting above a prompt that never received it.
+   */
+  runAtPrompt?: string;
+  /** Waiting for the prompt to settle before `runAtPrompt` is written. */
+  promptWait?: ReturnType<typeof setTimeout>;
+  /** When this session first spoke, which is what the cap on waiting is measured from. */
+  promptSince?: number;
+  /** Set once something has been launched here, whether as the command or at the prompt. */
+  startedWithCommand?: boolean;
   /** Set when a listening socket is attributed to this session. Protects it from reaping. */
   listeningPort?: number;
   /** Best-known foreground program, consulted by the reap policy. */
@@ -401,6 +431,33 @@ export class SessionManager {
     session.osc?.feed(text);
     this.#events.onOutput?.(session, text);
     for (const client of session.clients.values()) client.onOutput(data);
+    if (session.runAtPrompt !== undefined) this.#waitForPrompt(session);
+  }
+
+  /**
+   * Run what this session was asked to run, once its shell has stopped printing.
+   *
+   * There is no reliable signal for "a prompt is on screen": shell integration says so, but it is
+   * opt in and most people have not added it. What is always true is that a shell prints its
+   * prompt and then goes quiet, so the command is written after a pause in the output rather
+   * than at a fixed moment. A login shell with a talkative profile simply pauses later.
+   *
+   * The cap is what stops a session that prints continuously from never being given its command
+   * at all. Late is survivable; never is not.
+   */
+  #waitForPrompt(session: Session): void {
+    session.promptSince ??= Date.now();
+    clearTimeout(session.promptWait);
+    const waited = Date.now() - session.promptSince;
+    const quiet = Math.max(0, Math.min(PROMPT_QUIET_MS, PROMPT_CAP_MS - waited));
+    session.promptWait = setTimeout(() => {
+      const command = session.runAtPrompt;
+      delete session.runAtPrompt;
+      delete session.promptWait;
+      delete session.promptSince;
+      if (command === undefined) return;
+      this.write(session, Buffer.from(`${command}\r`, 'utf8'));
+    }, quiet);
   }
 
   #ended(sessionId: string, exitCode: number, signal?: number): void {
@@ -451,7 +508,14 @@ export class SessionManager {
     return Math.min(1000, Math.max(1, Math.floor(value)));
   }
 
-  create(opts: { cwd?: string; command?: readonly string[]; cols: number; rows: number }): Session {
+  create(opts: {
+    cwd?: string;
+    command?: readonly string[];
+    cols: number;
+    rows: number;
+    /** Run at the shell's own prompt rather than instead of the shell. See `Session.runAtPrompt`. */
+    runAtPrompt?: string;
+  }): Session {
     /**
      * Refused when there is no durable PTY host, before anything is built.
      *
@@ -496,6 +560,10 @@ export class SessionManager {
       commandRunning: false,
     };
     if (opts.command) session.command = opts.command;
+    if (opts.runAtPrompt !== undefined && opts.runAtPrompt !== '') {
+      session.runAtPrompt = opts.runAtPrompt;
+      session.startedWithCommand = true;
+    }
 
     const osc = this.#buildOsc(session);
     session.osc = osc;

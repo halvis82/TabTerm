@@ -29,6 +29,34 @@ export const AGENT_EXECUTABLE: Record<AgentKind, string> = {
  * The flags go before the subcommand, which is where a subcommand CLI expects the global ones,
  * and where a flag CLI does not care.
  */
+/**
+ * The same thing as one line, for running at a shell's prompt.
+ *
+ * Resuming used to spawn the agent as the session's own command, which made the conversation the
+ * terminal rather than something running in one. Interrupting it left a dead pane saying
+ * `[finished]` with no shell to come back to, and every keystroke after that went nowhere.
+ * Reported as "it doesn't take me to a normal terminal ... these are not valid terminal sessions
+ * at all", and what was asked for instead is exactly this: a normal session in the conversation's
+ * folder, with `claude --resume <id>` run in it.
+ *
+ * Quoted per argument, because this one **is** read by a shell, unlike the argv above. Anything
+ * that is not plainly safe is single quoted, and a single quote inside is closed, escaped and
+ * reopened, which is the only form that needs no other rule.
+ */
+export function resumeCommandLine(
+  agent: AgentKind,
+  argv: readonly string[],
+  sessionId: string,
+): string {
+  return resumeCommand(agent, argv, sessionId).map(shellQuote).join(' ');
+}
+
+/** A single argument as a shell will read it back unchanged. */
+function shellQuote(word: string): string {
+  if (word !== '' && /^[A-Za-z0-9_@%+=:,./-]+$/.test(word)) return word;
+  return `'${word.replaceAll("'", `'\\''`)}'`;
+}
+
 export function resumeCommand(
   agent: AgentKind,
   argv: readonly string[],

@@ -59,7 +59,7 @@ import {
   AGENT_EXECUTABLE,
   agentInForeground,
   interleaveByAgent,
-  resumeCommand,
+  resumeCommandLine,
   type AgentKind,
 } from './agent-resume.js';
 import { loginPath, resolveExecutable } from './login-path.js';
@@ -2172,19 +2172,24 @@ export class DaemonServer {
 
       case 'resume-agent': {
         /**
-         * Resuming is a spawn like any other. The id came from the store, but it is passed as
-         * argv to the agent CLI and never through a shell.
+         * An ordinary terminal in the conversation's folder, which then runs the agent.
          *
-         * In **the session's own directory**, which the row carries. An agent resumed somewhere
-         * else has different files in front of it, which for Claude is a different project
-         * entirely and for Codex is a conversation about the wrong tree.
+         * It used to be spawned as the session's own command, which made the conversation the
+         * terminal rather than a program running in one. Interrupting it left a dead pane saying
+         * `[finished]` and no prompt to come back to, and a resumed conversation answered the
+         * first prompt with `[Request interrupted by user]` while the same command typed into a
+         * TabTerm shell answered every time. Both were measured before this changed.
+         *
+         * In **the session's own directory**, which the row carries, so no `cd` is needed or
+         * shown. An agent resumed somewhere else has different files in front of it: for Claude a
+         * different project entirely, for Codex a conversation about the wrong tree.
          */
         const agent: AgentKind = msg.agent ?? 'claude';
         const session = this.#sessions.create({
           cwd: msg.cwd,
           cols: msg.cols,
           rows: msg.rows,
-          command: resumeCommand(agent, this.#agentArgv(agent), msg.sessionId),
+          runAtPrompt: resumeCommandLine(agent, this.#agentArgv(agent), msg.sessionId),
         });
         if (this.#launcher.recordDir(msg.cwd)) this.launcherChanged();
         const { workspace } = this.#workspaces.create(session.id);
@@ -2790,7 +2795,9 @@ export class DaemonServer {
       // would resend its snapshot, which resets the renderer and can discard output that
       // arrived mid-flight. Splitting one pane must not disturb its neighbors.
       // Whether anything was launched here, which the page cannot tell from the screen.
-      const started = session.command !== undefined && session.command.length > 0;
+      const started =
+        (session.command !== undefined && session.command.length > 0) ||
+        session.startedWithCommand === true;
       // Typed into at any point, which the screen cannot show for a command never sent.
       const typed = session.hasInput === true;
       /**

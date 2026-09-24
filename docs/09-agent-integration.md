@@ -274,7 +274,39 @@ Codex writes to `~/.codex/sessions/YYYY/MM/DD/`. TabTerm reads both, in
 - Resume IDs are discovered from the store, never guessed
 - Offered in the launcher and on the expired-session recovery page
 - **Never auto-resumes.** Listing is not resuming; a person clicks
-- The id is passed as argv to the agent CLI, never through a shell
+- It runs in an ordinary terminal, as a command at that terminal's own prompt
+
+### A resumed conversation runs in a terminal, not instead of one
+
+The session that a resume creates is a plain login shell in the conversation's folder. Once it has
+drawn its prompt, `claude --resume <id>` is written into it, exactly as if somebody had typed it.
+
+It used to be spawned as the session's own command, and that had the conversation *be* the
+terminal. Two things followed from that, both reported:
+
+- Leaving the agent left nothing behind. The pane printed `[finished]` and stopped being a
+  terminal at all, because the process that exited was the session. "It doesn't take me to a
+  normal terminal ... it doesn't seem like these are valid terminal sessions at all"
+- The first prompt of a resumed conversation came back `[Request interrupted by user]`, while the
+  same command typed by hand into a TabTerm shell answered every time. That difference was
+  measured repeatedly and never explained: the pty received the prompt and a carriage return and
+  nothing else, and no signal reached the process group
+
+So it is now started the way a person starts one. Measured after the change, on two conversations,
+three resumes: three answered, none interrupted, and `/exit` left a live shell in the right folder
+each time.
+
+The command is quoted per argument, because unlike the argv form this line **is** read by a shell.
+No `cd` appears in it: the session is created in the folder already.
+
+The shell is typed at when it goes quiet rather than at a fixed moment, because there is no
+reliable signal for "a prompt is on screen" without shell integration, which is opt in. A login
+profile that prints a banner in several chunks simply pauses later. Nothing is written for the
+first quarter second of quiet, and nothing waits longer than five seconds.
+
+A session that runs something at its prompt counts as a session something was launched in: the
+folder box does not offer itself over it, and the reap policy does not treat it as a shell nobody
+ever used.
 
 ### They do not resume the same way
 
@@ -383,10 +415,13 @@ every byte it is given.
 | The environment | A plain terminal given the same minimal environment the daemon spawns with answered normally |
 | The agent's own settings | A plain terminal, same machine, same hooks, same conversation, answered every time |
 
-What is left is the conversation aborting itself: the transcript records the prompt and, forty to
-sixty milliseconds later, `[Request interrupted by user]`, with nothing arriving in between. It is
-intermittent, it happens only to a conversation resumed from the list, and the mechanism inside the
-agent is not claimed here.
+What was left was the conversation aborting itself: the transcript records the prompt and, forty to
+sixty milliseconds later, `[Request interrupted by user]`, with nothing arriving in between.
+
+**The mechanism inside the agent is still not claimed, and it no longer matters here.** The one
+arrangement that never showed it was the agent being run from a shell, which is now how a resume
+starts. What remains recorded above is why the obvious explanations were each ruled out, so nobody
+has to rule them out again.
 
 ### The folder comes from the session, not from the directory it is filed under
 
