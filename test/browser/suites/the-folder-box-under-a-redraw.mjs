@@ -75,6 +75,39 @@ r.ok(
   String(await box()),
 );
 
+/*
+ * And a refresh that learns nothing does not rebuild the screen at all.
+ *
+ * This is the fix underneath the two checks above rather than a separate feature. The daemon
+ * re-sends the same state whenever anything anywhere might have changed it, and every one of
+ * those used to replace every control on the screen. A row that is replaced while somebody is
+ * pressing it takes the press with it.
+ *
+ * Asked by identity: the same element object, still in the page, after a dozen refreshes.
+ */
 await evaluate(client, 'clearInterval(window.__ttStorm)');
+await sleep(600);
+await evaluate(
+  client,
+  `window.__ttRow = [...document.querySelectorAll('.launcher-completion')].find((b) => b.textContent === '..')`,
+);
+const hadRow = Boolean(await evaluate(client, '!!window.__ttRow'));
+for (let i = 0; i < 12; i++) {
+  await evaluate(client, 'window.__tabterm.refreshStartScreen()');
+  await sleep(120);
+}
+const survived = Boolean(
+  await evaluate(
+    client,
+    `Boolean(window.__ttRow && window.__ttRow.isConnected &&
+       window.__ttRow === [...document.querySelectorAll('.launcher-completion')].find((b) => b.textContent === '..'))`,
+  ),
+);
+r.ok(
+  'a refresh that learns nothing leaves the rows where they are',
+  hadRow && survived,
+  `row found: ${String(hadRow)}, same row after twelve refreshes: ${String(survived)}`,
+);
+
 await finish();
 r.done();

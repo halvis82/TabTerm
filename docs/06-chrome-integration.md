@@ -513,6 +513,26 @@ lasts exactly as long as the thing it is about. It comes back on the adoption pl
 rebuilt field by field rather than spread, so it has to be named there: that is how the terminal
 size was lost once before.
 
+### Saying the same thing again is not a redraw
+
+The start screen rebuilds every control it draws, and each part of it arrives from the daemon
+whenever it **might** have changed rather than when it did: a tab opening anywhere, a session
+starting, a folder being recorded. Most of those carry exactly what is already on screen.
+
+A press that lands while a row is being replaced reaches nothing at all. The folder picker's `..`
+failed two full runs that way, which is a test hitting at machine speed what a person hits
+eventually, and it is also why anything you are halfway through has to be carried across a redraw
+by hand.
+
+So each part is compared to what it last said, and an identical answer draws nothing. That was
+already true of the running sessions list and is now true of the state, the restorable workspaces,
+the resumable conversations, the servers, the templates and the dismissed rows. Showing the screen
+when it is already up does not rebuild it either: that path ran on every state message and was not
+counted by the drawing log, which is why it hid for so long.
+
+Anything the page changes for itself asks for its own drawing, so this only ever suppresses a
+repetition of something already on screen.
+
 ### A redraw restores the box before it restores what is under it
 
 The start screen follows what the rest of TabTerm is doing, so it redraws whenever a session

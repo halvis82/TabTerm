@@ -465,9 +465,43 @@ export class Launcher {
   /** What the last list said, so an identical one can be recognised. See `setLiveSessions`. */
   #liveSignature = '';
 
+  /**
+   * What each part last said, so a part that says it again is recognised.
+   *
+   * Every one of these arrives whenever it **might** have changed rather than when it did, and
+   * this screen rebuilds every control it draws. A press that lands while a row is being replaced
+   * reaches nothing at all, and that is a fault a person hits eventually and a test hits at
+   * machine speed: the folder picker's `..` failed two full runs that way.
+   *
+   * Saying the same thing again cannot be news, so it does not redraw. Anything the page changes
+   * locally calls `render` itself and does not come through here.
+   */
+  readonly #saidBefore = new Map<string, string>();
+
+  /** True when this part is saying something new, which is the only time a redraw is owed. */
+  #isNews(key: string, value: unknown): boolean {
+    const now = JSON.stringify(value) ?? '';
+    if (this.#saidBefore.get(key) === now) return false;
+    this.#saidBefore.set(key, now);
+    return true;
+  }
+
   setState(state: LauncherState): void {
+    /**
+     * A state that says the same thing as the one already here is not a change.
+     *
+     * The same rule as `setLiveSessions`, and for a sharper reason than cost. This screen
+     * rebuilds every control it draws, and the daemon re-sends this whenever anything anywhere
+     * might have changed it, which on a busy machine is several times a second. A press that
+     * arrives while a row is being replaced reaches nothing at all: the folder picker's `..`
+     * failed two full runs that way, and what a test hits at machine speed a person hits
+     * eventually.
+     *
+     * Skipping an identical state cannot lose anything the daemon knows, because an identical
+     * state is the same knowledge. Anything the page changes locally calls `render` itself.
+     */
     this.#state = state;
-    this.#answered('state');
+    if (this.#isNews('state', state)) this.#answered('state');
   }
 
   /**
@@ -484,7 +518,17 @@ export class Launcher {
    */
   show(): void {
     if (this.#dismissed) return;
+    const wasUp = !this.#el.hidden && this.#el.childElementCount > 0;
     this.#el.hidden = false;
+    /**
+     * Already up, with nothing new to say: showing it again is not a reason to rebuild it.
+     *
+     * This is called on every state message from the daemon, and it rebuilt every control on the
+     * screen each time, outside the drawing that `renderLog` counts. A press that lands while a
+     * row is being replaced reaches nothing at all, which is a fault a person hits eventually and
+     * a test hits at machine speed. Anything with something new to say schedules its own drawing.
+     */
+    if (wasUp) return;
     this.render();
   }
 
@@ -520,9 +564,10 @@ export class Launcher {
   /** Templates the daemon-independent store gave us. Rendered as chips of their own. */
   setTemplates(templates: readonly LayoutTemplate[]): void {
     this.#templates = [...templates];
+    const fresh = this.#isNews('templates', templates);
     // Named like the rest, because it arrives on its own schedule: templates come from extension
     // storage rather than the daemon, so they land beside the answers and drew a second screen.
-    this.#answered('templates');
+    if (fresh) this.#answered('templates');
   }
 
   /**
@@ -1997,7 +2042,7 @@ export class Launcher {
   /** Workspaces that could be brought back after a restart. */
   setRestorable(workspaces: readonly RestorableSummary[]): void {
     this.#restorable = workspaces;
-    this.#answered('restorable');
+    if (this.#isNews('restorable', workspaces)) this.#answered('restorable');
   }
 
   /**
@@ -2122,7 +2167,7 @@ export class Launcher {
     if (this.#confirming && !servers.some((s) => s.sessionId === this.#confirming?.sessionId)) {
       this.#confirming = null;
     }
-    this.#answered('servers');
+    if (this.#isNews('servers', [servers, others])) this.#answered('servers');
   }
 
   /**
@@ -2440,7 +2485,7 @@ export class Launcher {
   /** Agent sessions that could be picked back up. Shown, never resumed automatically. */
   setResumable(sessions: readonly ResumableAgentSession[]): void {
     this.#resumable = sessions;
-    this.#answered('resumable');
+    if (this.#isNews('resumable', sessions)) this.#answered('resumable');
   }
 
   /** Conversations dismissed from this list, which stay dismissed. */
@@ -2472,8 +2517,9 @@ export class Launcher {
 
   setHiddenResumes(ids: readonly string[]): void {
     this.#hiddenResumes = new Set(ids);
+    const fresh = this.#isNews('hidden-resumes', [...ids].sort());
     // Named, so it joins the batch it arrives with: which resume rows were dismissed, read from extension storage.
-    this.#answered('hidden-resumes');
+    if (fresh) this.#answered('hidden-resumes');
   }
 
   /**
