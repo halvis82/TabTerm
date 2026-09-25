@@ -3869,6 +3869,12 @@ function buildLauncher(): void {
       document.documentElement.style.removeProperty('--strip-height');
       refitAllPanes();
       panesHost?.focus(splitView?.focused ?? '');
+      /*
+       * And the menu, if it is open: leaving the start screen is exactly when the actions that
+       * need a pane become possible, and it was going on saying otherwise until it was closed
+       * and opened again.
+       */
+      commandPanel?.refreshActions();
     },
   });
 
@@ -4880,6 +4886,8 @@ function submitsCommand(data: string): boolean {
 function applyLayout(next: LayoutNode): void {
   layout = next;
   splitView?.render(next);
+  // A pane appearing or going is the other thing that changes what this tab can do.
+  commandPanel?.refreshActions();
   const live = collectPanes(next);
   panesHost?.retain(live);
   // A pane that no longer exists must stop influencing the tab's indicator.
@@ -5360,26 +5368,28 @@ function paletteActions(): PaletteAction[] {
    * is the answer, and with nothing focused these are left out rather than offered and doing
    * nothing.
    */
-  /*
-   * And nothing at all while the start screen is up, where there is no pane to act on. Offering
-   * `Split right` there is offering an entry that does nothing, which is what this list already
-   * declines to do for a tab with nothing focused.
+  const focused = splitView?.focused ?? '';
+  /**
+   * Whether this tab can be acted on as a terminal at all, which the start screen is not.
+   *
+   * The actions that need a pane stay on the list and are drawn faded, with the reason beside
+   * them, rather than disappearing: "i didn't mean hide them from this menu, in that menu you
+   * should just color them or fade them out kinda to be disabled". A list whose contents change
+   * with the state of the page is a list nobody can learn.
    */
-  const focused = paneActionsAllowed() ? (splitView?.focused ?? '') : '';
+  const onAPane = paneActionsAllowed() && focused !== '';
+  const needsAPane = onAPane ? {} : { enabled: false, why: 'Not while the start screen is up' };
 
   const actions: PaletteAction[] = [
-    ...(focused === ''
-      ? []
-      : [
-          {
-            id: 'split-right',
-            title: 'Split right',
-            ...pageKey('split-right'),
-            run: () => {
-              splitFocused('horizontal');
-            },
-          },
-        ]),
+    {
+      id: 'split-right',
+      title: 'Split right',
+      ...pageKey('split-right'),
+      ...needsAPane,
+      run: () => {
+        splitFocused('horizontal');
+      },
+    },
     /**
      * The pane operations, in the other place somebody looks for them.
      *
@@ -5387,47 +5397,50 @@ function paletteActions(): PaletteAction[] {
      * their difference read as an oversight rather than a rule. They call the same functions the
      * menu calls, so the two cannot drift into disagreeing about what naming a session does.
      */
-    ...(focused === ''
-      ? []
-      : [
-          {
-            id: 'name-session',
-            title: paneLabel(focused).label === '' ? 'Name session' : 'Rename session',
-            run: () => renameSession(focused),
-          },
-          ...(canMarkHere(focused)
-            ? [{ id: 'add-marker', title: 'Add a marker here', run: () => addMarker(focused) }]
-            : []),
-        ]),
-    ...(focused === ''
-      ? []
-      : [
-          {
-            id: 'split-down',
-            title: 'Split down',
-            ...pageKey('split-down'),
-            run: () => {
-              splitFocused('vertical');
-            },
-          },
-        ]),
+    {
+      id: 'name-session',
+      title: onAPane && paneLabel(focused).label !== '' ? 'Rename session' : 'Name session',
+      ...needsAPane,
+      run: () => {
+        renameSession(focused);
+      },
+    },
+    {
+      id: 'add-marker',
+      title: 'Add a marker here',
+      ...(onAPane && canMarkHere(focused)
+        ? {}
+        : {
+            enabled: false,
+            why: onAPane ? 'Only at a prompt' : 'Not while the start screen is up',
+          }),
+      run: () => {
+        addMarker(focused);
+      },
+    },
+    {
+      id: 'split-down',
+      title: 'Split down',
+      ...pageKey('split-down'),
+      ...needsAPane,
+      run: () => {
+        splitFocused('vertical');
+      },
+    },
     {
       id: 'agent-tab',
       title: 'Launch an agent in a new tab',
       ...key('launch-agent'),
       run: () => launchAgent('new-tab'),
     },
-    ...(focused === ''
-      ? []
-      : [
-          {
-            id: 'agent-split',
-            title: 'Launch an agent beside this pane',
-            run: () => {
-              launchAgent('split');
-            },
-          },
-        ]),
+    {
+      id: 'agent-split',
+      title: 'Launch an agent beside this pane',
+      ...needsAPane,
+      run: () => {
+        launchAgent('split');
+      },
+    },
     {
       id: 'new-terminal',
       title: 'New terminal tab',
@@ -7341,7 +7354,7 @@ declare global {
        * So a check can ask whether the two surfaces that offer pane actions agree, which is the
        * only way that agreement stays true as either of them grows.
        */
-      actions: () => { id: string; title: string }[];
+      actions: () => { id: string; title: string; enabled: boolean }[];
       /**
        * Put the recovery screen up in the state it is really reached in, and ask again.
        *
@@ -7594,7 +7607,8 @@ function installTestHook(): void {
       client?.send({ t: 'get-stats', ...(sessionId ? { sessionId } : {}) });
     },
     lastStatsForTest: () => lastStats,
-    actions: () => paletteActions().map((a) => ({ id: a.id, title: a.title })),
+    actions: () =>
+      paletteActions().map((a) => ({ id: a.id, title: a.title, enabled: a.enabled !== false })),
     recoveryRaceForTest: (cwd) => {
       resumableSessions = [];
       recoveryEl.hidden = false;

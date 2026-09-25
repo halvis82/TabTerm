@@ -1145,6 +1145,21 @@
     padding-top: 8px;
     color: var(--dim);
   }
+  /*
+   * An action that cannot be done from where this tab is: still listed, plainly not available.
+   *
+   * Faded rather than hidden, because a list whose contents change with the state of the page is
+   * a list nobody can learn, and seeing that something exists and is unavailable here is the
+   * useful half. The pointer says so too, and it never lights up under the keyboard.
+   */
+  .cmd-row.is-disabled {
+    opacity: 0.38;
+    cursor: default;
+  }
+  .cmd-row.is-disabled:hover,
+  .cmd-row.is-disabled.on {
+    background: transparent;
+  }
 
   /*
    * A question asked in place, above the list, rather than in a window over it.
@@ -3584,6 +3599,14 @@
     gap: 12px;
     padding: 7px 14px;
     cursor: pointer;
+  }
+  /* Listed, plainly not available here. The same rule as the menu's own rows. */
+  .palette-row.is-disabled {
+    opacity: 0.38;
+    cursor: default;
+  }
+  .palette-row.is-disabled.selected {
+    background: transparent;
   }
   /*
    * Selection is now a step of its own, so it has to be unmistakable: an accent bar as well as

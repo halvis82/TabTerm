@@ -52,19 +52,36 @@ r.ok(
 );
 
 /*
- * And the menu does not offer what it cannot do.
+ * And the menu says so rather than either running it or hiding it.
  *
- * The keyboard is one way in and the palette is another, and an entry that is offered and does
- * nothing is the fault this list already declines elsewhere: "flush this out for all such
- * interfaces to ensure expected behavior".
+ * "i didn't mean hide them from this menu, in that menu you should just color them or fade them
+ * out kinda to be disabled. for any action that is not available from the current screen." A list
+ * whose contents change with the state of the page is a list nobody can learn.
  */
-const offered = String(
-  await evaluate(client, `JSON.stringify(window.__tabterm.actions().map((a) => a.id))`),
+const state = async () =>
+  JSON.parse(
+    String(
+      await evaluate(
+        client,
+        `JSON.stringify(Object.fromEntries(window.__tabterm.actions().map((a) => [a.id, a.enabled])))`,
+      ),
+    ),
+  );
+const onStartScreen = await state();
+r.ok(
+  'the menu still lists splitting from the start screen',
+  'split-right' in onStartScreen && 'split-down' in onStartScreen,
+  JSON.stringify(Object.keys(onStartScreen)),
 );
 r.ok(
-  'and the menu does not offer splitting from the start screen either',
-  !offered.includes('split-right') && !offered.includes('split-down'),
-  offered,
+  'and marks it unavailable rather than letting it run',
+  onStartScreen['split-right'] === false && onStartScreen['split-down'] === false,
+  JSON.stringify(onStartScreen),
+);
+r.ok(
+  'while what a tab can always do stays available',
+  onStartScreen['new-terminal'] === true && onStartScreen['agent-tab'] === true,
+  JSON.stringify(onStartScreen),
 );
 
 /**
@@ -90,14 +107,58 @@ r.ok(
   `${String(await panes())} panes`,
 );
 
-const offeredNow = String(
-  await evaluate(client, `JSON.stringify(window.__tabterm.actions().map((a) => a.id))`),
-);
+const onAPane = await state();
 r.ok(
-  'and the menu offers it again once there is a pane to act on',
-  offeredNow.includes('split-right') && offeredNow.includes('split-down'),
-  offeredNow,
+  'and the menu makes it available again once there is a pane to act on',
+  onAPane['split-right'] === true && onAPane['split-down'] === true,
+  JSON.stringify(onAPane),
 );
+
+/**
+ * And the menu says what is possible **now**, without being closed and opened again.
+ *
+ * Reported as: "it should update automatically when something changes on the site. i typed a
+ * command here and i have to exit the menu and reopen for it to update to include the new
+ * options." The list is built when the menu opens, and leaving the start screen is exactly when
+ * four more things become possible.
+ */
+{
+  const fresh = await openTerminal();
+  await waitFor(fresh.client, "document.querySelector('.launcher-input')");
+  await sleep(500);
+  await evaluate(fresh.client, `document.getElementById('cmd-button')?.click()`);
+  await waitFor(fresh.client, `document.querySelector('.cmd-panel')?.hidden === false`, 8000);
+  await evaluate(
+    fresh.client,
+    `[...document.querySelectorAll('.cmd-tab')].find((t) => t.textContent === 'Actions')?.click()`,
+  );
+  await sleep(500);
+  const faded = () =>
+    evaluate(
+      fresh.client,
+      `[...document.querySelectorAll('.cmd-panel:not([hidden]) .cmd-row.is-action')]
+         .filter((row) => row.classList.contains('is-disabled')).length`,
+    );
+  r.ok(
+    'the open menu shows unavailable actions on the start screen',
+    Number(await faded()) > 0,
+    String(await faded()),
+  );
+
+  // Typed with the menu left open, which is the whole of the report.
+  await type(fresh.client, 'echo menu-should-update\r');
+  const updated = await waitUntil(async () => Number(await faded()) === 0, 20000);
+  r.ok(
+    'and stops saying so the moment a terminal is there, without being reopened',
+    updated,
+    `${String(await faded())} still faded`,
+  );
+  r.ok(
+    'with the menu still open',
+    (await evaluate(fresh.client, `document.querySelector('.cmd-panel')?.hidden === false`)) ===
+      true,
+  );
+}
 
 await finish();
 r.done();

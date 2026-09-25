@@ -471,6 +471,23 @@ export class CommandPanel {
    * Only while it is open and only for the pages that show live data. Re-rendering the edit
    * form under somebody's hands, or the settings page, would replace what they were typing.
    */
+  /**
+   * Draw the list again because what this tab can do has changed.
+   *
+   * The Actions tab is a list of what is available **now**, and it was only ever built when the
+   * menu opened: typing a command dismissed the start screen and made four more things possible,
+   * and the menu went on saying otherwise until it was closed and opened again. Reported as
+   * exactly that.
+   *
+   * Cheap enough to call on any such change, because it does nothing unless this tab is the one
+   * on screen, and never while a command is being written into the form over it.
+   */
+  refreshActions(): void {
+    if (!this.isOpen || this.#writingOne || this.#showingSettings) return;
+    if (this.#placement.tab !== 'actions') return;
+    this.render();
+  }
+
   refreshLive(): void {
     if (!this.isOpen || this.#writingOne || this.#showingSettings) return;
     if (this.#placement.tab === 'recent') this.#opts.onSearch(this.#search.value);
@@ -716,6 +733,15 @@ export class CommandPanel {
     if (row.kind === 'action') {
       meta.textContent = row.action.hint ?? '';
       if (row.action.kind === 'link') el.classList.add('is-link');
+      /*
+       * Faded and unselectable rather than absent, so the list is the same list wherever this
+       * tab happens to be, and the reason is said beside it instead of being left to guess.
+       */
+      if (row.action.enabled === false) {
+        el.classList.add('is-disabled');
+        el.setAttribute('aria-disabled', 'true');
+        if (row.action.why) meta.textContent = row.action.why;
+      }
       if (row.action.keys) {
         // The key it answers to, read from the same place the settings panel binds it, so the
         // two can never disagree about what is bound.
@@ -789,6 +815,8 @@ export class CommandPanel {
     el.addEventListener('click', () => {
       this.#selected = index;
       if (row.kind === 'action') {
+        // A row that cannot be run is not a row that closes the menu either.
+        if (row.action.enabled === false) return;
         this.close();
         row.action.run();
         return;
@@ -1069,7 +1097,14 @@ export class CommandPanel {
      * having stopped responding. Continuing in the same direction is what an arrow key means.
      */
     let guard = this.#rows.length;
-    while (this.#rows[this.#selected]?.kind === 'heading' && guard-- > 0) {
+    /*
+     * And an action that cannot be done here is stepped over for the same reason a heading is:
+     * Return on it would do nothing, which reads as the panel having stopped responding. It is
+     * still on the list to be seen, which is the point of fading it rather than hiding it.
+     */
+    const passOver = (row: PanelRow | undefined): boolean =>
+      row?.kind === 'heading' || (row?.kind === 'action' && row.action.enabled === false);
+    while (passOver(this.#rows[this.#selected]) && guard-- > 0) {
       const step = delta === 0 ? 1 : delta > 0 ? 1 : -1;
       this.#selected = (this.#selected + step + this.#rows.length) % this.#rows.length;
     }

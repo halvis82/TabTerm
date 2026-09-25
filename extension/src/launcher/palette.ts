@@ -23,6 +23,18 @@ import {
  * surface than one searchable list: you cannot remember where a button is, but you can always
  * type what you want. See design principle 9 and docs/06-chrome-integration.md.
  */
+/**
+ * Rows the selection travels over rather than landing on.
+ *
+ * A heading is a label, and an action that cannot be done from here would answer Return with
+ * nothing, which reads as the palette having stopped responding. Both are still drawn.
+ */
+function skipPast(row: PaletteRow | undefined): boolean {
+  if (row === undefined) return false;
+  if (row.kind === 'heading') return true;
+  return row.kind === 'action' && row.action.enabled === false;
+}
+
 export interface PaletteAction {
   id: string;
   title: string;
@@ -37,6 +49,15 @@ export interface PaletteAction {
   kind?: 'action' | 'link';
   /** Which group this belongs to. They answer different questions, so they are separated. */
   group?: 'builtin' | 'custom' | 'manage';
+  /**
+   * Whether it can be done from where this tab is right now. Absent means yes.
+   *
+   * Drawn faded and refusing to run rather than left out, so the list is the same list wherever
+   * the tab happens to be. See `PanelAction`, which this is the other half of.
+   */
+  enabled?: boolean;
+  /** Said on the row when it is not available, so the fading has a reason beside it. */
+  why?: string;
   /**
    * Present on an action somebody made, which is what may be changed or removed.
    *
@@ -323,7 +344,7 @@ export class Palette {
      * first row whenever the rows change, so Enter would have activated a label and done
      * nothing at all. A heading is not a thing that can be selected, in any direction.
      */
-    while (this.#rows[this.#selected]?.kind === 'heading') {
+    while (skipPast(this.#rows[this.#selected])) {
       if (this.#selected >= this.#rows.length - 1) break;
       this.#selected++;
     }
@@ -386,6 +407,8 @@ export class Palette {
       // An action is a thing to do, not text. Copy is meaningless for it, so Command+Enter is
       // ignored rather than doing something arbitrary.
       if (how === 'copy') return;
+      // And one that cannot be done here does not close the palette either.
+      if (row.action.enabled === false) return;
       this.close();
       row.action.run();
       return;
@@ -525,12 +548,12 @@ export class Palette {
      */
     const forwards = wanted >= this.#selected;
     let at = wanted;
-    while (this.#rows[at]?.kind === 'heading') {
+    while (skipPast(this.#rows[at])) {
       at += forwards ? 1 : -1;
       if (at < 0 || at >= this.#rows.length) {
         // Off the end past a heading: turn round rather than sit on it.
         at = forwards ? this.#rows.length - 1 : 0;
-        while (this.#rows[at]?.kind === 'heading') at += forwards ? -1 : 1;
+        while (skipPast(this.#rows[at])) at += forwards ? -1 : 1;
         break;
       }
     }
@@ -582,6 +605,17 @@ export class Palette {
         el.className = 'palette-heading';
         el.textContent = row.text;
         return el;
+      }
+
+      /*
+       * An action that cannot be done from here is still listed, faded, saying why.
+       *
+       * Hidden entries make a list that changes shape with the state of the page, which is a list
+       * nobody can learn. See `PaletteAction.enabled`.
+       */
+      if (row.kind === 'action' && row.action.enabled === false) {
+        el.classList.add('is-disabled');
+        el.setAttribute('aria-disabled', 'true');
       }
 
       const text = document.createElement('span');
@@ -661,6 +695,7 @@ export class Palette {
       el.addEventListener('click', () => {
         this.#select(i);
         if (row.kind !== 'action') return;
+        if (row.action.enabled === false) return;
         this.close();
         row.action.run();
       });

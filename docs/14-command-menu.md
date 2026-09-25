@@ -288,6 +288,26 @@ rather than papered over.
 
 ---
 
+## 4.9 An action that cannot be done here is faded, not hidden
+
+The menu lists what TabTerm can do, and some of it needs a pane: splitting, naming a session,
+putting a marker down, opening an agent beside this one. None of those are possible while the
+start screen is up.
+
+They were left out there, on the reasoning that an entry which does nothing is worse than no
+entry. That is right for a list built once and wrong for this one: **a list whose contents change
+with the state of the page is a list nobody can learn.** Reported as "i didn't mean hide them from
+this menu, in that menu you should just color them or fade them out kinda to be disabled, for any
+action that is not available from the current screen". They stay, faded, with the reason beside
+them, and neither the pointer nor the keyboard will land on one.
+
+**And the list says what is possible now.** It was built when the menu opened, so typing a command
+dismissed the start screen, made four more things possible, and the menu went on saying otherwise
+until it was closed and opened again. Leaving the start screen and a pane appearing or going both
+redraw it, which costs nothing when the menu is shut or on another tab.
+
+---
+
 ## 5. Where favorites come from
 
 - **Starring a row in Recent**, which is the common case

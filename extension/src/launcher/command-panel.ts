@@ -33,6 +33,17 @@ export interface PanelAction {
   keys?: string;
   /** `link` goes somewhere rather than doing something here, so it is not drawn like an action. */
   kind?: 'link' | 'action';
+  /**
+   * Whether it can be done from where this tab is right now. Absent means yes.
+   *
+   * Drawn faded and refusing to run rather than left out. A list whose contents change with the
+   * state of the page is a list nobody can learn: "i didn't mean hide them from this menu, in
+   * that menu you should just color them or fade them out kinda to be disabled". Being able to
+   * see that `Split right` exists and is not available here is the useful half.
+   */
+  enabled?: boolean;
+  /** Said on the row when it is not available, so the fading has a reason beside it. */
+  why?: string;
   run: () => void;
 }
 
