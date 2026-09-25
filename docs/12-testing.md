@@ -453,6 +453,24 @@ The daemon says who failed to authenticate now, not merely that somebody did. Th
 role and the length of the token offered are the difference between "the extension has the wrong
 token" and "something else is knocking on the port", and that one line is what made this findable.
 
+## The browser the suites drive does not update itself
+
+A System Settings window appeared on the machine once or twice during a full run, which is not
+something a test suite should ever cause. It was watched for rather than guessed at, and the
+unified log for the second it appeared says the whole chain: a browser `launch.sh` had started
+eighty milliseconds earlier asked to modify `/Applications/Google Chrome.app`, macOS refused it
+under App Management, the asking binary is unentitled so it could not even prompt, and the
+notification it raised instead was handled by `CoreServicesUIAgent`, which opened System Settings.
+
+Nothing in TabTerm is involved. It is a browser started from a shell trying to update itself, and
+the update attempt is on the updater's own schedule rather than on every start, which is why it
+happened twice in an hour of runs and could not be reproduced on demand.
+
+`launch.sh` now starts Chrome with its updater, its component fetch and its background networking
+off. That is what a test browser should have anyway: none of it is the product, and all of it is
+traffic sitting in the middle of a measurement. It is reasoned from that record rather than proved
+by removing it, since the attempt cannot be forced.
+
 ## Waits, not sleeps
 
 A fixed sleep encodes what an idle machine does. These suites run on a machine somebody is

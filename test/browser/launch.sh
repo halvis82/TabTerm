@@ -65,9 +65,25 @@ else
   cp "$INSTALLED_MANIFEST" "$PROFILE/NativeMessagingHosts/" 2>/dev/null || true
 fi
 
+# Chrome's own updater stays out of it, which is what opens System Settings mid-run.
+#
+# Measured rather than guessed. A full run was watched until the panel appeared, and the unified
+# log for that second says: a browser this script had started eighty milliseconds earlier asked to
+# modify `/Applications/Google Chrome.app`, macOS refused it under App Management, and because the
+# asking binary is unentitled it could not even prompt, so it raised a notification and
+# CoreServicesUIAgent opened System Settings. That is the panel, and nothing in TabTerm is
+# involved in it: a browser started from a shell updating itself is.
+#
+# It could not be forced to happen again on demand, since the attempt is on the updater's own
+# schedule rather than on every start, so these flags are reasoned from that record rather than
+# proved by removing them. They are what a test browser should have anyway: no update check, no
+# component fetch, no background traffic to sit in the middle of a measurement.
 nohup "$CHROME" \
   --user-data-dir="$PROFILE" \
   --headless=new \
+  --disable-background-networking \
+  --disable-component-update \
+  --disable-default-apps \
   --remote-debugging-port="$PORT" \
   --remote-allow-origins='*' \
   --enable-unsafe-extension-debugging \
