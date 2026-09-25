@@ -6259,6 +6259,15 @@ function onControl(msg: ServerMessage): void {
         state.sessionStartedAt ??= Date.now();
       }
       setFavicon(paneStatus.effective());
+      /*
+       * And the title, from the facts that just arrived.
+       *
+       * They were taken and never drawn. A tab running an agent came back from a refresh called
+       * `claude`, with the folder it is in sitting in its own fields unused, because nothing
+       * between here and the next event asks for the title to be worked out again, and for a
+       * pane that is waiting on an agent the next event can be an hour away.
+       */
+      refreshTitle();
       startTimeTicking();
       client?.send({ t: 'list-launcher' });
       if (splitView?.focused) panesHost?.focus(splitView.focused);
@@ -6883,7 +6892,18 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'title': {
-      titleFields = msg.fields;
+      /*
+       * The directory is kept when the message does not carry one.
+       *
+       * These fields replace rather than merge, which is right for the ones that are cleared on
+       * purpose: a process that has ended has to stop being in the title. The directory is not
+       * one of those. The page learns it from its own `cwd` message, and a title message without
+       * it took the folder off the tab: `claude - ece260a` became `claude` on a refresh.
+       */
+      titleFields = {
+        ...msg.fields,
+        ...(msg.fields.cwd ? {} : currentCwd ? { cwd: currentCwd } : {}),
+      };
       // Per session as well as for the tab, because a tab with four panes has four of these and
       // the bar on each one has to say what that pane is, not what the tab is called.
       sessionTitles.set(msg.sessionId, msg.fields);
@@ -7154,6 +7174,8 @@ declare global {
       startScreenReason: () => Record<string, unknown>;
       /** What prompted each drawing of the start screen, most recent last. */
       renderLog: () => readonly { at: number; since: string[] }[];
+      /** The facts this tab's title is composed from, which a title alone cannot be read back to. */
+      titleFacts: () => Record<string, unknown>;
       /** Draw the start screen again, which the daemon otherwise causes at its own pace. */
       redrawStartScreen: () => void;
       maximizedPane: () => string | null;
@@ -7429,6 +7451,9 @@ function installTestHook(): void {
     startScreenReason: () => startScreenReason,
     /** What prompted each drawing of the start screen, most recent last. */
     renderLog: () => launcher?.renderLog() ?? [],
+    // A title is a sentence built from several facts, and "which one is missing" cannot be read
+    // back out of it. This is what it was built from.
+    titleFacts: () => ({ ...titleFields, currentCwd }),
     /*
      * A redraw on demand, because the real ones arrive whenever anything on the machine starts
      * or finishes. Waiting for one is waiting on another suite, and a check that has to wait on

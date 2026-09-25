@@ -52,6 +52,16 @@ export interface TitleFields {
   template?: string;
   /** The last command run here, whose first words are what a tab strip can show. */
   lastCommand?: string;
+  /**
+   * The agent CLI in the foreground of this pane right now, if one is there.
+   *
+   * Read from what is running rather than from what the pane was opened with, which is the same
+   * answer a restore already uses: a shell somebody typed `claude` into is an agent pane, and a
+   * pane opened as one whose CLI has exited is not. It is here because a title composed without
+   * it called an agent pane `zsh`, which is the name of the program the agent happens to be
+   * sitting in and not the thing on the screen.
+   */
+  agent?: string;
 }
 
 export interface TerminalSession {

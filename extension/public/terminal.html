@@ -64,7 +64,6 @@
     min-height: 0;
     overflow: hidden;
     flex: 1 1 0;
-    border: 1px solid transparent;
     border-radius: 4px;
     /* So the session name sizes itself against the pane rather than the window, which is what
        keeps it legible in a narrow one. Inline axis only: the pane is a flex item with a
@@ -72,8 +71,13 @@
        out against nothing. */
     container-type: inline-size;
   }
-  /* The focused pane is the one receiving keystrokes, so it has to be obvious at a glance. */
-  .pane.focused {
+  /* The focused pane is the one receiving keystrokes, so it has to be obvious at a glance.
+
+     Only where there is more than one. A border drawn around the only terminal in a tab does not
+     say which pane has the keyboard, because there is no other pane it could have: it is a frame
+     around the whole window, and it costs the rows and columns inside it. Asked for that way:
+     with one session it should take the whole tab. */
+  .many-panes .pane.focused {
     border-color: #4a5573;
   }
   .pane-terminal {
@@ -140,6 +144,15 @@
     display: flex;
     min-width: 0;
     min-height: 0;
+  }
+  /* One terminal fills the tab.
+
+     The gap exists to separate panes from each other and from the edge of a window that has
+     several of them. With one there is nothing to separate it from, and what it costs is rows
+     and columns. The pane keeps its own small inset, so the text still does not touch the
+     window edge. */
+  #terminal:not(.many-panes) {
+    padding: 0;
   }
 
   /*
@@ -1939,6 +1952,9 @@
   .many-panes .pane {
     display: flex;
     flex-direction: column;
+    /* Reserved whether or not this pane is the focused one, so focus moving between panes does
+       not reflow every terminal in the tab by a pixel on each side. */
+    border: 1px solid transparent;
   }
   .many-panes .pane > .pane-terminal {
     /* Out of the absolute fill it uses on its own, so the bar and the terminal share the pane

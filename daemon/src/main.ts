@@ -18,7 +18,7 @@ import { debug, error, info, initLog, warn } from './log.js';
 import { watchLoopLag } from './loop-lag.js';
 import { isAFailureWorthSaying } from './notify-policy.js';
 import { clampTimeout, DaemonServer } from './server.js';
-import { SessionManager, type SessionEvents } from './session-manager.js';
+import { SessionManager, titleFieldsOf, type SessionEvents } from './session-manager.js';
 import { WorkspaceStore } from './workspace-store.js';
 import { Database } from './database.js';
 import { LauncherData } from './launcher-data.js';
@@ -492,7 +492,7 @@ async function main(): Promise<void> {
     });
   };
   events.onTitle = (s) => {
-    server.notifySession(s, { t: 'title', sessionId: s.id, fields: s.titleFields });
+    server.notifySession(s, { t: 'title', sessionId: s.id, fields: titleFieldsOf(s) });
   };
   events.onStateChange = (s) => {
     server.broadcast({

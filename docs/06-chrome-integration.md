@@ -322,6 +322,25 @@ that default is free: it may belong to something else by now, and two rows on on
 a state binding refuses and nothing should be able to create behind its back. Otherwise the row
 is left unbound, which the settings page shows and a person can fix.
 
+### One terminal fills the tab, and an agent tab is called by the agent
+
+A border around the focused pane says which pane has the keyboard. In a tab with one pane there is
+no other pane it could have, so the border is a frame drawn around the whole window and the gap
+around it is rows and columns taken from the terminal for nothing. Both are for tabs with more
+than one pane now. Asked for that way: with one session it should take the whole tab.
+
+And a tab running an agent was called `zsh`, which is the name of the shell the agent is sitting
+in rather than the thing on the screen. The foreground program is already read for the reap policy
+and for what a restore records, so the title reads it too, which also means it is still true after
+a refresh rather than depending on having seen the command start.
+
+**A title is composed from facts that arrive at different times, and something has to redraw it.**
+A tab that had just reattached took the facts it was sent and never drew them, so a pane running
+an agent came back called `claude` with the folder it was in sitting unused in its own fields. For
+a pane waiting on an agent the next event that would have redrawn it can be an hour away. The
+fields also replace rather than merge, which is right for a process that has ended and wrong for a
+directory: a message without one used to take the folder off the tab.
+
 ### An open menu owns the keyboard
 
 Typing at a menu picks an entry: `n` lands on the first one beginning with `n`, `name` narrows to

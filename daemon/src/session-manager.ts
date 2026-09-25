@@ -6,6 +6,7 @@ import type { Config } from './config.js';
 import { debug, info, warn } from './log.js';
 import type { PtyBackend } from './pty-backend.js';
 import { OscScanner } from './osc.js';
+import { agentInForeground } from './agent-resume.js';
 import { decideReap, describeReap, reapInputFor, type TabDisposition } from './cleanup.js';
 import { plainText } from './plain-text.js';
 import { expandHome } from './complete-path.js';
@@ -242,6 +243,28 @@ export interface SessionEvents {
  * screen arrives with the escape sequences that produced it, so those are stripped first: a
  * line that is only a color change is not a line with something on it.
  */
+/**
+ * Everything a title is composed from, complete, for one session.
+ *
+ * Complete because the page **replaces** its fields with what arrives rather than merging:
+ * a message that leaves one out is a message that takes it away. That is how a tab running an
+ * agent lost the folder from its title on a refresh, going from `claude — ece260a` to `claude`.
+ *
+ * The directory is filled in from the session when nothing has reported one, which is every
+ * session without shell integration, and the agent is read from what is in the foreground now
+ * rather than from a command event, so it is still true after a reload.
+ */
+export function titleFieldsOf(session: Session): TitleFields {
+  const agent = agentInForeground(session.foregroundProcess ?? session.command?.[0]);
+  return {
+    ...session.titleFields,
+    // Truthiness rather than nullishness: an empty string is a directory nobody can read, and
+    // `??` keeps one. That is how a refreshed tab lost the folder from its title.
+    cwd: session.titleFields.cwd || session.cwd,
+    ...(agent ? { agent } : {}),
+  };
+}
+
 export function usedLines(screen: string): number {
   /**
    * `plainText` already drops empty lines, so what is left is what is on the screen, minus the

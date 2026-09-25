@@ -65,6 +65,16 @@ function describeWhat(fields: TitleFields): string {
     return fields.template ?? `${String(panes)} panes`;
   }
 
+  /*
+   * An agent in the foreground is what the tab is, whatever started it.
+   *
+   * Asked for after a tab running Claude read `zsh`: that is the name of the shell the agent is
+   * sitting in, and the shell is not what anybody is looking at. It comes from what is running
+   * now rather than from a command event, so it survives a refresh, which is the other half of
+   * what was asked.
+   */
+  if (fields.agent) return fields.agent;
+
   const running = fields.process ?? '';
   if (AGENTS.has(running)) return running;
 

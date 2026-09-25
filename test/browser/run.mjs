@@ -89,6 +89,15 @@ const FIRST = [
    */
   'undo-close',
   'start-screen-typing',
+  /**
+   * Says a local command answers in well under a second, which is a number about the product.
+   *
+   * Beside three other browsers it reported 1174 ms and 2597 ms on two different runs and passed
+   * alone every time, which is the same mistake `startup-cost` is in this list for: a budget
+   * loosened until it passes under that load is a budget that would not notice the product
+   * getting three times slower.
+   */
+  'works-with-no-internet',
 ];
 
 /**

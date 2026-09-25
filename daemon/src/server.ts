@@ -74,7 +74,7 @@ import type { OutputArchive } from './output-archive.js';
 import type { PluginHost } from './plugin-api.js';
 import type { ProjectIndex } from './project-index.js';
 import type { WorkspaceStore } from './workspace-store.js';
-import { DEFAULT_KEEP_BACKGROUND_SECONDS, usedLines } from './session-manager.js';
+import { DEFAULT_KEEP_BACKGROUND_SECONDS, titleFieldsOf, usedLines } from './session-manager.js';
 import { NoDurableHostError } from './session-manager.js';
 import type { Session, SessionManager } from './session-manager.js';
 import type { LayoutShape, LiveSession, ResumableAgentSession, ShapeNode } from '@tabterm/shared';
@@ -2828,7 +2828,7 @@ export class DaemonServer {
       const hasRun = session.hasRun === true;
       // What this pane is, so its bar says so before anything changes. The title is otherwise
       // only ever pushed on a change, so a reattached tab had blank bars until one happened.
-      const title = session.titleFields;
+      const title = titleFieldsOf(session);
       /*
        * And what its timer counts from, for the same reason the title is here.
        *
