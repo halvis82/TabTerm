@@ -87,6 +87,19 @@ anything past 250 ms is written down as `loop.stalled` with how late it was and 
 was. Every terminal that process serves waited exactly that long, so the next occurrence names
 itself instead of being argued about.
 
+**It caught something on the first run that watched for it.** A full browser suite run recorded
+75 stalls in the daemon: median 429 ms, 33 past half a second, 7 past a second, worst 1868 ms.
+That is the shape of what was reported, and it is the first time it has been in a record rather
+than in a description.
+
+**And processor time beside the lateness, because late says nothing about why.** A loop blocked on
+its own work burns processor for the whole time it is late; a process that was simply not
+scheduled, on a machine running four browsers and a suite at once, burns almost none and is late
+by exactly as much. The timer cannot tell those apart and only one of them is a defect in this
+program, so `loop.stalled` carries `cpuMs`, the processor time used over the interval beyond the
+interval's own length. Near zero is a machine that had no turn to give; near the lateness is this
+program blocking on something, and then the next question is what.
+
 **Two clocks, because a closed lid is not a stall.** The wall clock keeps time while a machine
 sleeps and the monotonic one does not, so lateness is measured against the one sleep stops. The
 first eleven records this produced were all a shut laptop, up to sixteen minutes each, which is

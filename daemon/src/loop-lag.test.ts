@@ -23,10 +23,16 @@ describe('watching the loop', () => {
   const fakeWorld = () => {
     let wall = 0;
     let steady = 0;
+    let burned = 0;
     const queue: { at: number; fn: () => void }[] = [];
     return {
       now: () => wall,
       monotonic: () => steady,
+      // Microseconds, the way the runtime reports them.
+      cpu: () => ({ user: burned * 1000, system: 0 }),
+      burn: (ms: number) => {
+        burned += ms;
+      },
       setTimer: (fn: () => void, ms: number) => {
         queue.push({ at: steady + ms, fn });
         return {};
@@ -38,10 +44,13 @@ describe('watching the loop', () => {
       advance: (ms: number, busyMs = 0, sleptMs = 0) => {
         wall += ms;
         steady += ms;
+        // Time passing is time this process had, whether or not it was blocked on anything.
+        burned += ms;
         const due = queue.filter((t) => t.at <= steady);
         for (const t of due) queue.splice(queue.indexOf(t), 1);
         wall += busyMs + sleptMs;
         steady += busyMs;
+        burned += busyMs;
         for (const t of due) t.fn();
       },
     };
@@ -54,6 +63,7 @@ describe('watching the loop', () => {
       onStall,
       now: world.now,
       monotonic: world.monotonic,
+      cpu: world.cpu,
       setTimer: world.setTimer,
       everyMs: 500,
     });
@@ -61,19 +71,43 @@ describe('watching the loop', () => {
     expect(onStall).not.toHaveBeenCalled();
   });
 
-  it('reports how long the loop was blocked', () => {
+  it('reports how long the loop was blocked, and that it was working', () => {
     const world = fakeWorld();
     const onStall = vi.fn();
     watchLoopLag({
       onStall,
       now: world.now,
       monotonic: world.monotonic,
+      cpu: world.cpu,
       setTimer: world.setTimer,
       everyMs: 500,
       sayAfterMs: 250,
     });
     world.advance(500, 1200);
-    expect(onStall).toHaveBeenCalledWith(1200);
+    expect(onStall).toHaveBeenCalledWith(1200, 1200);
+  });
+
+  /**
+   * The same lateness, with the processor idle, which is a different fault entirely.
+   *
+   * A process that was not scheduled is late by exactly as much as one blocked on its own work,
+   * and the timer cannot tell them apart. Four browsers and a test run on one machine produce
+   * the first; only the second is anything to fix here.
+   */
+  it('says when it was late without doing anything, which is the machine and not this', () => {
+    const world = fakeWorld();
+    const onStall = vi.fn();
+    watchLoopLag({
+      onStall,
+      now: world.now,
+      monotonic: world.monotonic,
+      cpu: () => ({ user: 0, system: 0 }),
+      setTimer: world.setTimer,
+      everyMs: 500,
+      sayAfterMs: 250,
+    });
+    world.advance(500, 1200);
+    expect(onStall).toHaveBeenCalledWith(1200, 0);
   });
 
   it('ignores lateness too small to matter', () => {
@@ -84,6 +118,7 @@ describe('watching the loop', () => {
       onStall,
       now: world.now,
       monotonic: world.monotonic,
+      cpu: world.cpu,
       setTimer: world.setTimer,
       everyMs: 500,
       sayAfterMs: 250,
@@ -99,6 +134,7 @@ describe('watching the loop', () => {
       onStall,
       now: world.now,
       monotonic: world.monotonic,
+      cpu: world.cpu,
       setTimer: world.setTimer,
       everyMs: 500,
       sayAfterMs: 250,
@@ -122,6 +158,7 @@ describe('watching the loop', () => {
       onSlept,
       now: world.now,
       monotonic: world.monotonic,
+      cpu: world.cpu,
       setTimer: world.setTimer,
       everyMs: 500,
       sayAfterMs: 250,
@@ -141,12 +178,13 @@ describe('watching the loop', () => {
       onSlept,
       now: world.now,
       monotonic: world.monotonic,
+      cpu: world.cpu,
       setTimer: world.setTimer,
       everyMs: 500,
       sayAfterMs: 250,
     });
     world.advance(500, 900, 60_000);
-    expect(onStall).toHaveBeenCalledWith(900);
+    expect(onStall).toHaveBeenCalledWith(900, 900);
     expect(onSlept).toHaveBeenCalledWith(60_000);
   });
 
@@ -157,6 +195,7 @@ describe('watching the loop', () => {
       onStall,
       now: world.now,
       monotonic: world.monotonic,
+      cpu: world.cpu,
       setTimer: world.setTimer,
       everyMs: 500,
     });

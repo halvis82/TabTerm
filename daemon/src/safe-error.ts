@@ -13,12 +13,22 @@
  * The message is dropped rather than filtered. Deciding whether a particular message contains a
  * path means guessing at every library's wording, and the codes are what anybody diagnosing this
  * actually reads.
+ *
+ * **And the call it failed in, where the runtime says one.** A full run recorded `Error(EPERM)`
+ * against a layout that did not open, and a code on its own cannot say whether that was looking
+ * at a folder, making one, or starting a shell, which are three different faults. The syscall
+ * name is the runtime's own word for the operation, never a path and never anything a person
+ * typed, so it can be said.
  */
 export function safeError(e: unknown): string {
   if (e instanceof Error) {
     const code = (e as NodeJS.ErrnoException).code;
+    const call = (e as NodeJS.ErrnoException).syscall;
     const name = e.name || 'Error';
-    return typeof code === 'string' && code !== '' ? `${name}(${code})` : name;
+    if (typeof code !== 'string' || code === '') return name;
+    return typeof call === 'string' && call !== ''
+      ? `${name}(${code}, ${call})`
+      : `${name}(${code})`;
   }
   if (typeof e === 'string') return 'string';
   if (e === null || e === undefined) return 'none';

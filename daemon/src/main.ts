@@ -843,8 +843,13 @@ async function main(): Promise<void> {
    * itself instead of being argued about.
    */
   watchLoopLag({
-    onStall: (lateBy) => {
-      warn('loop.stalled', { lateByMs: lateBy, where: 'daemon' });
+    onStall: (lateBy, cpuMs) => {
+      /*
+       * The processor time is the half that says what to do about it. Late with the processor
+       * burned is this program blocking on something; late with none of it is this program
+       * waiting for a turn on a busy machine, which is not a fault here.
+       */
+      warn('loop.stalled', { lateByMs: lateBy, cpuMs, where: 'daemon' });
     },
     // Said once, because it explains the silences in this log and a countdown that ran late.
     onSlept: (forMs) => {

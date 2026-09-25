@@ -598,14 +598,43 @@ async function oneDrag(client, fromSelector, toSelector) {
     return 'no:the browser never began a drag';
   }
 
+  /*
+   * Where the target is **now**, not where it was before the press.
+   *
+   * The point was worked out before the drag began, and the list is rebuilt whenever anything on
+   * the machine starts or finishes. Under a full run a card had moved by the time the drop was
+   * dispatched, so the drop landed on whatever had taken that place: once on a group, where the
+   * product correctly does nothing, and the check reported that the session could not be dragged
+   * out of its tab. Asked again here, from the same selector, which costs one evaluation.
+   */
+  const fresh = String(
+    await evaluate(
+      client,
+      `(() => {
+         const to = document.querySelector(${JSON.stringify(toSelector)});
+         if (!to) return '';
+         const r = to.getBoundingClientRect();
+         for (const fy of [0.5, 0.3, 0.7]) {
+           for (const fx of [0.5, 0.2, 0.8]) {
+             const x = Math.round(Math.min(innerWidth - 2, Math.max(2, r.left + r.width * fx)));
+             const y = Math.round(Math.min(innerHeight - 2, Math.max(2, r.top + r.height * fy)));
+             if (to.contains(document.elementFromPoint(x, y))) return JSON.stringify({ x, y });
+           }
+         }
+         return '';
+       })()`,
+    ),
+  );
+  const at = fresh === '' ? end : JSON.parse(fresh);
+
   for (const type of ['dragEnter', 'dragOver', 'drop']) {
-    await client.send('Input.dispatchDragEvent', { type, x: end.x, y: end.y, data: payload });
+    await client.send('Input.dispatchDragEvent', { type, x: at.x, y: at.y, data: payload });
     await sleep(60);
   }
   await client.send('Input.dispatchMouseEvent', {
     type: 'mouseReleased',
-    x: end.x,
-    y: end.y,
+    x: at.x,
+    y: at.y,
     button: 'left',
     buttons: 0,
     clickCount: 1,

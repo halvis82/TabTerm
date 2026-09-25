@@ -18,14 +18,27 @@
  * built to catch. Lateness is measured on the monotonic clock; the gap between the two is the
  * sleep, and it is worth saying once because it explains the silences in this log and a reap that
  * ran late.
+ *
+ * **And processor time beside the lateness, because late says nothing about why.** A loop blocked
+ * on its own work burns processor for the whole time it is late. A process that was simply not
+ * scheduled, because four browsers and a test run are on the same machine, burns almost none and
+ * is late by exactly as much. The timer cannot tell them apart and only one of them is a defect
+ * in this program, so the number that separates them is recorded with it.
  */
 export interface LoopLagOptions {
   /** How often to look. Frequent enough to catch a short stall, cheap enough to ignore. */
   everyMs?: number;
   /** Lateness worth saying out loud. Below this is ordinary scheduling. */
   sayAfterMs?: number;
-  /** Called with how late the loop was, in milliseconds, measured against a clock sleep stops. */
-  onStall: (lateBy: number) => void;
+  /**
+   * Called with how late the loop was, and how much processor time it used while being late.
+   *
+   * The second number is what makes the first one actionable. A loop blocked on its own work
+   * burns processor for the whole time it is late; a process that was simply not scheduled,
+   * because four browsers and a suite are on the same machine, burns almost none. Both look
+   * identical from the timer alone, and only one of them is a defect in this program.
+   */
+  onStall: (lateBy: number, cpuMs: number) => void;
   /** Called when the machine itself was away, which is not this process being slow. */
   onSlept?: (forMs: number) => void;
   /** How much of a jump between the clocks is worth calling sleep rather than rounding. */
@@ -36,6 +49,8 @@ export interface LoopLagOptions {
   now?: () => number;
   /** The monotonic clock, which does not. */
   monotonic?: () => number;
+  /** Processor time used by this process, in microseconds. Injectable for tests. */
+  cpu?: () => { user: number; system: number };
 }
 
 /** How late a tick was, given when it was expected. Never negative: early is not lateness. */
@@ -55,6 +70,7 @@ export function watchLoopLag(opts: LoopLagOptions): () => void {
   const sleepAfterMs = opts.sleepAfterMs ?? 5000;
   const now = opts.now ?? (() => Date.now());
   const monotonic = opts.monotonic ?? (() => performance.now());
+  const cpu = opts.cpu ?? (() => process.cpuUsage());
   const setTimer = opts.setTimer ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
   let stopped = false;
 
@@ -68,17 +84,25 @@ export function watchLoopLag(opts: LoopLagOptions): () => void {
   const arm = (): void => {
     const dueWall = now() + everyMs;
     const dueSteady = monotonic() + everyMs;
+    const from = cpu();
     setTimer(() => {
-      tick(dueWall, dueSteady);
+      tick(dueWall, dueSteady, from);
     }, everyMs).unref?.();
   };
 
-  const tick = (dueWall: number, dueSteady: number): void => {
+  const tick = (
+    dueWall: number,
+    dueSteady: number,
+    from: { user: number; system: number },
+  ): void => {
     if (stopped) return;
     const blocked = lateness(dueSteady, monotonic());
     // What the wall clock counted beyond that is time this machine was not running at all.
     const away = lateness(dueWall, now()) - blocked;
-    if (blocked >= sayAfterMs) opts.onStall(blocked);
+    const to = cpu();
+    // Microseconds on the way in, milliseconds on the way out, which is the unit beside it.
+    const used = Math.round((to.user - from.user + (to.system - from.system)) / 1000);
+    if (blocked >= sayAfterMs) opts.onStall(blocked, Math.max(0, used - everyMs));
     if (away >= sleepAfterMs) opts.onSlept?.(away);
     arm();
   };
