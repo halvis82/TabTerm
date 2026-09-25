@@ -45,8 +45,9 @@ describe('which combinations may be bound', () => {
 
 describe('what is stored', () => {
   it('keeps the shipped list and applies what was changed', () => {
-    const parsed = parseShortcuts([{ id: 'split-down', keys: 'Shift+Meta+J' }]);
-    expect(parsed.find((s) => s.id === 'split-down')?.keys).toBe('Shift+Meta+J');
+    // Not Command Shift J, which is Chrome's downloads, and not Option Command J, which is its console.
+    const parsed = parseShortcuts([{ id: 'split-down', keys: 'Alt+Meta+Y' }]);
+    expect(parsed.find((s) => s.id === 'split-down')?.keys).toBe('Alt+Meta+Y');
     // Everything else keeps its default rather than vanishing.
     expect(parsed).toHaveLength(DEFAULT_PAGE_SHORTCUTS.length);
   });
@@ -59,6 +60,55 @@ describe('what is stored', () => {
   it('survives rubbish', () => {
     expect(parseShortcuts(null)).toHaveLength(DEFAULT_PAGE_SHORTCUTS.length);
     expect(parseShortcuts([1, 'x', {}])).toHaveLength(DEFAULT_PAGE_SHORTCUTS.length);
+  });
+
+  /**
+   * What was allowed when it was stored, judged by the rules as they are now.
+   *
+   * The list of what may not be bound has grown twice, so binding refusing a combination at the
+   * moment it is chosen is not enough on its own: the palette's own default turned out to be
+   * Chrome's print dialog, and anybody who had ever rebound anything had that stored and would
+   * have kept it forever.
+   */
+  it('drops a stored key the rules now refuse, and falls back to the shipped one', () => {
+    const parsed = parseShortcuts([{ id: 'palette', keys: 'Shift+Meta+P' }]);
+    const palette = parsed.find((s) => s.id === 'palette');
+    expect(palette?.keys).not.toBe('Shift+Meta+P');
+    expect(palette?.keys).toBe(DEFAULT_PAGE_SHORTCUTS.find((d) => d.id === 'palette')?.keys);
+  });
+
+  it('refuses a stored key on its own terms, whichever rule it breaks', () => {
+    // A bare letter is the other kind: it would be typed into the shell rather than caught here.
+    const parsed = parseShortcuts([
+      { id: 'split-down', keys: 'Meta+Space' },
+      { id: 'split-right', keys: 'D' },
+    ]);
+    expect(parsed.find((s) => s.id === 'split-down')?.keys).not.toBe('Meta+Space');
+    expect(parsed.find((s) => s.id === 'split-right')?.keys).not.toBe('D');
+  });
+
+  it('leaves a falling back row unbound rather than putting two on one combination', () => {
+    /*
+     * The default it would return to can be somebody else's now. Two rows on one combination is
+     * a state binding refuses and nothing here should be able to create, so it stays unbound:
+     * the settings page shows that, and it can be seen and fixed.
+     */
+    const paletteDefault = DEFAULT_PAGE_SHORTCUTS.find((d) => d.id === 'palette')?.keys ?? '';
+    const parsed = parseShortcuts([
+      { id: 'clear-screen', keys: paletteDefault },
+      { id: 'palette', keys: 'Shift+Meta+P' },
+    ]);
+    expect(parsed.find((s) => s.id === 'clear-screen')?.keys).toBe(paletteDefault);
+    expect(parsed.find((s) => s.id === 'palette')?.keys).toBe('');
+  });
+
+  it('never returns two rows on the same combination, whatever was stored', () => {
+    const parsed = parseShortcuts([
+      { id: 'split-down', keys: 'Shift+Meta+J' },
+      { id: 'split-right', keys: 'Shift+Meta+J' },
+    ]);
+    const bound = parsed.map((s) => s.keys).filter((k) => k !== '');
+    expect(new Set(bound).size).toBe(bound.length);
   });
 });
 
@@ -83,8 +133,9 @@ describe('keys bound to actions somebody made', () => {
   });
 
   it('applies a stored key to the action it belongs to', () => {
-    const parsed = parseShortcuts([{ id: actionShortcutId('a2'), keys: 'Shift+Meta+N' }], actions);
-    expect(parsed.find((s) => s.id === actionShortcutId('a2'))?.keys).toBe('Shift+Meta+N');
+    // Command Shift N opens an incognito window, which is what this used to ask to store.
+    const parsed = parseShortcuts([{ id: actionShortcutId('a2'), keys: 'Alt+Meta+N' }], actions);
+    expect(parsed.find((s) => s.id === actionShortcutId('a2'))?.keys).toBe('Alt+Meta+N');
   });
 
   it('forgets a key bound to an action that has been deleted', () => {

@@ -101,5 +101,54 @@ r.ok(
 await press('Escape', 'Escape');
 r.ok('and Escape again closes the panel', !(await open()).panel, JSON.stringify(await open()));
 
+/*
+ * A card somebody asked for, which is the one that stays.
+ *
+ * The button beside a template chip pins its card, as against the one that appears because the
+ * pointer crossed the chip. A pinned card is a surface with the keyboard's attention, so it takes
+ * the page from the menu and Escape puts it away. Escape used to go straight past it to the pane
+ * underneath, which for an agent is an interrupt.
+ */
+await evaluate(client, `document.querySelector('#cmd-button')?.click()`);
+await sleep(500);
+r.ok('the panel is open again', (await open()).panel);
+
+const hasInfo = await waitFor(client, `!!document.querySelector('.launcher-template-info')`, 8000);
+r.ok('there is a template with a card to open', hasInfo);
+await evaluate(client, `document.querySelector('.launcher-template-info')?.click()`);
+await waitFor(client, `!!document.querySelector('.template-card')`, 6000);
+const carded = await open();
+r.ok('the card opens', carded.card, JSON.stringify(carded));
+r.ok('and takes the page from the menu', !carded.panel, JSON.stringify(carded));
+
+await press('Escape', 'Escape');
+r.ok('Escape closes the card', !(await open()).card, JSON.stringify(await open()));
+
+/*
+ * A dialog is a question, and the only thing to do with one is answer it.
+ *
+ * Command K opened the menu behind an open dialog and toggled it on every press: two surfaces,
+ * the one on top not the one answering the keyboard.
+ */
+/*
+ * Waited for rather than slept on: on a loaded machine the start screen's own row of layouts is
+ * still being built, so the button is not there yet and a fixed wait reports the dialog missing.
+ */
+const hasAdd = await waitFor(client, `!!document.querySelector('.launcher-add-template')`, 10000);
+r.ok('there is a way to open a dialog', hasAdd);
+await evaluate(client, `document.querySelector('.launcher-add-template')?.click()`);
+await waitFor(client, `!!document.querySelector('.template-backdrop')`, 8000);
+r.ok('a dialog opens', (await open()).dialog, JSON.stringify(await open()));
+// Command K, which is 4 for Meta in the way the protocol counts modifiers.
+await press('k', 'KeyK', 4);
+const behind = await open();
+r.ok(
+  'and Command K does not open the menu behind it',
+  !behind.panel && behind.dialog,
+  JSON.stringify(behind),
+);
+await press('Escape', 'Escape');
+await sleep(300);
+
 await finish();
 r.done();

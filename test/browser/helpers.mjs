@@ -338,8 +338,9 @@ export async function press(
 export const interrupt = (client) => press(client, 'c', 'KeyC', 2, 67);
 
 /** Open the command palette. */
-// Shift+Command+P. Command+K belongs to the command panel.
-export const openPalette = (client) => press(client, 'p', 'KeyP', 12, 80);
+// Option+Command+P: Command Shift P is Chrome's print dialog, which the page never sees.
+// Command+K belongs to the command panel.
+export const openPalette = (client) => press(client, 'p', 'KeyP', 5, 80);
 
 /** A key aimed at the palette, which owns focus while it is open. */
 export const pressInPalette = (client, key, code, modifiers = 0, keyCode = 0) =>

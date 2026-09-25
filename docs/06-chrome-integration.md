@@ -310,6 +310,18 @@ was taken by the browser or by the system, so they are one list.
 The checks are over the whole set rather than over the examples anybody thought of: every default
 against every rule, which is what would have caught both of these the first time.
 
+**And the list is applied again on the way out of storage.** Binding refuses a combination the
+page can never receive, but it refuses it once, at the moment it is chosen, and the list has now
+grown twice. A key that was allowed when it was stored can be one the browser or the system has
+since claimed, which is the same fault arriving from storage instead of from the settings page.
+Anybody who had ever rebound anything had the whole set written down, the palette's old
+combination among it, and would have kept it forever.
+
+A stored key the rules now refuse is dropped and the shipped default takes over, but only where
+that default is free: it may belong to something else by now, and two rows on one combination is
+a state binding refuses and nothing should be able to create behind its back. Otherwise the row
+is left unbound, which the settings page shows and a person can fix.
+
 ### An open menu owns the keyboard
 
 Typing at a menu picks an entry: `n` lands on the first one beginning with `n`, `name` narrows to

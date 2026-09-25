@@ -276,15 +276,64 @@ export function parseShortcuts(
       if (typeof s.id === 'string' && typeof s.keys === 'string') stored.set(s.id, s.keys);
     }
   }
-  // Always the shipped list, with stored keys applied. A stored entry for something that no
-  // longer exists disappears, and something new appears with its default rather than unbound.
-  const shipped = DEFAULT_PAGE_SHORTCUTS.map((d) => ({ ...d, keys: stored.get(d.id) ?? d.keys }));
-  const mine = actions.map((action) => ({
-    id: actionShortcutId(action.id),
-    title: action.name,
-    keys: stored.get(actionShortcutId(action.id)) ?? '',
-  }));
-  return [...shipped, ...mine];
+  /*
+   * Always the shipped list, with stored keys applied. A stored entry for something that no
+   * longer exists disappears, and something new appears with its default rather than unbound.
+   */
+  const rows = [
+    ...DEFAULT_PAGE_SHORTCUTS.map((d) => ({
+      row: { ...d, keys: '' },
+      stored: stored.get(d.id),
+      fallback: d.keys,
+    })),
+    ...actions.map((action) => ({
+      row: { id: actionShortcutId(action.id), title: action.name, keys: '' },
+      stored: stored.get(actionShortcutId(action.id)),
+      // An action somebody made has no shipped key, so there is nothing to fall back to.
+      fallback: '',
+    })),
+  ];
+
+  /**
+   * A stored key is checked again on the way in, against the rules as they are now.
+   *
+   * Binding refuses a combination the page can never receive, but it refuses it once, at the
+   * moment it is chosen. The list of what may not be bound has grown twice since people started
+   * using this, so a key that was allowed when it was stored can be one the browser or the system
+   * now answers first. That is exactly the fault the list exists to prevent, arriving from
+   * storage instead of from the settings page: the row says it is bound, and pressing it prints.
+   *
+   * The shipped default takes over, which is the right answer for the case that prompted this:
+   * the palette's own default was the unusable combination, so everybody who had ever rebound
+   * anything had it stored and would have kept it forever.
+   */
+  const taken = new Set<string>();
+  const falling: typeof rows = [];
+  for (const entry of rows) {
+    const keys = entry.stored;
+    if (keys === undefined || whyNot(keys) !== null || (keys !== '' && taken.has(keys))) {
+      falling.push(entry);
+      continue;
+    }
+    entry.row.keys = keys;
+    if (keys !== '') taken.add(keys);
+  }
+
+  /*
+   * And a default only lands where it is free.
+   *
+   * Falling back is a second chance at a combination somebody may have since given to something
+   * else, and two rows on one combination is a state binding refuses and nothing here should be
+   * able to create. Unbound rather than duplicated: the settings page shows it as unbound, which
+   * is a thing that can be seen and fixed.
+   */
+  for (const entry of falling) {
+    const keys = entry.fallback;
+    entry.row.keys = keys !== '' && !taken.has(keys) ? keys : '';
+    if (entry.row.keys !== '') taken.add(entry.row.keys);
+  }
+
+  return rows.map((entry) => entry.row);
 }
 
 export async function loadShortcuts(

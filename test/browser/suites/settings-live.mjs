@@ -318,5 +318,60 @@ r.ok(
   ).includes('Yes, erase everything'),
 );
 
+/**
+ * A binding outlives the page that made it, and is still legal when it comes back.
+ *
+ * Bindings are kept in extension storage and applied on load, and nothing checked that either
+ * half of that worked in a browser: a shortcut recorded and then lost on refresh is the same to
+ * use as one that was never recorded. What comes back is also judged against the rules as they
+ * are now, since the list of what may not be bound has grown twice.
+ */
+{
+  const row = `[...document.querySelectorAll('.set-key-row')].find((r) => r.textContent.includes('Split down'))`;
+  const keysNow = () => evaluate(a.client, `${row}?.querySelector('.set-key')?.textContent ?? ''`);
+  const bound = String(await keysNow());
+  r.ok('a shortcut is bound before the refresh', bound.trim() !== '', bound);
+
+  /*
+   * Brought to the front first, because this tab has been in the background since the second one
+   * was opened and a background tab that reloads says "Suspended. Activate this tab to reconnect"
+   * and stops there. That is the product working; it is not a page that can be asked anything.
+   */
+  await a.client.send('Page.bringToFront');
+  await sleep(300);
+  await evaluate(a.client, 'location.reload()');
+  await sleep(2000);
+  /*
+   * Each step waited for and named, because a page that has just reloaded is slow in ways that
+   * have nothing to do with what is being checked, and "the row is empty" is the same sentence
+   * whether the binding was lost or the settings page never opened.
+   */
+  /*
+   * Waited for the page's own hook rather than for a button. The markup is served before the
+   * script has run, so `#cmd-button` is there and does nothing: clicking it at that moment is
+   * how this first reported a binding that had been lost.
+   */
+  const came = await waitFor(
+    a.client,
+    `Boolean(window.__tabterm) && !!document.querySelector('.cmd-panel')`,
+    25000,
+  );
+  r.ok('the page comes back', came);
+  await evaluate(a.client, `document.getElementById('cmd-button')?.click()`);
+  const panelBack = await waitFor(
+    a.client,
+    `document.querySelector('.cmd-panel')?.hidden === false`,
+    10000,
+  );
+  r.ok('and the menu opens on it', panelBack);
+  await evaluate(a.client, `document.querySelector('.cmd-gear')?.click()`);
+  const settingsBack = await waitFor(a.client, `!!document.querySelector('.set-key-row')`, 10000);
+  r.ok('with its settings', settingsBack);
+  await sleep(300);
+
+  const back = String(await keysNow());
+  r.ok('and the binding is still there', back.trim() === bound.trim(), `${bound} -> ${back}`);
+}
+
 await finish();
 r.done();
