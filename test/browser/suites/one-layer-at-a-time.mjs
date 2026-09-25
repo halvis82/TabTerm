@@ -3,7 +3,7 @@
 // Reported as a list: an edit dialog drawn over the command menu, Command K toggling that menu
 // behind the dialog on every press, a card that Escape would not close, and a half-written
 // command that survived changing tab, closing the menu, and reopening it.
-import { openTerminal, evaluate, sleep, finish, waitFor, realClick } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, finish, waitFor } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();

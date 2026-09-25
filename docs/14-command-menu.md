@@ -359,6 +359,19 @@ Leaving takes the menu with it too. A menu is about a place on a page, and comin
 find one still sitting there means the next click lands on an entry opened for something else.
 Changing tab hides the page and changing window blurs it, so both are listened for.
 
+**The same `window` for the same reason, one layer in.** Recording a keyboard shortcut in settings
+takes every key, Escape included, since Escape there means "leave this shortcut alone". Its
+listener was at the capture phase on `document`, one step below the page's own Escape handler,
+which is also a capture listener on `document` and was registered when the page was built: on the
+same node, capture runs in the order the listeners were added, so the page answered first however
+hard the recorder stopped the event. Escape cancelled the recording and took the settings page
+away underneath it, leaving the panel showing the list with the row half rebound.
+
+The recorder listens on `window` now, which is genuinely above `document` on the path rather than
+merely earlier on the same node. The check that guards this counted `.cmd-panel` elements, which
+proved nothing: the panel hides rather than closing, so the count was one either way. It asks for
+a panel that is showing and a settings page still on it.
+
 **One implementation.** The pane's menu was a second copy of the placing and dismissing code, and
 the two drifted: Escape closed the page's menus and not a pane's. Fixing the copy meant deleting
 its local `close`, and the entries that called it silently began calling `window.close` instead, so

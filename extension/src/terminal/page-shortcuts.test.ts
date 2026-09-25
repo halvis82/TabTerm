@@ -135,3 +135,80 @@ describe('what ships bound', () => {
     expect(whyNot('Shift+Meta+W')).not.toBe(null);
   });
 });
+
+/**
+ * The combinations that were missing from the list, found by going through it against what Chrome
+ * and macOS actually take.
+ *
+ * A binding the page can never receive is worse than no binding: the row says it is bound, and
+ * pressing it does something else entirely. That is the same reasoning the list already carried
+ * for full screen, applied to the rest of them.
+ */
+describe('what else is taken before the page sees it', () => {
+  const refused = (keys: string) => whyNot(keys) !== null;
+
+  it('refuses Chrome zoom, all three of them', () => {
+    expect(refused('Meta+-')).toBe(true);
+    expect(refused('Meta+=')).toBe(true);
+    expect(refused('Meta+0')).toBe(true);
+  });
+
+  it('refuses paste without formatting and the system print dialog', () => {
+    expect(refused('Shift+Meta+V')).toBe(true);
+    expect(refused('Shift+Meta+P')).toBe(true);
+  });
+
+  it('refuses the macOS screenshot keys', () => {
+    // The ones somebody reaches for by accident while trying to bind something nearby.
+    expect(refused('Shift+Meta+3')).toBe(true);
+    expect(refused('Shift+Meta+4')).toBe(true);
+    expect(refused('Shift+Meta+5')).toBe(true);
+  });
+
+  it('refuses what the system takes system-wide', () => {
+    expect(refused('Meta+Space')).toBe(true);
+    expect(refused('Control+Meta+Space')).toBe(true);
+    expect(refused('Alt+Meta+Escape')).toBe(true);
+  });
+
+  it('and still allows an ordinary combination that nobody has taken', () => {
+    // The list has to keep being a list of what is taken, not a habit of refusing things.
+    expect(whyNot('Shift+Meta+Y')).toBeNull();
+    expect(whyNot('Alt+Meta+K')).toBeNull();
+  });
+});
+
+/**
+ * Every shipped default, against every rule, rather than against a few remembered cases.
+ *
+ * The list of what is taken grew by fourteen combinations when it was checked properly, and one
+ * shipped default turned out to be among them: the palette was bound to Chrome's system print
+ * dialog. A check over the whole set is what found it, and is what keeps the next addition
+ * honest.
+ */
+describe('every default, against every rule', () => {
+  it('is allowed, one by one, with the reason if not', () => {
+    const refused = DEFAULT_PAGE_SHORTCUTS.filter(
+      (s) => s.keys !== '' && whyNot(s.keys) !== null,
+    ).map((s) => `${s.id} on ${s.keys}: ${String(whyNot(s.keys))}`);
+    expect(refused).toEqual([]);
+  });
+
+  it('carries a modifier, so nothing can be typed into the shell by accident', () => {
+    const bare = DEFAULT_PAGE_SHORTCUTS.filter(
+      (s) => s.keys !== '' && !/Control\+|Alt\+|Meta\+/.test(s.keys),
+    );
+    expect(bare).toEqual([]);
+  });
+
+  it('never takes a plain Control key, which the shell needs', () => {
+    // Control C, Control D, Control Z: a terminal that eats one of those is broken.
+    const stolen = DEFAULT_PAGE_SHORTCUTS.filter((s) => /^Control\+[A-Za-z]$/.test(s.keys));
+    expect(stolen).toEqual([]);
+  });
+
+  it('and no two of them are the same keys', () => {
+    const bound = DEFAULT_PAGE_SHORTCUTS.filter((s) => s.keys !== '').map((s) => s.keys);
+    expect(new Set(bound).size).toBe(bound.length);
+  });
+});

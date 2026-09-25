@@ -239,9 +239,21 @@ r.ok(
   r.ok('pressing the key button starts recording', recording, String(await keysNow()));
   await press(a.client, 'Escape', 'Escape');
   await sleep(400);
+  /**
+   * Still on the settings page, not merely still in the document.
+   *
+   * Counting `.cmd-panel` proved nothing: the panel hides rather than closing, so its element is
+   * there whether it is open or shut, and the count was one either way. Escape closed the panel
+   * and then took the settings page away, and this said it had not. What it asks now is that the
+   * panel is showing and the row being bound is still on screen.
+   */
   r.ok(
     'Escape leaves the shortcut alone without closing the whole panel',
-    Number(await evaluate(a.client, `document.querySelectorAll('.cmd-panel').length`)) === 1,
+    Number(
+      await evaluate(a.client, `document.querySelectorAll('.cmd-panel:not([hidden])').length`),
+    ) === 1 &&
+      Number(await evaluate(a.client, `document.querySelectorAll('.set-key-row').length`)) > 0,
+    `${await evaluate(a.client, `document.querySelectorAll('.cmd-panel:not([hidden])').length`)} open, ${await evaluate(a.client, `document.querySelectorAll('.set-key-row').length`)} rows`,
   );
 
   // And bound again, so the tab is left the way it was found.

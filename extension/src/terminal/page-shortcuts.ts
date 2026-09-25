@@ -52,7 +52,14 @@ export const DEFAULT_PAGE_SHORTCUTS: PageShortcut[] = [
   { id: 'detach-pane', title: 'Move this pane to its own tab', keys: 'Shift+Meta+X' },
   { id: 'launch-agent', title: 'Launch an agent', keys: 'Shift+Meta+L' },
   { id: 'clear-screen', title: 'Clear the screen', keys: 'Shift+Meta+K' },
-  { id: 'palette', title: 'Open the command palette', keys: 'Shift+Meta+P' },
+  /*
+   * Option rather than Shift, because Chrome takes Command Shift P for the system print dialog.
+   *
+   * Found by going through the whole list against what Chrome and macOS actually take: the
+   * palette had shipped on a combination the browser answers first, so the row said it was bound
+   * and pressing it printed. A binding that cannot arrive is worse than none.
+   */
+  { id: 'palette', title: 'Open the command palette', keys: 'Alt+Meta+P' },
   /**
    * Moving between panes, which had no key at all.
    *
@@ -152,6 +159,26 @@ const RESERVED = new Set([
   'Alt+Meta+U',
   'Alt+Meta+ArrowLeft',
   'Alt+Meta+ArrowRight',
+  // Paste without formatting, and print through the system dialog. Both are Chrome's.
+  'Shift+Meta+V',
+  'Shift+Meta+P',
+  // Zoom. Chrome takes all three, and `Meta+0` below is the third of them.
+  'Meta+-',
+  'Meta+=',
+  'Meta++',
+  /*
+   * And what macOS takes before Chrome ever sees it.
+   *
+   * The same reason the full screen key is here: a binding the page can never receive is worse
+   * than no binding, because the row says it is bound and pressing it does something else
+   * entirely. Screenshots are the ones somebody reaches for by accident.
+   */
+  'Shift+Meta+3',
+  'Shift+Meta+4',
+  'Shift+Meta+5',
+  'Meta+Space',
+  'Control+Meta+Space',
+  'Alt+Meta+Escape',
   // Full screen, which is macOS rather than Chrome and is just as unavailable.
   'Control+Meta+F',
   'Meta+1',

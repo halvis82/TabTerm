@@ -298,6 +298,18 @@ since `Control+Meta+W` is nothing to Chrome and nothing to macOS and still reads
 The other two take the initial of what they do, because the letter that would have been better is
 not available, and saying so is more useful than picking something clever.
 
+**And then the same fault again, from the other direction.** A second pass over the whole set
+found the command palette shipped on `Shift+Meta+P`, which is Chrome's system print dialog: the
+settings row said it was bound, and pressing it printed. It is `Alt+Meta+P` now.
+
+That pass added what **macOS** takes before Chrome is ever asked, which the list did not have at
+all: the three screenshot keys, Spotlight and its input-source neighbour, and force quit. A
+binding the page can never receive is worse than none, and the reason is the same whether the key
+was taken by the browser or by the system, so they are one list.
+
+The checks are over the whole set rather than over the examples anybody thought of: every default
+against every rule, which is what would have caught both of these the first time.
+
 ### An open menu owns the keyboard
 
 Typing at a menu picks an entry: `n` lands on the first one beginning with `n`, `name` narrows to

@@ -344,16 +344,20 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
          * Stopped here, and stopped **hard**, while a key is being recorded.
          *
          * Escape closes the settings panel, which is right everywhere except in the middle of
-         * this: pressing it to say "leave the shortcut alone" closed the whole menu. The listener
-         * runs at the capture phase, so stopping propagation immediately is what keeps the panel
-         * out of it. `stopImmediatePropagation` rather than `stopPropagation` because another
-         * listener on this same element would otherwise still see it.
+         * this: pressing it to say "leave the shortcut alone" took the settings page away with
+         * it, and the row being bound with that.
+         *
+         * On `window` rather than `document`, which is the part that makes stopping work.
+         * Capture runs from the top of the path down, and the page's own Escape handler is a
+         * capture listener on `document` registered when the page was built, so on the same
+         * target it would run first however hard this one stopped the event. `window` is one
+         * step above `document` and is reached before it.
          */
         e.preventDefault();
         e.stopImmediatePropagation();
         // A modifier on its own is somebody still reaching for the rest of the combination.
         if (['Shift', 'Meta', 'Control', 'Alt'].includes(e.key)) return;
-        document.removeEventListener('keydown', onKey, true);
+        window.removeEventListener('keydown', onKey, true);
         delete button.dataset['recording'];
 
         if (e.key === 'Escape') {
@@ -382,7 +386,7 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
         button.textContent = prettyKeys(shortcut.keys);
         problem.textContent = refused;
       };
-      document.addEventListener('keydown', onKey, true);
+      window.addEventListener('keydown', onKey, true);
     });
 
     row.append(label, button, clear, problem);
