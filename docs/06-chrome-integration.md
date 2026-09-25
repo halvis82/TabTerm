@@ -565,6 +565,12 @@ counted by the drawing log, which is why it hid for so long.
 Anything the page changes for itself asks for its own drawing, so this only ever suppresses a
 repetition of something already on screen.
 
+Until the screen has been drawn once, every answer counts as news whatever it says. A drawing
+gives up when the state has not arrived yet, so the first answers could each be skipped for a
+different reason: one because there was nothing to draw with, the next because it repeated the
+first. The screen then waited for a change that may never come, which is a start screen with no
+ways to begin on it.
+
 An answer that repeats itself still has to be **marked as arrived**, even though it draws nothing.
 A drawing waits for the answers it was told to expect, and only an arrival takes a name off that
 list, so an answer that merely repeated itself held the batch open until its deadline and every

@@ -281,7 +281,20 @@ export class Launcher {
    */
   #arrived(key: string): void {
     this.#awaited.delete(key);
+    /**
+     * Unless nothing has been drawn yet, in which case every answer is news.
+     *
+     * `render` gives up when the state has not arrived, so the first answers can each be skipped
+     * for a different reason: one because there was nothing to draw with, the next because it
+     * repeated the first. The screen then waits for a change that may never come, which on a busy
+     * machine is a start screen with no ways to begin on it. Caught by three suites that start
+     * something from it.
+     */
+    if (!this.#drawnOnce) this.#scheduleRender();
   }
+
+  /** Whether this screen has ever actually been drawn, as opposed to asked to draw. */
+  #drawnOnce = false;
 
   /** Whether the batch is still worth waiting for. */
   #stillWaiting(): boolean {
@@ -1571,6 +1584,7 @@ export class Launcher {
 
   render(): void {
     if (this.#dismissed || !this.#state) return;
+    this.#drawnOnce = true;
     /**
      * Keep what was typed.
      *
