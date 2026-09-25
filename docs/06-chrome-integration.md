@@ -545,37 +545,25 @@ lasts exactly as long as the thing it is about. It comes back on the adoption pl
 rebuilt field by field rather than spread, so it has to be named there: that is how the terminal
 size was lost once before.
 
-### Saying the same thing again is not a redraw
+### The screen rebuilds itself, and that is survivable
 
-The start screen rebuilds every control it draws, and each part of it arrives from the daemon
-whenever it **might** have changed rather than when it did: a tab opening anywhere, a session
-starting, a folder being recorded. Most of those carry exactly what is already on screen.
+Every part of the start screen arrives from the daemon whenever it **might** have changed rather
+than when it did, and each arrival rebuilds every control on the screen. That sounds like a fault
+and reads like one: a press that landed while a row was being replaced would reach nothing.
 
-A press that lands while a row is being replaced reaches nothing at all. The folder picker's `..`
-failed two full runs that way, which is a test hitting at machine speed what a person hits
-eventually, and it is also why anything you are halfway through has to be carried across a redraw
-by hand.
+It was chased on the strength of that reasoning, and the reasoning was wrong. Driven with the
+screen redrawing every sixty milliseconds, which is harder than any real machine, pressing `..`
+goes up and stays up and a typed path survives a dozen redraws: a rebuild is synchronous, so a
+press either lands before it or after it. `the-folder-box-under-a-redraw` is that check, kept
+because the next person to have the idea deserves the answer rather than the theory.
 
-So each part is compared to what it last said, and an identical answer draws nothing. That was
-already true of the running sessions list and is now true of the state, the restorable workspaces,
-the resumable conversations, the servers, the templates and the dismissed rows. Showing the screen
-when it is already up does not rebuild it either: that path ran on every state message and was not
-counted by the drawing log, which is why it hid for so long.
-
-Anything the page changes for itself asks for its own drawing, so this only ever suppresses a
-repetition of something already on screen.
-
-Until the screen has been drawn once, every answer counts as news whatever it says. A drawing
-gives up when the state has not arrived yet, so the first answers could each be skipped for a
-different reason: one because there was nothing to draw with, the next because it repeated the
-first. The screen then waited for a change that may never come, which is a start screen with no
-ways to begin on it.
-
-An answer that repeats itself still has to be **marked as arrived**, even though it draws nothing.
-A drawing waits for the answers it was told to expect, and only an arrival takes a name off that
-list, so an answer that merely repeated itself held the batch open until its deadline and every
-answer after it then drew on its own. One change to the screen cost two drawings, which the check
-that counts drawings per change caught.
+Suppressing the rebuild for an answer identical to the last one was written, measured, and
+reverted. It cost three regressions in one day, each subtler than the last: a batch that never
+completed so one change drew twice, a first drawing skipped because the state had not arrived and
+then skipped again as a repeat, and a start screen that drew without its templates or its restore
+offer. What it bought was nothing anybody could see. The screen is drawn by whichever answer
+arrives, and answers are batched for a moment before it draws, which is where that cost already
+belongs.
 
 ### A redraw restores the box before it restores what is under it
 

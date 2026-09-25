@@ -1,5 +1,4 @@
 import { buildSessions, isDraggingSession, placeSessions } from './sessions-view.js';
-import { RepeatedAnswers } from './repeated-answers.js';
 import { resolveTypedPath, unresolveTypedPath } from './typed-path.js';
 import { checkShape, previewPanes } from '@tabterm/shared';
 
@@ -264,38 +263,12 @@ export class Launcher {
     return this.#renderLog;
   }
 
-  /** One of them came back, with something new to say. */
+  /** One of them came back. */
   #answered(key: string): void {
     this.#answeredSince.add(key);
-    this.#arrived(key);
+    this.#awaited.delete(key);
     this.#scheduleRender();
   }
-
-  /**
-   * One of them came back saying what it said last time.
-   *
-   * The batch still has to know it arrived. `expecting` names the answers a drawing is worth
-   * waiting for, and only an answer that arrives takes its name off that list: an answer that
-   * merely repeats itself would otherwise hold the batch open until the deadline, and then every
-   * answer after it draws on its own. One change to the screen cost two drawings, which a check
-   * measures and caught.
-   */
-  #arrived(key: string): void {
-    this.#awaited.delete(key);
-    /**
-     * Unless nothing has been drawn yet, in which case every answer is news.
-     *
-     * `render` gives up when the state has not arrived, so the first answers can each be skipped
-     * for a different reason: one because there was nothing to draw with, the next because it
-     * repeated the first. The screen then waits for a change that may never come, which on a busy
-     * machine is a start screen with no ways to begin on it. Caught by three suites that start
-     * something from it.
-     */
-    if (!this.#drawnOnce) this.#scheduleRender();
-  }
-
-  /** Whether this screen has ever actually been drawn, as opposed to asked to draw. */
-  #drawnOnce = false;
 
   /** Whether the batch is still worth waiting for. */
   #stillWaiting(): boolean {
@@ -484,10 +457,7 @@ export class Launcher {
      */
     const now = signatureOf(sessions);
     this.#liveSessions = [...sessions];
-    if (now === this.#liveSignature) {
-      this.#arrived('live');
-      return;
-    }
+    if (now === this.#liveSignature) return;
     this.#liveSignature = now;
     this.#answered('live');
   }
@@ -495,41 +465,9 @@ export class Launcher {
   /** What the last list said, so an identical one can be recognised. See `setLiveSessions`. */
   #liveSignature = '';
 
-  /**
-   * What each part last said, so a part that says it again is recognised.
-   *
-   * Every one of these arrives whenever it **might** have changed rather than when it did, and
-   * this screen rebuilds every control it draws. A press that lands while a row is being replaced
-   * reaches nothing at all, and that is a fault a person hits eventually and a test hits at
-   * machine speed: the folder picker's `..` failed two full runs that way.
-   *
-   * Saying the same thing again cannot be news, so it does not redraw. Anything the page changes
-   * locally calls `render` itself and does not come through here.
-   */
-  readonly #saidBefore = new RepeatedAnswers();
-
-  /** True when this part is saying something new, which is the only time a redraw is owed. */
-  #isNews(key: string, value: unknown): boolean {
-    return this.#saidBefore.isNews(key, value);
-  }
-
   setState(state: LauncherState): void {
-    /**
-     * A state that says the same thing as the one already here is not a change.
-     *
-     * The same rule as `setLiveSessions`, and for a sharper reason than cost. This screen
-     * rebuilds every control it draws, and the daemon re-sends this whenever anything anywhere
-     * might have changed it, which on a busy machine is several times a second. A press that
-     * arrives while a row is being replaced reaches nothing at all: the folder picker's `..`
-     * failed two full runs that way, and what a test hits at machine speed a person hits
-     * eventually.
-     *
-     * Skipping an identical state cannot lose anything the daemon knows, because an identical
-     * state is the same knowledge. Anything the page changes locally calls `render` itself.
-     */
     this.#state = state;
-    if (this.#isNews('state', state)) this.#answered('state');
-    else this.#arrived('state');
+    this.#answered('state');
   }
 
   /**
@@ -546,17 +484,7 @@ export class Launcher {
    */
   show(): void {
     if (this.#dismissed) return;
-    const wasUp = !this.#el.hidden && this.#el.childElementCount > 0;
     this.#el.hidden = false;
-    /**
-     * Already up, with nothing new to say: showing it again is not a reason to rebuild it.
-     *
-     * This is called on every state message from the daemon, and it rebuilt every control on the
-     * screen each time, outside the drawing that `renderLog` counts. A press that lands while a
-     * row is being replaced reaches nothing at all, which is a fault a person hits eventually and
-     * a test hits at machine speed. Anything with something new to say schedules its own drawing.
-     */
-    if (wasUp) return;
     this.render();
   }
 
@@ -592,11 +520,9 @@ export class Launcher {
   /** Templates the daemon-independent store gave us. Rendered as chips of their own. */
   setTemplates(templates: readonly LayoutTemplate[]): void {
     this.#templates = [...templates];
-    const fresh = this.#isNews('templates', templates);
     // Named like the rest, because it arrives on its own schedule: templates come from extension
     // storage rather than the daemon, so they land beside the answers and drew a second screen.
-    if (fresh) this.#answered('templates');
-    else this.#arrived('templates');
+    this.#answered('templates');
   }
 
   /**
@@ -1582,7 +1508,6 @@ export class Launcher {
 
   render(): void {
     if (this.#dismissed || !this.#state) return;
-    this.#drawnOnce = true;
     /**
      * Keep what was typed.
      *
@@ -2072,8 +1997,7 @@ export class Launcher {
   /** Workspaces that could be brought back after a restart. */
   setRestorable(workspaces: readonly RestorableSummary[]): void {
     this.#restorable = workspaces;
-    if (this.#isNews('restorable', workspaces)) this.#answered('restorable');
-    else this.#arrived('restorable');
+    this.#answered('restorable');
   }
 
   /**
@@ -2198,8 +2122,7 @@ export class Launcher {
     if (this.#confirming && !servers.some((s) => s.sessionId === this.#confirming?.sessionId)) {
       this.#confirming = null;
     }
-    if (this.#isNews('servers', [servers, others])) this.#answered('servers');
-    else this.#arrived('servers');
+    this.#answered('servers');
   }
 
   /**
@@ -2517,8 +2440,7 @@ export class Launcher {
   /** Agent sessions that could be picked back up. Shown, never resumed automatically. */
   setResumable(sessions: readonly ResumableAgentSession[]): void {
     this.#resumable = sessions;
-    if (this.#isNews('resumable', sessions)) this.#answered('resumable');
-    else this.#arrived('resumable');
+    this.#answered('resumable');
   }
 
   /** Conversations dismissed from this list, which stay dismissed. */
@@ -2550,10 +2472,8 @@ export class Launcher {
 
   setHiddenResumes(ids: readonly string[]): void {
     this.#hiddenResumes = new Set(ids);
-    const fresh = this.#isNews('hidden-resumes', [...ids].sort());
     // Named, so it joins the batch it arrives with: which resume rows were dismissed, read from extension storage.
-    if (fresh) this.#answered('hidden-resumes');
-    else this.#arrived('hidden-resumes');
+    this.#answered('hidden-resumes');
   }
 
   /**
