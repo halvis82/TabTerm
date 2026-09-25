@@ -266,6 +266,20 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       );
     `,
   },
+  {
+    version: 13,
+    sql: `
+      -- When a workspace was taken away by something other than the person.
+      --
+      -- The offer on the start screen says "reopen from before the restart", and it was showing
+      -- every workspace ever recorded that nobody had dismissed by hand: 417 of them on a machine
+      -- in daily use, none from a restart. Closing a tab is not losing it, and the two need to be
+      -- distinguishable. Stamped at startup, for the workspaces this daemon came back without,
+      -- which is the one moment the difference is knowable and does not depend on a clean
+      -- shutdown having happened.
+      ALTER TABLE workspaces ADD COLUMN lost_at INTEGER;
+    `,
+  },
 ];
 
 export class Database {

@@ -93,6 +93,9 @@ async function startDaemon(): Promise<Daemon> {
   );
   const workspaces = new WorkspaceStore();
   sessions.isInWorkspace = (id) => workspaces.findBySession(id) !== undefined;
+  // As a daemon does on the way up: what it did not come back with is what a restart took.
+  const restore = new RestoreStore(db);
+  restore.markLost(new Set(workspaces.all.map((w) => w.id)));
   const server = new DaemonServer(
     config,
     sessions,
@@ -100,7 +103,7 @@ async function startDaemon(): Promise<Daemon> {
     new LauncherData(db),
     new ProjectTrust(db),
     new ProjectIndex(),
-    new RestoreStore(db),
+    restore,
     new StatsStore(db),
     new OutputArchive(db),
     new PluginHost(),

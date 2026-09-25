@@ -94,6 +94,13 @@ async function startDaemon(): Promise<Daemon> {
   );
   const workspaces = new WorkspaceStore();
   sessions.isInWorkspace = (id) => workspaces.findBySession(id) !== undefined;
+  /*
+   * What a daemon does on the way up: whatever it did not come back with was taken away by the
+   * restart, and only that may be offered back. Without it this harness is a daemon that never
+   * started, and the offer it tests is empty for a reason that is not about restore.
+   */
+  const restore = new RestoreStore(db);
+  restore.markLost(new Set(workspaces.all.map((w) => w.id)));
   const server = new DaemonServer(
     config,
     sessions,
@@ -101,7 +108,7 @@ async function startDaemon(): Promise<Daemon> {
     new LauncherData(db),
     new ProjectTrust(db),
     new ProjectIndex(),
-    new RestoreStore(db),
+    restore,
     new StatsStore(db),
     new OutputArchive(db),
     new PluginHost(),

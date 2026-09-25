@@ -45,6 +45,8 @@ describe('nothing grows without a bound', () => {
       },
       () => ({ cwd: '/w', screen: 'x' }),
     );
+    // Lost to a restart, which is the state in which anything is offered back at all.
+    store.markLost(new Set());
     expect(store.list(new Set())).toHaveLength(1);
     store.prune(-1);
     expect(store.list(new Set())).toHaveLength(0);

@@ -84,11 +84,44 @@ describe('recording a workspace', () => {
 });
 
 describe('offering restores', () => {
+  /**
+   * The offer is what a restart took away, which is the sentence on the start screen.
+   *
+   * Closing a tab does not close a workspace, by design, so without this nothing separated a tab
+   * somebody closed from one that was taken: the start screen showed both, under a heading about
+   * restarting, for every workspace of the last fortnight.
+   */
+  it('offers nothing until a restart has said what it came back without', () => {
+    const store = fresh();
+    store.save(workspace('w1', ['s1']), () => pane('/w'));
+    expect(store.list(new Set())).toHaveLength(0);
+    store.markLost(new Set());
+    expect(store.list(new Set())).toHaveLength(1);
+  });
+
+  it('does not call a workspace lost when it came back with the daemon', () => {
+    const store = fresh();
+    store.save(workspace('w1', ['s1']), () => pane('/w'));
+    store.markLost(new Set(['w1']));
+    expect(store.list(new Set())).toHaveLength(0);
+  });
+
+  it('stops calling it lost once it is alive again', () => {
+    // A save is the workspace being used, which is the opposite of having been taken away.
+    const store = fresh();
+    store.save(workspace('w1', ['s1']), () => pane('/w'));
+    store.markLost(new Set());
+    store.save(workspace('w1', ['s2']), () => pane('/w'));
+    expect(store.list(new Set())).toHaveLength(0);
+  });
+
   it('offers nothing that is already running', () => {
     // During normal operation every workspace is live, so nothing is offered. That is the point:
     // restore is for the case where the sessions are gone.
     const store = fresh();
     store.save(workspace('w1', ['s1']), () => pane('/w'));
+    // Everything here was taken away by a restart, which is what the offer is about.
+    store.markLost(new Set());
     expect(store.list(new Set(['w1']))).toHaveLength(0);
     expect(store.list(new Set())).toHaveLength(1);
   });
@@ -97,6 +130,8 @@ describe('offering restores', () => {
     const store = fresh();
     store.save(workspace('old', ['s1']), () => pane('/old'));
     store.save(workspace('new', ['s2']), () => pane('/new'));
+    // Everything here was taken away by a restart, which is what the offer is about.
+    store.markLost(new Set());
     const listed = store.list(new Set());
     expect(listed[0]?.workspaceId).toBe('new');
   });
@@ -107,6 +142,8 @@ describe('offering restores', () => {
     for (let i = 0; i < 20; i++) {
       store.save(workspace(`w${String(i)}`, ['s']), () => pane(`/w/${String(i)}`));
     }
+    // Everything here was taken away by a restart, which is what the offer is about.
+    store.markLost(new Set());
     expect(store.list(new Set(), 5)).toHaveLength(5);
   });
 
@@ -121,6 +158,8 @@ describe('offering restores', () => {
   it('stops offering a workspace somebody closed', () => {
     const store = fresh();
     store.save(workspace('w1', ['s1']), () => pane('/w'));
+    // Everything here was taken away by a restart, which is what the offer is about.
+    store.markLost(new Set());
     expect(store.list(new Set())).toHaveLength(1);
     store.close('w1');
     expect(store.list(new Set())).toHaveLength(0);
@@ -132,6 +171,8 @@ describe('offering restores', () => {
     store.save(workspace('w1', ['s1']), () => pane('/w'));
     store.close('w1');
     store.save(workspace('w1', ['s2']), () => pane('/w'));
+    // Everything here was taken away by a restart, which is what the offer is about.
+    store.markLost(new Set());
     expect(store.list(new Set())).toHaveLength(1);
   });
 
@@ -141,6 +182,8 @@ describe('offering restores', () => {
     const db = new Database(':memory:');
     const store = new RestoreStore(db);
     store.save(workspace('w1', ['s1']), () => pane('/w'));
+    // Everything here was taken away by a restart, which is what the offer is about.
+    store.markLost(new Set());
     expect(store.list(new Set())).toHaveLength(1);
     db.handle
       .prepare('UPDATE workspaces SET updated_at = ? WHERE id = ?')
@@ -157,6 +200,8 @@ describe('offering restores', () => {
   it('skips a workspace with no panes recorded', () => {
     const store = fresh();
     store.save(workspace('w1', ['s1']), () => null);
+    // Everything here was taken away by a restart, which is what the offer is about.
+    store.markLost(new Set());
     expect(store.list(new Set())).toHaveLength(0);
   });
 
@@ -175,6 +220,8 @@ describe('offering restores', () => {
       )
       .run();
     const store = new RestoreStore(db);
+    // Everything here was taken away by a restart, which is what the offer is about.
+    store.markLost(new Set());
     expect(() => store.list(new Set())).not.toThrow();
     expect(store.list(new Set())).toHaveLength(0);
     expect(store.get('bad')).toBeNull();
@@ -195,6 +242,8 @@ describe('forgetting', () => {
     store.save(workspace('w1', ['s1']), () => pane('/w'));
     store.forget('w1');
     expect(store.get('w1')).toBeNull();
+    // Everything here was taken away by a restart, which is what the offer is about.
+    store.markLost(new Set());
     expect(store.list(new Set())).toHaveLength(0);
   });
 
@@ -202,6 +251,8 @@ describe('forgetting', () => {
     const store = fresh();
     store.save(workspace('w1', ['s1']), () => pane('/w'));
     store.prune(-1); // everything is older than a negative window
+    // Everything here was taken away by a restart, which is what the offer is about.
+    store.markLost(new Set());
     expect(store.list(new Set())).toHaveLength(0);
   });
 
@@ -209,6 +260,8 @@ describe('forgetting', () => {
     const store = fresh();
     store.save(workspace('w1', ['s1']), () => pane('/w'));
     store.prune(60_000);
+    // Everything here was taken away by a restart, which is what the offer is about.
+    store.markLost(new Set());
     expect(store.list(new Set())).toHaveLength(1);
   });
 });
@@ -217,6 +270,8 @@ describe('what is not worth offering back', () => {
   const trivial = (id: string) => {
     const store = fresh();
     store.save(workspace(id, ['s1']), () => ({ cwd: homedir(), screen: '' }));
+    // Taken away by a restart, which is the only state in which anything is offered at all.
+    store.markLost(new Set());
     return store;
   };
 
@@ -233,12 +288,16 @@ describe('what is not worth offering back', () => {
       screen: 'x',
       lastCommand: 'npm test',
     }));
+    // Everything here was taken away by a restart, which is what the offer is about.
+    store.markLost(new Set());
     expect(store.list(new Set())).toHaveLength(1);
   });
 
   it('does offer a single pane somewhere other than home', () => {
     const store = fresh();
     store.save(workspace('w1', ['s1']), () => ({ cwd: '/w/app', screen: 'x' }));
+    // Everything here was taken away by a restart, which is what the offer is about.
+    store.markLost(new Set());
     expect(store.list(new Set())).toHaveLength(1);
   });
 
@@ -250,6 +309,8 @@ describe('what is not worth offering back', () => {
      */
     const store = fresh();
     store.save(workspace('w1', ['s1', 's2']), () => ({ cwd: homedir(), screen: 'x' }));
+    // Everything here was taken away by a restart, which is what the offer is about.
+    store.markLost(new Set());
     expect(store.list(new Set())).toHaveLength(0);
   });
 
@@ -261,6 +322,8 @@ describe('what is not worth offering back', () => {
         ? { cwd: '/w/app', screen: 'x', lastCommand: 'npm test' }
         : { cwd: homedir(), screen: 'x' },
     );
+    // Everything here was taken away by a restart, which is what the offer is about.
+    store.markLost(new Set());
     const [offer] = store.list(new Set());
     expect(offer?.panes).toHaveLength(1);
     expect(offer?.panes[0]?.lastCommand).toBe('npm test');
@@ -272,6 +335,8 @@ describe('what is not worth offering back', () => {
     for (let i = 0; i < 12; i++) {
       store.save(workspace(`w${String(i)}`, ['s1']), () => ({ cwd: '/w/app', screen: 'x' }));
     }
+    // Everything here was taken away by a restart, which is what the offer is about.
+    store.markLost(new Set());
     const listed = store.list(new Set());
     expect(listed).toHaveLength(1);
     expect(listed[0]?.workspaceId).toBe('w11');
@@ -281,6 +346,8 @@ describe('what is not worth offering back', () => {
     const store = fresh();
     store.save(workspace('a', ['s1']), () => ({ cwd: '/w/one', screen: 'x' }));
     store.save(workspace('b', ['s1']), () => ({ cwd: '/w/two', screen: 'x' }));
+    // Everything here was taken away by a restart, which is what the offer is about.
+    store.markLost(new Set());
     expect(store.list(new Set())).toHaveLength(2);
   });
 });

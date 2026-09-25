@@ -646,6 +646,16 @@ async function main(): Promise<void> {
     );
   }
 
+  /**
+   * Whatever did not come back was taken away by this restart, and that is what may be offered.
+   *
+   * Written down here, once, against the workspaces actually adopted. Closing a tab does not
+   * close a workspace, by design, so without this the offer on the start screen could not tell a
+   * tab somebody closed from one a restart took, and it showed both: 417 workspaces across a
+   * fortnight on a machine in daily use, three at a time, under a heading about restarting.
+   */
+  restore.markLost(new Set(workspaces.all.map((w) => w.id)));
+
   if (usingHost) {
     /**
      * A reconnect is not proof that anything died. Ask before letting go of anything.

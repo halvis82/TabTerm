@@ -273,7 +273,8 @@ export class RestoreStore {
         `INSERT INTO workspaces (id, layout_json, pinned, created_at, updated_at)
          VALUES (?, ?, 1, ?, ?)
          ON CONFLICT(id) DO UPDATE SET layout_json = excluded.layout_json, updated_at = excluded.updated_at,
-           closed_at = NULL`,
+           -- Alive again, so neither closed nor lost. Both are facts about how it last ended.
+           closed_at = NULL, lost_at = NULL`,
       )
       .run(workspace.id, JSON.stringify(workspace.layout), workspace.createdAt, now);
 
@@ -367,15 +368,42 @@ export class RestoreStore {
   }
 
   /**
+   * Everything this daemon came back without was taken away by the restart. Stamp it.
+   *
+   * This is the difference between "reopen from before the restart" and a list of every tab
+   * anybody has ever closed, and the offer was the second one. Closing a tab does not close the
+   * workspace, by design, so nothing separated the two.
+   *
+   * Done at startup, against the sessions actually adopted, because that is the one moment the
+   * difference is knowable and the only one that does not depend on a clean shutdown having
+   * happened. A machine that lost power is exactly what this offer exists for.
+   */
+  markLost(liveWorkspaceIds: ReadonlySet<string>): number {
+    const rows = this.#db.handle
+      .prepare('SELECT id FROM workspaces WHERE closed_at IS NULL AND lost_at IS NULL')
+      .all() as { id: string }[];
+    const stamp = this.#db.handle.prepare('UPDATE workspaces SET lost_at = ? WHERE id = ?');
+    const now = Date.now();
+    let marked = 0;
+    for (const row of rows) {
+      if (liveWorkspaceIds.has(row.id)) continue;
+      stamp.run(now, row.id);
+      marked += 1;
+    }
+    if (marked > 0) info('restore.lost', { workspaces: marked });
+    return marked;
+  }
+
+  /**
    * Workspaces that could be brought back, newest first.
    *
    * `excludeLive` is the set already running. After a daemon restart that is empty and
    * everything is offered; during normal operation it is everything, and nothing is, which is
    * exactly right — restore is for the case where the sessions are gone.
    *
-   * Two things keep it to that case rather than to a history of everything: a workspace somebody
-   * closed is marked closed and never appears, and one that is older than the window is past
-   * being wanted back.
+   * Three things keep it to that case rather than to a history of everything: only a workspace
+   * this daemon came back without is offered, one somebody closed is marked closed and never
+   * appears, and one older than the window is past being wanted back.
    */
   list(
     excludeLive: ReadonlySet<string>,
@@ -385,7 +413,7 @@ export class RestoreStore {
     const rows = this.#db.handle
       .prepare(
         `SELECT id, layout_json, updated_at FROM workspaces
-         WHERE closed_at IS NULL AND updated_at >= ?
+         WHERE closed_at IS NULL AND lost_at IS NOT NULL AND updated_at >= ?
          -- rowid breaks a tie, because two workspaces saved in the same millisecond would
          -- otherwise come back in whatever order SQLite felt like.
          ORDER BY updated_at DESC, rowid DESC LIMIT ?`,

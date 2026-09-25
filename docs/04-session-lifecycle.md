@@ -1020,11 +1020,17 @@ Two rules that exist because of what they prevent:
 Two limits, both added after the offer was reported as showing rows that had nothing to do with a
 restart: "at some point these should go away, i haven't restarted today at all".
 
+**Only what this daemon came back without.** On the way up, every stored workspace that was not
+adopted is stamped as lost, and only a workspace with that stamp is ever offered. Closing a tab
+does not close a workspace, by design, so nothing had separated a tab somebody closed from one a
+restart took away and the offer showed both. Stamped at startup rather than at shutdown because a
+machine that lost power is exactly the case this exists for, and it runs no shutdown hook.
+
 A workspace whose last pane was closed is finished with, and never appears. And an offer to
 reopen what a restart took away is taken within the working stretch that follows it or not at
-all, so anything older than **four hours** is not offered. Neither existed: what was on the start
-screen under "reopen from before the restart" was every workspace of the last fortnight that had
-not been dismissed by hand, three at a time, none of them from a restart.
+all, so anything older than **four hours** is not offered. None of the three existed: what was on
+the start screen under "reopen from before the restart" was every workspace of the last fortnight
+that had not been dismissed by hand, three at a time, none of them from a restart.
 
 The rows say what was in the workspace rather than only where it was. A pane in the home directory
 could previously say `~` and nothing else, which is not something anybody can decide about, so the
