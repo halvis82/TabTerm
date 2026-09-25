@@ -59,11 +59,27 @@ r.ok(
 // The picker, which is what a pane cannot already do by typing. There is deliberately no path
 // box: sitting at a prompt, typing a path is what `cd` is for.
 await realClick(b.client, '.pane-chooser-browse');
-await sleep(1600);
+/*
+ * Waited for, not slept on. The list is a round trip: the picker opens, the daemon is asked to
+ * read a directory, and the rows appear when it answers. On a loaded machine that answer can be
+ * slower than any number written here, and reading before it lands is a check about nothing: it
+ * failed a full run that way, reporting one row where a home directory has dozens.
+ */
+const arrived = await waitFor(
+  b.client,
+  "document.querySelectorAll('.pane-chooser-folder').length > 1",
+  15000,
+);
 const listed = Number(
   await evaluate(b.client, "document.querySelectorAll('.pane-chooser-folder').length"),
 );
-r.ok('the picker lists folders', listed > 1, String(listed));
+r.ok(
+  'the picker lists folders',
+  arrived && listed > 1,
+  arrived
+    ? String(listed)
+    : `only ${String(listed)} after fifteen seconds, so the daemon never answered`,
+);
 
 // It used to show the first eight, which is a browser that cannot reach most folders. A home
 // directory has more than that, and the one being looked for was usually not among them.

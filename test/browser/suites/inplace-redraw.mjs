@@ -82,16 +82,56 @@ r.ok(
  * reattach used to do, announcing a pane measured before the layout had settled and correcting it a
  * second later.
  */
+const sizeBefore = String(
+  await evaluate(
+    client,
+    `(() => { const g = window.__tabterm.geometry(); return g.cols + 'x' + g.rows; })()`,
+  ),
+);
 await evaluate(client, 'location.reload()');
-await sleep(3000);
+await sleep(1000);
 await waitFor(client, `document.querySelectorAll('.pane').length > 0`, 20000);
-await sleep(3000);
+/*
+ * Waited until the screen stops changing, rather than for a fixed three seconds.
+ *
+ * The program redraws four times a second, and a reattach replays a snapshot before the live
+ * output resumes, so reading at a fixed moment can catch the replay mid-flight and call it a
+ * stacked frame. On a loaded machine it did exactly that, reporting a frame from pass 11 beside
+ * one from pass 39 in a run where every other check agreed the terminal was right.
+ */
+let settledScreen = await screen();
+for (let i = 0; i < 40; i++) {
+  await sleep(400);
+  const now = await screen();
+  const sameFrame =
+    (now.match(/ROW-A pass \d+/g) ?? []).join() ===
+    (settledScreen.match(/ROW-A pass \d+/g) ?? []).join();
+  settledScreen = now;
+  if (sameFrame && i > 2) break;
+}
 
-const reattached = await screen();
+const reattached = settledScreen;
+/*
+ * And what the pane measures now, because that is the difference between the two faults this
+ * check can find. A stacked frame with the size unchanged is the terminal replaying badly; a
+ * stacked frame after the width moved is the product announcing a size nobody asked for, which
+ * is the fault this suite exists for.
+ */
+const sizeAfter = String(
+  await evaluate(
+    client,
+    `(() => { const g = window.__tabterm.geometry(); return g.cols + 'x' + g.rows; })()`,
+  ),
+);
+r.ok(
+  'and the pane is the same size it was before the tab was reopened',
+  sizeBefore === sizeAfter,
+  `${sizeBefore} before, ${sizeAfter} after`,
+);
 r.ok(
   'reopening the tab does not multiply the frame',
   frames(reattached) === 1,
-  `${String(frames(reattached))} frames: ${(reattached.match(/ROW-A pass \d+/g) ?? []).slice(0, 8).join(', ')}`,
+  `${String(frames(reattached))} frames: ${(reattached.match(/ROW-A pass \d+/g) ?? []).slice(0, 8).join(', ')} (pane ${sizeBefore} then ${sizeAfter})`,
 );
 r.ok(
   'and leaves no row from an earlier pass stranded on the screen',
