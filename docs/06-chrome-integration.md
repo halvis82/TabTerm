@@ -322,6 +322,23 @@ that default is free: it may belong to something else by now, and two rows on on
 a state binding refuses and nothing should be able to create behind its back. Otherwise the row
 is left unbound, which the settings page shows and a person can fix.
 
+### The things you do to a pane need a pane
+
+Command Shift S on the start screen split the tab in two, and the start screen ended up squeezed
+into the strip at the bottom with the folder box inside it. There is no pane to split there: the
+terminal under that screen is the strip it keeps for typing into.
+
+**The question is whether the start screen is on the page, never whether the terminal looks
+empty.** A pane where somebody ran `ls` and then `clear` looks exactly like a fresh one and is a
+terminal in every sense, and refusing to split that would be the same fault from the other side.
+It was reported with both halves in it, which is the reason the rule is written this way.
+
+Asked once, inside the operations themselves rather than beside each keyboard shortcut, because
+the keyboard is one of four ways in: the palette, a right-click menu and a pane's own menu all
+reach the same functions. The palette leaves those entries out entirely while the start screen is
+up, which is what it already does for a tab with nothing focused: an entry that is offered and
+does nothing is worse than one that is not there.
+
 ### One terminal fills the tab, and an agent tab is called by the agent
 
 A border around the focused pane says which pane has the keyboard. In a tab with one pane there is

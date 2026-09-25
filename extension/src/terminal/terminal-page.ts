@@ -4890,7 +4890,28 @@ function applyLayout(next: LayoutNode): void {
   syncPaneChoosers();
 }
 
+/**
+ * Whether the things you do to a pane are available at all.
+ *
+ * They are not while the start screen is up. There is no pane to split, close, move out or clear
+ * yet: the terminal under that screen is the strip it keeps for typing into, and acting on it
+ * produced a tab with two panes and the start screen squeezed into the box at the bottom.
+ * Reported with a photograph of exactly that, from Command Shift S.
+ *
+ * The question is whether the start screen is on the page, never whether the terminal looks
+ * empty. A pane where somebody ran `ls` and then `clear` looks identical to a fresh one and is a
+ * terminal in every sense; refusing to split that would be the same fault the other way round,
+ * and he said so when he reported this.
+ *
+ * Asked here rather than beside each keyboard shortcut, because the keyboard is one of several
+ * ways in: the palette, a right-click menu and a pane's own menu all reach these.
+ */
+function paneActionsAllowed(): boolean {
+  return launcher?.isShowing !== true;
+}
+
 function splitFocused(direction: 'horizontal' | 'vertical'): void {
+  if (!paneActionsAllowed()) return;
   const paneId = splitView?.focused;
   if (!paneId || !workspaceId) return;
   const size = panesHost?.fit(paneId) ?? attachSize();
@@ -4904,6 +4925,7 @@ function splitFocused(direction: 'horizontal' | 'vertical'): void {
  * at its own workspace URL. See docs/04-session-lifecycle.md §6.
  */
 function detachFocused(): void {
+  if (!paneActionsAllowed()) return;
   const paneId = splitView?.focused;
   if (!paneId || !workspaceId) return;
   if (layout && collectPanes(layout).length <= 1) return;
@@ -4925,6 +4947,7 @@ function launchAgent(where: 'new-tab' | 'split'): void {
 }
 
 function closeFocused(): void {
+  if (!paneActionsAllowed()) return;
   const paneId = splitView?.focused;
   if (!paneId || !workspaceId) return;
   // Closing the only pane would close the workspace, which is what closing the tab is for.
@@ -5337,15 +5360,26 @@ function paletteActions(): PaletteAction[] {
    * is the answer, and with nothing focused these are left out rather than offered and doing
    * nothing.
    */
-  const focused = splitView?.focused ?? '';
+  /*
+   * And nothing at all while the start screen is up, where there is no pane to act on. Offering
+   * `Split right` there is offering an entry that does nothing, which is what this list already
+   * declines to do for a tab with nothing focused.
+   */
+  const focused = paneActionsAllowed() ? (splitView?.focused ?? '') : '';
 
   const actions: PaletteAction[] = [
-    {
-      id: 'split-right',
-      title: 'Split right',
-      ...pageKey('split-right'),
-      run: () => splitFocused('horizontal'),
-    },
+    ...(focused === ''
+      ? []
+      : [
+          {
+            id: 'split-right',
+            title: 'Split right',
+            ...pageKey('split-right'),
+            run: () => {
+              splitFocused('horizontal');
+            },
+          },
+        ]),
     /**
      * The pane operations, in the other place somebody looks for them.
      *
@@ -5365,23 +5399,35 @@ function paletteActions(): PaletteAction[] {
             ? [{ id: 'add-marker', title: 'Add a marker here', run: () => addMarker(focused) }]
             : []),
         ]),
-    {
-      id: 'split-down',
-      title: 'Split down',
-      ...pageKey('split-down'),
-      run: () => splitFocused('vertical'),
-    },
+    ...(focused === ''
+      ? []
+      : [
+          {
+            id: 'split-down',
+            title: 'Split down',
+            ...pageKey('split-down'),
+            run: () => {
+              splitFocused('vertical');
+            },
+          },
+        ]),
     {
       id: 'agent-tab',
       title: 'Launch an agent in a new tab',
       ...key('launch-agent'),
       run: () => launchAgent('new-tab'),
     },
-    {
-      id: 'agent-split',
-      title: 'Launch an agent beside this pane',
-      run: () => launchAgent('split'),
-    },
+    ...(focused === ''
+      ? []
+      : [
+          {
+            id: 'agent-split',
+            title: 'Launch an agent beside this pane',
+            run: () => {
+              launchAgent('split');
+            },
+          },
+        ]),
     {
       id: 'new-terminal',
       title: 'New terminal tab',
@@ -5884,8 +5930,9 @@ function runPageShortcut(id: string, e: KeyboardEvent): void {
       detachFocused();
       return;
     case 'launch-agent':
-      // Option as well puts it beside this pane rather than in a tab of its own.
-      launchAgent(e.altKey ? 'split' : 'new-tab');
+      // Option as well puts it beside this pane rather than in a tab of its own, which is a
+      // split and so needs a pane to be beside.
+      launchAgent(e.altKey && paneActionsAllowed() ? 'split' : 'new-tab');
       return;
     case 'focus-next-pane':
       focusAnotherPane(1);
@@ -5894,6 +5941,7 @@ function runPageShortcut(id: string, e: KeyboardEvent): void {
       focusAnotherPane(-1);
       return;
     case 'clear-screen': {
+      if (!paneActionsAllowed()) return;
       const pane = splitView?.focused ? panesHost?.get(splitView.focused) : undefined;
       pane?.controller.clear();
       return;

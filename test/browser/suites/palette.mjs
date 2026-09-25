@@ -7,11 +7,27 @@ import {
   sleep,
   paneCount,
   finish,
+  type,
+  waitFor,
+  waitUntil,
 } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
 const { client } = await openTerminal();
+/*
+ * Used first, because the palette offers what this tab can do and a tab still showing the start
+ * screen cannot split, close or move a pane: there is no pane yet, only the strip the start
+ * screen keeps for typing into. The actions below are pane actions.
+ */
+await waitFor(client, "document.querySelector('.launcher-input')");
+await type(client, 'echo palette-ready\r');
+await waitUntil(
+  async () =>
+    String(await evaluate(client, 'window.__tabterm.readScreen() ?? ""')).includes('palette-ready'),
+  20000,
+);
+await sleep(600);
 await openPalette(client);
 await sleep(800);
 
