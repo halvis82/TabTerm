@@ -765,6 +765,13 @@ refreshed when the menu closes.
 The nudge fires when a command **finishes**, not when it starts, because the running list asks
 what is on the screen and a command that has just been typed has not printed anything yet.
 
+**A dialog is not part of the drawing.** The start screen replaces its own children on every
+render, and it renders whenever anything on the machine starts or finishes, which has nothing to
+do with somebody filling in a form. The template dialog lived inside that element, so it vanished
+on the next update with everything typed into it and nothing on screen said why. It sits on the
+page now, which is where the template card already sat for exactly this reason, and the start
+screen takes both away when it is dismissed rather than leaving them over the terminals it opened.
+
 **What is listening sits together, at the bottom.** Servers TabTerm started and ports something
 else on this machine is listening on are the same question asked twice, and they used to sit at
 opposite ends of the page with the folders and the conversations between them, so "what is

@@ -52,6 +52,16 @@ await evaluate(client, `document.querySelector('#cmd-button')?.click()`);
 await sleep(600);
 r.ok('the panel opens', (await open()).panel);
 
+/*
+ * Put on Favorites rather than assumed to be there. The panel remembers its last tab in
+ * extension storage, which the whole browser shares, so in a full run it opens wherever another
+ * suite left it and the button this needs is not on that tab.
+ */
+await evaluate(
+  client,
+  `[...document.querySelectorAll('.cmd-tab')].find((t) => t.textContent === 'Favorites')?.click()`,
+);
+await waitFor(client, `!!document.querySelector('.cmd-add')`, 6000);
 await evaluate(client, `document.querySelector('.cmd-add')?.click()`);
 await sleep(500);
 const writing = await open();
@@ -147,8 +157,41 @@ r.ok(
   !behind.panel && behind.dialog,
   JSON.stringify(behind),
 );
+/**
+ * And a redraw does not take it away.
+ *
+ * The start screen draws again whenever anything on this machine starts or finishes, which has
+ * nothing to do with the person filling in a dialog. This one lived inside the element every
+ * render replaces, so it vanished on the next update with everything typed into it and nothing
+ * said why. The card beside it had already learned this and lives on the page.
+ */
+await evaluate(client, `document.querySelector('.template-dialog input')?.focus()`);
+await evaluate(
+  client,
+  `(() => {
+     const box = document.querySelector('.template-dialog input');
+     if (box) box.value = 'half typed';
+   })()`,
+);
+await evaluate(client, `window.__tabterm.redrawStartScreen()`);
+await sleep(400);
+const afterRedraw = await open();
+r.ok(
+  'a redraw of the start screen leaves the dialog alone',
+  afterRedraw.dialog,
+  JSON.stringify(afterRedraw),
+);
+r.ok(
+  'with what was typed into it',
+  String(
+    await evaluate(client, `document.querySelector('.template-dialog input')?.value ?? ''`),
+  ) === 'half typed',
+  String(await evaluate(client, `document.querySelector('.template-dialog input')?.value ?? ''`)),
+);
+
 await press('Escape', 'Escape');
 await sleep(300);
+r.ok('and Escape closes it', !(await open()).dialog, JSON.stringify(await open()));
 
 await finish();
 r.done();

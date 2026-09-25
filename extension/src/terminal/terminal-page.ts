@@ -7154,6 +7154,8 @@ declare global {
       startScreenReason: () => Record<string, unknown>;
       /** What prompted each drawing of the start screen, most recent last. */
       renderLog: () => readonly { at: number; since: string[] }[];
+      /** Draw the start screen again, which the daemon otherwise causes at its own pace. */
+      redrawStartScreen: () => void;
       maximizedPane: () => string | null;
       leaveFocusMode: () => void | Promise<void>;
       /** Which panes the daemon said something was launched into. */
@@ -7427,6 +7429,12 @@ function installTestHook(): void {
     startScreenReason: () => startScreenReason,
     /** What prompted each drawing of the start screen, most recent last. */
     renderLog: () => launcher?.renderLog() ?? [],
+    /*
+     * A redraw on demand, because the real ones arrive whenever anything on the machine starts
+     * or finishes. Waiting for one is waiting on another suite, and a check that has to wait on
+     * another suite is a check that reports whatever the machine was doing.
+     */
+    redrawStartScreen: () => launcher?.render(),
     maximizedPane: () => splitView?.maximized ?? null,
     leaveFocusMode: () => splitView?.exitFocusMode(),
     /** Which panes the daemon said something was launched into. */

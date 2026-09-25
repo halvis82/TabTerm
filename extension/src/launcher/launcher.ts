@@ -494,11 +494,14 @@ export class Launcher {
   dismiss(): void {
     if (this.#dismissed) return;
     this.#dismissed = true;
-    // The template card lives on the page rather than in this element, so it has to be told.
+    // The card and the dialog live on the page rather than in this element, so both have to be
+    // told. Either one left behind would sit over the terminals the start screen just opened.
     clearTimeout(this.#cardHideTimer);
     this.#cardPinned = false;
     this.#templateCard?.remove();
     this.#templateCard = null;
+    this.#templateFormEl?.remove();
+    this.#templateFormEl = null;
     this.#el.hidden = true;
     this.#el.replaceChildren();
     // Anything bound outside this element goes with it. Control and a number is not ours once
@@ -1484,7 +1487,15 @@ export class Launcher {
     };
     document.addEventListener('keydown', onKey, true);
 
-    this.#el.append(backdrop);
+    /**
+     * On the page rather than inside the start screen, for the reason the card already learned.
+     *
+     * Every render replaces this element's children, and the start screen redraws whenever
+     * anything on the machine starts or finishes, which is not rare and has nothing to do with
+     * the person filling this in. A dialog living inside it lasted until the next update and then
+     * vanished with everything typed into it, and nothing on screen said why.
+     */
+    document.body.append(backdrop);
     this.#templateFormEl = backdrop;
     name.focus();
   }
