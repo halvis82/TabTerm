@@ -76,47 +76,35 @@ r.ok(
 );
 
 /*
- * And a refresh that learns nothing does not rebuild the screen at all.
+ * And a refresh that learns nothing draws nothing.
  *
- * This is the fix underneath the two checks above rather than a separate feature. The daemon
- * re-sends the same state whenever anything anywhere might have changed it, and every one of
- * those used to replace every control on the screen. A row that is replaced while somebody is
- * pressing it takes the press with it.
+ * This is the fix underneath the two checks above rather than a separate feature: the daemon
+ * re-sends what it knows whenever anything anywhere might have changed it, and every one of those
+ * used to replace every control on the screen, taking with it any press that was landing.
  *
- * Asked by identity: the same element object, still in the page, after a dozen refreshes.
+ * Asked of the drawing log rather than by watching one row. A row can be replaced for an honest
+ * reason: in a full run other suites are starting sessions in the same daemon, and a list of what
+ * is running really has changed. What must not happen is a drawing prompted by a state that says
+ * what the last one said, and the log names what prompted each one.
  */
 await evaluate(client, 'clearInterval(window.__ttStorm)');
-await sleep(600);
-/*
- * Waited for rather than assumed. The row is drawn when the daemon answers about the folder, and
- * under a full run that answer can be a second or two behind the typing. Marking a row that is
- * not there yet is a check about nothing, which is how this failed a run with the product working.
- */
-await typeIn('Documents/');
-const hadRow = await waitFor(
-  client,
-  `[...document.querySelectorAll('.launcher-completion')].some((b) => b.textContent === '..')`,
-  15000,
-);
-await evaluate(
-  client,
-  `window.__ttRow = [...document.querySelectorAll('.launcher-completion')].find((b) => b.textContent === '..')`,
-);
+await sleep(800);
+const drawingsBefore = JSON.parse(
+  String(await evaluate(client, 'JSON.stringify(window.__tabterm.renderLog())')),
+).length;
 for (let i = 0; i < 12; i++) {
   await evaluate(client, 'window.__tabterm.refreshStartScreen()');
   await sleep(120);
 }
-const survived = Boolean(
-  await evaluate(
-    client,
-    `Boolean(window.__ttRow && window.__ttRow.isConnected &&
-       window.__ttRow === [...document.querySelectorAll('.launcher-completion')].find((b) => b.textContent === '..'))`,
-  ),
-);
+await sleep(500);
+const since = JSON.parse(
+  String(await evaluate(client, 'JSON.stringify(window.__tabterm.renderLog())')),
+).slice(drawingsBefore);
+const forState = since.filter((drawing) => (drawing.since ?? []).includes('state'));
 r.ok(
-  'a refresh that learns nothing leaves the rows where they are',
-  hadRow && survived,
-  `row found: ${String(hadRow)}, same row after twelve refreshes: ${String(survived)}`,
+  'twelve refreshes that learn nothing draw nothing for the state',
+  forState.length === 0,
+  `${String(since.length)} drawings, ${String(forState.length)} of them for the state: ${JSON.stringify(since.map((d) => d.since))}`,
 );
 
 await finish();
