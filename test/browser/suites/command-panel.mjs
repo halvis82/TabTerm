@@ -87,7 +87,13 @@ await evaluate(
   client,
   `[...document.querySelectorAll('.cmd-tab')].find(t => t.textContent === 'Recent')?.click()`,
 );
-await sleep(600);
+/*
+ * Waited for rather than slept on. The list comes from the daemon, which records a command when
+ * it finishes and answers when asked, so on a loaded machine the rows arrive after any number
+ * written here. Reading first reported none at all, and the two checks after it then asserted
+ * about a list that was not there yet.
+ */
+const filled = await waitFor(client, "document.querySelectorAll('.cmd-row').length > 0", 15000);
 
 const rows = () =>
   evaluate(
@@ -100,7 +106,13 @@ const rows = () =>
   ).then((s) => JSON.parse(s));
 
 const listed = await rows();
-r.ok('Recent lists commands that were run', listed.count > 0, `${String(listed.count)} rows`);
+r.ok(
+  'Recent lists commands that were run',
+  filled && listed.count > 0,
+  filled
+    ? `${String(listed.count)} rows`
+    : 'no rows after fifteen seconds, so the daemon never listed any',
+);
 
 // Clicking selects and does nothing else.
 const before = await readScreen(client);

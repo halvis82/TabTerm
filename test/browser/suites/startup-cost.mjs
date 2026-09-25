@@ -122,10 +122,19 @@ const INSTRUMENT = `(() => {
     await evaluate(d.client, 'JSON.stringify(window.__tabterm.renderLog())'),
   ).length;
 
-  // One change, made the way anything makes one: a command finishing in another tab.
+  /*
+   * One change, and then the whole screen asked for again.
+   *
+   * A command finishing elsewhere is one answer, and one answer draws once whether the screen
+   * gathers answers or not: measured, this check passed with the gathering turned off entirely,
+   * so it was guarding nothing. Asking for the screen again is what produces the six answers a
+   * round trip apart that the gathering exists for, which is the thing worth counting.
+   */
   const other = await openTerminal();
   await waitFor(other.client, "document.querySelector('.launcher-input')");
   await type(other.client, 'echo REDRAW-COST');
+  await sleep(1500);
+  await evaluate(d.client, 'window.__tabterm.refreshStartScreen()');
   await sleep(3000);
 
   /**
@@ -153,10 +162,24 @@ const INSTRUMENT = `(() => {
    *
    * The detail is what prompted each drawing, so a regression names its own cause.
    */
+  /*
+   * Judged by how close the drawings are, not only by how many there were.
+   *
+   * The screen waits for the answers it was told to expect and then draws, with a deadline so a
+   * missing answer cannot hold it for ever. On a loaded machine the answers really do arrive past
+   * that deadline: a full run had `live` arrive a second before the other five, which is two
+   * drawings and the screen doing exactly what it should.
+   *
+   * What the fault looked like is different and still caught: a drawing per answer, six of them
+   * milliseconds apart. So a second drawing is allowed only if it came after the wait was over.
+   */
+  const drawn = log.slice(drawnBefore);
+  const gaps = drawn.slice(1).map((d, i) => d.at - drawn[i].at);
+  const crowded = gaps.filter((ms) => ms < 250);
   r.ok(
     'one change to the start screen costs one drawing, not one per answer',
-    redraws >= 0 && redraws <= 1,
-    `${String(redraws)} :: ${JSON.stringify(log.slice(drawnBefore))}`,
+    drawn.length <= 1 || crowded.length === 0,
+    `${String(redraws)} drawing(s), gaps ${JSON.stringify(gaps)}ms :: ${JSON.stringify(drawn)}`,
   );
 }
 
