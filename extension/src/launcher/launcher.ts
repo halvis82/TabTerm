@@ -1,4 +1,5 @@
 import { buildSessions, isDraggingSession, placeSessions } from './sessions-view.js';
+import { RepeatedAnswers } from './repeated-answers.js';
 import { resolveTypedPath, unresolveTypedPath } from './typed-path.js';
 import { checkShape, previewPanes } from '@tabterm/shared';
 
@@ -505,14 +506,11 @@ export class Launcher {
    * Saying the same thing again cannot be news, so it does not redraw. Anything the page changes
    * locally calls `render` itself and does not come through here.
    */
-  readonly #saidBefore = new Map<string, string>();
+  readonly #saidBefore = new RepeatedAnswers();
 
   /** True when this part is saying something new, which is the only time a redraw is owed. */
   #isNews(key: string, value: unknown): boolean {
-    const now = JSON.stringify(value) ?? '';
-    if (this.#saidBefore.get(key) === now) return false;
-    this.#saidBefore.set(key, now);
-    return true;
+    return this.#saidBefore.isNews(key, value);
   }
 
   setState(state: LauncherState): void {

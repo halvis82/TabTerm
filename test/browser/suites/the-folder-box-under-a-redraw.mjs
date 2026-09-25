@@ -76,36 +76,18 @@ r.ok(
 );
 
 /*
- * And a refresh that learns nothing draws nothing.
+ * What this suite does not check, and why.
  *
- * This is the fix underneath the two checks above rather than a separate feature: the daemon
- * re-sends what it knows whenever anything anywhere might have changed it, and every one of those
- * used to replace every control on the screen, taking with it any press that was landing.
+ * "A refresh that learns nothing draws nothing" belongs to `repeated-answers`, as a unit check.
+ * A full run shares one daemon between suites, so the state genuinely changes while this is
+ * watching: another suite starting a session really is news, and a screen that redrew for it was
+ * right to. Asserting it here failed a run twice with the product doing the right thing, which is
+ * a check teaching the wrong lesson.
  *
- * Asked of the drawing log rather than by watching one row. A row can be replaced for an honest
- * reason: in a full run other suites are starting sessions in the same daemon, and a list of what
- * is running really has changed. What must not happen is a drawing prompted by a state that says
- * what the last one said, and the log names what prompted each one.
+ * What is left here is the part only a browser can answer: that a press lands and that typing
+ * survives, with the screen redrawing under both.
  */
 await evaluate(client, 'clearInterval(window.__ttStorm)');
-await sleep(800);
-const drawingsBefore = JSON.parse(
-  String(await evaluate(client, 'JSON.stringify(window.__tabterm.renderLog())')),
-).length;
-for (let i = 0; i < 12; i++) {
-  await evaluate(client, 'window.__tabterm.refreshStartScreen()');
-  await sleep(120);
-}
-await sleep(500);
-const since = JSON.parse(
-  String(await evaluate(client, 'JSON.stringify(window.__tabterm.renderLog())')),
-).slice(drawingsBefore);
-const forState = since.filter((drawing) => (drawing.since ?? []).includes('state'));
-r.ok(
-  'twelve refreshes that learn nothing draw nothing for the state',
-  forState.length === 0,
-  `${String(since.length)} drawings, ${String(forState.length)} of them for the state: ${JSON.stringify(since.map((d) => d.since))}`,
-);
 
 await finish();
 r.done();

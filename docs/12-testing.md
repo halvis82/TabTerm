@@ -302,6 +302,14 @@ session the run created.
 suites sharing one fight over which tab that is and keystrokes land in another suite's terminal.
 Two suites crashed in parallel that passed alone.
 
+**A shared daemon cannot promise that nothing changed.** Suites run against one daemon, so while a
+check watches the start screen another suite is starting sessions in it: the list of what is
+running really has changed and a redraw really was owed. A check that watched one row's identity,
+and then one that counted drawings, each failed a full run twice with the product doing the right
+thing. Both claims were about a rule, not about a browser, and moved to `repeated-answers` as unit
+checks. What stayed in the browser is the part only a browser can answer: that a press lands, and
+that what was typed survives.
+
 **A press at a list that is being rebuilt reaches nothing.** The start screen redraws whenever a
 session starts anywhere, including in another tab, so in a parallel run a row found a moment before
 the press can be gone by the time it lands. A press is located and then dispatched at a point, and
