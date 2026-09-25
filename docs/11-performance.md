@@ -47,6 +47,33 @@ protects the renderer from a flood, which the first chunk after a pause is not: 
 be gathered with, so the wait bought nothing and cost the whole wait, on every keystroke coming
 back. The credit window still protects the renderer, and a burst still meets the timer.
 
+## A terminal is on-device work, and waits on nothing else
+
+Asked directly: does any of this need the internet? It does not, and the answer is checked rather
+than asserted, in `works-with-no-internet`.
+
+| Question | Answer, measured on this machine |
+|---|---|
+| What does the page ask the network for? | Nothing. Zero requests leave the machine while a tab opens and commands run. The extension declares no host permissions, has no `fetch` in it, and its pages reference no font, script or stylesheet from anywhere else |
+| What does the daemon connect to? | Two loopback listeners and nothing else, asked of the operating system rather than of the daemon |
+| With everything off-machine failing? | The same. The start screen is up in **1 to 2 ms**, the shell is usable in about **half a second**, and a local command answers in the same time as with a network |
+| How long does a local command take? | Keystroke to bytes back, **8 to 20 ms** typically, measured at the socket rather than by watching the screen |
+
+The half second before a shell is usable is the login shell reading somebody's profile, which a
+terminal that owns its own PTY pays too.
+
+### The stall that is not the network
+
+Occasionally a local command takes half a second to three seconds instead of fifteen milliseconds.
+It is worth writing down what that is not, because every obvious suspect has been excluded by
+measurement: not the network, not the page being busy (no task over 150 ms ran), not the page
+being hidden or frozen, not the credit window (the daemon logs no held output), and not the shell
+(the same shell on a plain PTY answers every time in under a millisecond).
+
+A second client attached to the **same session** over a plain socket sees the same stall within
+thirty milliseconds, so it is upstream of the browser entirely: between the daemon, the PTY host
+and the process. That is where to look next, and it is the only part of this question still open.
+
 ## What a tab costs, measured
 
 Numbers from an ordinary laptop, taken with the machine otherwise idle. They are in a suite so
