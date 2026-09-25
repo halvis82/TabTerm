@@ -753,6 +753,13 @@ refreshed when the menu closes.
 The nudge fires when a command **finishes**, not when it starts, because the running list asks
 what is on the screen and a command that has just been typed has not printed anything yet.
 
+**What is listening sits together, at the bottom.** Servers TabTerm started and ports something
+else on this machine is listening on are the same question asked twice, and they used to sit at
+opposite ends of the page with the folders and the conversations between them, so "what is
+running" meant looking in two places. TabTerm's own go first, because those are the ones with
+something that can be done about them from here. Both stay below the things that start something,
+since a port is worth knowing about and is not a way to open a terminal.
+
 ---
 
 ### A tab that was never used does not survive being left

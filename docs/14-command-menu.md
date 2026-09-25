@@ -337,6 +337,12 @@ would attribute the second one's timing to the first.
 Statistics are per page and are not persisted. They describe this session, and a number that
 survived the session it described would be a different feature.
 
+**Two units, and the larger one is one a person can picture.** Durations stopped at minutes, so a
+tab left open across a week of agent work read as `3720m 12s`, a number nobody can hold without
+doing arithmetic on it. It goes up through hours and days now: `2d 14h`, `3h 12m`, `12m 30s`,
+`4.5s`, `120ms`. Always the two largest units that are not zero, because one is too coarse to act
+on and three is a sentence.
+
 ---
 
 ## 7. Storage

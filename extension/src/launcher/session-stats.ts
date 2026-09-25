@@ -123,14 +123,23 @@ export class SessionStats {
   }
 }
 
-/** A duration in the shortest form that is still honest about its magnitude. */
+/**
+ * A duration in the shortest form that is still honest about its magnitude.
+ *
+ * It stopped at minutes, so a week of waiting on agents read as `3720m 12s`, which is a number
+ * nobody can hold: it takes arithmetic to learn it is two and a half days. Two units, always, and
+ * the larger one chosen so the first number is something a person can picture.
+ */
 export function formatDuration(ms: number | undefined): string {
   if (ms === undefined) return 'running';
   if (ms < 1000) return `${String(Math.round(ms))}ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.round((ms % 60_000) / 1000);
-  return `${String(minutes)}m ${String(seconds)}s`;
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${String(minutes)}m ${String(seconds % 60)}s`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${String(hours)}h ${String(minutes % 60)}m`;
+  return `${String(Math.floor(hours / 24))}d ${String(hours % 24)}h`;
 }
 
 /** A wall-clock time, because "when" is half of what a statistics list is for. */

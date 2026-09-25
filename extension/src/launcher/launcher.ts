@@ -1602,8 +1602,6 @@ export class Launcher {
     }
     const restorable = this.#restoreSection(state.home);
     if (restorable) sections.push(restorable);
-    const servers = this.#serverSection(state.home);
-    if (servers) sections.push(servers);
 
     /*
      * --- recent directories, above resuming an agent -----------------------
@@ -1639,6 +1637,18 @@ export class Launcher {
      * the machine, which is worth knowing and is not a way to start anything, so it sits
      * under the things that are.
      */
+    /*
+     * The two lists of ports, together, at the bottom.
+     *
+     * They are the same question asked twice: what is listening on this machine. One is the
+     * servers TabTerm started and can act on, the other is everything else. They used to sit at
+     * opposite ends of the page with the folders and the conversations between them, so reading
+     * "what is running" meant looking in two places. Asked for as "they're the same thing, no?".
+     *
+     * TabTerm's own first, because those are the ones with something to do about them.
+     */
+    const servers = this.#serverSection(state.home);
+    if (servers) sections.push(servers);
     const otherPorts = this.#otherPortsSection();
     if (otherPorts) sections.push(otherPorts);
 

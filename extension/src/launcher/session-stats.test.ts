@@ -138,3 +138,42 @@ describe('what an agent was asked', () => {
     expect(stats.turns().count).toBe(0);
   });
 });
+
+/**
+ * A duration somebody can picture.
+ *
+ * It stopped at minutes, so a week of waiting on agents read as `3720m 12s`: a number that takes
+ * arithmetic before it means anything. Reported exactly that way.
+ */
+describe('how long, said in units a person holds', () => {
+  it('says milliseconds for something that barely happened', () => {
+    expect(formatDuration(420)).toBe('420ms');
+  });
+
+  it('seconds under a minute', () => {
+    expect(formatDuration(12_000)).toBe('12.0s');
+  });
+
+  it('minutes and seconds under an hour', () => {
+    expect(formatDuration(48 * 60_000 + 24_000)).toBe('48m 24s');
+  });
+
+  it('hours and minutes past an hour', () => {
+    // 571m 21s, which is what the stats page showed for a week in commands.
+    expect(formatDuration(571 * 60_000 + 21_000)).toBe('9h 31m');
+  });
+
+  it('and days past a day', () => {
+    // 3720m 12s, which is the one he could not read.
+    expect(formatDuration(3720 * 60_000 + 12_000)).toBe('2d 14h');
+  });
+
+  it('is exact at the boundaries rather than rounding past them', () => {
+    expect(formatDuration(60 * 60_000)).toBe('1h 0m');
+    expect(formatDuration(24 * 60 * 60_000)).toBe('1d 0h');
+  });
+
+  it('still says a command is running when it has no duration yet', () => {
+    expect(formatDuration(undefined)).toBe('running');
+  });
+});
