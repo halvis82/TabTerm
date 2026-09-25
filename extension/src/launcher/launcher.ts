@@ -263,11 +263,24 @@ export class Launcher {
     return this.#renderLog;
   }
 
-  /** One of them came back. */
+  /** One of them came back, with something new to say. */
   #answered(key: string): void {
     this.#answeredSince.add(key);
-    this.#awaited.delete(key);
+    this.#arrived(key);
     this.#scheduleRender();
+  }
+
+  /**
+   * One of them came back saying what it said last time.
+   *
+   * The batch still has to know it arrived. `expecting` names the answers a drawing is worth
+   * waiting for, and only an answer that arrives takes its name off that list: an answer that
+   * merely repeats itself would otherwise hold the batch open until the deadline, and then every
+   * answer after it draws on its own. One change to the screen cost two drawings, which a check
+   * measures and caught.
+   */
+  #arrived(key: string): void {
+    this.#awaited.delete(key);
   }
 
   /** Whether the batch is still worth waiting for. */
@@ -457,7 +470,10 @@ export class Launcher {
      */
     const now = signatureOf(sessions);
     this.#liveSessions = [...sessions];
-    if (now === this.#liveSignature) return;
+    if (now === this.#liveSignature) {
+      this.#arrived('live');
+      return;
+    }
     this.#liveSignature = now;
     this.#answered('live');
   }
@@ -502,6 +518,7 @@ export class Launcher {
      */
     this.#state = state;
     if (this.#isNews('state', state)) this.#answered('state');
+    else this.#arrived('state');
   }
 
   /**
@@ -568,6 +585,7 @@ export class Launcher {
     // Named like the rest, because it arrives on its own schedule: templates come from extension
     // storage rather than the daemon, so they land beside the answers and drew a second screen.
     if (fresh) this.#answered('templates');
+    else this.#arrived('templates');
   }
 
   /**
@@ -2043,6 +2061,7 @@ export class Launcher {
   setRestorable(workspaces: readonly RestorableSummary[]): void {
     this.#restorable = workspaces;
     if (this.#isNews('restorable', workspaces)) this.#answered('restorable');
+    else this.#arrived('restorable');
   }
 
   /**
@@ -2168,6 +2187,7 @@ export class Launcher {
       this.#confirming = null;
     }
     if (this.#isNews('servers', [servers, others])) this.#answered('servers');
+    else this.#arrived('servers');
   }
 
   /**
@@ -2486,6 +2506,7 @@ export class Launcher {
   setResumable(sessions: readonly ResumableAgentSession[]): void {
     this.#resumable = sessions;
     if (this.#isNews('resumable', sessions)) this.#answered('resumable');
+    else this.#arrived('resumable');
   }
 
   /** Conversations dismissed from this list, which stay dismissed. */
@@ -2520,6 +2541,7 @@ export class Launcher {
     const fresh = this.#isNews('hidden-resumes', [...ids].sort());
     // Named, so it joins the batch it arrives with: which resume rows were dismissed, read from extension storage.
     if (fresh) this.#answered('hidden-resumes');
+    else this.#arrived('hidden-resumes');
   }
 
   /**

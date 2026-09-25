@@ -565,6 +565,12 @@ counted by the drawing log, which is why it hid for so long.
 Anything the page changes for itself asks for its own drawing, so this only ever suppresses a
 repetition of something already on screen.
 
+An answer that repeats itself still has to be **marked as arrived**, even though it draws nothing.
+A drawing waits for the answers it was told to expect, and only an arrival takes a name off that
+list, so an answer that merely repeated itself held the batch open until its deadline and every
+answer after it then drew on its own. One change to the screen cost two drawings, which the check
+that counts drawings per change caught.
+
 ### A redraw restores the box before it restores what is under it
 
 The start screen follows what the rest of TabTerm is doing, so it redraws whenever a session
