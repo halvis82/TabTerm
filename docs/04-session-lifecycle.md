@@ -1010,6 +1010,25 @@ Two rules that exist because of what they prevent:
   restore.
 - **A pane that left the layout stops being restorable.** Otherwise a pane someone deliberately
   closed would come back on every restart, which is the opposite of what closing it meant.
+- **A workspace somebody closed is marked closed.** The same rule one level up, and the level that
+  was missing: the column existed and nothing ever wrote to it, so `closed_at IS NULL` meant
+  "every workspace there has ever been". On a machine in daily use that was 417 rows across a
+  fortnight and not one marked closed.
+
+### What is offered back, and for how long
+
+Two limits, both added after the offer was reported as showing rows that had nothing to do with a
+restart: "at some point these should go away, i haven't restarted today at all".
+
+A workspace whose last pane was closed is finished with, and never appears. And an offer to
+reopen what a restart took away is taken within the working stretch that follows it or not at
+all, so anything older than **four hours** is not offered. Neither existed: what was on the start
+screen under "reopen from before the restart" was every workspace of the last fortnight that had
+not been dismissed by hand, three at a time, none of them from a restart.
+
+The rows say what was in the workspace rather than only where it was. A pane in the home directory
+could previously say `~` and nothing else, which is not something anybody can decide about, so the
+agent that was running there, or failing that the last command, is said beside the folder.
 
 ### What restore actually does
 

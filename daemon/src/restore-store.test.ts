@@ -110,6 +110,50 @@ describe('offering restores', () => {
     expect(store.list(new Set(), 5)).toHaveLength(5);
   });
 
+  /**
+   * What the offer is actually for, which it had stopped being.
+   *
+   * On a real machine this list was four hundred and seventeen workspaces across a fortnight,
+   * none of them marked closed and none of them from a restart, with three of them on the start
+   * screen at any moment under a heading that says "reopen from before the restart". Reported as
+   * "at some point these should go away, i haven't restarted today at all".
+   */
+  it('stops offering a workspace somebody closed', () => {
+    const store = fresh();
+    store.save(workspace('w1', ['s1']), () => pane('/w'));
+    expect(store.list(new Set())).toHaveLength(1);
+    store.close('w1');
+    expect(store.list(new Set())).toHaveLength(0);
+  });
+
+  it('offers it again if it comes back and is lost again', () => {
+    // Closed is a fact about the last time it ended, not a mark that retires the workspace.
+    const store = fresh();
+    store.save(workspace('w1', ['s1']), () => pane('/w'));
+    store.close('w1');
+    store.save(workspace('w1', ['s2']), () => pane('/w'));
+    expect(store.list(new Set())).toHaveLength(1);
+  });
+
+  it('stops offering one that is older than the window', () => {
+    // Aged in the store rather than through an injected clock, so this exercises the real window
+    // against a real row: five hours ago, against the four the offer is worth.
+    const db = new Database(':memory:');
+    const store = new RestoreStore(db);
+    store.save(workspace('w1', ['s1']), () => pane('/w'));
+    expect(store.list(new Set())).toHaveLength(1);
+    db.handle
+      .prepare('UPDATE workspaces SET updated_at = ? WHERE id = ?')
+      .run(Date.now() - 5 * 60 * 60 * 1000, 'w1');
+    expect(store.list(new Set())).toHaveLength(0);
+  });
+
+  it('offers back within a few hours rather than a fortnight', () => {
+    // The number itself, because it is the whole of the fix and a later edit should have to mean
+    // it. Four hours is the working stretch after a restart, which is when this is taken or not.
+    expect(RestoreStore.OFFER_WINDOW_MS).toBe(4 * 60 * 60 * 1000);
+  });
+
   it('skips a workspace with no panes recorded', () => {
     const store = fresh();
     store.save(workspace('w1', ['s1']), () => null);

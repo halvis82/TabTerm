@@ -1115,7 +1115,13 @@ export class DaemonServer {
          * completely unchanged."
          */
         const place = placeOf(workspace.layout, msg.paneId);
-        this.#workspaces.closePane(msg.workspaceId, msg.paneId);
+        const left = this.#workspaces.closePane(msg.workspaceId, msg.paneId);
+        /*
+         * The last pane going is somebody finishing with that tab, and a thing somebody finished
+         * with must not come back as an offer to reopen it. Nothing marked a workspace closed,
+         * so every one ever recorded was offered until it was dismissed by hand.
+         */
+        if (left === null) this.#restore.close(msg.workspaceId);
         if (sessionId) {
           const session = this.#sessions.get(sessionId);
           /**
@@ -2417,6 +2423,8 @@ export class DaemonServer {
               cwd: pane.cwd,
               hadCommand: (pane.command?.length ?? 0) > 0,
               ...(pane.lastCommand ? { lastCommand: pane.lastCommand } : {}),
+              // So a row can say more than a folder name, which for a pane in home is nothing.
+              ...(pane.agent ? { agent: pane.agent } : {}),
             })),
           }))
           .filter((entry) => entry.panes.some((pane) => existsSync(pane.cwd)));

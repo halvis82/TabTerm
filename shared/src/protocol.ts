@@ -1244,6 +1244,14 @@ export interface RestorableSummary {
     lastCommand?: string;
     /** True when the pane ran an explicit command rather than a shell. */
     hadCommand: boolean;
+    /**
+     * Which agent CLI was in this pane, when one was.
+     *
+     * A row that can only say the folder says nothing at all for a pane in the home directory,
+     * which is most of them: "1 pane, ~" is not something anybody can decide about. The agent is
+     * the most recognisable thing a pane holds, and the last command is the next best.
+     */
+    agent?: string;
   }[];
 }
 

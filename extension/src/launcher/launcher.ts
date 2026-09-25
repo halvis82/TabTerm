@@ -2076,9 +2076,20 @@ export class Launcher {
       const main = document.createElement('button');
       main.className = 'launcher-row';
       const dirs = entry.panes.map((p) => shorten(p.cwd, home).split('/').pop() ?? '').join(', ');
+      /**
+       * What was in it, not only where it was.
+       *
+       * A pane in the home directory said `~` and nothing else, which is not something anybody
+       * can decide about: reported as three rows with no descriptions. The agent is the most
+       * recognisable thing a pane holds and the last command is the next best, so the first one
+       * that exists is said beside the folder.
+       */
+      const what = entry.panes
+        .map((p) => p.agent ?? p.lastCommand ?? '')
+        .find((name) => name !== '');
       main.append(
         strong(`${String(entry.paneCount)} pane${entry.paneCount === 1 ? '' : 's'}`),
-        dim(`${dirs} · ${relativeAge(entry.savedAt)}`),
+        dim(`${what === undefined ? dirs : `${dirs} · ${what}`} · ${relativeAge(entry.savedAt)}`),
       );
       main.addEventListener('click', () => {
         this.#expandedRestore =

@@ -342,22 +342,59 @@ export class RestoreStore {
   }
 
   /**
+   * How long a workspace that was lost is worth offering back.
+   *
+   * The offer says "reopen from before the restart", and that is a thing somebody takes within
+   * the working stretch that follows it or not at all. It had no window at all: every workspace
+   * ever recorded was offered until it was dismissed by hand, and on a real machine that was four
+   * hundred and seventeen of them across a fortnight, three on screen at a time, none of them
+   * from a restart. Reported as "at some point these should go away, i haven't restarted".
+   */
+  static readonly OFFER_WINDOW_MS = 4 * 60 * 60 * 1000;
+
+  /**
+   * This workspace ended because somebody ended it, so stop offering it back.
+   *
+   * The column existed and nothing ever wrote it, so `closed_at IS NULL` meant "every workspace
+   * there has ever been": zero of four hundred and seventeen rows on a real machine were marked
+   * closed. Closing the last pane in a tab is the person saying they are finished with it, which
+   * is the one case that must not come back as an offer.
+   */
+  close(workspaceId: string): void {
+    this.#db.handle
+      .prepare('UPDATE workspaces SET closed_at = ? WHERE id = ? AND closed_at IS NULL')
+      .run(Date.now(), workspaceId);
+  }
+
+  /**
    * Workspaces that could be brought back, newest first.
    *
    * `excludeLive` is the set already running. After a daemon restart that is empty and
    * everything is offered; during normal operation it is everything, and nothing is, which is
    * exactly right — restore is for the case where the sessions are gone.
+   *
+   * Two things keep it to that case rather than to a history of everything: a workspace somebody
+   * closed is marked closed and never appears, and one that is older than the window is past
+   * being wanted back.
    */
-  list(excludeLive: ReadonlySet<string>, limit = 12): RestorableWorkspace[] {
+  list(
+    excludeLive: ReadonlySet<string>,
+    limit = 12,
+    withinMs = RestoreStore.OFFER_WINDOW_MS,
+  ): RestorableWorkspace[] {
     const rows = this.#db.handle
       .prepare(
         `SELECT id, layout_json, updated_at FROM workspaces
-         WHERE closed_at IS NULL
+         WHERE closed_at IS NULL AND updated_at >= ?
          -- rowid breaks a tie, because two workspaces saved in the same millisecond would
          -- otherwise come back in whatever order SQLite felt like.
          ORDER BY updated_at DESC, rowid DESC LIMIT ?`,
       )
-      .all(limit * 2) as { id: string; layout_json: string; updated_at: number }[];
+      .all(Date.now() - withinMs, limit * 2) as {
+      id: string;
+      layout_json: string;
+      updated_at: number;
+    }[];
 
     const out: RestorableWorkspace[] = [];
     const seen = new Set<string>();
