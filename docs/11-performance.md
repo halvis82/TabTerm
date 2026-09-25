@@ -87,6 +87,13 @@ anything past 250 ms is written down as `loop.stalled` with how late it was and 
 was. Every terminal that process serves waited exactly that long, so the next occurrence names
 itself instead of being argued about.
 
+**Two clocks, because a closed lid is not a stall.** The wall clock keeps time while a machine
+sleeps and the monotonic one does not, so lateness is measured against the one sleep stops. The
+first eleven records this produced were all a shut laptop, up to sixteen minutes each, which is
+exactly the noise that would bury what it was built to catch. The gap between the two clocks is
+the sleep itself and is worth one line of its own: it explains the silences in this log, and a
+background countdown that ran three to thirteen minutes late while nothing was running to count.
+
 ## What a tab costs, measured
 
 Numbers from an ordinary laptop, taken with the machine otherwise idle. They are in a suite so

@@ -846,6 +846,10 @@ async function main(): Promise<void> {
     onStall: (lateBy) => {
       warn('loop.stalled', { lateByMs: lateBy, where: 'daemon' });
     },
+    // Said once, because it explains the silences in this log and a countdown that ran late.
+    onSlept: (forMs) => {
+      info('machine.slept', { forMs, where: 'daemon' });
+    },
   });
   info('daemon.ready', { version: VERSION, protocol: PROTOCOL_VERSION, pid: process.pid });
   console.error(`tabtermd ${VERSION} listening on 127.0.0.1:${String(config.port)}`);

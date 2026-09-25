@@ -44,6 +44,10 @@ async function main(): Promise<void> {
     onStall: (lateBy) => {
       warn('loop.stalled', { lateByMs: lateBy, where: 'pty-host' });
     },
+    // Said once, because it explains the silences in this log and a countdown that ran late.
+    onSlept: (forMs) => {
+      info('machine.slept', { forMs, where: 'pty-host' });
+    },
   });
 
   /**
