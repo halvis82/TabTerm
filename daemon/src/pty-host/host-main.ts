@@ -4,6 +4,7 @@ import { PtyHost } from './host.js';
 import { HOST_LOCK, HOST_SOCKET } from './paths.js';
 import { paths } from '../config.js';
 import { safeError, safeStack } from '../safe-error.js';
+import { watchLoopLag } from '../loop-lag.js';
 
 /**
  * The PTY host, as a process.
@@ -37,6 +38,13 @@ function claimLock(): boolean {
 
 async function main(): Promise<void> {
   initLog('info');
+  // The other half of the same question. See `loop-lag.ts`: this process owns the pty, so a stall
+  // here is felt by every terminal on the machine and looks exactly like a stall in the daemon.
+  watchLoopLag({
+    onStall: (lateBy) => {
+      warn('loop.stalled', { lateByMs: lateBy, where: 'pty-host' });
+    },
+  });
 
   /**
    * Installed before anything can throw, rather than after the host is listening.

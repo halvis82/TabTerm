@@ -62,7 +62,7 @@ than asserted, in `works-with-no-internet`.
 The half second before a shell is usable is the login shell reading somebody's profile, which a
 terminal that owns its own PTY pays too.
 
-### The stall that is not the network
+### The stall that is not the network, and what is watching for it now
 
 Occasionally a local command takes half a second to three seconds instead of fifteen milliseconds.
 It is worth writing down what that is not, because every obvious suspect has been excluded by
@@ -72,7 +72,20 @@ being hidden or frozen, not the credit window (the daemon logs no held output), 
 
 A second client attached to the **same session** over a plain socket sees the same stall within
 thirty milliseconds, so it is upstream of the browser entirely: between the daemon, the PTY host
-and the process. That is where to look next, and it is the only part of this question still open.
+and the process.
+
+**Looked for and not found again.** On a quiet machine: 200 round trips through the browser, 150
+through the daemon with no browser, 150 more with an idle tab attached, 40 under six busy cores,
+and 150 during a full suite run. Zero over 200 milliseconds in any of them, median 8 to 9, worst
+39. The occurrences were all in one window in which three agents were working against a failing
+network and two full suite runs were going, which is his own reading of it.
+
+That is the worst shape a fault can have: real enough to be seen, rare enough that looking finds
+nothing. So rather than guess at a fix, both processes on the path of a keystroke now watch their
+own event loop. A timer due every 500 ms is late by exactly the time the loop spent elsewhere, and
+anything past 250 ms is written down as `loop.stalled` with how late it was and which process it
+was. Every terminal that process serves waited exactly that long, so the next occurrence names
+itself instead of being argued about.
 
 ## What a tab costs, measured
 

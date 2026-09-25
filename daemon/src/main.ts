@@ -15,6 +15,7 @@ import { AgentBridge } from './agent-bridge.js';
 import { loadConfig, paths, ignoredConfigFields } from './config.js';
 import { acquireLock } from './lockfile.js';
 import { debug, error, info, initLog, warn } from './log.js';
+import { watchLoopLag } from './loop-lag.js';
 import { isAFailureWorthSaying } from './notify-policy.js';
 import { clampTimeout, DaemonServer } from './server.js';
 import { SessionManager, type SessionEvents } from './session-manager.js';
@@ -833,6 +834,19 @@ async function main(): Promise<void> {
       warn('folders.ask-failed', { error: safeError(e) });
     });
   }
+  /**
+   * And whether this process is able to answer when it is needed.
+   *
+   * Every terminal this daemon serves waits on one loop. A stall of a second was reported and then
+   * did not reproduce on a quiet machine across five hundred measurements, which is the shape of
+   * fault that costs the most to chase and the least to record. Recorded, the next one names
+   * itself instead of being argued about.
+   */
+  watchLoopLag({
+    onStall: (lateBy) => {
+      warn('loop.stalled', { lateByMs: lateBy, where: 'daemon' });
+    },
+  });
   info('daemon.ready', { version: VERSION, protocol: PROTOCOL_VERSION, pid: process.pid });
   console.error(`tabtermd ${VERSION} listening on 127.0.0.1:${String(config.port)}`);
 
