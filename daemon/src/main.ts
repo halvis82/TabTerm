@@ -404,8 +404,9 @@ async function main(): Promise<void> {
       const program = command.trim().split(/\s+/)[0]?.split('/').pop();
       if (program) s.titleFields.process = program;
       events.onCommandStarted?.(s, command, startedAt);
-      events.onTitle?.(s);
+      // Before the title goes out, because this is what puts the command into it.
       sessions.noteCommandStarted(s, command);
+      events.onTitle?.(s);
     },
     onEnd: (sessionId, command, durationMs) => {
       const s = sessions.get(sessionId);

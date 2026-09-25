@@ -1134,6 +1134,21 @@ export class SessionManager {
      */
     if (command !== undefined && command.trim() === '') return;
     session.hasRun = true;
+    /**
+     * And what a tab is called, kept where a page that has just loaded will find it.
+     *
+     * The page learned this from the event that says a command started, which a refreshed page
+     * has never received, so a tab called `npm test` came back called `zsh`: the name of a shell
+     * nobody was looking at rather than the thing that had been running in it. Reported as the
+     * title not being remembered across a refresh.
+     *
+     * Kept after the command finishes, deliberately. `pendingCommand` is what is running now and
+     * goes the moment it ends; this is what this terminal was last used for, which is what a tab
+     * strip is for.
+     */
+    if (command !== undefined && command.trim() !== '') {
+      session.titleFields = { ...session.titleFields, lastCommand: command };
+    }
     this.#checkForServer(session);
   }
 

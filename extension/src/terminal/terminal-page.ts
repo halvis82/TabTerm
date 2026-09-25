@@ -6069,6 +6069,18 @@ function onControl(msg: ServerMessage): void {
          */
         if (p.title) sessionTitles.set(p.sessionId, p.title);
         /*
+         * And what the **tab** is called, which is the same facts read a level up.
+         *
+         * These were put into the per-pane map only, so a refreshed tab had nothing to compose
+         * its own title from until the daemon next pushed one, which it does on a change and an
+         * idle pane never changes. A tab called `npm test` came back called `zsh`. Reported as
+         * the title not being remembered across a refresh.
+         *
+         * The last command run in the tab is carried the same way, because that is what a tab of
+         * several panes is called when nothing in it needs attention.
+         */
+        if (p.title?.lastCommand && lastCommandHere === '') lastCommandHere = p.title.lastCommand;
+        /*
          * And what its timer counts from, which the page cannot work out for itself.
          *
          * Elapsed time is computed here from events the daemon pushes, and a page that has just
@@ -6180,6 +6192,15 @@ function onControl(msg: ServerMessage): void {
           });
         }
       }
+
+      /*
+       * The tab's own title, from the pane it is about, once they have all been read.
+       *
+       * Only for a tab holding one pane: with several, the title says how many and what needs
+       * attention, and taking one pane's facts for the tab would be picking one at random.
+       */
+      const sole = msg.panes.length === 1 ? msg.panes[0] : undefined;
+      if (sole?.title) titleFields = { ...titleFields, ...sole.title };
 
       for (const p of msg.panes) {
         /**
