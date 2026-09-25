@@ -1,5 +1,6 @@
 import { buildSessions, isDraggingSession, placeSessions } from './sessions-view.js';
 import { resolveTypedPath, unresolveTypedPath } from './typed-path.js';
+import { clearBelow } from '../terminal/layers.js';
 import { checkShape, previewPanes } from '@tabterm/shared';
 
 /** The fixed shapes, as the syntax would write them, so the dialog opens on what was chosen. */
@@ -39,6 +40,8 @@ import type {
 
 export interface LauncherOptions {
   root: HTMLElement;
+  /** Put the command panel away, for when something modal is about to take the page. */
+  closeCommandPanel?: () => void;
   onChooseDir: (path: string) => void;
   onCreateLayout: (
     path: string,
@@ -1117,6 +1120,33 @@ export class Launcher {
     card.className = pinned ? 'template-card is-pinned' : 'template-card';
     card.dataset['template'] = template.id;
     this.#cardPinned = pinned;
+    /*
+     * A card somebody asked for takes the page from the command panel.
+     *
+     * Only a pinned one, which is the card that stays: a card that appears because the pointer
+     * crossed a chip has not been asked for and must not put anything away. Opened over the
+     * panel, this looked like two menus at once. See `layers.ts`.
+     */
+    if (pinned) this.#opts.closeCommandPanel?.();
+
+    /**
+     * Escape takes it away, and nothing else hears about it.
+     *
+     * A card is a small surface with the keyboard's attention while it is up, and Escape is how
+     * every other surface here is dismissed. Without this it could only be closed by pressing
+     * elsewhere, and Escape went past it to the pane underneath, which for an agent is an
+     * interrupt.
+     */
+    const onCardKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || !card.isConnected) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      card.remove();
+      this.#templateCard = null;
+      this.#cardPinned = false;
+      window.removeEventListener('keydown', onCardKey, true);
+    };
+    if (pinned) window.addEventListener('keydown', onCardKey, true);
 
     const title = document.createElement('div');
     title.className = 'template-card-name';
@@ -1232,6 +1262,13 @@ export class Launcher {
    */
   #showTemplateForm(path: string, shape: LayoutShape = 'single', existing?: LayoutTemplate): void {
     this.#templateFormEl?.remove();
+    /*
+     * A dialog is the top of the page while it is up. Anything floating under it goes, and the
+     * command panel with it: this dialog opened over the menu, which then answered the keyboard
+     * from underneath. See `layers.ts`.
+     */
+    clearBelow('dialog');
+    this.#opts.closeCommandPanel?.();
 
     const backdrop = document.createElement('div');
     backdrop.className = 'template-backdrop';

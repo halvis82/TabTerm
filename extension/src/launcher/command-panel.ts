@@ -85,6 +85,21 @@ export function actionRows(
   return rows;
 }
 
+/**
+ * Everything about a kept command that somebody might search by.
+ *
+ * Asked for as "name, command, and hotstring", and all three are here because all three are how
+ * somebody remembers one: the name they gave it, the text it pastes, and the letters they type to
+ * expand it. Joined rather than searched field by field, so a query can run across them.
+ */
+export function favoriteHaystack(item: {
+  title?: string;
+  body: string;
+  hotstring?: string | null;
+}): string {
+  return `${item.title ?? ''} ${item.body} ${item.hotstring ?? ''}`;
+}
+
 /** Subsequence match, so `sp` finds `Split right` the way `gco` finds `git checkout`. */
 export function matches(haystack: string, query: string): boolean {
   if (!query) return true;

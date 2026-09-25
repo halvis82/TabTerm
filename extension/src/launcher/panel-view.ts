@@ -7,6 +7,7 @@ import {
   matches,
   operationsFor,
   rowLabel,
+  favoriteHaystack,
   rowText,
   type PanelAction,
   type PanelPlacement,
@@ -107,6 +108,18 @@ export class CommandPanel {
    */
   #draft: { title: string; body: string; hotstring: string } | null = null;
   #showingSettings = false;
+
+  /**
+   * Whether a command is being written, either a new one or one being changed.
+   *
+   * One question with one answer, because the two were asked separately and the new one was
+   * missed in four places: the search box stayed over the form, leaving a tab left the form
+   * open behind it, closing and reopening the panel came back to it, and Escape closed the whole
+   * panel instead of the form. Each of those was reported.
+   */
+  get #writingOne(): boolean {
+    return this.#editing !== null || this.#draft !== null;
+  }
 
   constructor(opts: PanelOptions) {
     this.#opts = opts;
@@ -220,7 +233,10 @@ export class CommandPanel {
     this.#open = true;
     this.#placement.minimized = false;
     this.#showingSettings = false;
+    // Opening is a fresh start, and a command half written last time is not part of it: it came
+    // back on reopening, which is the same fault as it surviving a tab change.
     this.#editing = null;
+    this.#draft = null;
     this.#el.hidden = false;
     // A fresh query every time. Reopening to find last time's filter still applied is a list
     // that appears empty for a reason nothing on screen explains.
@@ -266,13 +282,40 @@ export class CommandPanel {
     else this.open();
   }
 
+  /**
+   * Close whatever is layered inside the panel, and say whether there was anything to close.
+   *
+   * One place decides what Escape means here, because two places did and disagreed: the page's
+   * own handler knew about a pending question and not about a form, so Escape inside a
+   * half-written command closed the whole panel and threw the writing away.
+   *
+   * In order: a question, then a form or the settings page, then nothing, which leaves the caller
+   * to close the panel itself.
+   */
+  closeInnerLayer(): boolean {
+    if (this.#pendingAsk) {
+      this.#dismissAsk();
+      return true;
+    }
+    if (this.#writingOne || this.#showingSettings) {
+      this.#editing = null;
+      this.#draft = null;
+      this.#showingSettings = false;
+      this.render();
+      return true;
+    }
+    return false;
+  }
+
   #setTab(tab: PanelTab): void {
     this.#placement.tab = tab;
     this.#selected = 0;
     this.#showingSettings = false;
     // Going somewhere else is leaving the form. Keeping it open behind another tab meant coming
-    // back to a half-typed edit nobody remembered starting.
+    // back to a half-typed edit nobody remembered starting, and a new command being written
+    // survived the same way: reported as the form still being there on Recent and on Actions.
     this.#editing = null;
+    this.#draft = null;
     // Recent is fetched, not held: history lives in the daemon and the panel may have been open
     // for a while. Without this the tab was simply empty until you typed something into search.
     if (tab === 'recent') this.#opts.onSearch(this.#search.value);
@@ -401,7 +444,7 @@ export class CommandPanel {
     if (this.#placement.tab === 'actions') return actionRows(this.#opts.actions(), query);
     if (this.#placement.tab === 'favorites') {
       return this.#favorites
-        .filter((item) => matches(`${item.title} ${item.body} ${item.hotstring ?? ''}`, query))
+        .filter((item) => matches(favoriteHaystack(item), query))
         .map((item) => ({ kind: 'favorite' as const, item }));
     }
     return this.#recent
@@ -429,7 +472,7 @@ export class CommandPanel {
    * form under somebody's hands, or the settings page, would replace what they were typing.
    */
   refreshLive(): void {
-    if (!this.isOpen || this.#editing !== null || this.#showingSettings) return;
+    if (!this.isOpen || this.#writingOne || this.#showingSettings) return;
     if (this.#placement.tab === 'recent') this.#opts.onSearch(this.#search.value);
     if (this.#placement.tab !== 'stats' && this.#placement.tab !== 'recent') return;
     /**
@@ -443,7 +486,7 @@ export class CommandPanel {
      */
     clearTimeout(this.#liveTimer);
     this.#liveTimer = setTimeout(() => {
-      if (!this.isOpen || this.#editing !== null || this.#showingSettings) return;
+      if (!this.isOpen || this.#writingOne || this.#showingSettings) return;
       /**
        * Never while somebody is reading it.
        *
@@ -501,7 +544,7 @@ export class CommandPanel {
      * above another text box, which is worse than useless.
      */
     const searchable =
-      !this.#showingSettings && this.#editing === null && this.#placement.tab !== 'stats';
+      !this.#showingSettings && !this.#writingOne && this.#placement.tab !== 'stats';
     this.#search.hidden = !searchable;
 
     if (this.#showingSettings) {
@@ -915,7 +958,25 @@ export class CommandPanel {
       input.value = value;
       input.placeholder = placeholder;
       input.spellcheck = false;
-      input.addEventListener('keydown', (e) => e.stopPropagation());
+      /**
+       * The box keeps the keyboard, except for Escape, which belongs to the form.
+       *
+       * Stopping everything here meant Escape never reached this panel at all, so the page's own
+       * handler answered it and closed the whole panel while the half-written command stayed
+       * underneath. Escape leaves the form and keeps the panel; pressing it again closes the
+       * panel, which is what it does everywhere else.
+       */
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.#editing = null;
+          this.#draft = null;
+          this.render();
+          return;
+        }
+        e.stopPropagation();
+      });
       wrap.append(text, input);
       form.append(wrap);
       return input;
@@ -1041,10 +1102,18 @@ export class CommandPanel {
       return;
     }
 
-    if (this.#editing || this.#showingSettings) {
+    /*
+     * A form takes Escape before the panel does, and gives it back once it is gone.
+     *
+     * Escape closed the whole panel from inside a half-written command, which throws the writing
+     * away and the list with it. It closes the form now and leaves the panel where it was; a
+     * second press closes the panel, which is what it does everywhere else.
+     */
+    if (this.#writingOne || this.#showingSettings) {
       if (e.key === 'Escape') {
         e.preventDefault();
         this.#editing = null;
+        this.#draft = null;
         this.#showingSettings = false;
         this.render();
       }

@@ -8,6 +8,7 @@ import {
   rowLabel,
   rowText,
   type PanelRow,
+  favoriteHaystack,
 } from './command-panel.js';
 
 const favorite: PanelRow = {
@@ -208,5 +209,35 @@ describe('the rows an Actions tab shows', () => {
 
   it('has no headings at all when nothing matches', () => {
     expect(actionRows([act('split')], 'zzz')).toHaveLength(0);
+  });
+});
+
+/**
+ * What a kept command can be found by.
+ *
+ * Asked for as "name, command, and hotstring": all three are how somebody remembers one, and a
+ * search that only looked at the name would miss the command they actually typed.
+ */
+describe('searching kept commands', () => {
+  const item = { title: 'ucsd box', body: 'ssh hhafnor@ieng6.ucsd.edu', hotstring: 'ieng' };
+
+  it('finds one by its name', () => {
+    expect(matches(favoriteHaystack(item), 'ucsd')).toBe(true);
+  });
+
+  it('finds one by the command it pastes', () => {
+    expect(matches(favoriteHaystack(item), 'ssh')).toBe(true);
+  });
+
+  it('finds one by its hotstring', () => {
+    expect(matches(favoriteHaystack(item), 'ieng')).toBe(true);
+  });
+
+  it('and does not pretend to find one that has none of it', () => {
+    expect(matches(favoriteHaystack(item), 'kubernetes')).toBe(false);
+  });
+
+  it('copes with a command that has no name or hotstring yet', () => {
+    expect(matches(favoriteHaystack({ body: 'npm test' }), 'npm')).toBe(true);
   });
 });

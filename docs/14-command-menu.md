@@ -9,6 +9,49 @@ blind, arrow-up walks backwards one at a time, and neither shows you what a comm
 ---
 
 
+
+## One surface at a time, and the keys that reach it
+
+Three things float above the page: this panel, a modal dialog such as the one for writing an
+action or a layout template, and a template's card on the start screen. Each was written on its
+own, so all three could be up at once and each answered the keyboard as though it were alone. What
+that looked like: an edit dialog drawn over the menu, Command K toggling the menu **behind** an
+open dialog on every press, and Escape doing nothing to a card while reaching the pane underneath,
+which for an agent is an interrupt.
+
+`terminal/layers.ts` holds the rule, so every surface asks the same question rather than carrying
+its own idea of what is open:
+
+- The topmost layer owns the keyboard. A dialog beats a card, and both beat the panel
+- **No page shortcut runs while a dialog is up.** A dialog is a question and answering it is the
+  only thing to do until it is gone
+- Opening a layer takes away what it would have covered. A dialog clears a card and the panel; a
+  card somebody asked for clears the panel, while one that appeared because a pointer crossed a
+  chip clears nothing, since it was never asked for
+- Escape closes the top layer and nothing else
+
+### Escape inside the panel
+
+The panel is asked what Escape meant rather than the page deciding. `closeInnerLayer` closes a
+pending question, then a form or the settings page, and answers whether there was anything to
+close; only when there was not does the panel itself close. Two places used to decide and
+disagreed: the page's handler knew about a question and not about a form, so Escape inside a
+half-written command closed the whole panel and threw the writing away.
+
+### A command being written is one thing, not two
+
+Writing a new command and editing an existing one are one state to every rule that cares: the
+search box is hidden over both, changing tab leaves both, closing the panel forgets both, and
+Escape closes both. They were two states checked separately and the new one was missed in four
+places, each of which was reported: the search box sat over the form, the form survived a tab
+change, it came back on reopening, and Escape closed the panel instead of the form.
+
+### Only what does something can be saved
+
+A kept command needs a command, and an action needs both a name and something to run. The button
+is unavailable until then, which says why without a message to dismiss. The action form used to
+look live and then silently refuse, which reads as the product ignoring the press.
+
 ## Stats belongs to the session, not to the tab looking at it
 
 Every figure was counted in the page that was showing it. Refreshing the tab reset all of them, so

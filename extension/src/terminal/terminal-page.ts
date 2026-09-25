@@ -12,6 +12,7 @@ import type {
 } from '@tabterm/shared';
 import { linesWithContent, type BufferLike } from './screen-content.js';
 import { FindBar } from './find-bar.js';
+import { clearBelow, shortcutsAllowed } from './layers.js';
 import { PageFind } from './page-find.js';
 import { trustMeasurement } from './measured-size.js';
 import { InputLine, rowsNeeded } from './input-line.js';
@@ -283,7 +284,15 @@ function deleteAction(id: string): void {
 }
 
 function showActionForm(existing?: CustomAction): void {
-  document.querySelector('.template-backdrop')?.remove();
+  /*
+   * A dialog is the top of the page while it is up, so whatever was floating goes.
+   *
+   * It used to open over the command panel, which then answered the keyboard from underneath: a
+   * dialog drawn over the menu, and Command K toggling that menu behind it on every press. See
+   * `layers.ts`.
+   */
+  clearBelow('dialog');
+  commandPanel?.close();
 
   const backdrop = document.createElement('div');
   backdrop.className = 'template-backdrop';
@@ -472,6 +481,24 @@ function showActionForm(existing?: CustomAction): void {
   cancel.textContent = 'Cancel';
   row.append(save, cancel);
   form.append(row);
+
+  /**
+   * Only an action that does something can be saved.
+   *
+   * The button was always live and the save simply returned, moving the cursor to the empty field
+   * and otherwise doing nothing: pressing Save on a half-filled form looked like the product
+   * ignoring it. Reported as being able to save an action that does nothing. It is the same rule
+   * the kept-command form already uses, and it says why by being unavailable rather than by a
+   * message to dismiss.
+   */
+  const checkValid = (): void => {
+    const named = name.value.trim() !== '';
+    const runs = kind.value === 'command' ? command.value.trim() !== '' : template.value !== '';
+    save.disabled = !named || !runs;
+  };
+  for (const el of [name, command]) el.addEventListener('input', checkValid);
+  for (const el of [kind, template]) el.addEventListener('change', checkValid);
+  checkValid();
 
   const close = (): void => backdrop.remove();
   cancel.addEventListener('click', close);
@@ -2936,8 +2963,14 @@ function installAmbientFocus(): void {
          * was taken away and the list with it, which is the whole of what this was meant to stop.
          */
         e.stopPropagation();
-        if (commandPanel.hasQuestion) commandPanel.dismissQuestion();
-        else commandPanel.close();
+        /*
+         * The panel says what Escape meant, because it is the only thing that knows.
+         *
+         * This handler used to ask about a pending question and nothing else, so Escape inside a
+         * half-written command closed the whole panel and threw the writing away. One question,
+         * asked of the thing that has the answer: close what is layered inside, or the panel.
+         */
+        if (!commandPanel.closeInnerLayer()) commandPanel.close();
       }
     },
     true,
@@ -3591,6 +3624,8 @@ function buildLauncher(): void {
 
   launcher = new Launcher({
     root: overlay,
+    // So a dialog opened from the start screen takes the page rather than covering the panel.
+    closeCommandPanel: () => commandPanel?.close(),
     onCheckFolder: (path, checkId) => client?.send({ t: 'check-folder', path, checkId }),
     onCreateFolder: (path, checkId) => client?.send({ t: 'create-folder', path, checkId }),
     onChooseDir: (path) => {
@@ -5825,6 +5860,13 @@ function focusAnotherPane(step: 1 | -1): void {
 }
 
 function runPageShortcut(id: string, e: KeyboardEvent): void {
+  /*
+   * Nothing runs while a dialog is up.
+   *
+   * A dialog is a question, and the only thing to do with one is answer it. Command K opening
+   * the menu behind an open dialog, and toggling it on every press, is what this stops.
+   */
+  if (!shortcutsAllowed()) return;
   switch (id) {
     case 'command-menu':
       commandPanel?.toggle();
