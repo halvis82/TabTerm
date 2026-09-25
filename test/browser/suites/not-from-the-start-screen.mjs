@@ -147,6 +147,17 @@ r.ok(
 
   // Typed with the menu left open, which is the whole of the report.
   await type(fresh.client, 'echo menu-should-update\r');
+  /*
+   * The start screen going is what makes the actions possible, and on a loaded machine that can
+   * take longer than the typing does. Waited for separately, so a slow machine is not reported
+   * as the menu failing to keep up.
+   */
+  await waitUntil(
+    async () =>
+      (await evaluate(fresh.client, `document.querySelector('.launcher')?.hidden === false`)) !==
+      true,
+    30000,
+  );
   const updated = await waitUntil(async () => Number(await faded()) === 0, 20000);
   r.ok(
     'and stops saying so the moment a terminal is there, without being reopened',

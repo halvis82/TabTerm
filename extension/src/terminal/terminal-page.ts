@@ -7842,7 +7842,19 @@ function installTestHook(): void {
     dropConnection: () => client?.close(),
     loseConnection: () => client?.dropForTest(),
     attached: () => attached,
-    split: (direction) => splitFocused(direction),
+    /**
+     * Split, having first done what a person does before they can: use the tab.
+     *
+     * Splitting is refused while the start screen is up, because there is no pane to split yet.
+     * A person reaches a splittable tab by typing into the strip, which dismisses that screen;
+     * a check that wants two panes should not have to type `echo` to say so. So this takes the
+     * tab out of the start screen exactly as using it would, and then splits through the same
+     * function every menu and keystroke goes through.
+     */
+    split: (direction) => {
+      if (launcher?.isShowing === true) launcher.dismiss();
+      splitFocused(direction);
+    },
     closePane: () => closeFocused(),
     detachPane: () => detachFocused(),
     mergeSession: (sessionId) => {

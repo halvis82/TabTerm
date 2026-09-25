@@ -73,12 +73,20 @@
   }
   /* The focused pane is the one receiving keystrokes, so it has to be obvious at a glance.
 
-     Only where there is more than one. A border drawn around the only terminal in a tab does not
-     say which pane has the keyboard, because there is no other pane it could have: it is a frame
-     around the whole window, and it costs the rows and columns inside it. Asked for that way:
-     with one session it should take the whole tab. */
-  .many-panes .pane.focused {
+     Only where there is something to distinguish it from. A border drawn around the only terminal
+     in a tab does not say which pane has the keyboard, because there is no other pane it could
+     have: it is a frame around the whole window, and it costs the rows and columns inside it.
+     Asked for that way: with one session it should take the whole tab.
+
+     The strip under the start screen keeps its line. There the border is not saying which pane is
+     focused, it is the edge between the terminal and the screen sitting above it, and that edge
+     was reported three times as covered before it was got right. */
+  .many-panes .pane.focused,
+  #terminal.panel-open .pane {
     border-color: #4a5573;
+  }
+  #terminal.panel-open .pane {
+    border: 1px solid #4a5573;
   }
   .pane-terminal {
     position: absolute;
@@ -145,13 +153,16 @@
     min-width: 0;
     min-height: 0;
   }
-  /* One terminal fills the tab.
+  /* One terminal fills the tab, when it is the whole of the tab.
 
      The gap exists to separate panes from each other and from the edge of a window that has
      several of them. With one there is nothing to separate it from, and what it costs is rows
      and columns. The pane keeps its own small inset, so the text still does not touch the
-     window edge. */
-  #terminal:not(.many-panes) {
+     window edge.
+
+     Not while the start screen is up: there the terminal is a strip at the bottom with the start
+     screen above it, and the gap and the line along its top edge are what separate the two. */
+  #terminal:not(.many-panes):not(.panel-open) {
     padding: 0;
   }
 

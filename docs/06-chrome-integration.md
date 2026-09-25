@@ -339,12 +339,17 @@ reach the same functions. The palette leaves those entries out entirely while th
 up, which is what it already does for a tab with nothing focused: an entry that is offered and
 does nothing is worse than one that is not there.
 
-### One terminal fills the tab, and an agent tab is called by the agent
+### One terminal fills the tab, when it is the whole of the tab, and an agent tab is called by the agent
 
 A border around the focused pane says which pane has the keyboard. In a tab with one pane there is
 no other pane it could have, so the border is a frame drawn around the whole window and the gap
 around it is rows and columns taken from the terminal for nothing. Both are for tabs with more
 than one pane now. Asked for that way: with one session it should take the whole tab.
+
+**Except under the start screen**, where the terminal is a strip at the bottom and the line along
+its top edge is not saying which pane is focused: it is the edge between the terminal and the
+screen above it. That edge was reported three times as covered before it was got right, and taking
+the border away took it with it.
 
 And a tab running an agent was called `zsh`, which is the name of the shell the agent is sitting
 in rather than the thing on the screen. The foreground program is already read for the reap policy
