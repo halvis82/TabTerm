@@ -1,5 +1,5 @@
 import { readdir, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { agentHome } from './config.js';
 import { join } from 'node:path';
 import { readHead } from './file-slice.js';
 import { debug } from './log.js';
@@ -30,7 +30,8 @@ export interface CodexSession {
   path?: string;
 }
 
-const DEFAULT_STORE = join(homedir(), '.codex', 'sessions');
+// The same home as the rest of the installation, so a test run cannot see anybody's work.
+const DEFAULT_STORE = join(agentHome, '.codex', 'sessions');
 
 /** Enough for the meta record and the first turn or two. These files reach megabytes. */
 const HEAD_BYTES = 96 * 1024;

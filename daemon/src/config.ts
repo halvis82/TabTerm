@@ -20,6 +20,18 @@ import { join } from 'node:path';
  */
 const root = process.env['TABTERM_HOME'] ?? homedir();
 
+/**
+ * The home the agent CLIs keep their conversations in, which has to move with everything else.
+ *
+ * It did not, and that is not a tidiness point. The browser suites run against their own home and
+ * their own daemon precisely so nothing they do can reach a person's work, but the conversation
+ * stores were read from the real home regardless. So a full run listed every Claude and Codex
+ * conversation on the machine, and the suite that presses a resume row resumed one: a test
+ * database from a run holds `claude --resume <a real conversation id>` twice. That spends
+ * somebody's money on their own live conversation, which `12-testing.md` already forbids.
+ */
+export const agentHome = root;
+
 export const paths = {
   config: join(root, '.config', 'tabterm'),
   state: join(root, '.local', 'state', 'tabterm'),

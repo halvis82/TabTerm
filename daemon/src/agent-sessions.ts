@@ -1,5 +1,5 @@
 import { readdir, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { agentHome } from './config.js';
 import { basename, join } from 'node:path';
 import { readHead, readTail } from './file-slice.js';
 import { debug } from './log.js';
@@ -33,7 +33,8 @@ export interface ResumableSession {
   path?: string;
 }
 
-const DEFAULT_STORE = join(homedir(), '.claude', 'projects');
+// The same home as the rest of the installation, so a test run cannot see anybody's work.
+const DEFAULT_STORE = join(agentHome, '.claude', 'projects');
 
 /**
  * How much of a session file to read looking for a label.

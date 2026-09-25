@@ -19,7 +19,16 @@
  * nine unrelated product bugs.
  */
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -607,6 +616,77 @@ async function pool(names, ports) {
  * Returns what the browsers need to find it.
  */
 /**
+ * Conversations for the resume suites to find, in this run's home rather than in somebody's.
+ *
+ * The agent CLIs keep their conversations under the home directory, and the daemon read them
+ * from the real one no matter where the rest of the installation was pointed. So a run listed
+ * every Claude and Codex conversation on the machine, and the suite that presses a resume row
+ * resumed one: a test database from a full run holds `claude --resume <a real conversation id>`
+ * twice, against a conversation that was live at the time. That is somebody's money and somebody's
+ * work, and `12-testing.md` already says a suite may not spend either.
+ *
+ * These are the shape the readers need and nothing more: an id, a directory that exists, an
+ * entrypoint that is a person rather than a program, and one exchange to draw a label from.
+ */
+function seedAgentConversations(home) {
+  const where = tmpdir();
+  const claudeDir = join(home, '.claude', 'projects', where.replace(/[/_.]/g, '-'));
+  mkdirSync(claudeDir, { recursive: true });
+  /*
+   * Three of them, staggered and distinct. Two identical conversations a millisecond apart are
+   * not a list anybody has: they sort arbitrarily, and the check that expanding a row pushes the
+   * rows below it down cannot tell "nothing moved" from "the row opened was the last one".
+   */
+  const ids = [
+    '11111111-1111-4111-8111-111111111111',
+    '22222222-2222-4222-8222-222222222222',
+    '44444444-4444-4444-8444-444444444444',
+  ];
+  for (const [index, id] of ids.entries()) {
+    const lines = [
+      { type: 'summary', summary: `a conversation about ${id.slice(0, 4)}`, leafUuid: id },
+      {
+        type: 'user',
+        sessionId: id,
+        cwd: where,
+        entrypoint: 'cli',
+        timestamp: new Date(Date.now() - index * 3600_000).toISOString(),
+        message: { role: 'user', content: `what does suite number ${String(index)} need` },
+      },
+      {
+        type: 'assistant',
+        sessionId: id,
+        cwd: where,
+        timestamp: new Date(Date.now() - index * 3600_000).toISOString(),
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: `a row it can press, number ${String(index)}` }],
+        },
+      },
+    ];
+    writeFileSync(
+      join(claudeDir, `${id}.jsonl`),
+      lines.map((l) => JSON.stringify(l)).join('\n') + '\n',
+    );
+  }
+
+  const codexDir = join(home, '.codex', 'sessions', '2026', '09', '25');
+  mkdirSync(codexDir, { recursive: true });
+  const codexId = '33333333-3333-4333-8333-333333333333';
+  const codexLines = [
+    {
+      type: 'session_meta',
+      payload: { id: codexId, cwd: where, timestamp: new Date().toISOString() },
+    },
+    { type: 'event_msg', payload: { type: 'user_message', message: 'what does this suite need' } },
+  ];
+  writeFileSync(
+    join(codexDir, `rollout-2026-09-25T12-00-00-${codexId}.jsonl`),
+    codexLines.map((l) => JSON.stringify(l)).join('\n') + '\n',
+  );
+}
+
+/**
  * A port for this run's daemon.
  *
  * **Not** by binding port zero and reading back what was given. That is the obvious way and it
@@ -635,6 +715,7 @@ function pickPort() {
 
 function startTestDaemon() {
   const home = mkdtempSync(join(tmpdir(), 'tabterm-suite-home-'));
+  seedAgentConversations(home);
   const port = Number(process.env['TT_DAEMON_PORT'] ?? '') || pickPort();
   const state = { child: null, pid: 0, stopping: false, restarts: 0, port, groups: [] };
 

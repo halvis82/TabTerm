@@ -10,6 +10,7 @@ import {
   waitUntil,
 } from '../helpers.mjs';
 import { listTargets, reporter } from '../cdp.mjs';
+import { tmpdir } from 'node:os';
 
 const r = reporter();
 const a = await openTerminal();
@@ -42,6 +43,21 @@ r.ok(
 );
 
 /**
+ * And every one of them belongs to this run rather than to the person running it.
+ *
+ * The agent CLIs keep their conversations under the home directory, and the daemon read them from
+ * the real home wherever the rest of the installation was pointed. So a full run listed every
+ * conversation on the machine and this suite pressed one of them: a kept test database holds
+ * `claude --resume <a real conversation id>`, twice, against one that was live at the time. A
+ * suite may not spend somebody's money or touch their work, and this is the check that says so.
+ */
+r.ok(
+  'and every conversation offered belongs to this run, not to whoever is running it',
+  resumable.every((session) => String(session.cwd ?? '').startsWith(tmpdir())),
+  JSON.stringify(resumable.map((session) => session.cwd).slice(0, 4)),
+);
+
+/**
  * Reading a conversation before deciding to resume it.
  *
  * One line of the first prompt does not tell three sessions apart when all three begin "help me
@@ -49,13 +65,23 @@ r.ok(
  * find out whether you want it changes the thing being inspected.
  */
 {
+  /**
+   * The distance from the first row to the last, which is what expanding one has to grow.
+   *
+   * Measured as a gap rather than as the last row's position on the page. Opening a row scrolls
+   * the list to keep it in view, so an absolute top can be identical before and after while the
+   * rows below have been pushed down by exactly the height of what opened. That read as the
+   * transcript covering them, which is the opposite of what happened.
+   */
   const below = async () =>
     Number(
       await evaluate(
         a.client,
         `(() => { const rows = document.querySelectorAll('.launcher-row.is-resume');
            const last = rows[rows.length - 1];
-           return last ? Math.round(last.getBoundingClientRect().top) : -1; })()`,
+           const first = rows[0];
+           if (!last || !first) return -1;
+           return Math.round(last.getBoundingClientRect().top - first.getBoundingClientRect().top); })()`,
       ),
     );
   /**
@@ -103,10 +129,16 @@ r.ok(
    * reading them where they are.
    */
   const afterTop = await below();
+  // The row count too: "261 -> 261" cannot say whether nothing moved or whether the row that was
+  // opened was the only one there was, and those are different faults.
+  const rowCount = await evaluate(
+    a.client,
+    `document.querySelectorAll('.launcher-row.is-resume').length`,
+  );
   r.ok(
     'the rows below are pushed down rather than covered',
     beforeTop === -1 || afterTop > beforeTop,
-    `${String(beforeTop)} -> ${String(afterTop)}`,
+    `${String(beforeTop)} -> ${String(afterTop)}, ${String(rowCount)} rows`,
   );
 
   /**

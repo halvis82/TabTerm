@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { writeFileAtomic } from './atomic-write.js';
 import { homedir } from 'node:os';
+import { agentHome } from './config.js';
 import { dirname, join } from 'node:path';
 import type { AgentHooksStatus, AgentHookTarget } from '@tabterm/shared';
 import { info, warn } from './log.js';
@@ -25,7 +26,15 @@ import { safeError } from './safe-error.js';
 /** Ours are the only entries carrying this, so removal is exact rather than approximate. */
 const MARKER = 'tabterm-agent-hook';
 
-export const HOOK_SCRIPT = join(homedir(), '.local', 'libexec', 'tabterm', 'agent-hook.sh');
+/*
+ * Under the same home as the rest of the installation, which for a real one is the real home.
+ *
+ * The conversation stores had this wrong and it cost something: a test run read every Claude and
+ * Codex conversation on the machine and resumed one. Nothing here has fired that way, because no
+ * suite flips this switch, but writing into somebody's agent settings from a run that is supposed
+ * to be a separate installation is the same fault waiting for a suite that does.
+ */
+export const HOOK_SCRIPT = join(agentHome, '.local', 'libexec', 'tabterm', 'agent-hook.sh');
 
 /**
  * The events worth reporting.
@@ -55,7 +64,7 @@ export const AGENT_TARGETS: readonly AgentTarget[] = [
   {
     id: 'claude-code',
     name: 'Claude Code',
-    settingsPath: join(homedir(), '.claude', 'settings.json'),
+    settingsPath: join(agentHome, '.claude', 'settings.json'),
     supported: true,
     command: 'claude',
     install: 'npm i -g @anthropic-ai/claude-code',
@@ -63,7 +72,7 @@ export const AGENT_TARGETS: readonly AgentTarget[] = [
   {
     id: 'codex',
     name: 'Codex',
-    settingsPath: join(homedir(), '.codex', 'config.toml'),
+    settingsPath: join(agentHome, '.codex', 'config.toml'),
     supported: false,
     command: 'codex',
     install: 'npm i -g @openai/codex',

@@ -329,6 +329,20 @@ with focus reporting enabled, and prints every byte it was sent. The question th
 was about a feature. The question the fixture answers is about this terminal, which is the half
 worth keeping a check for.
 
+**And the rule was being broken by the suites that resume a conversation.** The agent CLIs keep
+their conversations under the home directory, and the daemon read them from the *real* home no
+matter where `TABTERM_HOME` pointed the rest of the installation. So a full run listed every
+Claude and Codex conversation on the machine, and the suite that presses a resume row pressed one
+of them: a kept test database from a run holds `claude --resume <a real conversation id>`, twice,
+against a conversation that was live at the time. That is somebody's money, somebody's work, and a
+second client on a conversation somebody is in the middle of.
+
+The stores follow the installation's home now, as everything else already did, and the run seeds
+its own conversations in its own home: three for Claude and one for Codex, with the shape the
+readers need and nothing more. The suite asserts that every conversation offered to it lives under
+the temporary directory, which fails and names the real project folders if the isolation is
+removed. The agent hook settings moved for the same reason before a suite could find them.
+
 ### Wait for the condition, never for a duration
 
 `openTerminal` polls until a prompt is actually on screen. `waitFor(client, expression)` asks the
