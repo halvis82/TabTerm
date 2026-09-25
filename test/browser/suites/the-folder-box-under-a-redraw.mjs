@@ -87,11 +87,21 @@ r.ok(
  */
 await evaluate(client, 'clearInterval(window.__ttStorm)');
 await sleep(600);
+/*
+ * Waited for rather than assumed. The row is drawn when the daemon answers about the folder, and
+ * under a full run that answer can be a second or two behind the typing. Marking a row that is
+ * not there yet is a check about nothing, which is how this failed a run with the product working.
+ */
+await typeIn('Documents/');
+const hadRow = await waitFor(
+  client,
+  `[...document.querySelectorAll('.launcher-completion')].some((b) => b.textContent === '..')`,
+  15000,
+);
 await evaluate(
   client,
   `window.__ttRow = [...document.querySelectorAll('.launcher-completion')].find((b) => b.textContent === '..')`,
 );
-const hadRow = Boolean(await evaluate(client, '!!window.__ttRow'));
 for (let i = 0; i < 12; i++) {
   await evaluate(client, 'window.__tabterm.refreshStartScreen()');
   await sleep(120);
