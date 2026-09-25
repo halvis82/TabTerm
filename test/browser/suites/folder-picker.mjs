@@ -5,6 +5,19 @@ import { reporter } from '../cdp.mjs';
 const r = reporter();
 const { client } = await openTerminal();
 await waitFor(client, "document.querySelector('.launcher-input')");
+/*
+ * Both parts waited for, not only the box.
+ *
+ * The measurement below is the distance between two sections, and the start screen draws in
+ * pieces as the daemon answers: on a loaded machine the box was up and the folder list was not,
+ * so this measured nothing and reported it as the spacing being wrong.
+ */
+await waitFor(
+  client,
+  "!!document.querySelector('.launcher-completions') && !!document.querySelector('.launcher-buttons')",
+  15000,
+);
+await sleep(300);
 
 /**
  * The folder list sits as close to the row of things to open as every other pair on this screen.

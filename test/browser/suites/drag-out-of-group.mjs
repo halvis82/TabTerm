@@ -40,8 +40,8 @@ await sleep(2000);
  * Anywhere outside a group is a destination, and this is the one that is reliably **beside** the
  * group: an ungrouped card is a direct child of the grid, so it sits in the next column. The
  * heading was tried and is the wrong choice here, not because the product refuses it but because
- * the test window is 469 pixels tall and the heading and the card end up 646 apart, so no drag
- * could ever have both ends on screen at once.
+ * the heading and the card end up 646 apart, which was more than the window had. The window is
+ * grown to fit the list below, which is the general answer to the same problem.
  */
 const alone = await openTerminal();
 await waitFor(alone.client, "document.querySelector('.launcher-input')");
@@ -52,6 +52,36 @@ await sleep(1500);
 const viewer = await openTerminal();
 await waitFor(viewer.client, "document.querySelector('.launcher-input')");
 await sleep(2000);
+
+/**
+ * A window tall enough for the whole list, measured rather than guessed.
+ *
+ * A drag needs both ends on screen at once, and how far apart they are is decided by how many
+ * sessions other suites happen to have running: alone there are three cards and they are
+ * neighbours, in a full run there were eight and the two ends were five hundred and fifty nine
+ * pixels apart in a window four hundred and sixty nine tall. The suite then reported that the
+ * product could not be dragged, which was a fact about the machine.
+ *
+ * So the window is grown to fit what is actually on the list. Headless gives each tab a window of
+ * its own, so this reaches nothing else.
+ */
+const { windowId } = await viewer.client.send('Browser.getWindowForTarget');
+const needed = Number(
+  await evaluate(
+    viewer.client,
+    `(() => {
+       const grid = document.querySelector('.session-grid');
+       const body = document.querySelector('.launcher-body');
+       if (!grid) return 0;
+       return Math.round(grid.scrollHeight + (body ? body.scrollTop : 0));
+     })()`,
+  ),
+);
+await viewer.client.send('Browser.setWindowBounds', {
+  windowId,
+  bounds: { width: 1200, height: Math.max(700, Math.min(2000, needed + 420)) },
+});
+await sleep(900);
 
 /*
  * Counted for **this** tab, not for the page.
