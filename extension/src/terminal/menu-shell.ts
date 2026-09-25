@@ -14,6 +14,7 @@
  * dispatches the click directly and never produces the mousedown that caused it.
  */
 import { placeMenu } from './menu-position.js';
+import { isTypedAtMenu, MenuTyping } from './menu-typing.js';
 
 /** An empty menu, not yet placed and not yet on screen. Fill it, then `place` it. */
 export function menuShell(): HTMLElement {
@@ -68,11 +69,106 @@ export function placeAndArm(menu: HTMLElement, x: number, y: number): () => void
    * `stopImmediatePropagation` as well, because another listener on `window` would otherwise still
    * see it.
    */
+  /**
+   * An open menu owns the keyboard.
+   *
+   * Typing at it picks an entry, the way every native menu on this machine behaves: `n` lands on
+   * the first entry beginning with `n`, `name` narrows to the one that is, Return runs it. Asked
+   * for exactly that way, with the condition that matters most: "it's important that those
+   * characters typed when the menu is open does not go to the terminal".
+   *
+   * So everything is swallowed while the menu is up, including the keys that land on nothing.
+   * A menu that eats `n` and passes `z` through to a shell is worse than one that eats neither,
+   * because the difference is invisible until something has already run.
+   */
+  const typing = new MenuTyping();
+  // Buttons only: a menu can hold a label that looks like an entry and does nothing when pressed.
+  const entries = (): HTMLButtonElement[] => [
+    ...menu.querySelectorAll<HTMLButtonElement>('button.term-menu-item'),
+  ];
+
+  /** Outline one entry and no other, and bring it into view if the menu is scrolling. */
+  const pick = (index: number): void => {
+    const items = entries();
+    for (const [i, item] of items.entries()) item.classList.toggle('is-picked', i === index);
+    items[index]?.scrollIntoView({ block: 'nearest' });
+  };
+
+  const move = (by: number): void => {
+    const items = entries().filter((item) => !item.disabled);
+    if (items.length === 0) return;
+    const at = items.findIndex((item) => item.classList.contains('is-picked'));
+    const next = items[(at + by + items.length * 2) % items.length];
+    for (const item of entries()) item.classList.toggle('is-picked', item === next);
+    next?.scrollIntoView({ block: 'nearest' });
+  };
+
   const onKey = (e: KeyboardEvent): void => {
-    if (e.key !== 'Escape') return;
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    close();
+    /**
+     * A menu that has already gone owns nothing.
+     *
+     * Choosing an entry removes the element, and the listeners outlive it: dismissal is armed on
+     * `mousedown` and excuses clicks inside the menu, which is exactly what choosing one is. That
+     * cost nothing while this only swallowed Escape. It costs everything now that it swallows
+     * what is typed, because the next thing somebody types is usually into the box the entry they
+     * chose has just opened.
+     */
+    if (!menu.isConnected) {
+      close();
+      return;
+    }
+    const eat = (): void => {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    };
+    if (e.key === 'Escape') {
+      eat();
+      close();
+      return;
+    }
+    if (e.key === 'Enter') {
+      eat();
+      const chosen = entries().find((item) => item.classList.contains('is-picked'));
+      // Nothing picked means nothing to run. The menu stays, rather than guessing at an entry.
+      if (chosen && !chosen.disabled) chosen.click();
+      return;
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      eat();
+      move(e.key === 'ArrowDown' ? 1 : -1);
+      return;
+    }
+    if (e.key === 'Backspace') {
+      eat();
+      const items = entries();
+      pick(
+        typing.backspace(
+          items.map((item) => item.textContent ?? ''),
+          items.map((item) => !item.disabled),
+        ),
+      );
+      return;
+    }
+    if (isTypedAtMenu(e.key, e.ctrlKey, e.metaKey, e.altKey)) {
+      eat();
+      const items = entries();
+      pick(
+        typing.type(
+          e.key,
+          items.map((item) => item.textContent ?? ''),
+          Date.now(),
+          items.map((item) => !item.disabled),
+        ),
+      );
+      return;
+    }
+    /*
+     * Everything else is swallowed too, and deliberately does nothing.
+     *
+     * Tab would move the focus out of a menu that is about to be removed, and a shortcut with a
+     * modifier would act on the terminal behind a menu somebody is still reading.
+     */
+    eat();
   };
 
   /**

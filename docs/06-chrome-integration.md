@@ -232,6 +232,14 @@ left, so it has to be the half that survives being cut off. Only for a tab holdi
 several there are several names, and taking the focused pane's would make the tab rename itself as
 somebody clicked between them, which is a worse title than none.
 
+**And what a tab was last used for survives a refresh.** The page learned the last command from
+the event that says one started, which a page that has just loaded has never received, so a tab
+called `npm test` came back called `zsh`: the name of a shell nobody was looking at rather than the
+thing that had been running in it. The command is kept on the session and sent with the facts a
+reattaching page is given. It is kept after the command finishes, deliberately, because what a
+terminal was last used for is what a tab strip is for; the command running *now* is a separate
+fact and still goes the moment it ends.
+
 The name appears the moment it is typed. The daemon owns the layout and echoes the new name back a
 moment later, but the pane already draws it optimistically, so only the tab's own title waited for
 the round trip and changed after everything else had. The page writes the name into the layout it
@@ -289,6 +297,30 @@ Close Window, Bookmark All Tabs and Search Tabs. Closing keeps its letter by cha
 since `Control+Meta+W` is nothing to Chrome and nothing to macOS and still reads as "W closes".
 The other two take the initial of what they do, because the letter that would have been better is
 not available, and saying so is more useful than picking something clever.
+
+### An open menu owns the keyboard
+
+Typing at a menu picks an entry: `n` lands on the first one beginning with `n`, `name` narrows to
+the one that is, arrow keys move, and Return runs what is outlined. It is what every native menu on
+this machine does, and it means a menu opened with the mouse can be finished with the hand already
+on the keyboard.
+
+The part that matters more than the convenience is that **none of it reaches the terminal**. Every
+key press is swallowed while a menu is up, including the ones that match nothing: a menu that eats
+`n` and passes `z` through to a shell is worse than one that eats neither, because the difference
+is invisible until something has run. Escape already worked this way, for the same reason and after
+the same kind of report.
+
+A letter that matches nothing is dropped rather than added to what has been typed, so one stray
+key does not make every later one miss. Typing starts fresh after a second and a half, and a
+disabled entry is never what lights up, since choosing it would do nothing and look like the
+typing being ignored.
+
+**A menu that has gone owns nothing.** Choosing an entry removes the element while the listeners
+outlive it, because dismissal is armed on a press outside and choosing an entry is a press inside.
+That cost nothing while only Escape was swallowed; it would cost everything now, since the next
+thing somebody types usually goes into the box the chosen entry just opened. The first key press
+after the element has gone puts the listeners away instead of eating anything.
 
 ### The keys an entry is also bound to
 

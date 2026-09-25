@@ -1687,6 +1687,12 @@
     font-size: 13px;
     cursor: pointer;
   }
+  /* The entry typing has landed on. Outlined rather than filled: a menu entry under the pointer
+     is already highlighted, and two kinds of highlight at once is a menu arguing with itself. */
+  .term-menu-item.is-picked {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
   /* The keys that do the same thing, pushed right and drawn quieter than the label. Drawn from
      an attribute so the label stays the whole of the entry's textContent, which is what it is
      matched by everywhere. An entry with no shortcut carries no attribute and is untouched. */
