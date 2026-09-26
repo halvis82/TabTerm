@@ -42,6 +42,7 @@ import {
   DROP_LABEL,
   droppedText,
   hasItsOwnDropTarget,
+  MAX_DROP_BYTES,
   MAX_DROPPED_FILES,
   whatIsCarried,
 } from './drop-zone.js';
@@ -3123,7 +3124,7 @@ function installDropTarget(): void {
       const folders = entries.filter((entry) => entry?.isDirectory === true).map((e2) => e2!.name);
       const files = [...(e.dataTransfer?.files ?? [])].filter((f) => !folders.includes(f.name));
       for (const name of folders) takeDroppedFolder(name);
-      if (files.length > 0) void takeDroppedFiles(files);
+      if (files.length > 0) takeDroppedFiles(files);
       return;
     }
     /*
@@ -3198,7 +3199,24 @@ function takeDroppedFolder(name: string): void {
 }
 
 /** Hand each dropped file to the daemon, which writes it and answers with what to do about it. */
-async function takeDroppedFiles(files: File[]): Promise<void> {
+/**
+ * Files waiting on the daemon to say where they already are, by name.
+ *
+ * A drop asks first and copies second, because the path is what was asked for and a copy is only
+ * the fallback for a file this daemon cannot see. The answer comes back by name, so what is held
+ * here is what to do with each one if it turns out not to be findable.
+ */
+const droppedWaiting = new Map<string, File>();
+
+/**
+ * How long to wait for that answer before copying anyway.
+ *
+ * A drop that appears to do nothing is worse than a drop that takes a moment, and the daemon
+ * answering is a `stat` in a handful of directories.
+ */
+const FIND_DROPPED_MS = 1500;
+
+function takeDroppedFiles(files: File[]): void {
   const pane = paneForDrop();
   if (!pane?.sessionId || !client) {
     noPaneForDrop();
@@ -3209,22 +3227,80 @@ async function takeDroppedFiles(files: File[]): Promise<void> {
   if (taking.length < files.length) {
     setStatus(`Taking the first ${String(MAX_DROPPED_FILES)} files`, 'warn');
   }
-  for (const file of taking) {
-    let data: string;
-    try {
-      data = toBase64(new Uint8Array(await file.arrayBuffer()));
-    } catch {
-      setStatus(`${file.name} could not be read`, 'error');
-      continue;
-    }
+
+  /**
+   * Asked where these already are, before a byte is read.
+   *
+   * A file dropped from a folder on this machine has a path, and the path is the whole of what
+   * was asked for. Copying it is the fallback for one the daemon cannot find, and for a 298 MB
+   * archive it is not a fallback at all: reading it killed the tab.
+   *
+   * An image going to an agent is the exception and is copied regardless, because what an agent
+   * wants is the picture on the clipboard rather than a path.
+   */
+  const byPath = taking.filter((file) => !isDroppedImage(file));
+  if (byPath.length > 0) {
+    for (const file of byPath) droppedWaiting.set(file.name, file);
     client.send({
-      t: 'stage-file',
+      t: 'find-dropped',
       sessionId: pane.sessionId,
-      name: file.name,
-      type: file.type,
-      data,
+      names: byPath.map((file) => file.name),
     });
+    setTimeout(() => {
+      // Whatever the daemon did not answer about is taken the old way.
+      const left = [...droppedWaiting.values()];
+      droppedWaiting.clear();
+      for (const file of left) void copyDroppedFile(file);
+    }, FIND_DROPPED_MS);
   }
+  for (const file of taking) {
+    if (isDroppedImage(file)) void copyDroppedFile(file);
+  }
+}
+
+/** An image, which an agent wants on the clipboard rather than as a path. */
+function isDroppedImage(file: File): boolean {
+  return (
+    file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|heic|tiff?)$/i.test(file.name)
+  );
+}
+
+/**
+ * Take a copy of a dropped file, which is the only way to give a path to one from elsewhere.
+ *
+ * The size is asked before the file is read, because reading it is what costs. The daemon has
+ * always refused a file past this size and it refused it after the page had read the whole thing
+ * into memory and encoded it: a 298 MB archive dropped from Downloads became a 398 MB string in a
+ * tab that then lost its WebGL context and filled its terminal with parse errors. The size is
+ * known from the drag itself, before a single byte is touched.
+ */
+async function copyDroppedFile(file: File): Promise<void> {
+  const pane = paneForDrop();
+  if (!pane?.sessionId || !client) {
+    noPaneForDrop();
+    return;
+  }
+  if (file.size > MAX_DROP_BYTES) {
+    setStatus(
+      `${file.name} is ${String(Math.round(file.size / (1024 * 1024)))} MB, and is not in a folder TabTerm knows. Dropping one from elsewhere copies it, up to ${String(Math.floor(MAX_DROP_BYTES / (1024 * 1024)))} MB`,
+      'warn',
+    );
+    return;
+  }
+  let data: string;
+  try {
+    data = toBase64(new Uint8Array(await file.arrayBuffer()));
+  } catch {
+    setStatus(`${file.name} could not be read`, 'error');
+    return;
+  }
+  client.send({
+    t: 'stage-file',
+    sessionId: pane.sessionId,
+    name: file.name,
+    type: file.type,
+    data,
+  });
 }
 
 /**
@@ -6534,6 +6610,20 @@ function onControl(msg: ServerMessage): void {
       setTimeout(() => {
         setStatus('', 'hidden');
       }, 2200);
+      return;
+    }
+
+    case 'dropped-found': {
+      /*
+       * The path it already had, which is all a drop was ever asked to give.
+       *
+       * Each name that came back is staged and taken off the waiting list, so the timer that
+       * copies whatever is left has nothing to do for it.
+       */
+      for (const { name, path } of msg.found) {
+        if (!droppedWaiting.delete(name)) continue;
+        stageAtPrompt(`${quotePath(path)} `);
+      }
       return;
     }
 

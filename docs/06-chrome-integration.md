@@ -322,6 +322,27 @@ that default is free: it may belong to something else by now, and two rows on on
 a state binding refuses and nothing should be able to create behind its back. Otherwise the row
 is left unbound, which the settings page shows and a person can fix.
 
+### A dropped file gives its path, and is not read to do it
+
+A browser hands a page a dropped file's bytes and withholds where it came from, so taking one
+meant reading it, encoding it and writing a copy the daemon could name. A 298 MB archive dragged
+out of Downloads became a 398 MB string in a tab that then lost its WebGL context and filled its
+terminal with `xterm.js: Parsing error`. The daemon's size limit was the only one there was, and
+it applies after the page has already done all of that.
+
+Two things, in the order they matter. **The page asks the daemon where the file already is**: a
+name in the session's own directory, in the places a download or a screenshot lands, or in a
+folder this machine is known to work in is almost always the file that was dragged, and finding it
+costs a `stat`. That path goes to the prompt and nothing is read at all, which is what was asked
+for: "it should just paste the path to it regardless... it shouldn't do anything else".
+
+**And the size is asked before the file is read**, with the same number the daemon enforces, kept
+honest by a check that reads it out of the daemon's source. Copying is what happens only for a
+file from somewhere the daemon cannot see, and only when it is small enough to copy.
+
+An image dropped into an agent is the one exception and is still copied, because what an agent
+wants is the picture on its clipboard rather than a path.
+
 ### The things you do to a pane need a pane
 
 Command Shift S on the start screen split the tab in two, and the start screen ended up squeezed

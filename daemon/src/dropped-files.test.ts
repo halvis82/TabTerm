@@ -10,6 +10,8 @@ import {
   isImage,
   needsPngConversion,
   DROP_TTL_MS,
+  droppedFileSearchPath,
+  droppedLookupName,
 } from './dropped-files.js';
 
 describe('the name a dropped file is written under', () => {
@@ -102,5 +104,46 @@ describe('deciding an image goes to the clipboard', () => {
     expect(needsPngConversion('image/png', 'a.png')).toBe(false);
     expect(needsPngConversion('', 'a.png')).toBe(false);
     expect(needsPngConversion('image/jpeg', 'a.jpg')).toBe(true);
+  });
+});
+
+describe('finding a dropped file rather than copying it', () => {
+  it('looks in the session, then where files land, then folders this machine knows', () => {
+    expect(droppedFileSearchPath('/work/app', '/home/me', ['/work/other'])).toEqual([
+      '/work/app',
+      '/home/me/Downloads',
+      '/home/me/Desktop',
+      '/home/me/Documents',
+      '/home/me',
+      '/work/other',
+    ]);
+  });
+
+  it('never looks in the same place twice, whatever order it was given', () => {
+    const places = droppedFileSearchPath('/home/me/Downloads', '/home/me', ['/home/me', '/x']);
+    expect(new Set(places).size).toBe(places.length);
+    expect(places[0]).toBe('/home/me/Downloads');
+  });
+
+  /**
+   * The name as it is, which is the whole difference from `safeDropName`.
+   *
+   * That one builds a filename safe to write and turns anything it dislikes into a dash, so
+   * `a big archive.zip` becomes `a-big-archive.zip` and matches no file that is actually there.
+   */
+  it('keeps a name that has spaces in it, which is most of them', () => {
+    expect(droppedLookupName('a big archive.zip')).toBe('a big archive.zip');
+    expect(safeDropName('a big archive.zip')).not.toBe('a big archive.zip');
+  });
+
+  it('takes only the last segment, so nothing can climb out of the folder being searched', () => {
+    expect(droppedLookupName('../../etc/passwd')).toBe('passwd');
+    expect(droppedLookupName('/etc/passwd')).toBe('passwd');
+  });
+
+  it('refuses what is not a name', () => {
+    expect(droppedLookupName('')).toBe('');
+    expect(droppedLookupName('..')).toBe('');
+    expect(droppedLookupName('.')).toBe('');
   });
 });

@@ -13,6 +13,17 @@
 export const MAX_DROPPED_FILES = 8;
 
 /**
+ * The largest file a drop will read, which has to be known here rather than only in the daemon.
+ *
+ * A dropped file has no path a browser will hand over, so taking one means copying it, and the
+ * daemon has always refused a copy past this size. It refused it after the page had read the whole
+ * file into memory and encoded it: a 298 MB archive became a 398 MB string in a tab that then lost
+ * its WebGL context and filled its terminal with parse errors. The number is the same one the
+ * daemon enforces; this is the side that must not do the work first.
+ */
+export const MAX_DROP_BYTES = 8 * 1024 * 1024;
+
+/**
  * Whether a drag is carrying files, as opposed to text or a link or nothing at all.
  *
  * `types` rather than `files`, because during a drag the browser says what is being carried but

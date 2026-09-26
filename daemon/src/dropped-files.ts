@@ -243,3 +243,54 @@ function capture(command: string, args: string[]): Promise<Buffer> {
     });
   });
 }
+
+/**
+ * The name to look a dropped file up by, or nothing when it is not a name.
+ *
+ * Not `safeDropName`, which exists to build a filename that is safe to **write** and turns
+ * anything it does not like into a dash: `a big archive.zip` becomes `a-big-archive.zip`, which
+ * matches no file on the machine. Looking one up needs the name as it is, and needs only to
+ * refuse the things that would leave the directory being searched.
+ */
+export function droppedLookupName(raw: string): string {
+  const base = raw.split(/[/\\]/).pop() ?? '';
+  if (base === '' || base === '.' || base === '..') return '';
+  return base.includes('\0') ? '' : base;
+}
+
+/**
+ * Where to look for a file somebody dragged in, in the order worth trying.
+ *
+ * A browser hands over a dropped file's bytes and never its path, so taking one meant copying it.
+ * For a 298 MB archive that is the wrong answer twice over: the copy is pointless when the file is
+ * already on this machine, and reading it killed the tab that tried. What was asked for is the
+ * path, and a name is almost always enough to find one.
+ *
+ * The session's own directory first, because a file dragged while working in a folder is usually
+ * from it. Then the places a download or a screenshot lands, then the folders this machine is
+ * known to work in, which is the same list a dropped folder is resolved against.
+ *
+ * Order is the whole of the disambiguation: the first place that has a file of that name wins,
+ * and nothing guesses between two of them.
+ */
+export function droppedFileSearchPath(
+  cwd: string,
+  home: string,
+  known: readonly string[],
+): string[] {
+  const places = [
+    cwd,
+    join(home, 'Downloads'),
+    join(home, 'Desktop'),
+    join(home, 'Documents'),
+    home,
+  ];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const place of [...places, ...known]) {
+    if (place === '' || seen.has(place)) continue;
+    seen.add(place);
+    out.push(place);
+  }
+  return out;
+}

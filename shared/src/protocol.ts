@@ -521,6 +521,17 @@ export type ClientMessage =
    */
   | { t: 'resync-pane'; sessionId: string }
   | { t: 'resolve-paths'; sessionId: string; candidates: readonly string[] }
+  /**
+   * Where a dropped file actually lives, asked before anything is copied.
+   *
+   * A browser will not give a dropped file's path, so taking one meant reading it and writing a
+   * copy. That is the wrong shape for what was asked: "it should just paste the path to it
+   * regardless... it shouldn't do anything else". The daemon can look: a name in the session's own
+   * directory, in the usual places a file comes from, or in a folder this machine is known to work
+   * in is almost always the file that was dragged, and finding it costs a `stat` rather than three
+   * hundred megabytes.
+   */
+  | { t: 'find-dropped'; sessionId: string; names: readonly string[] }
   | {
       t: 'open-path';
       /**
@@ -1036,6 +1047,12 @@ export type ServerMessage =
     }
   | { t: 'server-detected'; sessionId: string; port: number }
   | { t: 'paths-resolved'; sessionId: string; cwd: string; results: readonly ResolvedPath[] }
+  /** Where each dropped name was found, for the ones that were. See `find-dropped`. */
+  | {
+      t: 'dropped-found';
+      sessionId: string;
+      found: readonly { name: string; path: string }[];
+    }
   | { t: 'launcher-state'; state: LauncherState }
   | {
       t: 'history-page';

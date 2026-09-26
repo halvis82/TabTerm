@@ -4,7 +4,10 @@
 // so there is no path to type. The daemon writes a copy and answers with the path of that. Without
 // any of this Chrome does its own thing with a dropped file, which is to leave the page and open
 // the file in the tab, taking the terminal off the screen to do it.
-import { openTerminal, evaluate, sleep, finish, waitFor } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, finish, waitFor, waitUntil, type } from '../helpers.mjs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -146,6 +149,69 @@ r.ok(
     .filter((l) => l.trim())
     .slice(-1)[0] ?? '',
 );
+
+/**
+ * A file that is already on this machine gives its path, and is never read.
+ *
+ * Reported with a 298 MB archive dragged out of Downloads: the page read all of it, encoded it,
+ * and the tab lost its WebGL context and filled its terminal with parse errors. "it should just
+ * paste the path to it regardless of whether it's a claude or terminal or whatever. it shouldn't
+ * do anything else."
+ *
+ * The file here is made in the session's own directory, given a size past what a copy would ever
+ * be allowed, and dropped with no bytes behind it at all: `new File([], name)` carries a name and
+ * a size and nothing to read. If anything tries to read it, what reaches the prompt is not the
+ * path.
+ */
+{
+  /*
+   * A tab of its own, because the drops above leave a path staged at the prompt and anything
+   * typed after one is appended to it rather than run.
+   */
+  const fresh = await openTerminal();
+  await waitFor(fresh.client, "document.querySelector('.launcher-input')");
+  const where = mkdtempSync(join(tmpdir(), 'tt-drop-'));
+  const name = 'a big archive.zip';
+  writeFileSync(join(where, name), 'not actually big, but really there');
+  await type(fresh.client, `cd ${JSON.stringify(where)}\r`);
+  await sleep(1500);
+
+  const huge = `(() => {
+    const dt = new DataTransfer();
+    const file = new File([], ${JSON.stringify(name)}, { type: 'application/zip' });
+    Object.defineProperty(file, 'size', { value: 298 * 1024 * 1024 });
+    dt.items.add(file);
+    window.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    return true;
+  })()`;
+  await evaluate(fresh.client, huge);
+
+  /*
+   * Matched without the newlines, and on the tail of the path rather than all of it.
+   *
+   * A path this long wraps across the terminal, and macOS answers the same directory as both
+   * `/var/...` and `/private/var/...`. What has to be true is that the folder it is in and the
+   * name it has both arrived, as one quoted word.
+   */
+  const wanted = `${where.split('/').pop() ?? ''}/${name}`;
+  const flat = async () =>
+    String(await evaluate(fresh.client, 'window.__tabterm.readScreen() ?? ""')).replace(/\n/g, '');
+  const staged = await waitUntil(async () => (await flat()).includes(wanted), 15000);
+  r.ok(
+    'a file already on this machine arrives as its own path, whatever its size',
+    staged,
+    (await flat()).slice(-160),
+  );
+  r.ok(
+    'and no copy of it was taken, which is what reading a 298 MB archive would have meant',
+    !(await flat()).includes('/dropped/'),
+    (await flat()).slice(-160),
+  );
+  r.ok(
+    'and the terminal is still a terminal',
+    (await evaluate(fresh.client, 'window.__tabterm.paneIds().length')) === 1,
+  );
+}
 
 await finish();
 r.done();

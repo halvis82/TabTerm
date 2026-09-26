@@ -81,7 +81,6 @@ r.ok(
  */
 await evaluate(client, `document.querySelector('.launcher-input')?.focus()`);
 await sleep(300);
-const before = (await screen()).length;
 
 for (const kind of ['mousePressed', 'mouseReleased']) {
   await client.send('Input.dispatchMouseEvent', {

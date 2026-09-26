@@ -35,6 +35,8 @@ import { INPUT_STATE_OF_A_NEW_SHELL } from './restored-screen.js';
 import { markerBlock } from './marker-block.js';
 import {
   MAX_DROP_BYTES,
+  droppedFileSearchPath,
+  droppedLookupName,
   copyImageToClipboard,
   isImage,
   restoreClipboard,
@@ -1794,6 +1796,50 @@ export class DaemonServer {
         })().catch((err: unknown) => {
           warn('drop.write-failed', { error: safeError(err) });
           sendError(client.socket, 'drop-failed', 'that file could not be saved');
+        });
+        return;
+      }
+
+      case 'find-dropped': {
+        /*
+         * Where a dropped file already is, so nothing has to be copied to give its path.
+         *
+         * Only a file that is there: a name that matches nothing is answered by saying nothing
+         * about it, and the page falls back to taking a copy, which is the only thing that works
+         * for a file from somewhere this daemon cannot see.
+         */
+        const session = this.#sessions.get(msg.sessionId);
+        if (!session) return;
+        void (async () => {
+          const cwd = await this.#liveCwd(session);
+          const places = droppedFileSearchPath(
+            cwd,
+            homedir(),
+            this.#launcher.recentDirs(24).map((dir) => dir.path),
+          );
+          const found: { name: string; path: string }[] = [];
+          for (const name of msg.names.slice(0, 8)) {
+            // The last segment only, and nothing that could climb out of the directory being
+            // searched. Not `safeDropName`: that builds a name safe to write and turns a space
+            // into a dash, which matches no file that is actually there.
+            const bare = droppedLookupName(name);
+            if (bare === '') continue;
+            for (const place of places) {
+              const candidate = join(place, bare);
+              try {
+                const st = await stat(candidate);
+                if (st.isFile() || st.isDirectory()) {
+                  found.push({ name, path: candidate });
+                  break;
+                }
+              } catch {
+                // Not here. The next place, and silence if none of them have it.
+              }
+            }
+          }
+          send(client.socket, controlFrame({ t: 'dropped-found', sessionId: session.id, found }));
+        })().catch((err: unknown) => {
+          warn('drop.find-failed', { error: safeError(err) });
         });
         return;
       }

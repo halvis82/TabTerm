@@ -1,10 +1,13 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   dragCarriesFiles,
   droppedText,
   whatIsCarried,
   hasItsOwnDropTarget,
   DragDepth,
+  MAX_DROP_BYTES,
 } from './drop-zone.js';
 
 const ESC = String.fromCharCode(27);
@@ -99,5 +102,29 @@ describe('a drop that something inside the window already handles', () => {
   it('takes a drop on anything else', () => {
     expect(hasItsOwnDropTarget(on([]))).toBe(false);
     expect(hasItsOwnDropTarget(null)).toBe(false);
+  });
+});
+
+/**
+ * The two halves of the size limit agree, because they are enforced in two processes.
+ *
+ * The page must refuse an oversized file before it reads it, and the daemon must refuse one
+ * however it arrives. A 298 MB archive was read in full by a page whose only limit lived in the
+ * daemon, and the tab did not survive it: it lost its WebGL context and filled its terminal with
+ * parse errors.
+ *
+ * Read out of the daemon's source as text, because the two packages do not import from each
+ * other. A number that drifts is a page that reads a file the daemon will refuse.
+ */
+describe('the size a drop may be', () => {
+  it('is the same number in the page as in the daemon', () => {
+    const source = readFileSync(
+      join(import.meta.dirname, '..', '..', '..', 'daemon', 'src', 'dropped-files.ts'),
+      'utf8',
+    );
+    const said = /export const MAX_DROP_BYTES = ([^;]+);/.exec(source)?.[1] ?? '';
+    expect(said.trim()).not.toBe('');
+    // eslint-disable-next-line no-eval
+    expect(eval(said) as number).toBe(MAX_DROP_BYTES);
   });
 });
