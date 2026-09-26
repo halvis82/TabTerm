@@ -64,6 +64,10 @@
     min-height: 0;
     overflow: hidden;
     flex: 1 1 0;
+    /* Always reserved, never conditional: a border that appears and disappears changes how many
+       columns the terminal has, and a terminal that reflows when the start screen is dismissed
+       wraps its output somewhere different from where it said it would. Only the color changes. */
+    border: 1px solid transparent;
     border-radius: 4px;
     /* So the session name sizes itself against the pane rather than the window, which is what
        keeps it legible in a narrow one. Inline axis only: the pane is a flex item with a
@@ -84,9 +88,6 @@
   .many-panes .pane.focused,
   #terminal.panel-open .pane {
     border-color: #4a5573;
-  }
-  #terminal.panel-open .pane {
-    border: 1px solid #4a5573;
   }
   .pane-terminal {
     position: absolute;
@@ -162,7 +163,7 @@
 
      Not while the start screen is up: there the terminal is a strip at the bottom with the start
      screen above it, and the gap and the line along its top edge are what separate the two. */
-  #terminal:not(.many-panes):not(.panel-open) {
+  #terminal:not(.many-panes) {
     padding: 0;
   }
 
@@ -1978,9 +1979,6 @@
   .many-panes .pane {
     display: flex;
     flex-direction: column;
-    /* Reserved whether or not this pane is the focused one, so focus moving between panes does
-       not reflow every terminal in the tab by a pixel on each side. */
-    border: 1px solid transparent;
   }
   .many-panes .pane > .pane-terminal {
     /* Out of the absolute fill it uses on its own, so the bar and the terminal share the pane

@@ -94,13 +94,24 @@ for (const kind of ['mousePressed', 'mouseReleased']) {
   await sleep(120);
 }
 
-const second = await waitUntil(async () => (await screen()).length > before, 8000);
+/*
+ * Waited for the report this click makes, not for the screen to get longer.
+ *
+ * Any output at all satisfies "longer", and the newest report on the screen is then still the
+ * previous click's. That read as the wrong cell being named: `["9","4"]`, which is exactly where
+ * the click before this one was.
+ */
 const latest = /\^\[\[<0;(\d+);(\d+)M/g;
+const thisClick = await waitUntil(async () => {
+  const seen = [...(await screen()).matchAll(latest)];
+  const newest = seen[seen.length - 1];
+  return newest !== undefined && Number(newest[1]) === 21 && Number(newest[2]) === 6;
+}, 15000);
 const all = [...(await screen()).matchAll(latest)];
 const last = all[all.length - 1];
 r.ok(
   'a click into a pane that was not focused is reported as well',
-  second && last !== undefined && Number(last[1]) === 21 && Number(last[2]) === 6,
+  thisClick,
   JSON.stringify(last?.slice(1)),
 );
 
@@ -125,13 +136,15 @@ await client.send('Input.dispatchMouseEvent', {
   deltaY: -120,
   pointerType: 'mouse',
 });
+// The wheel's own report, for the same reason: the screen growing is not this event arriving.
 const wheelReported = await waitUntil(
-  async () => (await screen()).length > beforeWheel.length,
-  8000,
+  async () =>
+    (await screen()).length > beforeWheel.length && /\^\[\[<6[45];\d+;\d+M/.test(await screen()),
+  15000,
 );
 r.ok(
   'a wheel over a program that holds the mouse is reported to it',
-  wheelReported && /\^\[\[<6[45];\d+;\d+M/.test(await screen()),
+  wheelReported,
   (await screen()).slice(-60),
 );
 

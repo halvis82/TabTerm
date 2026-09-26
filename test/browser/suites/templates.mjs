@@ -136,7 +136,14 @@ await evaluate(client, `document.querySelector('.template-card')?.remove()`);
 await waitFor(client, `document.querySelector('.launcher-template') !== null`);
 const chipBox = await boxOf(client, '.launcher-template');
 await openPaneMenu(client, chipBox.x + chipBox.width / 2, chipBox.y + chipBox.height / 2);
-await sleep(400);
+/*
+ * Waited for the card the right click asks for, rather than sleeping and hoping.
+ *
+ * What follows moves the pointer away and then asks whether the card stayed. If the card has not
+ * arrived yet, that reads as it having been taken away by the pointer leaving, which is the one
+ * thing this is here to tell apart.
+ */
+await waitFor(client, `document.querySelector('.template-card') !== null`, 10000);
 /**
  * Pinned, which is the half that hovering does not do.
  *
@@ -153,7 +160,8 @@ await evaluate(
   client,
   `document.querySelector('.launcher-template')?.dispatchEvent(new MouseEvent('mouseleave'))`,
 );
-await sleep(400);
+// Longer than the hover card's own delay before it hides itself, which is what is being ruled out.
+await sleep(800);
 r.ok(
   'right clicking a template pins its card up, the same as the i',
   Boolean(await evaluate(client, `document.querySelector('.template-card') !== null`)),

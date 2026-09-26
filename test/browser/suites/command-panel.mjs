@@ -13,6 +13,7 @@ import {
   waitFor,
   press,
   interrupt,
+  waitUntil,
 } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
@@ -143,10 +144,22 @@ await evaluate(
     row?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
   })()`,
 );
-await sleep(900);
+/*
+ * Waited for the whole command to arrive, not slept past.
+ *
+ * The paste goes to the shell, which echoes it as its line editor takes it, and closing the panel
+ * changes the terminal's height underneath that. Reading after a fixed wait caught a prompt part
+ * way through being drawn: `% o panel-99963-one`, missing the first three characters of a command
+ * that had in fact arrived whole. Two checks then failed for a reason that was not about either
+ * of them.
+ */
+const arrived = await waitUntil(async () => {
+  const last = (await readScreen(client)).split('\n').filter(Boolean).pop() ?? '';
+  return last.includes(chosen ?? ' ');
+}, 15000);
 
 const line = (await readScreen(client)).split('\n').filter(Boolean).pop() ?? '';
-r.ok('double-click pastes the command', line.includes(chosen ?? ' '), line);
+r.ok('double-click pastes the command', arrived, line);
 r.ok(
   'and leaves the clipboard alone',
   (await evaluate(client, `navigator.clipboard.readText()`)) === 'CLIP-UNTOUCHED',

@@ -66,7 +66,17 @@ export async function openTerminal(query = '') {
   // the page looks perfectly healthy and simply never receives anything.
   await client.send('Page.bringToFront');
   opened.push({ client, tab });
-  await ready(client);
+  /*
+   * Waited for properly, and said out loud when it does not happen.
+   *
+   * This used to wait twenty seconds and carry on regardless, so a tab that was still booting
+   * was handed to a suite which then failed on `Cannot read properties of undefined`, naming
+   * whichever hook it happened to reach for first. Two suites failed that way in one run and
+   * neither message had anything to do with what they check. Forty-five seconds, because the
+   * slowest suite in a full run takes ninety, and a sentence rather than a type error.
+   */
+  const usable = await ready(client, 45000);
+  if (!usable) throw new Error('the tab never became usable: no pane with a prompt after 45s');
   return { client, tab };
 }
 

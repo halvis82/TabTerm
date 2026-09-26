@@ -1,5 +1,5 @@
 // A setting is a preference, so it applies everywhere and it applies now.
-import { openTerminal, evaluate, sleep, finish, waitFor, press } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, finish, waitFor, waitUntil, press } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -143,7 +143,16 @@ const setNotify = async (on) => {
     a.client,
     `(() => { const box = ${notifySwitch}; if (box) { box.checked = ${String(on)}; box.dispatchEvent(new Event('change', { bubbles: true })); } })()`,
   );
-  await sleep(1200);
+  /*
+   * Waited for the switch to actually be where it was put. Flipping it is a round trip to the
+   * daemon and the page is redrawn when the answer comes back, so a fixed wait read the page
+   * mid-flight and reported the switch still on.
+   */
+  await waitUntil(
+    async () => Boolean(await evaluate(a.client, `${notifySwitch}?.checked`)) === on,
+    15000,
+  );
+  await sleep(300);
 };
 
 const wasOn = Boolean(await evaluate(a.client, `${notifySwitch}?.checked`));
