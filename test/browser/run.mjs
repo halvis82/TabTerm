@@ -27,6 +27,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -1126,11 +1127,44 @@ try {
   /* already gone */
 }
 try {
-  // Kept when something went wrong, because the daemon's log is the only evidence of why.
-  if (daemon.state.restarts === 0) rmSync(daemon.home, { recursive: true, force: true });
-  else console.log(`  kept ${daemon.home} for its daemon.log`);
+  /**
+   * Kept when something went wrong, because the daemon's log is the only evidence of why.
+   *
+   * Wrong went was "the daemon restarted", and two suites restart it deliberately, so every full
+   * run kept its home forever: eighty-nine of them on one machine, two hundred and twelve
+   * megabytes of databases and scrollback, none of which anybody was ever going to read. A run
+   * that passed has nothing to explain.
+   */
+  const wentWrong = results.some((r) => r.fail > 0);
+  if (wentWrong) console.log(`  kept ${daemon.home} for its daemon.log`);
+  else rmSync(daemon.home, { recursive: true, force: true });
 } catch {
   /* a directory that could not be removed is not a failed run */
+}
+
+/**
+ * And the ones kept by runs before this, once they are old enough to be nobody's evidence.
+ *
+ * A home is kept so a failure can be read afterwards, which is a thing somebody does that day.
+ * Kept forever it is only disk. Swept on the way out rather than the way in, so a run never
+ * removes the home of a run going on beside it.
+ */
+try {
+  const parent = dirname(daemon.home);
+  const day = 24 * 60 * 60 * 1000;
+  for (const name of readdirSync(parent)) {
+    if (!name.startsWith('tabterm-suite-home-')) continue;
+    const old = join(parent, name);
+    if (old === daemon.home) continue;
+    try {
+      if (Date.now() - statSync(old).mtimeMs < day) continue;
+      rmSync(old, { recursive: true, force: true });
+    } catch {
+      /* somebody else's, or already gone */
+    }
+  }
+} catch {
+  /* the sweep is tidiness, never a reason for a run to fail */
 }
 
 /**

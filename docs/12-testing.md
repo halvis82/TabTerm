@@ -226,6 +226,13 @@ and those shells run forever: no tab, no timeout, nothing watching them. Four da
 hosts were found on one machine, the oldest three days old, which to whoever owns that machine
 looks exactly like terminals that refuse to close.
 
+**The home a run makes is removed unless the run failed.** It was removed unless the daemon had
+restarted, and two suites restart it deliberately, so every full run kept its home forever:
+eighty-nine of them on one machine, two hundred and twelve megabytes of databases and scrollback
+that nobody was ever going to read. A run that passed has nothing to explain. One that failed
+keeps its home, and the next run sweeps any older than a day, on the way out so it can never
+remove the home of a run going on beside it.
+
 Two defences, because neither is enough alone:
 
 - **On the way out**, `SIGINT`, `SIGTERM` and `SIGHUP` end this run's daemon. `SIGKILL` cannot be
