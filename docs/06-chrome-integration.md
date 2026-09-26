@@ -1257,6 +1257,17 @@ away the list somebody was reading, and `..` with it, leaving no way back up exc
 by hand. The list is drawn again from the listing already in hand, in the same place and the same
 order as the validity line, and no question is sent.
 
+Putting the list back was not enough on its own, because the same redraw was also **asking the wrong
+question**. The listing was requested while the section was being built, which is before the text is
+restored, so it asked about home. That question gets answered, and the answer replaced the listing for
+the folder somebody was actually in with home's, which matches nothing, so the list came off the
+screen again and stayed off until a second question came back. Driven at a redraw every sixty
+milliseconds the list was missing from a painted frame; the request now goes out after the text is
+back, next to the drawing it feeds.
+
+Both halves are the same fault as the validity line documented above, in the same place: correct code
+in the wrong order, reading fine each time.
+
 This one hid behind the instrument that was watching for it. A refresh that learns nothing draws
 nothing, so a check driven by asking the daemon to refresh never saw a redraw and never saw the
 fault; it showed up as `folder-picker` failing a full run, where the screen really does redraw, with

@@ -1871,8 +1871,9 @@ export class Launcher {
      * with six presses that reached nothing, because the row really was not there.
      *
      * Costs nothing when there is nothing to draw: the listing already in hand is drawn again, and
-     * no question is sent.
+     * no question is sent unless the folder in the box is one nothing has been asked about yet.
      */
+    this.#ensureListing();
     this.#renderFolders();
   }
 
@@ -2131,9 +2132,15 @@ export class Launcher {
     pathRow.className = 'launcher-path-row';
     pathRow.append(input);
     form.append(pathRow, folderState, buttons);
-    // Drawn straight away, so the folders are there before anything is typed.
-    this.#ensureListing();
-    setTimeout(() => this.#renderFolders(), 0);
+    /*
+     * The folders are asked for and drawn at the end of the redraw, not here.
+     *
+     * Here the box is the new empty one and what was typed is put back later, so asking here asks
+     * about home. That question is answered, and the answer replaces the listing for the folder
+     * somebody is actually in with home's, which then matches nothing and takes the list off the
+     * screen until a second question comes back. Same fault as the validity line above it, and the
+     * same fix: after the text is back. See the end of `render`.
+     */
     /**
      * No note under the buttons.
      *

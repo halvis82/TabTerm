@@ -95,6 +95,20 @@ r.ok(
 await typeIn('Documents/');
 const folders = async () =>
   Number(await evaluate(client, `document.querySelectorAll('.launcher-completion').length`));
+/*
+ * Waited for the list of **this** folder, because the folders come from the daemon.
+ *
+ * Two mistakes were made here and both are worth naming. `typeIn` waits a fixed second, which is a
+ * round trip on an idle machine and not on a busy one, so the list had simply not arrived. Then
+ * waiting for any folders at all was satisfied instantly by the list still on screen from the
+ * folder before this one, which has no `..` in it because it is home, so the next check failed
+ * against a list that was never the one being asked about. Waiting for `..` waits for this folder.
+ */
+await waitFor(
+  client,
+  `[...document.querySelectorAll('.launcher-completion')].some((c) => c.textContent === '..')`,
+  25000,
+);
 const upRow = async () =>
   Boolean(
     await evaluate(
@@ -105,14 +119,66 @@ const upRow = async () =>
 r.ok('there are folders listed to begin with', (await folders()) > 0, String(await folders()));
 r.ok('including the way back up', await upRow());
 
+const facts = async () =>
+  String(
+    await evaluate(
+      client,
+      `JSON.stringify({
+         box: document.querySelector('.launcher-input')?.value ?? null,
+         rows: document.querySelectorAll('.launcher-completion').length,
+         hasList: !!document.querySelector('.launcher-completions'),
+         state: document.querySelector('.launcher-folder-state')?.textContent ?? null,
+         folder: window.__tabterm.folderStateDebug(),
+       })`,
+    ),
+  );
+const beforeRedraw = await facts();
 await evaluate(client, 'window.__tabterm.redrawStartScreen()');
 await sleep(600);
 r.ok(
   'the folders are still listed after the screen is redrawn',
   (await folders()) > 0,
-  `${String(await folders())} listed`,
+  `${String(await folders())} listed | before ${beforeRedraw} | after ${await facts()}`,
 );
-r.ok('and the way back up is still there', await upRow());
+r.ok('and the way back up is still there', await upRow(), await facts());
+
+/**
+ * And through a storm of them, sampled rather than looked at once.
+ *
+ * One redraw is the easy case. The one that failed a full run is a redraw landing while the list is
+ * being looked at, which a single press cannot reproduce on demand and a busy machine reproduces by
+ * accident. Driven here at a redraw every sixty milliseconds, which is harder than anything real,
+ * and the count is taken on every change to the page so a window where the list is missing cannot
+ * pass between two samples.
+ */
+await evaluate(
+  client,
+  `window.__ttStorm2 = setInterval(() => window.__tabterm.redrawStartScreen(), 60)`,
+);
+/*
+ * Sampled from its own task, which is the only place a complete state can be seen.
+ *
+ * A `MutationObserver` was tried and is wrong here, for the second time in this work and for the
+ * same reason. Drawing the list removes the old one and inserts the new one in one synchronous
+ * function, so an observer runs between those two mutations and faithfully reports zero folders at
+ * a moment the browser never paints. Each of these reads is a task of its own, so it can only ever
+ * see the page as it was left: if one of them sees no folders, there really were none on screen.
+ */
+let fewest = Number.MAX_SAFE_INTEGER;
+let samples = 0;
+for (let i = 0; i < 40; i++) {
+  const now = await folders();
+  samples++;
+  if (now < fewest) fewest = now;
+  await sleep(50);
+}
+await evaluate(client, 'clearInterval(window.__ttStorm2)');
+const storm = { low: fewest, samples, at: [] };
+r.ok(
+  'the folders survive a redraw every sixty milliseconds',
+  storm.low > 0,
+  `fewest listed was ${String(storm.low)} across ${String(storm.samples)} reads`,
+);
 
 /*
  * What this suite does not check, and why.
