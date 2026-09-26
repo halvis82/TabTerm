@@ -815,6 +815,25 @@ higher.
 
 ---
 
+### An answer already given is not waited for again
+
+The start screen names the answers it is waiting for and draws when they are all in, with a
+deadline so that one which never comes cannot hold it for ever. That deadline was being reached on
+every single tab.
+
+One of those answers is read from extension storage rather than from the daemon, so it arrives
+before the message that names the batch. The drawing that followed cleared the only record that it
+had arrived, the batch was then named, and it went back on the list to be waited for. Nothing was
+ever going to send it a second time. Traced on a real load: the last answer was in hand at 130 ms
+and the screen finished drawing at **369 ms**, a quarter of a second of waiting for something it
+already had.
+
+Two records rather than one now: what has arrived since the last drawing, which is what decides
+whether to draw again, and what has ever arrived, which is what decides whether to wait. Drawing
+empties the first and not the second. A fully drawn start screen went from **345 to 369 ms down to
+152 to 178**, and the check measures the gap between the last answer and the last drawing rather
+than an absolute time, because the absolute belongs to the machine.
+
 ### A start screen shows what is true now, not what was true when it opened
 
 Something done in one tab reaches the others: a session started, a folder opened, an agent

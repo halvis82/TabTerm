@@ -235,6 +235,14 @@ export class Launcher {
    * the screen is told what it asked for and draws once, when it has it.
    */
   readonly #awaited = new Set<string>();
+  /**
+   * Every answer this page has ever been given, which is not the same as the recent ones.
+   *
+   * `#answeredSince` is emptied by each drawing, so it cannot say whether something was answered
+   * before the drawing that just happened. This can, and that is the question `expecting` has to
+   * ask: an answer that came once and is never sent again must not be waited for a second time.
+   */
+  readonly #everAnswered = new Set<string>();
   #awaitedUntil = 0;
 
   /**
@@ -245,7 +253,22 @@ export class Launcher {
    */
   expecting(keys: readonly string[]): void {
     if (this.#dismissed) return;
-    for (const key of keys) this.#awaited.add(key);
+    for (const key of keys) {
+      /*
+       * An answer already given is not something to wait for.
+       *
+       * These are named when the first of them is handled, and the rest are already on their way
+       * or already in: traced on a real load, the answer read from extension storage arrived at
+       * 40 ms, the screen drew at 89, and this ran at 92 and put that same answer back on the
+       * list to wait for. Nothing was ever going to send it again, so every tab sat until the
+       * deadline ran out and drew at 369 ms, a quarter of a second after it had everything.
+       *
+       * Kept for the life of the page rather than since the last drawing, because drawing is
+       * exactly what clears the shorter memory, and drawing is what happens in between.
+       */
+      if (this.#everAnswered.has(key)) continue;
+      this.#awaited.add(key);
+    }
     /**
      * Short, because this is how long the screen is allowed to be wrong for.
      *
@@ -266,11 +289,43 @@ export class Launcher {
     return this.#renderLog;
   }
 
+  /**
+   * What the screen is still waiting for, which is the only thing that can hold the first drawing.
+   *
+   * Worth being able to ask. An answer that never says it arrived leaves its name here until the
+   * deadline runs out, and from the outside that is indistinguishable from a slow daemon: the
+   * screen simply appears late. This is how that was told apart.
+   */
+  waitingFor(): readonly string[] {
+    return [...this.#awaited];
+  }
+
   /** One of them came back. */
   #answered(key: string): void {
-    this.#answeredSince.add(key);
-    this.#awaited.delete(key);
+    this.#arrived(key);
     this.#scheduleRender();
+  }
+
+  /**
+   * It came back and changed nothing, which is still an answer.
+   *
+   * These two facts were one: an answer that matched what was already on screen returned early,
+   * so the screen went on waiting for it and drew when the deadline ran out instead. The common
+   * case is the one it got wrong. A tab opening while nothing else is running is told there are
+   * no other sessions, which is exactly what it already believed, so the running list never said
+   * it had answered and every tab took the full two hundred and fifty milliseconds to appear.
+   * Measured on the wire: every answer was back within a millisecond of the socket opening, and
+   * the screen drew two hundred and eighty milliseconds later.
+   *
+   * So arriving and changing something are separate. This clears the wait; drawing is still only
+   * for an answer that changed what is on screen, which is what stops a redraw per message.
+   * Nothing is scheduled here: a first drawing is already queued and re-queues itself while
+   * anything is outstanding, so it goes ahead as soon as the last answer is in.
+   */
+  #arrived(key: string): void {
+    this.#answeredSince.add(key);
+    this.#everAnswered.add(key);
+    this.#awaited.delete(key);
   }
 
   /** Whether the batch is still worth waiting for. */
@@ -460,7 +515,11 @@ export class Launcher {
      */
     const now = signatureOf(sessions);
     this.#liveSessions = [...sessions];
-    if (now === this.#liveSignature) return;
+    // The answer is in either way. Only a list that says something new is worth drawing again.
+    if (now === this.#liveSignature) {
+      this.#arrived('live');
+      return;
+    }
     this.#liveSignature = now;
     this.#answered('live');
   }

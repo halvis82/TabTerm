@@ -183,5 +183,52 @@ const INSTRUMENT = `(() => {
   );
 }
 
+/**
+ * And the screen is finished drawing soon after the answers are in, not a deadline later.
+ *
+ * The start screen names the answers it is waiting for and draws when they are all in, with a
+ * deadline so that one which never comes cannot hold it for ever. One of them is read from
+ * extension storage and arrives before the message that names it, and the drawing that followed
+ * cleared the only record that it had arrived: it was then waited for a second time, nothing was
+ * ever going to send it again, and every tab sat until the deadline ran out. Traced on a real
+ * load: everything in hand at 130 ms, drawn at 369.
+ *
+ * Measured as the gap between the last answer and the last drawing, because the absolute time
+ * belongs to the machine and this belongs to the product.
+ */
+{
+  const page = await openTerminal();
+  await waitFor(page.client, "document.querySelector('.launcher-input')");
+  await sleep(1500);
+  await evaluate(page.client, 'location.reload()');
+  await sleep(150);
+  await waitFor(page.client, `document.querySelector('.launcher')?.hidden === false`, 20000);
+  await sleep(1200);
+  const drawn = JSON.parse(
+    String(
+      await evaluate(
+        page.client,
+        `JSON.stringify((window.__tabterm.renderLog?.() ?? []).map((e) => e.at))`,
+      ),
+    ),
+  );
+  const waiting = JSON.parse(
+    String(
+      await evaluate(page.client, `JSON.stringify(window.__tabterm.startScreenWaiting?.() ?? [])`),
+    ),
+  );
+  const last = drawn.length > 0 ? drawn[drawn.length - 1] : -1;
+  r.ok(
+    'the start screen is finished within a moment of the answers, not a deadline later',
+    last >= 0 && last < 300,
+    `drawn at ${JSON.stringify(drawn)} ms`,
+  );
+  r.ok(
+    'and is not still waiting for anything once it has drawn',
+    waiting.length === 0,
+    JSON.stringify(waiting),
+  );
+}
+
 await finish();
 r.done();

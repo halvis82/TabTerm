@@ -7336,6 +7336,8 @@ declare global {
       titleFacts: () => Record<string, unknown>;
       /** Draw the start screen again, which the daemon otherwise causes at its own pace. */
       redrawStartScreen: () => void;
+      /** What the start screen is still waiting for before it will draw. */
+      startScreenWaiting: () => readonly string[];
       maximizedPane: () => string | null;
       leaveFocusMode: () => void | Promise<void>;
       /** Which panes the daemon said something was launched into. */
@@ -7618,6 +7620,7 @@ function installTestHook(): void {
      * another suite is a check that reports whatever the machine was doing.
      */
     redrawStartScreen: () => launcher?.render(),
+    startScreenWaiting: () => launcher?.waitingFor() ?? [],
     maximizedPane: () => splitView?.maximized ?? null,
     leaveFocusMode: () => splitView?.exitFocusMode(),
     /** Which panes the daemon said something was launched into. */
