@@ -5710,7 +5710,21 @@ function buildCommandPanel(): void {
       buildSettings({
         onChangeTheme: applyTheme,
         notify: () => notifyPolicy,
-        onChangeNotify: (policy) => client?.send({ t: 'set-notify-policy', policy }),
+        /**
+         * Moved here first, then sent.
+         *
+         * The page used to redraw only when the daemon echoed the new policy back, so until that
+         * arrived the settings page contradicted the switch that had just been moved: the
+         * threshold picker stayed under a switch that said notifications were off. On a loaded
+         * machine that window is seconds wide. It is the same rule the menu needed: what is on
+         * screen says what is true now, and the daemon's answer confirms it rather than being
+         * the first anybody hears of it.
+         */
+        onChangeNotify: (policy) => {
+          if (notifyPolicy) notifyPolicy = { ...notifyPolicy, ...policy };
+          commandPanel?.refreshSettings();
+          client?.send({ t: 'set-notify-policy', policy });
+        },
         agentHooks: () => agentHooks,
         onChangeAgentHooks: (enabled) => client?.send({ t: 'set-agent-hooks', enabled }),
         agentCommand: () => agentCommand,

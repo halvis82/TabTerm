@@ -485,6 +485,22 @@ off. That is what a test browser should have anyway: none of it is the product, 
 traffic sitting in the middle of a measurement. It is reasoned from that record rather than proved
 by removing it, since the attempt cannot be forced.
 
+## How many browsers a run drives, and why it is not more
+
+The pool ran four browsers at once. Measured across four full runs on an ordinary laptop that is
+also being worked on, that produced eighteen failures in one run, twenty-nine in another, and a
+different set each time: every one of them passed when its suite was run alone. The clearest of
+them was a suite that gave up because a tab could not boot in forty-five seconds.
+
+No amount of patience inside a check fixes a machine that saturated. Six checks were made to wait
+for the right condition rather than a duration, which was right and necessary, and the failures
+simply moved to other suites each run.
+
+**Two browsers.** The same run, unchanged in every other way: eighteen failures became six, and
+the three suites left were real faults rather than timing. It costs about three minutes on a
+twelve minute run, which is the right trade: a run whose number cannot be trusted is worth less
+than a run that takes longer. `TT_JOBS` still raises it for a machine with room.
+
 ## Waits, not sleeps
 
 A fixed sleep encodes what an idle machine does. These suites run on a machine somebody is

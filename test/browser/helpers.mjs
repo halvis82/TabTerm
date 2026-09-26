@@ -66,17 +66,20 @@ export async function openTerminal(query = '') {
   // the page looks perfectly healthy and simply never receives anything.
   await client.send('Page.bringToFront');
   opened.push({ client, tab });
-  /*
-   * Waited for properly, and said out loud when it does not happen.
+  /**
+   * The page being alive is what every suite needs. A prompt is what most of them need.
    *
-   * This used to wait twenty seconds and carry on regardless, so a tab that was still booting
-   * was handed to a suite which then failed on `Cannot read properties of undefined`, naming
-   * whichever hook it happened to reach for first. Two suites failed that way in one run and
-   * neither message had anything to do with what they check. Forty-five seconds, because the
-   * slowest suite in a full run takes ninety, and a sentence rather than a type error.
+   * A tab used to be handed over after twenty seconds whether or not anything had loaded, so a
+   * suite failed on `Cannot read properties of undefined`, naming whichever hook it reached for
+   * first, which had nothing to do with what it was checking. That is worth refusing outright.
+   *
+   * A prompt is not, because a tab is not always opened onto a terminal: a workspace whose
+   * session has ended opens onto a page that says so, and demanding a prompt there refused a tab
+   * that was working exactly as intended. So the page is required and the prompt is waited for.
    */
-  const usable = await ready(client, 45000);
-  if (!usable) throw new Error('the tab never became usable: no pane with a prompt after 45s');
+  const alive = await waitFor(client, 'Boolean(window.__tabterm)', 45000);
+  if (!alive) throw new Error('the tab never booted: no page hook after 45s');
+  await ready(client, 45000);
   return { client, tab };
 }
 

@@ -97,6 +97,16 @@ const mine = String(await evaluate(work.client, 'window.__tabterm.workspaceId()'
 const group = `.session-wash[data-workspace-id="${mine}"]`;
 const inGroup = `.session-card[data-group="${mine}"]`;
 
+/*
+ * The sessions this suite made, so "is it still on the list" is a question about them.
+ *
+ * Several suites add to and take from this list the whole time, so counting every card on it
+ * answered whatever else happened to be finishing at that moment.
+ */
+const ourSessions = JSON.parse(
+  String(await evaluate(work.client, 'JSON.stringify(window.__tabterm.paneSessions())')),
+).map((pane) => pane.sessionId);
+
 const shape = async () =>
   JSON.parse(
     String(
@@ -105,7 +115,12 @@ const shape = async () =>
         `JSON.stringify({
            groups: document.querySelectorAll('${group}').length,
            inGroups: document.querySelectorAll('${inGroup}').length,
+           // This suite's own sessions, not every card on a list several suites are adding to
+           // and taking from. Counting all of them made "is it still on the list" a question
+           // about whatever else was finishing at that moment.
            cards: document.querySelectorAll('.session-card').length,
+           mine: ${JSON.stringify(ourSessions)}.filter((id) =>
+             document.querySelector('.session-card[data-session-id="' + id + '"]') !== null).length,
            landed: document.querySelectorAll('.session-card.is-landed').length,
          })`,
       ),
@@ -171,7 +186,7 @@ r.ok(
  * finds a terminal they left running.
  */
 const now = await shape();
-r.ok('and is still on the list, on its own', now.cards >= before.cards, JSON.stringify(now));
+r.ok('and is still on the list, on its own', now.mine >= before.mine, JSON.stringify(now));
 
 /*
  * And the tab it left has one pane, so there is no group left to draw. A group of one is a box

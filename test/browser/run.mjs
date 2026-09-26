@@ -181,7 +181,22 @@ const SKIP = process.env['TT_LET_NOTIFICATIONS'] === '1' ? [] : ['a-notification
 
 const SERIAL = [...FIRST, ...LAST];
 
-const JOBS = Number(process.env['TT_JOBS'] ?? '4');
+/**
+ * How many browsers run at once, and why it is two.
+ *
+ * It was four. Measured across four full runs on a laptop that is also being worked on, that gave
+ * eighteen failures in one run and twenty-nine in another, a different set each time, every one of
+ * which passed when its suite was run alone. The clearest was a suite that gave up because a tab
+ * could not boot in forty-five seconds.
+ *
+ * No amount of patience inside a check fixes a machine that saturated. The same run at two
+ * browsers turned eighteen failures into six, and those six were real. It costs about three
+ * minutes on a twelve minute run, which is the right trade: a run whose number cannot be trusted
+ * is worth less than a run that takes longer.
+ *
+ * `TT_JOBS` raises it for a machine with room to spare.
+ */
+const JOBS = Number(process.env['TT_JOBS'] ?? '2');
 const args = process.argv.slice(2);
 const only = args.filter((a) => !a.startsWith('-'));
 
