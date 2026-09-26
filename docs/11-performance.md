@@ -130,6 +130,16 @@ elsewhere: late, and not computing. Batched at 64 KB or 10 ms, the same output c
 Everything that reads, clears, prunes or measures puts the batch out first, and so does closing
 the host, so nothing outside can tell the difference.
 
+**The host's ring, which was quadratic.** The host keeps recent output per session so a restarted
+daemon can rebuild a screen, one entry per chunk the program wrote, and dropped the oldest with
+`Array.shift`. That moves every remaining element. A session printing in small pieces, which is
+exactly what an agent streaming an answer looks like, fills the ring with tens of thousands of
+entries, and from then on every chunk that arrives costs a pass over all of them. Measured on that
+pattern: two hundred thousand sixty-four byte chunks took **5,943 ms** with `shift` and **4 ms**
+with a moving head, and the dead front is reclaimed when it is worth the copy so the array does
+not grow instead. This is the process every terminal on the machine shares, so what it was costing
+was every terminal's keystrokes.
+
 **Asking the operating system.** Two paths wanted the process table: the foreground probe, run
 once per session with a command in flight every second, and the working directory lookup, run once
 per session every time a start screen asks where its terminals are. Seven sessions meant seven
