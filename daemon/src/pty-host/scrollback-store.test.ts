@@ -41,6 +41,8 @@ describe('scrollback on disk', () => {
   it('keeps the file itself bounded, not only what it hands back', () => {
     const store = new ScrollbackStore({ directory: dir, budgetBytes: 100 });
     for (let i = 0; i < 500; i++) store.append('s1', bytes(`0123456789\n`));
+    // On disk is a question about the file, so the batch goes out first.
+    store.flush();
     // Compaction happens at a multiple of the budget, so the file is bounded by that.
     expect(statSync(join(dir, 's1.log')).size).toBeLessThan(100 * 3);
   });
@@ -48,6 +50,8 @@ describe('scrollback on disk', () => {
   it('writes owner-only, because this is everything a terminal printed', () => {
     const store = new ScrollbackStore({ directory: dir, budgetBytes: 1024 });
     store.append('s1', bytes('secret'));
+    // On disk is a question about the file, so the batch goes out first.
+    store.flush();
     expect(statSync(join(dir, 's1.log')).mode & 0o077).toBe(0);
   });
 
@@ -61,6 +65,8 @@ describe('scrollback on disk', () => {
   it('refuses a session id that is really a path', () => {
     const store = new ScrollbackStore({ directory: dir, budgetBytes: 1024 });
     store.append('../../escape', bytes('nope'));
+    // On disk is a question about the file, so the batch goes out first.
+    store.flush();
     expect(store.usage().files).toBe(1);
     expect(store.read('../../escape')).not.toHaveLength(0);
   });
@@ -68,7 +74,11 @@ describe('scrollback on disk', () => {
   it('prunes history nobody has touched in a month', () => {
     const store = new ScrollbackStore({ directory: dir, budgetBytes: 1024 });
     store.append('old', bytes('ancient'));
+    // On disk is a question about the file, so the batch goes out first.
+    store.flush();
     store.append('new', bytes('current'));
+    // On disk is a question about the file, so the batch goes out first.
+    store.flush();
     const longAgo = Date.now() / 1000 - 60 * 24 * 60 * 60;
     utimesSync(join(dir, 'old.log'), longAgo, longAgo);
     expect(store.prune()).toBe(1);
@@ -98,8 +108,12 @@ describe('scrollback on disk', () => {
      */
     const store = new ScrollbackStore({ directory: dir, budgetBytes: 64 * 1024 });
     store.append('mode-check', new TextEncoder().encode('first\n'));
+    // On disk is a question about the file, so the batch goes out first.
+    store.flush();
     store.clear('mode-check');
     store.append('mode-check', new TextEncoder().encode('second\n'));
+    // On disk is a question about the file, so the batch goes out first.
+    store.flush();
     const path = join(dir, 'mode-check.log');
     expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(new TextDecoder().decode(store.read('mode-check'))).toContain('second');
@@ -131,5 +145,52 @@ describe('pruning while the host runs', () => {
     store.append('fresh', Buffer.from('c'.repeat(64)));
     expect(store.prune(Date.now())).toBe(0);
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+/**
+ * Writing in batches, which nothing outside can tell apart from writing every chunk.
+ *
+ * A syscall per chunk blocked the process that holds every terminal: sixteen megabytes arriving
+ * in four kilobyte chunks cost 429 ms of wall clock against 119 ms of processor, so most of it
+ * was this process sitting in `write` while every other terminal's keystrokes waited. Batched,
+ * the same output costs 11 ms.
+ *
+ * The contract that makes it safe is that everything which looks at a file puts the batch out
+ * first, so no caller can ever see a file missing its newest bytes.
+ */
+describe('writing in batches', () => {
+  it('hands back everything that was appended, flushed or not', () => {
+    const store = new ScrollbackStore({ directory: dir, budgetBytes: 1024 * 1024 });
+    for (let i = 0; i < 50; i++) store.append('batch', bytes(`line ${String(i)}\n`));
+    const back = Buffer.from(store.read('batch')).toString('utf8');
+    expect(back).toContain('line 0\n');
+    expect(back).toContain('line 49\n');
+  });
+
+  it('does not lose what was written before a clear and a rewrite', () => {
+    const store = new ScrollbackStore({ directory: dir, budgetBytes: 1024 * 1024 });
+    store.append('reused', bytes('first'));
+    store.clear('reused');
+    store.append('reused', bytes('second'));
+    expect(Buffer.from(store.read('reused')).toString('utf8')).toBe('second');
+  });
+
+  it('counts what is waiting, so usage is never short', () => {
+    const store = new ScrollbackStore({ directory: dir, budgetBytes: 1024 * 1024 });
+    store.append('counted', bytes('12345'));
+    expect(store.usage().bytes).toBeGreaterThanOrEqual(5);
+  });
+
+  it('keeps memory flat under a program that never stops printing', () => {
+    // Past the size bound, a batch is written rather than held, so nothing accumulates.
+    const store = new ScrollbackStore({ directory: dir, budgetBytes: 8 * 1024 * 1024 });
+    const chunk = bytes('x'.repeat(4096));
+    for (let i = 0; i < 2000; i++) store.append('flat', chunk);
+    const before = process.memoryUsage().heapUsed;
+    for (let i = 0; i < 2000; i++) store.append('flat', chunk);
+    const grew = process.memoryUsage().heapUsed - before;
+    // Eight megabytes appended; anything near that would mean it was all being held.
+    expect(grew).toBeLessThan(4 * 1024 * 1024);
   });
 });

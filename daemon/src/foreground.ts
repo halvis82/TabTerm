@@ -33,28 +33,72 @@ export interface ForegroundProcess {
  * question being asked: not "does this shell have children" but "is something running instead
  * of the prompt".
  */
+interface Row {
+  pid: number;
+  ppid: number;
+  foreground: boolean;
+  command: string;
+}
+
+/**
+ * One sweep of the process table, shared by everything that asks within the same moment.
+ *
+ * `ps -ax` lists every process on the machine, and this was run once per session that had a
+ * command in flight, every second, each time parsed from scratch. Four sessions running something
+ * meant four forks a second and four passes over the whole table. The answer is the same table
+ * for all of them.
+ *
+ * Two parts, and both matter. A short life, so a probe a moment later reuses the sweep rather
+ * than starting another; and one in flight at a time, so probes that land together share the one
+ * that is already running rather than each beginning their own.
+ *
+ * The window is a quarter of the second the poll uses, which keeps it well inside the slack the
+ * tracker already documents: a late end costs a slightly late "finished", never a wrong duration.
+ */
+const TABLE_TTL_MS = 250;
+let tableAt = 0;
+let table: Map<number, Row[]> | null = null;
+let sweeping: Promise<Map<number, Row[]> | null> | null = null;
+
+async function processTable(now = Date.now()): Promise<Map<number, Row[]> | null> {
+  if (table && now - tableAt < TABLE_TTL_MS) return table;
+  sweeping ??= (async () => {
+    try {
+      const out = await run('/bin/ps', ['-o', 'pid=,ppid=,stat=,args=', '-ax']);
+      if (!out) return null;
+      const byParent = new Map<number, Row[]>();
+      for (const line of out.split('\n')) {
+        const match = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/.exec(line);
+        if (!match?.[1] || !match[2] || !match[3]) continue;
+        const row: Row = {
+          pid: Number(match[1]),
+          ppid: Number(match[2]),
+          foreground: match[3].includes('+'),
+          command: (match[4] ?? '').trim(),
+        };
+        const siblings = byParent.get(row.ppid);
+        if (siblings) siblings.push(row);
+        else byParent.set(row.ppid, [row]);
+      }
+      table = byParent;
+      tableAt = Date.now();
+      return byParent;
+    } finally {
+      sweeping = null;
+    }
+  })();
+  return await sweeping;
+}
+
+/** Forget the sweep, so a test that changes what is running is not answered from before it. */
+export function forgetProcessTable(): void {
+  table = null;
+  tableAt = 0;
+}
+
 export async function foregroundOf(shellPid: number): Promise<ForegroundProcess | null> {
-  const out = await run('/bin/ps', ['-o', 'pid=,ppid=,stat=,args=', '-ax']);
-  if (!out) return null;
-
-  const rows: { pid: number; ppid: number; foreground: boolean; command: string }[] = [];
-  for (const line of out.split('\n')) {
-    const match = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/.exec(line);
-    if (!match?.[1] || !match[2] || !match[3]) continue;
-    rows.push({
-      pid: Number(match[1]),
-      ppid: Number(match[2]),
-      foreground: match[3].includes('+'),
-      command: (match[4] ?? '').trim(),
-    });
-  }
-
-  const byParent = new Map<number, typeof rows>();
-  for (const row of rows) {
-    const siblings = byParent.get(row.ppid) ?? [];
-    siblings.push(row);
-    byParent.set(row.ppid, siblings);
-  }
+  const byParent = await processTable();
+  if (!byParent) return null;
 
   // Walk down from the shell. A command is often a grandchild — `npm test` spawns node, and
   // `git log` spawns a pager — and the deepest foreground process is the one actually running.

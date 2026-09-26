@@ -77,16 +77,58 @@ export function providerFrom(addon: UnicodeWidthAddon): UnicodeWidthProvider {
   return captured;
 }
 
+/**
+ * Every width this table has been asked for, by codepoint, so it is worked out once.
+ *
+ * Width is read for **every character of output**, on both sides, and working it out means a
+ * lookup in the addon's ranges and then a binary search through the corrections. Measured on the
+ * daemon's own output path: sixteen megabytes cost 700 ms of processor with the table installed
+ * and 228 ms without it, so two thirds of what it costs to keep a server-side screen was this
+ * question being asked again for characters it had already answered for.
+ *
+ * A byte per codepoint across the basic plane is 64 KB, once for the whole process rather than
+ * once per terminal, which is why it is keyed by version: two providers announcing the same
+ * version are the same static table, and the corrections above are a module constant. Anything
+ * beyond the basic plane is rare enough to sit in a map.
+ */
+const NOT_YET = 0xff;
+const BMP = 0x10000;
+const widthTables = new Map<string, { bmp: Uint8Array; astral: Map<number, 0 | 1 | 2> }>();
+
+function tableFor(version: string): { bmp: Uint8Array; astral: Map<number, 0 | 1 | 2> } {
+  let table = widthTables.get(version);
+  if (!table) {
+    table = { bmp: new Uint8Array(BMP).fill(NOT_YET), astral: new Map() };
+    widthTables.set(version, table);
+  }
+  return table;
+}
+
 /** The addon's table, corrected to the current one. */
 export function currentWidths(base: UnicodeWidthProvider): UnicodeWidthProvider {
+  const table = tableFor(base.version);
+  const work = (codepoint: number): 0 | 1 | 2 => {
+    const width = base.wcwidth(codepoint);
+    // Zero width means combining or control, which is not a width question and stays the
+    // addon's answer. Nothing here can make a character appear or vanish.
+    if (width === 0) return 0;
+    return correctedWidth(codepoint) ?? width;
+  };
   const provider: UnicodeWidthProvider = {
     version: CURRENT_UNICODE_VERSION,
     wcwidth(codepoint: number): 0 | 1 | 2 {
-      const width = base.wcwidth(codepoint);
-      // Zero width means combining or control, which is not a width question and stays the
-      // addon's answer. Nothing here can make a character appear or vanish.
-      if (width === 0) return 0;
-      return correctedWidth(codepoint) ?? width;
+      if (codepoint >= 0 && codepoint < BMP) {
+        const seen = table.bmp[codepoint];
+        if (seen !== NOT_YET) return seen as 0 | 1 | 2;
+        const width = work(codepoint);
+        table.bmp[codepoint] = width;
+        return width;
+      }
+      const seen = table.astral.get(codepoint);
+      if (seen !== undefined) return seen;
+      const width = work(codepoint);
+      table.astral.set(codepoint, width);
+      return width;
     },
     charProperties(codepoint: number, preceding: number): number {
       /*

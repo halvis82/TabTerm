@@ -800,6 +800,9 @@ export class PtyHost {
    */
   async close(): Promise<void> {
     if (this.#pruneTimer) clearInterval(this.#pruneTimer);
+    // Whatever is waiting goes to disk before this process does. Scrollback is written in
+    // batches, and a host that exits without saying so would lose the last few milliseconds.
+    this.#store.flush();
     for (const c of this.#clients) c.destroy();
     this.#clients.clear();
     await new Promise<void>((resolve) => this.#server.close(() => resolve()));

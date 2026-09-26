@@ -762,30 +762,45 @@ function startTestDaemon() {
      * until the machine restarts: one full run leaked sixty-nine of them against a cap of 511.
      * `detached` makes the daemon a group leader, and a negative pid kills the group.
      */
-    const child = spawn(process.execPath, [join(ROOT, 'daemon', 'dist', 'main.js')], {
-      cwd: ROOT,
-      env: {
-        ...process.env,
-        TABTERM_HOME: home,
-        TABTERM_PORT: String(state.port),
-        // A suite that drives an agent's hooks is asking what the daemon does, not asking to
-        // interrupt whoever is running the tests. See `QUIET` in daemon/src/server.ts.
-        /*
-         * Quiet unless somebody is asking about notifications themselves.
-         *
-         * The suites drive real hooks against a real daemon, and every one of them used to raise a
-         * real desktop notification on the machine running the tests. The one suite that is about
-         * the notification itself needs them let through, and says so by setting this.
-         */
-        ...(process.env['TT_LET_NOTIFICATIONS'] === '1' ? {} : { TABTERM_NO_NOTIFICATIONS: '1' }),
-        // A host holding sessions refuses an ordinary SIGTERM, because exiting would make every
-        // one of them unreachable. A test host holds nothing anybody wants and must stop when
-        // its run does.
-        TABTERM_HOST_FORCE_STOP: '1',
+    /*
+     * `TT_PROFILE_DIR` puts a CPU profile of this run's daemon somewhere.
+     *
+     * Not through `NODE_OPTIONS`, which refuses `--cpu-prof`, and not on by default: the profiler
+     * costs a few percent and writes a file per process. It exists so that a question about where
+     * the daemon spends its time is answered by a measurement rather than by reading.
+     */
+    const profileDir = process.env['TT_PROFILE_DIR'];
+    const child = spawn(
+      process.execPath,
+      [
+        ...(profileDir ? ['--cpu-prof', '--cpu-prof-dir', profileDir] : []),
+        join(ROOT, 'daemon', 'dist', 'main.js'),
+      ],
+      {
+        cwd: ROOT,
+        env: {
+          ...process.env,
+          TABTERM_HOME: home,
+          TABTERM_PORT: String(state.port),
+          // A suite that drives an agent's hooks is asking what the daemon does, not asking to
+          // interrupt whoever is running the tests. See `QUIET` in daemon/src/server.ts.
+          /*
+           * Quiet unless somebody is asking about notifications themselves.
+           *
+           * The suites drive real hooks against a real daemon, and every one of them used to raise a
+           * real desktop notification on the machine running the tests. The one suite that is about
+           * the notification itself needs them let through, and says so by setting this.
+           */
+          ...(process.env['TT_LET_NOTIFICATIONS'] === '1' ? {} : { TABTERM_NO_NOTIFICATIONS: '1' }),
+          // A host holding sessions refuses an ordinary SIGTERM, because exiting would make every
+          // one of them unreachable. A test host holds nothing anybody wants and must stop when
+          // its run does.
+          TABTERM_HOST_FORCE_STOP: '1',
+        },
+        stdio: ['ignore', log, log],
+        detached: true,
       },
-      stdio: ['ignore', log, log],
-      detached: true,
-    });
+    );
     state.child = child;
     state.pid = child.pid ?? 0;
     // Every group this run has ever started, because a restarted daemon leaves its old group

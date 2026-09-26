@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { widthCorrections } from '../../scripts/generate-char-width.mjs';
 import { WIDTH_CORRECTIONS } from './char-width-data.js';
-import { CURRENT_UNICODE_VERSION, correctedWidth, currentWidths } from './char-width.js';
+import {
+  CURRENT_UNICODE_VERSION,
+  correctedWidth,
+  currentWidths,
+  providerFrom,
+} from './char-width.js';
+import unicode11 from '@xterm/addon-unicode11';
+
+const { Unicode11Addon } = unicode11;
 
 /**
  * The width table, and the reason it is not xterm's.
@@ -83,5 +91,45 @@ describe('the provider built from it', () => {
     // The renderer reads the packed value, not wcwidth. This fails if the rebinding that makes
     // the base derive it from our widths ever stops working.
     expect(currentWidths(base).charProperties(0x1fae0, 0)).toBe(2);
+  });
+});
+
+/**
+ * The table answers exactly what working it out from scratch answers.
+ *
+ * Width is read for every character of output on both sides, so it is worked out once per
+ * codepoint and kept. That is only safe while the kept answer is the same answer: a table that
+ * drifts from the rules would put the two copies of a screen out of step a character at a time,
+ * which is the one failure this whole file exists to prevent.
+ */
+describe('the widths it remembers are the widths it would work out', () => {
+  it('agrees with the uncached rule across the planes that matter', () => {
+    const base = providerFrom(new Unicode11Addon());
+    const cached = currentWidths(base);
+    const fromScratch = (codepoint: number): 0 | 1 | 2 => {
+      const width = base.wcwidth(codepoint);
+      if (width === 0) return 0;
+      return correctedWidth(codepoint) ?? width;
+    };
+    const sweep: number[] = [];
+    for (let cp = 0; cp < 0x3000; cp++) sweep.push(cp);
+    for (let cp = 0x3000; cp < 0x10000; cp += 7) sweep.push(cp);
+    for (const cp of [0x1f600, 0x1f6d5, 0x2705, 0x231a, 0x1f9ff, 0x10ffff, 0xe0100]) sweep.push(cp);
+    const wrong = sweep.filter((cp) => cached.wcwidth(cp) !== fromScratch(cp));
+    expect(wrong).toEqual([]);
+  });
+
+  it('gives the same answer the second time, which is the whole point', () => {
+    const cached = currentWidths(providerFrom(new Unicode11Addon()));
+    for (const cp of [0x41, 0x2705, 0x1f600, 0x300, 0x4e00]) {
+      expect(cached.wcwidth(cp)).toBe(cached.wcwidth(cp));
+    }
+  });
+
+  it('shares one table between providers of the same version', () => {
+    // Two terminals, two addons, one table: 64 KB for the process rather than for each session.
+    const a = currentWidths(providerFrom(new Unicode11Addon()));
+    const b = currentWidths(providerFrom(new Unicode11Addon()));
+    for (const cp of [0x41, 0x2705, 0x1f600]) expect(a.wcwidth(cp)).toBe(b.wcwidth(cp));
   });
 });

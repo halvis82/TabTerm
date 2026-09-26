@@ -40,6 +40,12 @@ const COMPACT_AT = 2;
 /** Files untouched for this long are somebody's history from a machine that has moved on. */
 const PRUNE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
 
+/** Enough waiting to be worth a syscall. Small enough that memory stays flat under any program. */
+const FLUSH_AT_BYTES = 64 * 1024;
+
+/** And the longest a quiet session's last line waits to be on disk. */
+const FLUSH_AFTER_MS = 10;
+
 export class ScrollbackStore {
   #directory: string;
   #budget: number;
@@ -47,6 +53,24 @@ export class ScrollbackStore {
   readonly #created = new Set<string>();
   /** Bytes written since the last compaction, per session, to avoid a stat on every write. */
   readonly #written = new Map<string, number>();
+  /**
+   * Output waiting to be written, per session, so a burst costs one write rather than dozens.
+   *
+   * `appendFileSync` on every chunk is a syscall per chunk in the process that holds every
+   * terminal, and the process is single threaded: measured, sixteen megabytes arriving in four
+   * kilobyte chunks cost 429 ms of wall clock against 119 ms of processor, so three hundred
+   * milliseconds of it was this process blocked in `write` with every other terminal's keystrokes
+   * waiting behind it.
+   *
+   * Batched, the same sixteen megabytes is a few hundred writes instead of four thousand. What is
+   * given up is a few milliseconds of durability on a history file: a host killed outright loses
+   * the last flush window of scrollback, which is the one thing here that is explicitly a feature
+   * rather than the product. Everything that reads, clears, prunes or measures flushes first, so
+   * nothing can ever observe the difference.
+   */
+  readonly #pending = new Map<string, Uint8Array[]>();
+  #pendingBytes = 0;
+  #flushTimer: NodeJS.Timeout | undefined;
 
   constructor(opts: ScrollbackStoreOptions) {
     this.#directory = opts.directory;
@@ -72,26 +96,76 @@ export class ScrollbackStore {
 
   append(sessionId: string, data: Uint8Array): void {
     if (data.length === 0) return;
-    const path = this.#path(sessionId);
-    try {
-      /**
-       * Asked once per session, not once per chunk.
-       *
-       * `appendFileSync` creates the file itself, so the check was only ever about the mode bits
-       * on the first write. Asking the filesystem on every chunk cost a syscall per chunk on the
-       * process that holds every terminal: measured, a fifth of the cost of the write beside it.
-       */
-      if (!this.#created.has(sessionId)) {
-        if (!existsSync(path)) closeSync(openSync(path, 'a', 0o600));
-        this.#created.add(sessionId);
+    const held = this.#pending.get(sessionId);
+    if (held) held.push(data);
+    else this.#pending.set(sessionId, [data]);
+    this.#pendingBytes += data.length;
+
+    /*
+     * Written when there is enough to be worth a syscall, or when the moment has passed.
+     *
+     * The size bound is what keeps memory flat under a program printing continuously; the timer
+     * is what gets a quiet session's last line onto disk. Neither is a delay anybody can see:
+     * reading this back flushes first.
+     */
+    if (this.#pendingBytes >= FLUSH_AT_BYTES) {
+      this.flush();
+      return;
+    }
+    if (this.#flushTimer === undefined) {
+      this.#flushTimer = setTimeout(() => {
+        this.#flushTimer = undefined;
+        this.flush();
+      }, FLUSH_AFTER_MS);
+      this.#flushTimer.unref?.();
+    }
+  }
+
+  /**
+   * Put everything waiting on disk, for one session or for all of them.
+   *
+   * Called before anything reads, clears, prunes or measures, and on the way out. A caller that
+   * forgets would see a file missing its newest bytes, which is why no caller has to remember:
+   * every method that touches a file goes through here first.
+   */
+  flush(sessionId?: string): void {
+    if (this.#pending.size === 0) return;
+    if (this.#flushTimer !== undefined) {
+      clearTimeout(this.#flushTimer);
+      this.#flushTimer = undefined;
+    }
+    const ids = sessionId === undefined ? [...this.#pending.keys()] : [sessionId];
+    for (const id of ids) {
+      const held = this.#pending.get(id);
+      if (!held || held.length === 0) {
+        this.#pending.delete(id);
+        continue;
       }
-      appendFileSync(path, data);
-      const written = (this.#written.get(sessionId) ?? 0) + data.length;
-      this.#written.set(sessionId, written);
-      if (written > this.#budget * COMPACT_AT) this.#compact(sessionId);
-    } catch {
-      // A full disk, or a directory somebody removed. Losing history is not a reason to lose
-      // the terminal, so this is silent by design.
+      this.#pending.delete(id);
+      const bytes = held.reduce((n, part) => n + part.length, 0);
+      this.#pendingBytes = Math.max(0, this.#pendingBytes - bytes);
+      const path = this.#path(id);
+      try {
+        /**
+         * Asked once per session, not once per chunk.
+         *
+         * `appendFileSync` creates the file itself, so the check was only ever about the mode bits
+         * on the first write. Asking the filesystem on every chunk cost a syscall per chunk on the
+         * process that holds every terminal: measured, a fifth of the cost of the write beside it.
+         */
+        if (!this.#created.has(id)) {
+          if (!existsSync(path)) closeSync(openSync(path, 'a', 0o600));
+          this.#created.add(id);
+        }
+        // One write for the lot. `concat` copies once, which is cheaper than a syscall each.
+        appendFileSync(path, held.length === 1 ? (held[0] as Uint8Array) : Buffer.concat(held));
+        const written = (this.#written.get(id) ?? 0) + bytes;
+        this.#written.set(id, written);
+        if (written > this.#budget * COMPACT_AT) this.#compact(id);
+      } catch {
+        // A full disk, or a directory somebody removed. Losing history is not a reason to lose
+        // the terminal, so this is silent by design.
+      }
     }
   }
 
@@ -122,6 +196,7 @@ export class ScrollbackStore {
 
   /** Everything kept for a session, oldest first, or empty if there is nothing. */
   read(sessionId: string): Uint8Array {
+    this.flush(sessionId);
     try {
       const path = this.#path(sessionId);
       if (!existsSync(path)) return new Uint8Array(0);
@@ -134,6 +209,13 @@ export class ScrollbackStore {
 
   /** Clear has to reach here too, or the output comes back the next time anything reads it. */
   clear(sessionId: string): void {
+    // Dropped rather than flushed: writing bytes to a file that is about to be removed, and
+    // recreating it on the way past, is how a cleared session comes back.
+    const held = this.#pending.get(sessionId);
+    if (held) {
+      this.#pendingBytes = Math.max(0, this.#pendingBytes - held.reduce((n, p) => n + p.length, 0));
+      this.#pending.delete(sessionId);
+    }
     try {
       const path = this.#path(sessionId);
       if (existsSync(path)) unlinkSync(path);
@@ -152,6 +234,7 @@ export class ScrollbackStore {
    * terminal output, which is the last thing this should be.
    */
   prune(now = Date.now(), olderThanMs = PRUNE_AFTER_MS): number {
+    this.flush();
     let removed = 0;
     try {
       for (const name of readdirSync(this.#directory)) {
@@ -174,6 +257,7 @@ export class ScrollbackStore {
 
   /** Total bytes held, for diagnostics and for a settings pane that can say what it costs. */
   usage(): { files: number; bytes: number } {
+    this.flush();
     let files = 0;
     let bytes = 0;
     try {
