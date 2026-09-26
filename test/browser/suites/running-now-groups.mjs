@@ -489,6 +489,22 @@ const before = await shape();
 const panesNow = JSON.parse(
   String(await evaluate(work.client, 'JSON.stringify(window.__tabterm.paneIds())')),
 );
+/*
+ * Which sessions are this tab's, by id, before anything moves.
+ *
+ * The list draws every session the daemon is holding, so its card count belongs to the whole
+ * machine rather than to this suite: another suite closing a tab of its own lowers it, and a total
+ * that went down for that reason is not this pane failing to arrive. Asked by id, the question is
+ * about the sessions this suite made and nothing else.
+ */
+const mySessions = JSON.parse(
+  String(
+    await evaluate(
+      work.client,
+      'JSON.stringify(window.__tabterm.paneSessions().map((p) => p.sessionId))',
+    ),
+  ),
+);
 await evaluate(work.client, `window.__tabterm.focus(${JSON.stringify(panesNow.at(-1))})`);
 await sleep(400);
 await evaluate(work.client, 'window.__tabterm.detachPane()');
@@ -511,10 +527,21 @@ r.ok(
   shrank,
   `${JSON.stringify(before)} -> ${JSON.stringify(await shape())}`,
 );
+const listed = async () =>
+  JSON.parse(
+    String(
+      await evaluate(
+        viewer.client,
+        `JSON.stringify(${JSON.stringify(mySessions)}.filter((id) =>
+           !document.querySelector('.session-card[data-session-id="' + id + '"]')))`,
+      ),
+    ),
+  );
+const allThere = await waitUntil(async () => (await listed()).length === 0, 25000);
 r.ok(
   'and the session it became is still on the list',
-  (await shape()).cards >= before.cards,
-  JSON.stringify(await shape()),
+  allThere,
+  `${String(mySessions.length)} sessions of this tab, missing ${JSON.stringify(await listed())}`,
 );
 
 /*

@@ -164,9 +164,33 @@ if (label === '') {
   r.done();
 }
 const known = new Set((await listTargets()).map((t) => t.id));
-await realClick(back.client, '.launcher-row', label);
-await sleep(600);
-const took = await realClick(back.client, '.launcher-chip', 'Reopen the layout');
+/*
+ * The chip is waited for rather than slept at, and the row is pressed again if it goes.
+ *
+ * Two presses with a fixed wait between them assumes the list stands still in between, and it
+ * does not have to: the start screen redraws whenever an answer arrives, and after a daemon
+ * restart several are still on their way. A redraw replaces the rows, which takes the opened one
+ * and its chips with it, so the second press found a screen with no rows and no chips on it at all
+ * and reported the restore as broken. A person who saw the row close would simply press it again.
+ */
+let took = false;
+for (let attempt = 0; attempt < 6 && !took; attempt++) {
+  const row = (await restoreRows())[0] ?? label;
+  await realClick(back.client, '.launcher-row', row);
+  const chipIsThere = await waitUntil(
+    async () =>
+      Boolean(
+        await evaluate(
+          back.client,
+          `[...document.querySelectorAll('.launcher-chip')].some((c) =>
+             (c.textContent ?? '').includes('Reopen the layout'))`,
+        ),
+      ),
+    6000,
+  );
+  if (!chipIsThere) continue;
+  took = await realClick(back.client, '.launcher-chip', 'Reopen the layout');
+}
 const chips = String(
   await evaluate(
     back.client,

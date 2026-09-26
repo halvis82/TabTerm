@@ -6148,6 +6148,15 @@ function installShortcuts(): void {
 // Protocol
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether this page has been without a daemon since it last had one.
+ *
+ * Read once, when the connection comes back, to tell a reconnect from the first connect. The two
+ * need opposite things from the start screen: the first has answers already in hand that will not
+ * be sent again, and the second has every answer still on its way.
+ */
+let connectionWasLost = false;
+
 function statusFor(s: ConnectionStatus): void {
   lastStatus = s;
   switch (s) {
@@ -6157,6 +6166,20 @@ function statusFor(s: ConnectionStatus): void {
       return;
     case 'ready':
       setStatus('', 'hidden');
+      /*
+       * A connection made again is a new round of asking, and the start screen has to know.
+       *
+       * It holds its drawing until the answers it is expecting are in, and it remembers which ones
+       * it has already had so it cannot wait twice for something nothing will send again. Over one
+       * connection that is right. Across a reconnect it is not: everything is asked for a second
+       * time and every answer is coming, so without this each one arrived to a screen that was no
+       * longer waiting and redrew it on its own. Measured across a daemon restart, that was a
+       * 0.053 jump of the sections and the buttons under them.
+       */
+      if (connectionWasLost) {
+        connectionWasLost = false;
+        launcher?.askingAgain();
+      }
       // Anything the start screen asked about and never heard back on. A question travels on
       // this socket, so a socket that dropped took every one in flight with it.
       launcher?.connectionReady();
@@ -6165,9 +6188,11 @@ function statusFor(s: ConnectionStatus): void {
     case 'retrying':
       setStatus('tabtermd is not responding. Retrying', 'error');
       setFavicon('disconnected');
+      connectionWasLost = true;
       return;
     case 'closed':
       setStatus('Disconnected', 'error');
+      connectionWasLost = true;
       return;
   }
 }

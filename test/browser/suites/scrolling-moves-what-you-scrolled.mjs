@@ -77,5 +77,54 @@ r.ok(
   `${String(before - (await at()))} rows`,
 );
 
+/**
+ * Output arriving while you are reading scrollback does not move what you are reading.
+ *
+ * The other half of scrolling being trustworthy. A view that jumps to the bottom the moment a
+ * background job prints takes the page out from under somebody mid-sentence, and it happens at
+ * the least convenient time: while a long build or an agent is still talking. Nothing here asks
+ * for that, so this is a check that nothing starts to.
+ *
+ * Output is made by a job that was already running, because typing is the one thing that **should**
+ * scroll to the bottom: a keystroke means you want to see what you are typing. So the command is
+ * sent first, then the scroll, then the printing happens on its own.
+ */
+await type(client, '(sleep 4; for i in $(seq 1 30); do echo late-$i; done) &\r');
+await sleep(600);
+// Well up into the scrollback, so a jump to the bottom would be unmissable.
+await scrolled(300, 4);
+const readingAt = await at();
+r.ok('reading back through the scrollback', readingAt > 5, String(readingAt));
+
+// Long enough for the job to have printed all of it.
+await sleep(9000);
+r.ok(
+  'a background job printing does not move the view',
+  (await at()) === readingAt,
+  `was ${String(readingAt)}, now ${String(await at())}`,
+);
+
+/*
+ * And the output really did arrive while the view stayed still, which is what makes the check
+ * above mean anything: a job that never ran would hold the view just as well.
+ */
+for (let i = 0; i < 40; i++) {
+  await client.send('Input.dispatchMouseEvent', {
+    type: 'mouseWheel',
+    x: Math.round(geo.left + 60),
+    y: Math.round(geo.top + 60),
+    deltaX: 0,
+    deltaY: 300,
+    pointerType: 'mouse',
+  });
+}
+await sleep(700);
+const atBottom = String(await evaluate(client, `window.__tabterm.readScreen() ?? ''`));
+r.ok(
+  'and it was there all along, at the bottom where it was printed',
+  atBottom.includes('late-30'),
+  atBottom.split('\n').filter(Boolean).slice(-2)[0] ?? '',
+);
+
 await finish();
 r.done();

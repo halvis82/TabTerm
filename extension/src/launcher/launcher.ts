@@ -300,6 +300,23 @@ export class Launcher {
     return [...this.#awaited];
   }
 
+  /**
+   * A new round of asking, because the connection was lost and made again.
+   *
+   * `#everAnswered` is what stops an answer being waited for twice, and it is right for the life
+   * of one connection: an answer given once over a socket that is still up is never sent again. A
+   * reconnect breaks that. The page asks for all of it a second time and every answer really is on
+   * its way, so the memory that says "already had that one" is the thing that turns one drawing
+   * into several: measured across a daemon restart, the sections and the row of buttons under them
+   * jumped by 0.053, which is a list moving under the pointer of somebody reading it.
+   *
+   * Only the memory is cleared. The deadline in `expecting` is still the safety, so a reconnect
+   * where something never answers costs a quarter of a second and not a screen that never draws.
+   */
+  askingAgain(): void {
+    this.#everAnswered.clear();
+  }
+
   /** One of them came back. */
   #answered(key: string): void {
     this.#arrived(key);

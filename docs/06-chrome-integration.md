@@ -852,6 +852,28 @@ from holding the screen. The check counts drawings rather than reading the insta
 deliberately: the running list on this screen is live, several suites start and end sessions while
 a run is going, and a list correctly redrawing itself registers as the page moving.
 
+Remembering which answers have already been given is what makes that safe over one connection, and
+it is wrong across two. When the daemon restarts, the page asks for all of it again and every answer
+really is on its way, so a memory that says "already had that one" leaves the screen no longer
+waiting for anything and each reply redraws it alone. So a connection that comes back after being
+lost clears that memory before the page asks again. Measured across a daemon restart, the six
+answers arrive as **two drawings rather than three**: five together, then the list of open ports on
+its own, because scanning ports takes longer than the quarter second the screen will wait. A drawing
+rebuilds every row and every folder suggestion on the screen, so one fewer is one fewer teardown of
+a list somebody is reading.
+
+Layout instability is the wrong instrument for this one, in a way worth recording. A drawing removes
+the suggestion list and appends the new one in the same function, so nothing is ever painted in
+between and no shift occurs. But a probe that measures anything mid-change, such as a
+`MutationObserver` that asks for a rectangle, forces the page to be laid out at that midpoint, and
+the browser then reports a **0.053** shift that no eye could have seen and that does not happen when
+nobody is measuring. The instrument was creating the reading.
+
+So the check asks about the shape of the drawings rather than their number: whether `state` was ever
+drawn without the list answers beside it. A number would belong to the whole machine, since the
+daemon is shared and another tab starting a session redraws this screen for reasons of its own.
+Whether one batch was kept whole is about that batch and nothing else.
+
 ### A start screen shows what is true now, not what was true when it opened
 
 Something done in one tab reaches the others: a session started, a folder opened, an agent
