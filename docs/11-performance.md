@@ -107,6 +107,38 @@ exactly the noise that would bury what it was built to catch. The gap between th
 the sleep itself and is worth one line of its own: it explains the silences in this log, and a
 background countdown that ran three to thirteen minutes late while nothing was running to count.
 
+## What the output path costs, and what it used to
+
+Three measurements on the paths every byte of terminal output takes, each taken before and after.
+
+**The width table.** Width is read for every character, on the daemon and again in every pane. It
+was a lookup in the addon's ranges and then a binary search through the corrections, worked out
+again for every character every time: sixteen megabytes through a server-side terminal cost 700 ms
+of processor with the corrected table and 228 ms with xterm's own, so two thirds of the cost of
+keeping a screen was asking the same question about the same characters. It is a pure function of
+the codepoint, so it is kept: a byte per codepoint across the basic plane, 64 KB once for the
+process rather than once per terminal, keyed by version because two providers announcing the same
+version are the same static table. **700 ms to 207 ms**, which is what xterm's own table costs, so
+keeping the table right is now free. The whole daemon ingest path went from 890 ms to 365 ms for
+the same sixteen megabytes: **19 MB/s to 54**.
+
+**Scrollback on disk.** The host wrote it with a syscall per chunk. Sixteen megabytes arriving in
+four kilobyte chunks cost **429 ms of wall clock against 119 ms of processor**, so three hundred
+milliseconds of it was the process that holds every terminal sitting in `write`, with every other
+terminal's keystrokes waiting behind it. That is the shape of the stall this document describes
+elsewhere: late, and not computing. Batched at 64 KB or 10 ms, the same output costs **11 ms**.
+Everything that reads, clears, prunes or measures puts the batch out first, and so does closing
+the host, so nothing outside can tell the difference.
+
+**Asking the operating system.** Two paths wanted the process table: the foreground probe, run
+once per session with a command in flight every second, and the working directory lookup, run once
+per session every time a start screen asks where its terminals are. Seven sessions meant seven
+sweeps of the same table in the same moment, each a fork. One sweep is shared for a quarter of a
+second, and callers that land together share the one already running. The directory lookup also
+asked `lsof` once per session; it takes a list, and the `-Fpn` output says which path belongs to
+which process. A start screen refresh with seven terminals went from **fourteen forks and 9.4 ms
+of processor to two forks and 2.3 ms**.
+
 ## What a tab costs, measured
 
 Numbers from an ordinary laptop, taken with the machine otherwise idle. They are in a suite so

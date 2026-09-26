@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { processTable } from './process-table.js';
 import { debug } from './log.js';
 
 /**
@@ -33,41 +34,96 @@ export function forgetCwd(pid: number): void {
  * The shell is the session leader, but after `cd` in a subshell or while a child is in the
  * foreground, the interesting directory belongs to the deepest descendant. Walk to it.
  */
-async function lookup(pid: number): Promise<string | null> {
-  const target = (await deepestChild(pid)) ?? pid;
-  const out = await run('/usr/sbin/lsof', ['-a', '-d', 'cwd', '-p', String(target), '-Fn']);
-  if (!out) return null;
-  for (const line of out.split('\n')) {
-    if (line.startsWith('n/')) {
-      const path = line.slice(1);
-      // `n/` alone means lsof could not read it, which is not a directory.
-      if (path.length > 1) return path;
+/**
+ * The directories of everything asked about in the same moment, in one question.
+ *
+ * `lsof` was run once per session, so a start screen with seven terminals on it forked seven of
+ * them at once and waited for all seven. It takes a list: one call answers for all of them, and
+ * the `-Fpn` output says which path belongs to which process, so nothing is guessed.
+ *
+ * Batched by waiting a turn of the event loop rather than a length of time. Everything that asks
+ * together already asks in the same `Promise.all`, which is one turn, so the wait is nothing and
+ * the saving is the difference between one fork and seven.
+ */
+let waiting: Map<number, ((cwd: string | null) => void)[]> | null = null;
+
+function lookup(pid: number): Promise<string | null> {
+  return new Promise<string | null>((resolve) => {
+    if (waiting) {
+      const held = waiting.get(pid);
+      if (held) held.push(resolve);
+      else waiting.set(pid, [resolve]);
+      return;
     }
+    waiting = new Map([[pid, [resolve]]]);
+    setTimeout(() => {
+      const batch = waiting ?? new Map<number, ((cwd: string | null) => void)[]>();
+      waiting = null;
+      void resolveBatch(batch);
+    }, 0);
+  });
+}
+
+async function resolveBatch(batch: Map<number, ((cwd: string | null) => void)[]>): Promise<void> {
+  const answer = (pid: number, cwd: string | null): void => {
+    for (const settle of batch.get(pid) ?? []) settle(cwd);
+  };
+  try {
+    // Where to actually look, per session: the deepest descendant, off the shared sweep.
+    const targets = new Map<number, number[]>();
+    await Promise.all(
+      [...batch.keys()].map(async (pid) => {
+        const target = (await deepestChild(pid)) ?? pid;
+        const asking = targets.get(target);
+        if (asking) asking.push(pid);
+        else targets.set(target, [pid]);
+      }),
+    );
+
+    const out = await run('/usr/sbin/lsof', [
+      '-a',
+      '-d',
+      'cwd',
+      '-p',
+      [...targets.keys()].join(','),
+      '-Fpn',
+    ]);
+    const found = new Map<number, string>();
+    if (out) {
+      let current = 0;
+      for (const line of out.split('\n')) {
+        if (line.startsWith('p')) {
+          current = Number(line.slice(1));
+          continue;
+        }
+        if (!line.startsWith('n/') || current === 0) continue;
+        const path = line.slice(1);
+        // `n/` alone means lsof could not read it, which is not a directory.
+        if (path.length > 1 && !found.has(current)) found.set(current, path);
+      }
+    }
+
+    for (const [target, asking] of targets) {
+      const cwd = found.get(target) ?? null;
+      for (const pid of asking) answer(pid, cwd);
+    }
+    // Anything the sweep never named still has to be answered, or its caller waits for ever.
+    for (const pid of batch.keys()) answer(pid, null);
+  } catch {
+    for (const pid of batch.keys()) answer(pid, null);
   }
-  return null;
 }
 
 async function deepestChild(pid: number): Promise<number | null> {
-  const out = await run('/bin/ps', ['-o', 'pid=,ppid=', '-ax']);
-  if (!out) return null;
-
-  const children = new Map<number, number[]>();
-  for (const line of out.split('\n')) {
-    const m = /^\s*(\d+)\s+(\d+)/.exec(line);
-    if (!m) continue;
-    const child = Number(m[1]);
-    const parent = Number(m[2]);
-    const list = children.get(parent);
-    if (list) list.push(child);
-    else children.set(parent, [child]);
-  }
+  const table = await processTable();
+  if (!table) return null;
 
   let current = pid;
   for (let depth = 0; depth < 8; depth++) {
-    const kids = children.get(current);
+    const kids = table.byParent.get(current);
     if (!kids || kids.length === 0) break;
     // Most recently started child, which is the one the user is interacting with.
-    current = Math.max(...kids);
+    current = Math.max(...kids.map((row) => row.pid));
   }
   return current === pid ? null : current;
 }
