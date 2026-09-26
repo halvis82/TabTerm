@@ -713,7 +713,17 @@ function renderTimeLabels(): void {
       label.className = 'pane-time';
       wrapper.append(label);
     }
-    label.textContent = text;
+    /*
+     * Written only when it says something different.
+     *
+     * This runs once a second for the life of every visible tab, and what it computes is a
+     * sentence like "took 0s, 3 minutes ago", which changes once a minute at most once a command
+     * has been finished for a while. Assigning the same text replaces the text node and repaints
+     * the corner of the terminal regardless, so an idle terminal was never actually still:
+     * screenshots of one taken a second apart differed every single time, for a label that had
+     * not changed a character.
+     */
+    if (label.textContent !== text) label.textContent = text;
   }
 }
 
@@ -8040,6 +8050,28 @@ async function start(): Promise<void> {
   watchLabelLook();
   buildHosts();
   buildLauncher();
+  /**
+   * Named before anything can answer, so the screen is drawn once rather than twice.
+   *
+   * `expecting` exists to turn a page that assembles itself into one drawing, and it was being
+   * called when the first answer from the daemon was handled. One of these is read from extension
+   * storage and gets back before then, which drew a start screen with its sections missing; the
+   * rest arrived a moment later and everything below them moved. Measured with the browser's own
+   * layout instability numbers: a shift of 0.05 on `launcher-section`, every time a tab opened.
+   *
+   * Said here, before the storage read can return and before the socket exists, so the first
+   * drawing is the finished one. The deadline inside `expecting` is unchanged and is what stops a
+   * daemon that never answers from holding the screen: it draws what it has and carries on.
+   */
+  launcher?.expecting([
+    'live',
+    'resumable',
+    'restorable',
+    'servers',
+    'templates',
+    'hidden-resumes',
+    'state',
+  ]);
   buildCommandPanel();
   installTestHook();
   installModifierTracking();

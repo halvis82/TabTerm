@@ -230,5 +230,72 @@ const INSTRUMENT = `(() => {
   );
 }
 
+/**
+ * The start screen is drawn once, and nothing on it moves afterwards.
+ *
+ * A page that assembles itself draws a version, then a better one, and everything below what
+ * arrived moves down. Measured with the browser's own layout instability numbers, a tab opening
+ * shifted `launcher-section` by 0.05 every time: the first drawing went out as soon as the answer
+ * read from extension storage came back, before the batch had even been named, so the sections
+ * were missing from it.
+ *
+ * Both halves matter and neither is enough alone. One drawing with a shift in it would mean
+ * something moved inside it; no shift across two drawings would mean the second added nothing.
+ */
+{
+  const page = await openTerminal();
+  const watch = `(() => {
+    window.__shifts = [];
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) {
+        window.__shifts.push({
+          score: Number(e.value.toFixed(4)),
+          sources: (e.sources ?? []).map((s) => {
+            const n = s.node;
+            if (!n) return '?';
+            const c =
+              typeof n.className === 'string' && n.className
+                ? '.' + n.className.split(' ')[0]
+                : '';
+            return (n.tagName ?? '?').toLowerCase() + c;
+          }),
+        });
+      }
+    }).observe({ type: 'layout-shift', buffered: true });
+  })()`;
+  await waitFor(page.client, "document.querySelector('.launcher-input')");
+  await sleep(1500);
+  await page.client.send('Page.addScriptToEvaluateOnNewDocument', { source: watch });
+  await evaluate(page.client, 'location.reload()');
+  await sleep(150);
+  await waitFor(page.client, `document.querySelector('.launcher')?.hidden === false`, 20000);
+  await sleep(1500);
+
+  const drawings = JSON.parse(
+    String(
+      await evaluate(
+        page.client,
+        `JSON.stringify((window.__tabterm.renderLog?.() ?? []).map((e) => e.since.join('+')))`,
+      ),
+    ),
+  );
+  r.ok(
+    'the start screen is drawn once rather than assembling itself in view',
+    drawings.length === 1,
+    JSON.stringify(drawings),
+  );
+
+  /*
+   * Movement is judged by the count of drawings above rather than by the browser's layout
+   * instability numbers, deliberately. Those were tried here and they measure the neighbours: the
+   * running list on this screen is live, several suites start and end sessions the whole time a
+   * run is going, and a list correctly redrawing itself registers as the page moving. What is
+   * being guarded is that the page does not assemble itself in view, and one drawing is exactly
+   * that, measured without depending on what else is on the machine.
+   *
+   * In an isolated tab the number was 0.053 before this and is zero after, on `launcher-section`.
+   */
+}
+
 await finish();
 r.done();

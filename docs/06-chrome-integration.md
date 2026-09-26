@@ -834,6 +834,24 @@ empties the first and not the second. A fully drawn start screen went from **345
 152 to 178**, and the check measures the gap between the last answer and the last drawing rather
 than an absolute time, because the absolute belongs to the machine.
 
+### The start screen is put up once, not assembled in view
+
+`expecting` exists to turn a page that arrives in pieces into one drawing, and it was being called
+when the first answer from the daemon was handled. One of the answers is read from extension
+storage rather than from the daemon, so it got back before then: the screen drew without its
+sections, the rest arrived a moment later, and everything below them moved down. Measured with the
+browser's own layout instability numbers in an isolated tab, that was a shift of **0.053 on
+`launcher-section`, every time a tab was opened**.
+
+The batch is named at boot now, before the storage read can return and before the socket exists,
+so the first drawing is the finished one: **one drawing at 153 to 160 ms and no movement at all**,
+which is no later than the second drawing used to be.
+
+The deadline inside `expecting` is unchanged and is still what stops a daemon that never answers
+from holding the screen. The check counts drawings rather than reading the instability numbers,
+deliberately: the running list on this screen is live, several suites start and end sessions while
+a run is going, and a list correctly redrawing itself registers as the page moving.
+
 ### A start screen shows what is true now, not what was true when it opened
 
 Something done in one tab reaches the others: a session started, a folder opened, an agent
