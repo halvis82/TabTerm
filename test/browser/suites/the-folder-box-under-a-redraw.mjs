@@ -75,6 +75,45 @@ r.ok(
   String(await box()),
 );
 
+/**
+ * And the folders themselves are still there after a redraw.
+ *
+ * A redraw rebuilds the whole screen, so the box is built empty and what was typed is put back
+ * afterwards. The list of folders under it was not put back at all: the new box has no list beside
+ * it, and nothing asks for one, because asking is skipped when the directory has not changed and it
+ * has not. So the folders went and stayed gone until somebody typed another character.
+ *
+ * Which is worse than it sounds, because the screen redraws whenever anything happens anywhere in
+ * TabTerm. A session starting in another tab is enough. Somebody halfway into choosing a folder
+ * loses the list they were reading, and `..` with it, so there is no way back up except by editing
+ * the path by hand.
+ *
+ * Driven through `render` rather than by asking the daemon to refresh, deliberately: a refresh that
+ * learns nothing draws nothing, so the fault this exists for is invisible to it. That is why it went
+ * unnoticed here while `folder-picker` failed a full run, where the screen really does redraw.
+ */
+await typeIn('Documents/');
+const folders = async () =>
+  Number(await evaluate(client, `document.querySelectorAll('.launcher-completion').length`));
+const upRow = async () =>
+  Boolean(
+    await evaluate(
+      client,
+      `[...document.querySelectorAll('.launcher-completion')].some((c) => c.textContent === '..')`,
+    ),
+  );
+r.ok('there are folders listed to begin with', (await folders()) > 0, String(await folders()));
+r.ok('including the way back up', await upRow());
+
+await evaluate(client, 'window.__tabterm.redrawStartScreen()');
+await sleep(600);
+r.ok(
+  'the folders are still listed after the screen is redrawn',
+  (await folders()) > 0,
+  `${String(await folders())} listed`,
+);
+r.ok('and the way back up is still there', await upRow());
+
 /*
  * What this suite does not check, and why.
  *

@@ -1856,6 +1856,24 @@ export class Launcher {
      * blank for good. Correct code in the wrong order, and it read fine both times.
      */
     this.#renderFolderState();
+    /**
+     * And the folders under the box, for the same reason and in the same order.
+     *
+     * The new box is built empty and what was typed is put back a few lines above. The list of
+     * folders was not put back at all: it belongs to the box, it is inserted next to it, and a
+     * rebuilt box has no list beside it. Nothing asked for one either, because asking is skipped
+     * when the directory has not changed, and it had not.
+     *
+     * So the folders went on every redraw and stayed gone until another character was typed, and
+     * the screen redraws whenever anything happens anywhere in TabTerm: a session starting in
+     * another tab was enough to take away the list somebody was reading, and `..` with it, leaving
+     * no way back up except editing the path by hand. Found as `folder-picker` failing a full run
+     * with six presses that reached nothing, because the row really was not there.
+     *
+     * Costs nothing when there is nothing to draw: the listing already in hand is drawn again, and
+     * no question is sent.
+     */
+    this.#renderFolders();
   }
 
   #layoutSection(state: LauncherState): HTMLElement {

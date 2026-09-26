@@ -1247,6 +1247,22 @@ typed. What counts as needing it is decided by a list of characters that pass th
 rather than a list of dangerous ones, so a character nobody thought of ends up quoted, which is
 harmless, instead of unquoted, which is not.
 
+**A redraw puts back the box, the keyboard, and the folders under it.** A redraw rebuilds the whole
+screen, so the box is built empty and what was typed is restored afterwards. The list of folders
+belongs to the box and is inserted beside it, so a rebuilt box arrives without one, and nothing asked
+for a new listing because asking is skipped when the directory has not changed. The folders therefore
+went on every redraw and stayed gone until another character was typed. Since the screen redraws
+whenever anything happens anywhere in TabTerm, a session starting in another tab was enough to take
+away the list somebody was reading, and `..` with it, leaving no way back up except editing the path
+by hand. The list is drawn again from the listing already in hand, in the same place and the same
+order as the validity line, and no question is sent.
+
+This one hid behind the instrument that was watching for it. A refresh that learns nothing draws
+nothing, so a check driven by asking the daemon to refresh never saw a redraw and never saw the
+fault; it showed up as `folder-picker` failing a full run, where the screen really does redraw, with
+six presses that reached nothing because the row was not there. The check drives `render` directly
+now.
+
 ### What comes first
 
 The folder box leads, and what is already running follows it. Running sessions used to come
