@@ -40,7 +40,15 @@ const drawings = async () =>
 
 const before = await rows();
 r.ok('the start screen has rows on it to begin with', before > 0, `${String(before)} rows`);
-const drawnBefore = (await drawings()).length;
+/*
+ * Marked by when the last drawing happened, not by how many there have been.
+ *
+ * The screen keeps its last twenty drawings and drops the rest, so counting them and taking
+ * everything after that count works only while the page has drawn fewer than twenty times. Under a
+ * full run it has drawn many more, the count stops rising, and everything after it is nothing at
+ * all: this read `0 drawings` and failed a reconnect that had worked perfectly.
+ */
+const drawnBefore = (await drawings()).at(-1)?.at ?? 0;
 
 /*
  * Counted on every change to the page rather than on a clock.
@@ -81,7 +89,7 @@ r.ok(
   `${String(before)} rows before, ${String(await rows())} after`,
 );
 
-const since = (await drawings()).slice(drawnBefore);
+const since = (await drawings()).filter((d) => d.at > drawnBefore);
 /*
  * The answers that come back together are drawn together.
  *

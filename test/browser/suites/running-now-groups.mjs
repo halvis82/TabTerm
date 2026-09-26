@@ -264,12 +264,42 @@ const third = JSON.parse(
 await evaluate(work.client, `window.__tabterm.focus(${JSON.stringify(third)})`);
 await sleep(500);
 await type(work.client, 'echo GROUP-THREE\r');
-await waitUntil(
+/*
+ * Reported on, rather than waited for and forgotten.
+ *
+ * This list leaves out a pane that has printed nothing, which is deliberate, so everything below
+ * depends on the echo having landed. The wait was here already and its answer was thrown away, so a
+ * machine loaded enough that the shell had not got to it yet failed three checks further down about
+ * grouping, which was working perfectly. A wait whose answer nobody looks at reports the wrong
+ * thing.
+ */
+const printed = await waitUntil(
   async () =>
     String(
       await evaluate(work.client, `window.__tabterm.readScreen(${JSON.stringify(third)}) ?? ''`),
     ).includes('GROUP-THREE'),
-  20000,
+  45000,
+);
+/*
+ * And where it went, when it did not go there. A pane that never received what was typed and a pane
+ * that received it and was read from under a different id look identical from one screen.
+ */
+const whereItWent = printed
+  ? ''
+  : String(
+      await evaluate(
+        work.client,
+        `JSON.stringify(window.__tabterm.paneIds().map((id) => ({
+           id: id.slice(0, 8),
+           focused: window.__tabterm.focusedPane?.() === id,
+           tail: (window.__tabterm.readScreen(id) ?? '').split(String.fromCharCode(10)).filter(Boolean).slice(-1)[0] ?? '',
+         })))`,
+      ),
+    );
+r.ok(
+  'the third pane has printed something, so the list will carry it',
+  printed,
+  `wanted it in ${String(third).slice(0, 8)}; panes are ${whereItWent}`,
 );
 await sleep(2500);
 const grew = await waitUntil(async () => (await shape()).inGroups >= 3, 20000);
