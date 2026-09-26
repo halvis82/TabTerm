@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, statSync, writeFileSync, utimesSync } from 'node:fs';
+import { mkdtempSync, rmSync, statSync, writeFileSync, utimesSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ScrollbackStore } from './scrollback-store.js';
@@ -192,5 +192,54 @@ describe('writing in batches', () => {
     const grew = process.memoryUsage().heapUsed - before;
     // Eight megabytes appended; anything near that would mean it was all being held.
     expect(grew).toBeLessThan(4 * 1024 * 1024);
+  });
+});
+
+/**
+ * Several sessions writing at once, which is what a batch has to keep apart.
+ *
+ * Output is held per session and written in batches, so the one thing that would be catastrophic
+ * is a batch landing in the wrong file, or two sessions' bytes interleaving inside one. Both would
+ * show up as somebody else's terminal output appearing in your scrollback, which is worse than
+ * losing it.
+ */
+describe('batches from several sessions at once', () => {
+  it('keeps every session to its own file, in its own order', () => {
+    const store = new ScrollbackStore({ directory: dir, budgetBytes: 8 * 1024 * 1024 });
+    const ids = ['alpha', 'beta', 'gamma', 'delta'];
+    // Interleaved the way four busy terminals arrive: a little from each, over and over.
+    for (let round = 0; round < 500; round++) {
+      for (const id of ids) store.append(id, bytes(`${id}-${String(round)}\n`));
+    }
+    for (const id of ids) {
+      const back = Buffer.from(store.read(id)).toString('utf8');
+      const lines = back.split('\n').filter((l) => l !== '');
+      expect(lines.length).toBe(500);
+      // Its own, all of them, in order, and nothing from anybody else.
+      expect(lines.every((l) => l.startsWith(`${id}-`))).toBe(true);
+      expect(lines[0]).toBe(`${id}-0`);
+      expect(lines[499]).toBe(`${id}-499`);
+    }
+  });
+
+  it('loses nothing when one session is cleared while others are mid-batch', () => {
+    const store = new ScrollbackStore({ directory: dir, budgetBytes: 8 * 1024 * 1024 });
+    store.append('keep', bytes('keep-one\n'));
+    store.append('wipe', bytes('wipe-one\n'));
+    store.append('keep', bytes('keep-two\n'));
+    store.clear('wipe');
+    store.append('keep', bytes('keep-three\n'));
+    expect(Buffer.from(store.read('wipe')).toString('utf8')).toBe('');
+    expect(Buffer.from(store.read('keep')).toString('utf8')).toBe(
+      'keep-one\nkeep-two\nkeep-three\n',
+    );
+  });
+
+  it('has everything on disk once the store is flushed, as closing the host does', () => {
+    const store = new ScrollbackStore({ directory: dir, budgetBytes: 8 * 1024 * 1024 });
+    for (let i = 0; i < 100; i++) store.append('closing', bytes(`line ${String(i)}\n`));
+    store.flush();
+    const onDisk = readFileSync(join(dir, 'closing.log'), 'utf8');
+    expect(onDisk.split('\n').filter((l) => l !== '').length).toBe(100);
   });
 });

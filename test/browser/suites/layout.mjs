@@ -4,7 +4,16 @@
 // its parent was a block, so it resolved to zero height and the tab looked simply dark. Splits
 // were unaffected because a split inserts a flex wrapper, and every existing suite split a pane
 // before looking at anything -- so all of them passed while the common case was broken.
-import { openTerminal, evaluate, readScreen, sleep, type, finish } from '../helpers.mjs';
+import {
+  openTerminal,
+  evaluate,
+  readScreen,
+  sleep,
+  type,
+  finish,
+  boxOf,
+  waitUntil,
+} from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -151,6 +160,107 @@ r.ok(
   landed.includes('/Documents') && !/no such file/i.test(landed),
   landed.split('\n').filter(Boolean).slice(-2)[0] ?? '',
 );
+
+/**
+ * A divider stays exactly where it was put, across a refresh.
+ *
+ * A dragged divider is applied to the DOM straight away and reported to the daemon once on
+ * release, and the daemon is what a refresh reads the layout back from. So there are two numbers
+ * that have to agree, and nothing on screen says when they do not: the panes settle at whatever
+ * the second one is. A ratio stored to fewer digits than it was dragged to would move the divider
+ * a little every time the tab was reopened, which is the kind of drift nobody can report because
+ * no single refresh looks wrong.
+ *
+ * Measured in pixels rather than compared as a stored number, because pixels are what a person
+ * sees and they would also catch the divider being re-derived from something other than the ratio.
+ */
+{
+  const dragged = await openTerminal();
+  await waitUntil(
+    async () => !!(await evaluate(dragged.client, `!!document.querySelector('.launcher-input')`)),
+    30000,
+  );
+  await evaluate(
+    dragged.client,
+    `(() => { document.querySelector('.launcher-input').value = '~'; })()`,
+  );
+  await evaluate(
+    dragged.client,
+    `[...document.querySelectorAll('.launcher-chip')].find((c) => c.firstChild?.textContent === 'Split in 2')?.click()`,
+  );
+  const split = await waitUntil(
+    async () =>
+      Number(await evaluate(dragged.client, `window.__tabterm?.paneIds().length ?? 0`)) === 2,
+    30000,
+  );
+  r.ok('two panes to drag between', split);
+
+  const paneWidth = async () =>
+    Math.round(
+      Number(
+        await evaluate(
+          dragged.client,
+          `document.querySelector('.pane')?.getBoundingClientRect().width ?? 0`,
+        ),
+      ),
+    );
+
+  const bar = await boxOf(dragged.client, '.divider');
+  const before = await paneWidth();
+  // A real pointer, so the capture the divider takes on pointerdown behaves as it does for a hand.
+  const midY = bar.y + bar.height / 2;
+  await dragged.client.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: bar.x + bar.width / 2,
+    y: midY,
+    button: 'left',
+    clickCount: 1,
+  });
+  const target = Math.round(bar.x - 140);
+  for (const x of [bar.x - 40, bar.x - 90, target]) {
+    await dragged.client.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: Math.round(x),
+      y: midY,
+      button: 'left',
+    });
+    await sleep(60);
+  }
+  await dragged.client.send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: target,
+    y: midY,
+    button: 'left',
+    clickCount: 1,
+  });
+  await sleep(400);
+  const afterDrag = await paneWidth();
+  r.ok(
+    'the drag moved the divider',
+    afterDrag > 0 && Math.abs(afterDrag - before) > 40,
+    `${String(before)} -> ${String(afterDrag)}`,
+  );
+
+  await evaluate(dragged.client, 'location.reload()');
+  await waitUntil(
+    async () =>
+      Number(await evaluate(dragged.client, `window.__tabterm?.paneIds().length ?? 0`)) === 2,
+    40000,
+  );
+  // The panes come back over a socket, so the width is worth reading once it has stopped moving.
+  let settled = 0;
+  await waitUntil(async () => {
+    const now = await paneWidth();
+    if (now > 0 && now === settled) return true;
+    settled = now;
+    return false;
+  }, 20000);
+  r.ok(
+    'and the refreshed tab puts it back in the same place, to the pixel',
+    Math.abs(settled - afterDrag) <= 1,
+    `dragged to ${String(afterDrag)}, came back ${String(settled)}`,
+  );
+}
 
 await finish();
 r.done();
