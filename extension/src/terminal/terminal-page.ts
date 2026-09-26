@@ -3231,38 +3231,24 @@ function takeDroppedFiles(files: File[]): void {
   /**
    * Asked where these already are, before a byte is read.
    *
-   * A file dropped from a folder on this machine has a path, and the path is the whole of what
-   * was asked for. Copying it is the fallback for one the daemon cannot find, and for a 298 MB
-   * archive it is not a fallback at all: reading it killed the tab.
-   *
-   * An image going to an agent is the exception and is copied regardless, because what an agent
-   * wants is the picture on the clipboard rather than a path.
+   * Every dropped file, whatever it is. A file on this machine has a path, and from a path the
+   * daemon can do either thing: put an image on an agent's clipboard, or stage the path at a
+   * prompt. Reading it was only ever how a path was manufactured for a file that could not be
+   * found, and for a 298 MB archive it was not a fallback at all: it killed the tab.
    */
-  const byPath = taking.filter((file) => !isDroppedImage(file));
-  if (byPath.length > 0) {
-    for (const file of byPath) droppedWaiting.set(file.name, file);
-    client.send({
-      t: 'find-dropped',
-      sessionId: pane.sessionId,
-      names: byPath.map((file) => file.name),
-    });
-    setTimeout(() => {
-      // Whatever the daemon did not answer about is taken the old way.
-      const left = [...droppedWaiting.values()];
-      droppedWaiting.clear();
-      for (const file of left) void copyDroppedFile(file);
-    }, FIND_DROPPED_MS);
-  }
-  for (const file of taking) {
-    if (isDroppedImage(file)) void copyDroppedFile(file);
-  }
-}
-
-/** An image, which an agent wants on the clipboard rather than as a path. */
-function isDroppedImage(file: File): boolean {
-  return (
-    file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|heic|tiff?)$/i.test(file.name)
-  );
+  for (const file of taking) droppedWaiting.set(file.name, file);
+  client.send({
+    t: 'find-dropped',
+    sessionId: pane.sessionId,
+    // The size goes with the name: it is what tells two files of one name apart.
+    names: taking.map((file) => ({ name: file.name, size: file.size })),
+  });
+  setTimeout(() => {
+    // Whatever the daemon could not find is taken the only other way there is.
+    const left = [...droppedWaiting.values()];
+    droppedWaiting.clear();
+    for (const file of left) void copyDroppedFile(file);
+  }, FIND_DROPPED_MS);
 }
 
 /**
@@ -3281,8 +3267,15 @@ async function copyDroppedFile(file: File): Promise<void> {
     return;
   }
   if (file.size > MAX_DROP_BYTES) {
+    /*
+     * Said as what it is: this file could not be found, so there was no path to give.
+     *
+     * The message used to lead with the size and a copying limit, which reads as a refusal over
+     * how big the file is when the file was on the machine the whole time and simply was not
+     * located. What to do about it is the useful half.
+     */
     setStatus(
-      `${file.name} is ${String(Math.round(file.size / (1024 * 1024)))} MB, and is not in a folder TabTerm knows. Dropping one from elsewhere copies it, up to ${String(Math.floor(MAX_DROP_BYTES / (1024 * 1024)))} MB`,
+      `${file.name} could not be found on this machine, so there is no path to paste`,
       'warn',
     );
     return;

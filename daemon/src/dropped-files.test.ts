@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync, utimesSync, existsSync, readdirSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  writeFileSync,
+  utimesSync,
+  existsSync,
+  readdirSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -12,6 +19,7 @@ import {
   DROP_TTL_MS,
   droppedFileSearchPath,
   droppedLookupName,
+  findDroppedFile,
 } from './dropped-files.js';
 
 describe('the name a dropped file is written under', () => {
@@ -145,5 +153,58 @@ describe('finding a dropped file rather than copying it', () => {
     expect(droppedLookupName('')).toBe('');
     expect(droppedLookupName('..')).toBe('');
     expect(droppedLookupName('.')).toBe('');
+  });
+});
+
+/**
+ * Finding a file that none of the guesses hold, which is the ordinary case.
+ *
+ * Reported twice. A 298 MB archive in Downloads, and then a 58 MB file four directories inside
+ * it: `~/Downloads/UCSD_local/fall2026/cse258/hw2/beer_50000.json`. Neither was in a place worth
+ * guessing at, and both were refused with a message about copying. "it should behave exactly like
+ * iterm. files like that should just have their path linked. this should never result in an
+ * error."
+ */
+describe('finding a dropped file anywhere on the machine', () => {
+  const here = mkdtempSync(join(tmpdir(), 'tt-find-'));
+  const deep = join(here, 'Downloads', 'UCSD_local', 'fall2026', 'cse258', 'hw2');
+  mkdirSync(deep, { recursive: true });
+  const target = join(deep, 'beer_50000.json');
+  writeFileSync(target, 'x'.repeat(4096));
+
+  it('asks the index when the places worth guessing do not have it', async () => {
+    const found = await findDroppedFile('beer_50000.json', 4096, [here], () =>
+      Promise.resolve([target]),
+    );
+    expect(found?.path).toBe(target);
+    expect(found?.isFile).toBe(true);
+  });
+
+  it('prefers the one whose size matches, because a name is not unique', async () => {
+    const other = join(here, 'beer_50000.json');
+    writeFileSync(other, 'shorter');
+    const found = await findDroppedFile('beer_50000.json', 4096, [here], () =>
+      Promise.resolve([target]),
+    );
+    expect(found?.path).toBe(target);
+  });
+
+  it('takes a name match when no size matches, rather than refusing the drop', async () => {
+    // A file being written to as it is dragged reports a size that is already stale. Answering
+    // with the file of that name beats answering with nothing.
+    const found = await findDroppedFile('beer_50000.json', 999999, [here], () =>
+      Promise.resolve([target]),
+    );
+    expect(found).not.toBeNull();
+  });
+
+  it('says nothing when there is genuinely nothing of that name', async () => {
+    expect(
+      await findDroppedFile('not-here.json', 10, [here], () => Promise.resolve([])),
+    ).toBeNull();
+  });
+
+  it('never leaves the places it was given, whatever the name looks like', async () => {
+    expect(await findDroppedFile('..', undefined, [here], () => Promise.resolve([]))).toBeNull();
   });
 });

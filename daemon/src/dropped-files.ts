@@ -294,3 +294,103 @@ export function droppedFileSearchPath(
   }
   return out;
 }
+
+/**
+ * Everywhere on this machine a file of that name is, as Spotlight already knows.
+ *
+ * The places above are the cheap guesses and they are only guesses: a file dropped out of
+ * `~/Downloads/UCSD_local/fall2026/cse258/hw2` is in none of them, and it was refused with a
+ * message about copying that had nothing to do with what was asked. A native terminal is handed
+ * the path by the operating system; a browser is not, and this is the nearest honest equivalent.
+ *
+ * Bounded hard, because this runs on the daemon's only thread: a short timeout, a capped answer,
+ * and nothing done with it but `stat`.
+ */
+export async function spotlightMatches(name: string, timeoutMs = 2000): Promise<string[]> {
+  if (name === '') return [];
+  return await new Promise<string[]>((resolve) => {
+    execFile(
+      'mdfind',
+      ['-name', name],
+      { timeout: timeoutMs, maxBuffer: 1024 * 1024 },
+      (err, stdout) => {
+        if (err && !stdout) {
+          resolve([]);
+          return;
+        }
+        const lines = stdout.split('\n').filter((line) => line !== '');
+        // `-name` matches anywhere in the name, so the ones that are not it are dropped here.
+        resolve(
+          lines.filter((line) => line.slice(line.lastIndexOf('/') + 1) === name).slice(0, 50),
+        );
+      },
+    );
+  });
+}
+
+/** Where one dropped name actually is, with what a caller needs to know about it. */
+export interface FoundDrop {
+  path: string;
+  isFile: boolean;
+  size: number;
+}
+
+/**
+ * Find a dropped file, cheaply first and thoroughly second.
+ *
+ * The guesses are a `stat` each and answer the ordinary case: something dragged out of the folder
+ * being worked in, or out of Downloads. When none of them has it, Spotlight is asked, which is how
+ * a file four directories inside Downloads is found at all.
+ *
+ * **The size is the disambiguation.** Several files can share a name, and the drag reports the
+ * size of the one that was actually dragged, so a match on both is the file and a match on name
+ * alone is only a candidate. With no size to compare, the first in search order wins, which is the
+ * same rule the guesses already follow.
+ */
+export async function findDroppedFile(
+  name: string,
+  size: number | undefined,
+  places: readonly string[],
+  look: (name: string) => Promise<string[]> = spotlightMatches,
+): Promise<FoundDrop | null> {
+  /*
+   * The name is checked here as well as by the caller, because this is the function that builds
+   * a path out of it. `..` joined onto a search place is the parent of that place, which is
+   * exactly what a search must never answer with.
+   */
+  if (droppedLookupName(name) !== name) return null;
+
+  const describe = async (path: string): Promise<FoundDrop | null> => {
+    try {
+      const st = await stat(path);
+      if (!st.isFile() && !st.isDirectory()) return null;
+      return { path, isFile: st.isFile(), size: st.size };
+    } catch {
+      return null;
+    }
+  };
+
+  const nearby: FoundDrop[] = [];
+  for (const place of places) {
+    const here = await describe(join(place, name));
+    if (!here) continue;
+    if (size === undefined || !here.isFile || here.size === size) return here;
+    nearby.push(here);
+  }
+
+  for (const path of await look(name)) {
+    const there = await describe(path);
+    if (!there) continue;
+    if (size === undefined || !there.isFile || there.size === size) return there;
+    nearby.push(there);
+  }
+
+  /*
+   * Nothing matched the size, but something of that name is there.
+   *
+   * Answering with it is better than answering with nothing: the alternative is copying a file
+   * that is already on this machine, or refusing a drop outright. A stale size on a file being
+   * written to as it is dragged is the ordinary way to get here.
+   */
+  return nearby[0] ?? null;
+}

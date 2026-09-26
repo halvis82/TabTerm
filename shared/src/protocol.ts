@@ -531,7 +531,16 @@ export type ClientMessage =
    * in is almost always the file that was dragged, and finding it costs a `stat` rather than three
    * hundred megabytes.
    */
-  | { t: 'find-dropped'; sessionId: string; names: readonly string[] }
+  | {
+      t: 'find-dropped';
+      sessionId: string;
+      /**
+       * The size as the drag reports it, which is what tells two files of one name apart.
+       *
+       * Absent for a folder, which has no size worth comparing.
+       */
+      names: readonly { name: string; size?: number }[];
+    }
   | {
       t: 'open-path';
       /**

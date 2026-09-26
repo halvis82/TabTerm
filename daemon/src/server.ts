@@ -37,6 +37,7 @@ import {
   MAX_DROP_BYTES,
   droppedFileSearchPath,
   droppedLookupName,
+  findDroppedFile,
   copyImageToClipboard,
   isImage,
   restoreClipboard,
@@ -1804,9 +1805,14 @@ export class DaemonServer {
         /*
          * Where a dropped file already is, so nothing has to be copied to give its path.
          *
-         * Only a file that is there: a name that matches nothing is answered by saying nothing
-         * about it, and the page falls back to taking a copy, which is the only thing that works
-         * for a file from somewhere this daemon cannot see.
+         * What is done with it once found is the same decision a copy goes through, and it is
+         * made in the same place: an image into an agent belongs on the clipboard, everything
+         * else belongs at the prompt as a path. So this answers with the same `file-staged` the
+         * copy answers with, and the page cannot tell the two apart, which is the point.
+         *
+         * A name that matches nothing is simply not in the answer, and the page copies that one
+         * instead, which is the only thing that works for a file from somewhere this daemon
+         * cannot see.
          */
         const session = this.#sessions.get(msg.sessionId);
         if (!session) return;
@@ -1818,28 +1824,48 @@ export class DaemonServer {
             this.#launcher.recentDirs(24).map((dir) => dir.path),
           );
           const found: { name: string; path: string }[] = [];
-          for (const name of msg.names.slice(0, 8)) {
+          for (const asked of msg.names.slice(0, 8)) {
             // The last segment only, and nothing that could climb out of the directory being
             // searched. Not `safeDropName`: that builds a name safe to write and turns a space
             // into a dash, which matches no file that is actually there.
-            const bare = droppedLookupName(name);
+            const bare = droppedLookupName(asked.name);
             if (bare === '') continue;
-            for (const place of places) {
-              const candidate = join(place, bare);
-              try {
-                const st = await stat(candidate);
-                if (st.isFile() || st.isDirectory()) {
-                  found.push({ name, path: candidate });
-                  break;
-                }
-              } catch {
-                // Not here. The next place, and silence if none of them have it.
-              }
+            const where = await findDroppedFile(bare, asked.size, places);
+            if (!where) continue;
+            found.push({ name: asked.name, path: where.path });
+            /*
+             * An image into an agent goes to the clipboard from where it already is.
+             *
+             * No copy and no size limit: the file is on this machine and the clipboard takes a
+             * path. A copy only ever existed to manufacture one.
+             */
+            const toClipboard =
+              where.isFile && isImage('', bare) && session.agentState !== undefined;
+            if (toClipboard) {
+              this.#clipboardBackup = {
+                backup: await saveClipboard(paths.dropped),
+                size: where.size,
+              };
+              await copyImageToClipboard(where.path, '', bare);
             }
+            send(
+              client.socket,
+              controlFrame({
+                t: 'file-staged',
+                sessionId: session.id,
+                name: bare,
+                path: where.path,
+                as: toClipboard ? 'clipboard' : 'path',
+              }),
+            );
           }
           send(client.socket, controlFrame({ t: 'dropped-found', sessionId: session.id, found }));
         })().catch((err: unknown) => {
           warn('drop.find-failed', { error: safeError(err) });
+          send(
+            client.socket,
+            controlFrame({ t: 'dropped-found', sessionId: msg.sessionId, found: [] }),
+          );
         });
         return;
       }

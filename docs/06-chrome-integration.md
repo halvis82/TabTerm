@@ -330,18 +330,32 @@ out of Downloads became a 398 MB string in a tab that then lost its WebGL contex
 terminal with `xterm.js: Parsing error`. The daemon's size limit was the only one there was, and
 it applies after the page has already done all of that.
 
-Two things, in the order they matter. **The page asks the daemon where the file already is**: a
-name in the session's own directory, in the places a download or a screenshot lands, or in a
-folder this machine is known to work in is almost always the file that was dragged, and finding it
-costs a `stat`. That path goes to the prompt and nothing is read at all, which is what was asked
-for: "it should just paste the path to it regardless... it shouldn't do anything else".
+**The page asks the daemon where the file already is, and the daemon looks properly.** A `stat` in
+the session's own directory, in the places a download or a screenshot lands, and in the folders
+this machine is known to work in answers the ordinary case for nothing. When none of them has it,
+Spotlight does: the second report was a 58 MB file four directories inside Downloads, which no
+list of guesses was ever going to hold. A native terminal is handed the path by the operating
+system and a browser is not, and asking the index is the nearest honest equivalent.
+
+**The size the drag reports is the disambiguation.** Several files can share a name, and the drag
+knows the size of the one that was actually dragged, so a match on both is the file. When nothing
+matches on size, a file of that name is still answered with rather than refusing the drop, because
+a file being written to as it is dragged reports a size that is already stale.
+
+That path goes to the prompt and nothing is read at all, which is what was asked for: "it should
+just paste the path to it regardless... it shouldn't do anything else", and then "it should behave
+exactly like iterm. files like that should just have their path linked. this should never result
+in an error".
 
 **And the size is asked before the file is read**, with the same number the daemon enforces, kept
 honest by a check that reads it out of the daemon's source. Copying is what happens only for a
 file from somewhere the daemon cannot see, and only when it is small enough to copy.
 
-An image dropped into an agent is the one exception and is still copied, because what an agent
-wants is the picture on its clipboard rather than a path.
+**An image into an agent goes to the clipboard from where it is.** That decision belongs to the
+daemon and is made in one place for both routes, so a found file and a copied one are answered
+with the same message and the page cannot tell them apart. An image already on this machine
+therefore has no size limit either: the clipboard takes a path, and the copy only ever existed to
+manufacture one.
 
 ### The things you do to a pane need a pane
 
