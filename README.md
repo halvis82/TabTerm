@@ -97,12 +97,6 @@ and the agent CLI hooks.
 
 ### 4. Load the extension
 
-If you installed it from the Chrome Web Store instead, the store gave it a different id from the
-one the manifest key pins. Put that id in `package.json` under `tabterm.publishedExtensionId` and
-run `./scripts/install.sh` again. Both ids are then registered with the native messaging host, so a
-store install and an unpacked build work side by side and nobody has to choose.
-
-
 Chrome no longer honors `--load-extension`, so this step is manual:
 
 1. Open `chrome://extensions`
@@ -112,6 +106,11 @@ Chrome no longer honors `--load-extension`, so this step is manual:
 The extension ID is pinned by the `key` in the manifest, so it stays the same across reloads and
 reinstalls. That matters: every terminal tab is a `chrome-extension://<id>/...` URL, and a
 changed ID would invalidate every one of them in your history.
+
+If you installed it from the Chrome Web Store instead, the store gave it a different id from the
+one the manifest key pins. Put that id in `package.json` under `tabterm.publishedExtensionId` and
+run `./scripts/install.sh` again. Both ids are then registered with the native messaging host, so a
+store install and an unpacked build work side by side and nobody has to choose.
 
 ### 5. macOS will ask for permission once
 
@@ -131,6 +130,22 @@ launchctl kickstart -k gui/$(id -u)/com.tabterm.daemon
 The one state worth knowing about is *unanswered*: while a prompt is pending the command blocks,
 which looks like a frozen terminal. `./scripts/doctor.sh` checks all three folders and tells the
 three states apart.
+
+**Reaching your own network is a separate permission, and it does not fail like one.** The first
+time something in a TabTerm terminal connects to a machine on your local network, macOS wants Local
+Network permission, and it asks about TabTerm rather than about the terminal you used before. Until
+it is granted the connection does not report a permission problem. It reports an ordinary network
+one:
+
+```
+ssh: connect to host 192.168.1.168 port 22: No route to host
+```
+
+That is indistinguishable from the other machine being asleep, so the first attempt reads as a
+network fault and the second, after allowing, reads as a coincidence. Grant it at System Settings,
+Privacy & Security, **Local Network**. Nothing can detect this for you: macOS keeps these grants
+outside the database a process can read, so `doctor.sh` describes the symptom rather than reporting
+a state.
 
 #### Optional: stop an agent asking for permission on every launch
 
