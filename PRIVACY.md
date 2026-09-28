@@ -1,3 +1,7 @@
+---
+title: TabTerm privacy policy
+---
+
 # TabTerm privacy policy
 
 **Last updated:** 2026-09-16
