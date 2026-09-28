@@ -209,6 +209,33 @@ describe('the installer launches the daemon through the bundle', () => {
     expect(install).toMatch(/s\|__NODE__\|\$LAUNCH_NODE\|g/);
   });
 
+  /**
+   * A machine that has never had TabTerm on it, which is every new person and nobody who tested.
+   *
+   * The installer runs under `set -euo pipefail` and reads the bundle's current signature into a
+   * variable before rebuilding it, so it can notice the identity changing. On a first install there
+   * is no bundle, `codesign` exits non-zero, `pipefail` hands that status to the assignment, and
+   * `set -e` ends the install on that line: after the daemon is staged and the native host is
+   * registered, and before the app bundle, the LaunchAgent, and the daemon the LaunchAgent starts.
+   * The person is left with an extension and nothing to connect to, and no error, because the line
+   * that failed prints nothing.
+   *
+   * Invisible to anyone who had ever installed before, since they have a bundle and `codesign`
+   * succeeds. Found by installing into an empty HOME.
+   *
+   * Run rather than read, and run with the real line out of the real file, because what is being
+   * checked is the exit status of a shell construct and no amount of reading it says what that is.
+   */
+  it("reads a missing bundle's signature without ending the install", () => {
+    const line = install.split('\n').find((l) => l.startsWith('IDENTITY_BEFORE='));
+    expect(line, 'the installer still reads a signature into IDENTITY_BEFORE').toBeTruthy();
+    const missing = join(tmpdir(), 'tabterm-no-such-bundle-xyz.app');
+    expect(existsSync(missing), 'the path must not exist for this to mean anything').toBe(false);
+    const script = `set -euo pipefail\nAPP=${JSON.stringify(missing)}\n${String(line)}\necho SURVIVED`;
+    const out = execFileSync('bash', ['-c', script], { encoding: 'utf8' });
+    expect(out).toContain('SURVIVED');
+  });
+
   it('keeps a working identity when it cannot rebuild one', () => {
     /**
      * A failed build is a reason to leave the identity alone, not a reason to throw it away.

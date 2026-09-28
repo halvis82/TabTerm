@@ -146,7 +146,15 @@ APP="$LIBEXEC/TabTerm.app"
 
 # What the bundle's signature was before this install, so a change to it can be noticed rather
 # than discovered later by a prompt nobody expected. See the check further down.
-IDENTITY_BEFORE=$(codesign -dvvv "$APP" 2>&1 | sed -n 's/.*CandidateCDHash sha256=\([0-9a-f]*\).*/\1/p' | head -1)
+#
+# The `|| true` is the whole of a first install working. There is no bundle yet on a machine that
+# has never had TabTerm, so `codesign` exits non-zero, `pipefail` hands that status to the
+# assignment, and `set -e` ends the install here: after the daemon is staged and the native host is
+# registered, and before the app bundle, the LaunchAgent and the daemon that the LaunchAgent starts.
+# A new install therefore left a browser with an extension and nothing to connect to, and it was
+# invisible to everyone who already had a bundle from an earlier install, which is everyone who had
+# ever run this. Not having a signature to compare against is the ordinary first case, not a fault.
+IDENTITY_BEFORE=$(codesign -dvvv "$APP" 2>&1 | sed -n 's/.*CandidateCDHash sha256=\([0-9a-f]*\).*/\1/p' | head -1 || true)
 
 if TABTERM_NODE="$NODE" "$NODE" "$REPO/scripts/build-app-bundle.mjs" \
      --adopt-runtime "$APP/Contents/MacOS/node" >/dev/null 2>&1 &&

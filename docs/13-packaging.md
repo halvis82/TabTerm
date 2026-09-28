@@ -322,6 +322,25 @@ needs its own copy.
 9. Print the extension install step
 10. Run `tabterm doctor` and print the result
 
+### The first install is the one nobody tests
+
+Steps 1 to 10 all ran for everybody who had installed before and stopped at step 4.5 for everybody
+who had not. Before rebuilding the bundle the installer reads its current signature, so a change to
+the identity can be noticed rather than discovered later by an unexplained permission prompt. There
+is no bundle on a machine that has never had TabTerm, so `codesign` exits non-zero; the script runs
+under `set -euo pipefail`, which hands that status to the assignment, and `set -e` ends the install
+on that line. Silently, because the line prints nothing.
+
+What that left was a native messaging host registered and a daemon staged, with no app bundle, no
+LaunchAgent, and so no daemon: a browser with the extension in it and nothing to connect to. Anyone
+who already had a bundle from an earlier install could not reproduce it, which is everybody who had
+ever run the script.
+
+Not having a signature to compare against is the ordinary first case, so the read tolerates failing.
+The check for it runs the real line out of the real file against a path that does not exist, because
+what matters is the exit status of a shell construct and reading it cannot tell you that. Verified by
+installing into an empty `HOME` with `launchctl` stubbed, which is the only way this shows up.
+
 Steps 7 and 8 are offers, never actions. Editing someone's `.zshrc` or the agent settings without
 asking is not acceptable, and both are the most likely things to break.
 
