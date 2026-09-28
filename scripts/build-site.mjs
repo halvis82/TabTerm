@@ -164,7 +164,10 @@ ${STYLE}
 ${renderMarkdown(markdown)}
       <footer>
         <a href="./">TabTerm</a> &middot;
-        <a href="https://github.com/halvis82/TabTerm">Source on GitHub</a>
+        <!-- The markdown this page is generated from, so the wording can be checked against the
+             file in the repository rather than taken from a rendering of it. -->
+        <a href="./PRIVACY.md">Read it as markdown</a> &middot;
+        <a href="https://github.com/halvis82/TabTerm/blob/main/PRIVACY.md">History on GitHub</a>
       </footer>
     </main>
   </body>
