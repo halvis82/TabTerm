@@ -9,6 +9,20 @@ move between windows, group, close, restore.
 Closing a tab does not kill a terminal. Reopening it restores the running process and the exact
 screen, including a pane in the middle of a `vim` edit with unsaved changes.
 
+## Screenshots
+
+Open a folder or return to a running terminal from the start screen.
+
+![TabTerm start screen with running sessions](docs/images/1-start-screen.png)
+
+Split a tab into panes, name sessions, highlight output, and leave markers in the scrollback.
+
+![TabTerm split panes with a session name, highlight, and marker](docs/images/2-panes-and-markers.png)
+
+[Layout templates](docs/images/3-layout-templates.png),
+[session details](docs/images/4-session-detail.png), and
+[settings](docs/images/5-settings.png).
+
 ## Architecture
 
 ```
