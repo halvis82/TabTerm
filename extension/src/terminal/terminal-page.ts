@@ -6312,6 +6312,8 @@ function onControl(msg: ServerMessage): void {
          */
         if (p.time) {
           const state = timeStateFor(p.paneId);
+          // Reattach replaces the snapshot, including fields which have since been cleared.
+          for (const key of Object.keys(state) as (keyof TimeState)[]) delete state[key];
           if (p.time.sessionStartedAt !== undefined)
             state.sessionStartedAt = p.time.sessionStartedAt;
           if (p.time.commandStartedAt !== undefined)
@@ -6911,6 +6913,7 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'launcher-stale': {
+      commandPanel?.refreshLive();
       /**
        * Something another tab did changed what this one is drawing.
        *
@@ -7122,6 +7125,11 @@ function onControl(msg: ServerMessage): void {
       if (pane) {
         const state = timeStateFor(pane.paneId);
         state.commandStartedAt = msg.startedAt;
+        delete state.agentTurnStartedAt;
+        delete state.agentState;
+        delete state.lastTurnMs;
+        delete state.lastTurnEndedAt;
+        agentSessions.delete(msg.sessionId);
         state.lastCommand = msg.command;
         // The title says what is running here, so it changes when that does.
         lastCommandHere = msg.command;
@@ -7153,6 +7161,11 @@ function onControl(msg: ServerMessage): void {
         if (msg.exitCode === undefined) delete state.lastExitCode;
         else state.lastExitCode = msg.exitCode;
         delete state.commandStartedAt;
+        delete state.agentTurnStartedAt;
+        delete state.agentState;
+        delete state.lastTurnMs;
+        delete state.lastTurnEndedAt;
+        agentSessions.delete(msg.sessionId);
 
         paneStatus.finished(pane.paneId, msg.exitCode);
         setFavicon(paneStatus.effective());
@@ -7189,11 +7202,11 @@ function onControl(msg: ServerMessage): void {
 
     case 'agent-state': {
       /**
-       * A session whose agent has reported anything is an agent session, for good.
+       * A hook identifies an agent even while it is resting between turns.
        *
        * The strongest of the three signals and the only one that does not depend on the shell
-       * integration: it comes from the agent's own hooks. Never unset, because an agent that has
-       * gone quiet is still an agent, and the point of knowing is to refuse to print into it.
+       * integration: it comes from the agent's own hooks. A later shell command boundary clears
+       * it, because the terminal can return to a shell after the agent exits.
        */
       agentSessions.add(msg.sessionId);
       if (msg.agentSessionId !== undefined) agentSessionIds.set(msg.sessionId, msg.agentSessionId);
@@ -7227,10 +7240,14 @@ function onControl(msg: ServerMessage): void {
         if (msg.turnStartedAt === undefined) {
           const wasIn = time.agentTurnStartedAt;
           delete time.agentTurnStartedAt;
-          if (wasIn !== undefined && (msg.state === 'idle' || msg.state === 'failed')) {
-            time.lastTurnMs = Date.now() - wasIn;
-            time.lastTurnEndedAt = Date.now();
-            sessionStats.turnFinished(time.lastTurnMs, time.lastTurnEndedAt);
+          if (
+            (msg.lastTurnMs !== undefined || wasIn !== undefined) &&
+            (msg.state === 'idle' || msg.state === 'failed')
+          ) {
+            time.lastTurnMs = msg.lastTurnMs ?? Date.now() - (wasIn ?? Date.now());
+            time.lastTurnEndedAt = msg.lastTurnEndedAt ?? Date.now();
+            if (wasIn !== undefined)
+              sessionStats.turnFinished(time.lastTurnMs, time.lastTurnEndedAt);
           }
         } else {
           time.agentTurnStartedAt = msg.turnStartedAt;

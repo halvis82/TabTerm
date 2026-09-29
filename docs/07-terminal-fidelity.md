@@ -623,6 +623,11 @@ Two details that were wrong first:
   at the width the session had at the time, so a terminal widened afterwards leaves the far
   columns untouched.
 
+After a split or resize, wrapped continuations belong to the same landmark even when their colored
+tail is shorter than the usual detection threshold. Background decorations fill each occupied row
+to the current terminal width without hiding the label. Unchanged decorations are reused, and both
+decorations and their anchors are disposed when replaced or removed.
+
 The rail of markers is drawn by TabTerm rather than by xterm's overview ruler, which paints on
 top of the native scrollbar. Chrome handles a scrollbar click itself and dispatches no DOM event,
 so markers there could be seen and never clicked.

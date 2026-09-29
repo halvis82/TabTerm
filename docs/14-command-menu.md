@@ -108,6 +108,17 @@ guessed at.
 
 ### The line in the corner of a pane answers one question at a time
 
+Completed turn duration and completion time come from the daemon, so a delayed message cannot
+inflate the duration and refreshing preserves the same result. Reattaching restores the current
+turn start along with its state. A new shell command or the end of the agent's shell command clears
+the previous agent timing, letting the corner describe the shell again.
+
+An existing Recent command moves to the top as soon as it starts, even when it will run for hours.
+Promotion leaves its last completed result and use count intact. Completion updates those values
+once, and new commands enter history when they finish. Open Recent menus refresh across TabTerm
+tabs on both promotion and completion. Commands with a leading space and sensitive commands remain
+excluded. Shell integration captures short commands and builtins that the OS fallback cannot see.
+
 Whichever question that pane is actually about, in this order:
 
 | When | What it says |

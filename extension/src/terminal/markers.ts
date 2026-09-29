@@ -1,4 +1,4 @@
-import type { Terminal } from '@xterm/xterm';
+import type { IDecoration, Terminal } from '@xterm/xterm';
 
 /**
  * Finding the landmarks somebody left in the scrollback.
@@ -18,6 +18,18 @@ export interface FoundMarker {
   row: number;
   /** The bar's color, as 24-bit RGB, so the marker beside the scrollbar can match it. */
   color: number;
+  /**
+   * How many rows this landmark actually occupies right now.
+   *
+   * Printed as three, and not three for long. The bar is written one column short of the terminal
+   * it was printed in, so making the pane narrower re-wraps every one of those lines and a three
+   * row landmark becomes six of uneven length. This is what it takes up after that has happened,
+   * which is what has to be painted over to make it look like a landmark again.
+   *
+   * Optional, because the rail also carries highlights and input marks, and those are one row by
+   * nature rather than by measurement.
+   */
+  height?: number;
 }
 
 /** A bar has to be at least this wide to be one, so a short colored run is not mistaken for it. */
@@ -55,8 +67,22 @@ export function findMarkers(term: Terminal): FoundMarker[] {
   let previous: number | null = null;
 
   for (let row = 0; row < term.buffer.active.length; row++) {
-    const color = barColor(term, row);
-    if (color !== null && color !== previous) found.push({ row, color });
+    const line = term.buffer.active.getLine(row);
+    const first = line?.getCell(0);
+    // Reflow can leave a tail shorter than the normal detection threshold. It belongs to the
+    // preceding landmark only when xterm identifies it as that line's wrapped continuation.
+    const tail: boolean =
+      previous !== null &&
+      line?.isWrapped === true &&
+      first?.isBgRGB() === true &&
+      first.getBgColor() === previous;
+    const color: number | null = tail ? previous : barColor(term, row);
+    if (color !== null && color !== previous) found.push({ row, color, height: 1 });
+    // A run of the same color is one landmark, however many rows a resize has turned it into.
+    else if (color !== null && found.length > 0) {
+      const last = found[found.length - 1];
+      if (last && last.color === color) last.height = (last.height ?? 1) + 1;
+    }
     previous = color;
   }
   return found;
@@ -126,6 +152,22 @@ export class MarkerRail {
    */
   #viewportRows = 24;
 
+  /**
+   * Background decorations for every row a landmark occupies after reflow.
+   *
+   * A landmark is printed output: three lines of background color, written one column short of the
+   * terminal it was printed in. That makes it durable, and it makes it wrong at every width except
+   * the one it was written at. Widen the pane and the bar stops short of the edge; narrow it and
+   * every one of its lines re-wraps, so three rows become six of uneven length, which is what "it
+   * messes up the marker" is.
+   *
+   * The renderer fills each row's background without covering the printed label. The output
+   * remains intact, so landmarks can still be recovered after a reload.
+   */
+  #bands: IDecoration[] = [];
+  #bandCols = 0;
+  #bandColors: string[] = [];
+
   constructor(container: HTMLElement, onJump: (row: number) => void) {
     this.#rail = document.createElement('div');
     this.#rail.className = 'marker-rail';
@@ -165,7 +207,9 @@ export class MarkerRail {
     inputs: readonly FoundMarker[] = [],
   ): void {
     this.#viewportRows = term.rows;
-    this.#markers = [...findMarkers(term), ...extra].sort((a, b) => a.row - b.row);
+    const bars = findMarkers(term);
+    this.#drawBands(term, bars);
+    this.#markers = [...bars, ...extra].sort((a, b) => a.row - b.row);
     this.#rail.replaceChildren();
     // Hidden entirely when there is nothing to show, rather than sitting there as an empty
     // stripe beside every terminal anybody ever opens.
@@ -209,6 +253,67 @@ export class MarkerRail {
   }
 
   dispose(): void {
+    // The bands belong to the terminal rather than to the rail's element, so removing the element
+    // does not take them with it.
+    for (const band of this.#bands) {
+      band.dispose();
+      band.marker.dispose();
+    }
+    this.#bands = [];
     this.#rail.remove();
+  }
+
+  /** Replace decorations only when reflow, trimming, or new landmarks change their rows. */
+  #drawBands(term: Terminal, bars: readonly FoundMarker[]): void {
+    // Registering a decoration triggers a render. Reusing unchanged rows avoids an endless
+    // render/sync loop, and live anchors already follow scrollback movement.
+    const rows = bars.flatMap((bar) =>
+      Array.from({ length: bar.height ?? 1 }, (_, offset) => ({
+        row: bar.row + offset,
+        color: hex(bar.color),
+      })),
+    );
+    if (
+      term.cols === this.#bandCols &&
+      rows.length === this.#bands.length &&
+      rows.every((row, i) => {
+        const band = this.#bands[i];
+        return (
+          band &&
+          !band.marker.isDisposed &&
+          band.marker.line === row.row &&
+          this.#bandColors[i] === row.color
+        );
+      })
+    )
+      return;
+    for (const band of this.#bands) {
+      band.dispose();
+      band.marker.dispose();
+    }
+    this.#bands = [];
+
+    const buffer = term.buffer.active;
+    this.#bandCols = term.cols;
+    this.#bandColors = [];
+    for (const bar of rows) {
+      const anchor = term.registerMarker(bar.row - (buffer.baseY + buffer.cursorY));
+      if (!anchor) continue;
+      const decoration = term.registerDecoration({
+        marker: anchor,
+        x: 0,
+        width: term.cols,
+        backgroundColor: bar.color,
+        // Under the text. The label printed in the bar has to stay readable, and an opaque block
+        // on top would hide the one thing the landmark was labelled for.
+        layer: 'bottom',
+      });
+      if (!decoration) {
+        anchor.dispose();
+        continue;
+      }
+      this.#bands.push(decoration);
+      this.#bandColors.push(bar.color);
+    }
   }
 }

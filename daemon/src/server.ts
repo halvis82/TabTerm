@@ -2984,8 +2984,24 @@ export class DaemonServer {
     for (const { sessionId } of entries) {
       const session = this.#sessions.get(sessionId);
       const state = session?.agentState;
-      if (state === undefined) continue;
-      send(client.socket, controlFrame({ t: 'agent-state', sessionId, state }));
+      if (!session || state === undefined) continue;
+      send(
+        client.socket,
+        controlFrame({
+          t: 'agent-state',
+          sessionId,
+          state,
+          ...(session.agentTurnStartedAt === undefined
+            ? {}
+            : { turnStartedAt: session.agentTurnStartedAt }),
+          ...(session.lastTurnMs === undefined
+            ? {}
+            : {
+                lastTurnMs: session.lastTurnMs,
+                lastTurnEndedAt: session.lastTurnEndedAt,
+              }),
+        }),
+      );
     }
 
     /**

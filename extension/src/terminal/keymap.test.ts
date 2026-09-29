@@ -157,3 +157,37 @@ describe('Return with a modifier held', () => {
     expect(press({ ctrlKey: true }).kind).toBe('to-pty');
   });
 });
+
+/**
+ * Control and Command together, which is macOS's own keyboard rather than ours.
+ *
+ * Reported as Control Command F opening the find bar instead of making the window full screen. The
+ * guard on this key checked Shift and not Control, so the combination fell through to the Command
+ * table and was claimed. Checked as a class rather than as one key, because the letter was never
+ * the thing that was wrong.
+ */
+describe('control and command together belongs to the system', () => {
+  const press = (key: string) => ({
+    key,
+    metaKey: true,
+    ctrlKey: true,
+    altKey: false,
+    shiftKey: false,
+    type: 'keydown',
+    hasSelection: false,
+  });
+
+  it('leaves control command f alone, which is full screen', () => {
+    expect(classifyKey(press('f')).kind).toBe('browser');
+  });
+
+  it('and does not claim the rest of that keyboard either', () => {
+    for (const key of ['c', 'v', 'a', 'd', 'q']) {
+      expect(classifyKey(press(key)).kind, key).toBe('browser');
+    }
+  });
+
+  it('while command f on its own still searches, which is the point of having it', () => {
+    expect(classifyKey({ ...press('f'), ctrlKey: false }).kind).toBe('search');
+  });
+});

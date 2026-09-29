@@ -728,6 +728,10 @@ from the offscreen document.
 
 ## 6. Keyboard
 
+Command+F opens terminal search. Control+Command+F and Shift+Command+F pass through the terminal
+keymap without opening search. Control+Command combinations remain available to page-level pane
+shortcuts or to Chrome and macOS.
+
 ### What a page cannot receive
 
 These are consumed by Chrome or macOS and never reach the page in a cancelable form:
@@ -1183,6 +1187,12 @@ in its place by age, outlined once, because that can be most of a list away from
 dragged and nothing else connects the two positions.
 
 ### What a card calls a session
+
+The description follows command boundaries. When a foreground program ends, its pending command
+and process name are cleared, including when the OS fallback tracked it. The card then describes
+the last completed command. A subsequent shell command replaces that description. Names explicitly
+chosen by the user continue to take precedence. Without shell integration, a sub-second command
+such as `ls` can finish before the fallback observes it. See `08-shell-integration.md`.
 
 A name somebody typed wins outright. Naming a pane puts the name on the layout node, and that is
 the only line on the card the person wrote themselves, so it says what the terminal is for in a

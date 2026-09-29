@@ -113,8 +113,10 @@ often a grandchild: `npm test` spawns node, `git log` spawns a pager.
   daemon can observe. So a check runs while a command is known to be in flight, and **only**
   then. An idle shell — the overwhelmingly common state — has no timer at all.
 
-The interval is deliberately slack. Elapsed time is computed in the frontend from the start
-timestamp, so a late end costs a slightly late "finished", never a wrong duration.
+The interval is deliberately slack. Without integration, start and finish times are observations
+from OS polling, not exact process boundaries. Start detection waits 220 ms and completion is
+polled once per second, so durations are approximate. Shell integration supplies exact command
+boundaries and is required for short commands and builtins.
 
 ### It defers to the real thing
 

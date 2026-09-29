@@ -658,7 +658,7 @@ async function oneDrag(client, fromSelector, toSelector) {
 }
 
 /** Enough of PNG to read a screenshot: 8-bit, non-interlaced, RGB or RGBA. */
-function decodePng(buffer) {
+export function decodePng(buffer) {
   let at = 8; // past the signature
   let width = 0;
   let height = 0;

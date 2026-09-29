@@ -72,6 +72,32 @@ const found = (data: LauncherData, query: string, extra = {}) =>
   data.search({ query, now: NOW, ...extra }).map((e) => e.command);
 
 describe('history search', () => {
+  it('promotes a repeated command at start without counting another completed use', () => {
+    const data = sample();
+    expect(data.promoteCommand('npm run build', '/w/app')).toBe(true);
+    const first = data.history()[0];
+    expect(first?.command).toBe('npm run build');
+    expect(first?.useCount).toBe(1);
+    expect(first?.durationMs).toBe(12_000);
+    data.recordCommand({ command: 'npm run build', cwd: '/w/app', durationMs: 5000, exitCode: 0 });
+    expect(data.history()[0]?.useCount).toBe(2);
+    expect(data.history()[0]?.durationMs).toBe(5000);
+  });
+
+  it('promotes an existing global command from a different directory', () => {
+    const data = sample();
+    expect(data.promoteCommand('ls', '/w/new')).toBe(true);
+    expect(data.history()[0]?.command).toBe('ls');
+    expect(data.history()[0]?.cwd).toBe('/tmp');
+  });
+
+  it('does not promote private commands or invent history for an unfinished new command', () => {
+    const data = sample();
+    expect(data.promoteCommand(' ls', '/tmp')).toBe(false);
+    expect(data.promoteCommand('never run before', '/tmp')).toBe(false);
+    expect(data.history()[0]?.command).toBe('npm test');
+  });
+
   it('finds by plain text', () => {
     expect(found(sample(), 'npm').sort()).toEqual(['npm run build', 'npm test']);
   });

@@ -284,6 +284,25 @@ export class LauncherData {
 
   // --- command history ---------------------------------------------------
 
+  /** Promote an existing command immediately, without counting its completion twice. */
+  promoteCommand(command: string, cwd: string): boolean {
+    if (command.startsWith(' ') || isSensitive(command)) return false;
+    const text = command.trim();
+    if (!text) return false;
+    // Prefer this directory's entry. A command previously run elsewhere still belongs at the
+    // top of global Recent, but its last completed result stays attached to its original row.
+    const row = this.#db.handle
+      .prepare(
+        'SELECT id FROM commands WHERE command = ? ORDER BY (cwd = ?) DESC, last_used_at DESC LIMIT 1',
+      )
+      .get(text, cwd) as { id: string } | undefined;
+    if (!row) return false;
+    this.#db.handle
+      .prepare('UPDATE commands SET last_used_at = ? WHERE id = ?')
+      .run(Date.now(), row.id);
+    return true;
+  }
+
   recordCommand(entry: {
     command: string;
     cwd: string;

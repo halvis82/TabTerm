@@ -1022,6 +1022,9 @@ export type ServerMessage =
        * after a daemon restart. A view counts up from it rather than being sent a ticking clock.
        */
       turnStartedAt?: number;
+      /** Authoritative completed turn, identical to the values carried on reattach. */
+      lastTurnMs?: number;
+      lastTurnEndedAt?: number;
       /**
        * The agent's own session id, which is what `--resume` takes.
        *

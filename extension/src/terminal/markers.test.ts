@@ -40,7 +40,7 @@ function fakeTerminal(
 describe('finding landmarks in the scrollback', () => {
   it('finds a bar among ordinary output', () => {
     const found = findMarkers(fakeTerminal([null, null, 0x7aa2f7, null]));
-    expect(found).toEqual([{ row: 2, color: 0x7aa2f7 }]);
+    expect(found).toEqual([{ row: 2, color: 0x7aa2f7, height: 1 }]);
   });
 
   it('counts a three line bar as one landmark, not three', () => {
@@ -48,6 +48,22 @@ describe('finding landmarks in the scrollback', () => {
     const found = findMarkers(fakeTerminal([null, 0x7aa2f7, 0x7aa2f7, 0x7aa2f7, null]));
     expect(found).toHaveLength(1);
     expect(found[0]?.row).toBe(1);
+    expect(found[0]?.height, 'and says how tall it is').toBe(3);
+  });
+
+  /**
+   * How tall it is now, which after a resize is not how tall it was printed.
+   *
+   * A landmark is written one column short of the terminal it was printed in, so making the pane
+   * narrower re-wraps every one of its lines and three rows become six of uneven length. Reported
+   * with a photograph of exactly that: "resizing a session when a marker is placed messes up the
+   * marker". The measured height is what lets it be painted over as one band again.
+   */
+  it('measures a bar that a resize has re-wrapped into more rows', () => {
+    const rewrapped = [null, ...Array<number>(6).fill(0x7aa2f7), null];
+    const found = findMarkers(fakeTerminal(rewrapped));
+    expect(found).toHaveLength(1);
+    expect(found[0]?.height).toBe(6);
   });
 
   it('separates two landmarks of different colors that touch', () => {

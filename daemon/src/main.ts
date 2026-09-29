@@ -414,6 +414,12 @@ async function main(): Promise<void> {
       if (!s) return;
       s.commandRunning = false;
       delete s.titleFields.process;
+      delete s.pendingCommand;
+      delete s.commandStartedAt;
+      s.ranLast = command;
+      s.lastDurationMs = durationMs;
+      s.lastFinishedAt = Date.now();
+      delete s.lastExitCode;
       // The OS does not report an exit code for a process that is already gone, so this records
       // the command without claiming to know how it ended. A wrong exit code would be worse
       // than an absent one: `exit:fail` has to mean something.
@@ -423,6 +429,13 @@ async function main(): Promise<void> {
   });
 
   events.onCommandStarted = (s, command, startedAt) => {
+    if (launcher.promoteCommand(command, s.cwd)) server.launcherChanged();
+    // A new shell command is no longer the agent that last ran in this terminal.
+    turns.forget(s.id);
+    delete s.agentState;
+    delete s.agentTurnStartedAt;
+    delete s.lastTurnMs;
+    delete s.lastTurnEndedAt;
     archive.begin(s.id, command, s.cwd);
     plugins.notify({ type: 'command-start', session: { sessionId: s.id, cwd: s.cwd, command } });
     server.notifySession(s, {
@@ -435,6 +448,11 @@ async function main(): Promise<void> {
     });
   };
   events.onCommand = (s, command, exitCode, durationMs) => {
+    turns.forget(s.id);
+    delete s.agentState;
+    delete s.agentTurnStartedAt;
+    delete s.lastTurnMs;
+    delete s.lastTurnEndedAt;
     /**
      * A command that has finished has printed whatever it was going to print.
      *
@@ -571,6 +589,12 @@ async function main(): Promise<void> {
         // How long somebody has been waiting, which is the one number a pane running an agent
         // can usefully show and the one it did not have.
         ...(turnStartedAt === undefined ? {} : { turnStartedAt }),
+        ...(session.lastTurnMs === undefined
+          ? {}
+          : {
+              lastTurnMs: session.lastTurnMs,
+              lastTurnEndedAt: session.lastTurnEndedAt,
+            }),
         ...(session.agentSessionId === undefined ? {} : { agentSessionId: session.agentSessionId }),
       });
 

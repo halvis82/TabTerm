@@ -640,6 +640,8 @@ export class SessionManager {
         this.#events.onIntegrationDetected?.(session);
       },
       onCommandText: (command) => {
+        // A fallback observation from before integration started is no longer current.
+        delete session.titleFields.process;
         session.pendingCommand = command;
         // The text arrives just after the start mark, so the start event waits for it: a
         // pane showing "running" without saying what is more alarming than useful.

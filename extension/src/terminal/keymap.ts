@@ -55,6 +55,21 @@ export function classifyKey(e: KeyInput): KeyAction {
   if (e.ctrlKey && !e.metaKey) return { kind: 'to-pty' };
 
   if (e.metaKey) {
+    /**
+     * Control and Command together is a different keyboard from Command alone.
+     *
+     * macOS puts its own shortcuts there, and the one that was reported is Control Command F,
+     * which toggles full screen. This table answered for the F and opened the find bar instead, so
+     * a window could not be made full screen from a TabTerm tab at all.
+     *
+     * The same hole was fixed once for Shift, on this same key, and fixed only for that key. It is
+     * the class that is wrong rather than the letter: every Control Command combination reaching
+     * here is somebody else's, so none of them are claimed. `browser` does not mean the page loses
+     * it either, and this is what makes it safe: TabTerm's own Control Command bindings, closing a
+     * pane and moving between them, are page shortcuts which act on exactly this answer. See the
+     * note on `k`.
+     */
+    if (e.ctrlKey) return { kind: 'browser' };
     const key = e.key.toLowerCase();
     switch (key) {
       case 'c':
@@ -87,6 +102,7 @@ export function classifyKey(e: KeyInput): KeyAction {
          * Finding backwards is Shift and Return inside the box, so nothing is lost by letting it
          * past.
          */
+        // Control Command F is handled above, with the rest of that keyboard.
         return e.shiftKey ? { kind: 'browser' } : { kind: 'search' };
       default:
         // Command+W, Command+T, Command+number and the rest are Chrome's, and in a normal tab
