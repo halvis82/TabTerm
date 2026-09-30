@@ -274,6 +274,28 @@ The policy plist is written, never installed: applying it needs root and changes
 every profile on the machine, which is not something a build script should do unasked. The
 commands to apply it are printed.
 
+### Release checklist
+
+The published Git tag must match the packaged version. Pushing source to `main` does not publish
+a tag, and a local ZIP alone is not a published release.
+
+1. Confirm the version agrees in `package.json`, `package-lock.json`,
+   `extension/public/manifest.json`, and the shared `VERSION` constant.
+2. Run `npm run verify:full` against the release code and build the extension archive with
+   `npm run package:extension`. Verify its manifest version, ZIP integrity, and that every entry
+   matches the tested build. Record its SHA-256.
+3. Integrate the verified changes into `main` and push the release commit when publication is
+   authorized. Create an annotated tag named `v<version>` on that exact commit, for example
+   `v1.0.2`, and push the tag explicitly.
+4. Verify the remote tag resolves to the intended commit, not just that a local tag exists.
+   Never move or force-update a published version tag. Resolve a mismatch before publishing.
+5. Report the version, tag, commit, archive filename, and SHA-256 together. If publication is
+   deferred, state that the remote tag is pending rather than calling the release published.
+
+A GitHub Release page with downloadable assets is separate from a Git tag. Chrome Web Store
+submission is separate from both. Creating or pushing a tag does not upload the extension ZIP
+or submit it to the store. Report each publication channel independently.
+
 ---
 
 ## 4. Native messaging host
