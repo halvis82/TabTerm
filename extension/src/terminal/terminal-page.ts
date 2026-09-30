@@ -2641,12 +2641,6 @@ function panesIn(workspaceId: string): number {
 function sessionItems(session: LiveSession): ShellItem[] {
   const kill = (): void => {
     client?.send({ t: 'kill-session', sessionId: session.sessionId });
-    if (session.workspaceId) {
-      void chrome.runtime.sendMessage({
-        t: 'tabterm:close-workspace-tab',
-        workspaceId: session.workspaceId,
-      });
-    }
     setTimeout(() => client?.send({ t: 'list-live-sessions' }), 400);
   };
   const where = session.cwd === '' ? 'this session' : shortPath(session.cwd, launcherHome);
@@ -3838,14 +3832,8 @@ function buildLauncher(): void {
     },
     onCloseSession: (session) => {
       client?.send({ t: 'kill-session', sessionId: session.sessionId });
-      // A tab showing a session that no longer exists is a tab showing an apology, so it goes
-      // with the session it was showing.
-      if (session.workspaceId) {
-        void chrome.runtime.sendMessage({
-          t: 'tabterm:close-workspace-tab',
-          workspaceId: session.workspaceId,
-        });
-      }
+      // Only the daemon knows whether another pane survives, including unused shells omitted
+      // from Running now. It closes the tab after confirming that the last session has ended.
       setTimeout(() => client?.send({ t: 'list-live-sessions' }), 400);
     },
     onRestore: (workspaceId, replayCommands) => {

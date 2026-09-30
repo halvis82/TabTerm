@@ -30,3 +30,4 @@ reverse-engineer from the code. This is part of the definition of done.
 | [0016](0016-an-absent-exit-code-is-not-zero.md) | An absent exit code is not a zero | Accepted |
 | [0017](0017-a-pty-host-that-outlives-the-daemon.md) | A PTY host process that outlives the daemon | Accepted |
 | [0018](0018-built-from-source-rather-than-signed-for-download.md) | Built from source, not shipped as a signed download | Accepted |
+| [0019](0019-terminal-state-handoff.md) | Parsed terminal state across clean daemon updates | Accepted |

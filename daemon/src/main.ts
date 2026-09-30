@@ -44,6 +44,7 @@ import { adoptEverything } from './adopt.js';
 import { looksLikeInterrupt } from './agent-turns.js';
 import { readUserSettings } from './user-settings.js';
 import { safeError, safeStack } from './safe-error.js';
+import { TerminalCheckpoints } from './terminal-checkpoints.js';
 
 /**
  * The daemon owns every PTY. No terminal process is ever tied to a Chrome page's lifetime,
@@ -55,6 +56,7 @@ async function main(): Promise<void> {
   mkdirSync(paths.state, { recursive: true, mode: 0o700 });
   mkdirSync(paths.scrollback, { recursive: true, mode: 0o700 });
   initLog(config.logLevel);
+  const checkpoints = new TerminalCheckpoints(join(paths.state, 'terminal-checkpoints'));
   // A hand edited config.json should not be able to destabilise anything, so a field that
   // cannot be used is dropped and named rather than taken at face value. See `usableFields`.
   for (const field of ignoredConfigFields) warn('config.field-ignored', { field });
@@ -320,6 +322,11 @@ async function main(): Promise<void> {
        * closing an agent I can't always type commands again" both looked like from outside.
        */
       server.announceLayout(surviving.id);
+    }
+    if (workspaceBefore && !surviving && s.endedByRequest === true) {
+      // Wait for the confirmed exit and authoritative layout. A home-screen list can omit
+      // untouched panes and must never decide that a tab has nothing left in it.
+      server.broadcast({ t: 'workspace-ended', workspaceId: workspaceBefore.id });
     }
     server.notifySession(s, {
       t: 'session-exited',
@@ -654,10 +661,32 @@ async function main(): Promise<void> {
    */
   hostClient.canReceive = (sessionId) => sessions.get(sessionId) !== undefined;
   if (usingHost) {
+    const liveSequences = new Map<string, number>();
     await adoptEverything(
       {
-        adoptable: () => ptyBackend.adoptable(),
-        replay: (sessionId, from) => (ptyBackend as HostPtyBackend).replay(sessionId, from),
+        adoptable: async () => {
+          const live = await ptyBackend.adoptable();
+          for (const entry of live) liveSequences.set(entry.sessionId, entry.seq);
+          return live;
+        },
+        replay: async (sessionId, from) => {
+          const session = sessions.get(sessionId);
+          const saved = checkpoints.take(
+            sessionId,
+            hostClient.hostInstance,
+            liveSequences.get(sessionId) ?? 0,
+          );
+          if (session && saved) {
+            const { cols, rows } = session.vt;
+            session.vt.resize(saved.cols, saved.rows);
+            session.vt.write(saved.screen);
+            await session.vt.flush();
+            session.vt.resize(cols, rows);
+            hostClient.restoredThrough(sessionId, saved.through);
+            from = saved.through;
+          }
+          return (ptyBackend as HostPtyBackend).replay(sessionId, from);
+        },
         adopt: (entry) => sessions.adopt(entry),
         hydrate: ({ id, layout }) => {
           const now = Date.now();
@@ -669,6 +698,7 @@ async function main(): Promise<void> {
       config.shell,
     );
   }
+  checkpoints.clear();
 
   /**
    * Whatever did not come back was taken away by this restart, and that is what may be offered.
@@ -934,6 +964,26 @@ async function main(): Promise<void> {
 
     void (async () => {
       await agentBridge.close();
+      // Stop accepting page input, then detach from the host without ending any PTY. A drained
+      // VT and its host watermark now describe exactly the same point in the output stream.
+      await server.close();
+      if (usingHost) {
+        hostClient.stop();
+        for (const session of sessions.all) {
+          if (session.state === 'exited' || session.state === 'reaped') continue;
+          try {
+            await session.vt.flush();
+            if (hostClient.hostInstance)
+              checkpoints.save(session.id, {
+                host: hostClient.hostInstance,
+                through: hostClient.deliveredThrough(session.id),
+                ...session.vt.snapshot(session.vt.scrollback),
+              });
+          } catch (e) {
+            warn('terminal.checkpoint.failed', { sessionId: session.id, error: safeError(e) });
+          }
+        }
+      }
       // Capture every workspace before anything closes. A machine restarting is the case reboot
       // restore exists for, and this is the last moment the screens are still readable.
       try {
@@ -943,7 +993,6 @@ async function main(): Promise<void> {
       } catch (e) {
         warn('restore.snapshot.failed', { error: safeError(e) });
       }
-      await server.close();
       launcher.flush();
       db.close();
       await sessions.shutdown();

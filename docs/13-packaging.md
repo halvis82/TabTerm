@@ -3,6 +3,12 @@
 Two artifacts have to reach the machine and find each other: a daemon that launchd starts at login,
 and a Chrome extension with a permanent identity. Both have a macOS-specific trap.
 
+Starting with 1.0.2, a clean daemon shutdown writes a one-use terminal-state handoff before exiting.
+This preserves retained scrollback across subsequent updates even when frequent screen redraws
+have displaced older bytes from the host's replay ring. The first upgrade from an older daemon
+still uses that older daemon's replay behavior. No update can recover history already discarded.
+See [ADR-0019](adr/0019-terminal-state-handoff.md).
+
 ---
 
 

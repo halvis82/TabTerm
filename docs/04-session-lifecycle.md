@@ -619,6 +619,12 @@ running. The shell turns back on whatever it wants for itself.
 
 ## 6. Merge and detach of panes
 
+Ending one session from Running now removes only that session's pane. The daemon sends the
+surviving layout, so the existing tab stays open with the remaining panes, including untouched
+shells omitted from the home screen. Only a confirmed deliberate exit of the final pane emits
+`workspace-ended`, which the offscreen connection relays to Chrome to close the tab. A kill request
+alone does not authorize closing a workspace. Explicitly choosing Close tab remains separate.
+
 ### Merge
 
 `merge-session { sessionId, workspaceId, targetPaneId, direction, replace? }`

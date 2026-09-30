@@ -57,6 +57,38 @@ async function until(has: () => boolean, ms = 8000): Promise<void> {
 }
 
 describe('the watermark a reconnect replays from', () => {
+  it('does not replay bytes already represented by a restored checkpoint', async () => {
+    const sessionId = 'checkpoint-watermark';
+    const writer = await connect();
+    writer.spawn({ sessionId, shell: '/bin/sh', cwd: dir, env: {}, cols: 80, rows: 24 });
+    let printed = '';
+    writer.onData((id, data) => {
+      if (id === sessionId) printed += data.toString();
+    });
+    writer.write(sessionId, 'printf CHECKPOINTED\n');
+    await until(() => printed.includes('CHECKPOINTED'));
+    await sleep(100);
+    const through = writer.deliveredThrough(sessionId);
+    const reader = new PtyHostClient({
+      socketPath: join(dir, 'sock'),
+      hostScript: join(dir, 'never-spawned'),
+    });
+    await reader.connect(4000);
+    let received = '';
+    reader.onData((id, data) => {
+      if (id === sessionId) received += data.toString();
+    });
+    reader.restoredThrough(sessionId, through);
+    // Even an overlapping replay must not duplicate the saved screen.
+    await reader.replay(sessionId, 0);
+    reader.reconciled();
+    expect(received).toBe('');
+    reader.write(sessionId, 'printf AFTERCHECKPOINT\n');
+    await until(() => received.includes('AFTERCHECKPOINT'));
+    expect(received).not.toContain('CHECKPOINTED');
+    reader.stop();
+    writer.stop();
+  });
   it('is the host sequence, which the emulator count is not once the daemon writes anything', async () => {
     const sessionId = 'watermark-1';
     const client = await connect();

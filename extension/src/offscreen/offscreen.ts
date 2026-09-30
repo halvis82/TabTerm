@@ -55,6 +55,11 @@ function startOn(port: number, token: string, clientId: string): void {
     clientId: `${clientId}:control`,
     role: 'control',
     onControl: (msg) => {
+      if (msg.t === 'workspace-ended') {
+        void chrome.runtime
+          .sendMessage({ t: 'tabterm:close-workspace-tab', workspaceId: msg.workspaceId })
+          .catch(() => undefined);
+      }
       // Anything that must reach the user while every terminal tab is hidden or discarded
       // originates here, because this is the only context that survives both.
       if (msg.t === 'notify') {

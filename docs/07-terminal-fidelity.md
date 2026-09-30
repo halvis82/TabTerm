@@ -430,6 +430,12 @@ headless run.
 | `Shift+Cmd+K` | Clears the terminal, everywhere it is kept |
 | Everything else with `Cmd` | Chrome's. In a normal tab those never reach the page at all |
 
+Select all covers retained history, not just the viewport, regardless of scroll position. While
+a full-screen application uses the alternate buffer, Copy after Select all includes the preserved
+normal-buffer history followed by the active screen. Only the active screen can be highlighted
+while that application is running. A new selection replaces this combined selection. Output
+already discarded by the retention budget or an explicit clear cannot be copied.
+
 `Cmd+K` clears the screen in most terminals, and it did here too until the command menu wanted
 the same key. Both fired: opening the menu wiped the scrollback behind it, while opening it from
 the button did not, which is the kind of difference nobody can explain from the outside. Clearing
@@ -1078,6 +1084,12 @@ visible now. See `adr/0017`.
 ---
 
 ## History on disk
+
+A clean daemon update also hands off the parsed terminal state, including retained scrollback.
+Replaying only the host's recent raw bytes can preserve a redraw-heavy application's visible
+screen while losing all the older text that used to be scrollable. The one-use handoff records
+the host instance and delivered-byte position, and adoption applies only later bytes. It never
+sends input or resizes the running process. See [ADR-0019](adr/0019-terminal-state-handoff.md).
 
 The host's ring redraws a screen after the daemon restarts. It is memory, so it dies with the
 host and with the machine. **History is also written to disk as it arrives**, at

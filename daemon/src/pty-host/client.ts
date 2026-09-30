@@ -176,6 +176,7 @@ export class PtyHostClient {
   #exitListeners: ExitListener[] = [];
   #spawnListeners: ((sessionId: string, pid: number) => void)[] = [];
   #reconnecting = false;
+  #stopped = false;
   #onReconnect: (() => void) | undefined;
   /**
    * Requests in flight, keyed by the id that will come back with the answer.
@@ -497,6 +498,11 @@ export class PtyHostClient {
     return this.#deliveredThrough.get(sessionId) ?? 0;
   }
 
+  /** Bytes represented by a restored terminal checkpoint are already delivered. */
+  restoredThrough(sessionId: string, through: number): void {
+    this.#deliveredThrough.set(sessionId, through);
+  }
+
   onExit(fn: ExitListener): void {
     this.#exitListeners.push(fn);
   }
@@ -762,11 +768,16 @@ export class PtyHostClient {
    * unbounded because a person waiting on a terminal will not wait minutes for one.
    */
   #scheduleReconnect(): void {
-    if (this.#reconnecting) return;
+    if (this.#reconnecting || this.#stopped) return;
     this.#reconnecting = true;
     const attempt = (delay: number): void => {
       setTimeout(() => {
+        if (this.#stopped) return;
         void this.connect(4000).then((ok) => {
+          if (this.#stopped) {
+            this.close();
+            return;
+          }
           if (ok) {
             this.#reconnecting = false;
             info('pty-host.reconnected', {});
@@ -1169,5 +1180,11 @@ export class PtyHostClient {
   close(): void {
     this.#socket?.destroy();
     this.#socket = null;
+  }
+
+  /** Stop delivery while writing a shutdown checkpoint. Never reconnect during that handoff. */
+  stop(): void {
+    this.#stopped = true;
+    this.close();
   }
 }

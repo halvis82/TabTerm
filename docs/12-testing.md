@@ -3,6 +3,12 @@
 Terminal emulation is a domain where "it looked right" is not evidence. This document defines what
 counts as verified.
 
+Selection and update regressions are exercised by `select-all-history`, `group-survives-kill`,
+and `history-after-update`. The latter produces more redraw bytes than the host's ring can hold,
+restarts only its isolated test daemon, then checks clipboard history and actual wheel scrolling.
+It runs serially with the other restart suites. Grouped-kill checks cover both home-screen entry
+points, a surviving untouched shell, and closing the tab only after its final session ends.
+
 ---
 
 ## 1. Levels

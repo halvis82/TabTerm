@@ -134,6 +134,8 @@ export class XtermController {
    * that replaces the shell for a while wants all of it.
    */
   #modifyOtherKeys = 0;
+  /** A select-all made on the alternate screen also includes the preserved normal history. */
+  #allBufferSelection: string | null = null;
 
   /**
    * How long a pane will wait for the renderer that decides its cell before trusting what it has.
@@ -365,6 +367,9 @@ export class XtermController {
       opts.onData(out);
     });
     this.term.onResize(({ cols, rows }) => opts.onResize(cols, rows));
+    this.term.onSelectionChange(() => {
+      this.#allBufferSelection = null;
+    });
     this.#installKeyboard();
     this.#installContextMenu();
   }
@@ -417,7 +422,7 @@ export class XtermController {
           return false;
         case 'select-all':
           e.preventDefault();
-          this.term.selectAll();
+          this.selectAll();
           return false;
         case 'clear':
           e.preventDefault();
@@ -597,7 +602,8 @@ export class XtermController {
       menu.append(line);
     };
 
-    const selected = this.term.getSelection() || this.#selectionAtRightClick;
+    const selected =
+      this.#allBufferSelection ?? (this.term.getSelection() || this.#selectionAtRightClick);
 
     // The clipboard, in the order a hand reaches for them.
     item('Copy', selected.length > 0, () => void this.copySelection(selected));
@@ -605,7 +611,7 @@ export class XtermController {
       // Focus first. A selection made while the textarea does not have focus is held by xterm
       // but never painted, which looked exactly like the entry doing nothing.
       this.term.focus();
-      this.term.selectAll();
+      this.selectAll();
     });
     item('Paste', true, () => void this.pasteFromClipboard());
     // The real clear, not `term.clear()`. Wiping this buffer alone left the output in the daemon
@@ -701,13 +707,30 @@ export class XtermController {
   }
 
   async copySelection(override?: string): Promise<void> {
-    const text = override ?? this.term.getSelection();
+    const text = override ?? this.#allBufferSelection ?? this.term.getSelection();
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
     } catch {
       /* clipboard denied. Nothing useful to do, and failing loudly would be worse. */
     }
+  }
+
+  /** Select all retained output, including history hidden behind a full-screen application. */
+  selectAll(): void {
+    this.term.selectAll();
+    if (this.term.buffer.active.type !== 'alternate') return;
+    const normal = this.term.buffer.normal;
+    let history = '';
+    for (let row = 0; row < normal.length; row++) {
+      const line = normal.getLine(row);
+      if (!line) continue;
+      if (row > 0 && !line.isWrapped) history += '\n';
+      history += line.translateToString(true);
+    }
+    // The active selection is still painted by xterm. Its clipboard text also contains the
+    // normal buffer, which the application temporarily hid, not discarded.
+    this.#allBufferSelection = `${history.replace(/\n+$/, '')}\n${this.term.getSelection()}`;
   }
 
   /**

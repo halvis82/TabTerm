@@ -519,3 +519,9 @@ that died with the old one so their tabs say so plainly instead of hanging.
 
 **The network is not a factor.** Everything is local: a unix socket to the host and a loopback
 WebSocket to the daemon. Losing internet connectivity does not affect a running terminal.
+
+**A raw replay ring cannot guarantee older scrollback after an abrupt daemon death.** Repeated
+screen redraws can displace the bytes that originally produced that history. Clean updates use
+a one-use parsed-state handoff to preserve retained scrollback. A crash, forced shutdown, or
+invalid handoff falls back to the bounded raw ring, and history it no longer contains cannot be
+recovered. Select all includes retained normal and alternate screen text, not discarded output.

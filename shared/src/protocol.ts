@@ -1046,6 +1046,8 @@ export type ServerMessage =
       newWorkspaceId: string;
     }
   | { t: 'session-exited'; sessionId: string; exitCode: number; signal?: string }
+  /** The last pane was deliberately ended. Chrome may close this workspace's tab. */
+  | { t: 'workspace-ended'; workspaceId: string }
   | { t: 'session-detached'; sessionId: string; remainingClients: number }
   | { t: 'session-expiring'; sessionId: string; expiresAt: number; reason: string }
   | { t: 'session-expired'; sessionId: string }

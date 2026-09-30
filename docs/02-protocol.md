@@ -121,6 +121,7 @@ Both fields are optional, so an older extension still reports and is simply not 
 | `command-end` | `sessionId`, `commandId`, `exitCode`, `completedAt`, `interrupted` | OSC 133 |
 | `agent-state` | `sessionId`, `state`, `detail?`, `turnStartedAt?`, `lastTurnMs?`, `lastTurnEndedAt?`, `agentSessionId?` | Hook bridge, see `09-agent-integration.md`. `turnStartedAt` is when the person asked, absent between turns and absent for a turn whose prompt was never seen. Completed turn values come from the daemon. Reattach sends the same timing fields |
 | `session-exited` | `sessionId`, `exitCode`, `signal?` | |
+| `workspace-ended` | `workspaceId` | Sent to control connections after the last pane was deliberately ended. The browser closes only that workspace's tab |
 | `session-detached` | `sessionId`, `remainingClients` | |
 | `session-expiring` | `sessionId`, `expiresAt`, `reason` | **Reserved. Nothing sends it.** See `04-session-lifecycle.md` |
 | `session-expired` | `sessionId` | |
