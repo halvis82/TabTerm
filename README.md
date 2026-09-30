@@ -1,6 +1,33 @@
 # TabTerm
 
-A macOS terminal system where local PTY sessions behave like native Chrome tabs.
+A macOS terminal that lives in Chrome tabs. Split panes, keep processes running, and pick up where
+you left off.
+
+[Get started](#setup) · [Screenshots](#screenshots) · [Documentation](#documentation)
+
+![Three TabTerm terminal panes with a named session, highlighted output, and a scrollback marker](docs/images/workspace.png)
+
+One tab, multiple terminals. Name sessions, highlight output, and mark places worth returning to.
+
+## Screenshots
+
+| Return to your work | Save your layout |
+|---|---|
+| [![Start screen with running sessions grouped by tab](docs/images/1-start-screen.png)](docs/images/1-start-screen.png) | [![Layout template editor with a three-pane preview](docs/images/3-layout-templates.png)](docs/images/3-layout-templates.png) |
+| Open a folder or reconnect to a running session. | Reuse pane arrangements and per-pane commands. |
+
+<details>
+<summary>More screenshots: session details and settings</summary>
+
+| Session details | Settings |
+|---|---|
+| [![Session detail panel](docs/images/4-session-detail.png)](docs/images/4-session-detail.png) | [![Terminal appearance and scrollback settings](docs/images/5-settings.png)](docs/images/5-settings.png) |
+
+</details>
+
+Click a preview to see it at full size.
+
+## How it works
 
 A background daemon owns the processes. Chrome owns only the views. Terminals are ordinary Chrome
 extension pages at stable URLs, so Chrome's own tab machinery works on them for free: reorder, pin,
@@ -8,20 +35,6 @@ move between windows, group, close, restore.
 
 Closing a tab does not kill a terminal. Reopening it restores the running process and the exact
 screen, including a pane in the middle of a `vim` edit with unsaved changes.
-
-## Screenshots
-
-Open a folder or return to a running terminal from the start screen.
-
-![TabTerm start screen with running sessions](docs/images/1-start-screen.png)
-
-Split a tab into panes, name sessions, highlight output, and leave markers in the scrollback.
-
-![TabTerm split panes with a session name, highlight, and marker](docs/images/2-panes-and-markers.png)
-
-[Layout templates](docs/images/3-layout-templates.png),
-[session details](docs/images/4-session-detail.png), and
-[settings](docs/images/5-settings.png).
 
 ## Architecture
 
