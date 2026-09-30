@@ -15,6 +15,10 @@ logs/
 *.sqlite-wal
 
 # Secrets (never in the repo, ever)
+.env
+.env.*
+!.env.example
+!.env.sample
 *.pem
 *.key
 extension-key.*

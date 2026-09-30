@@ -7,14 +7,15 @@
 // still produces the ID that was minted rather than finding out after shipping.
 //
 //   node scripts/package-extension.mjs           -> dist/tabterm-extension-<version>.zip
-//   node scripts/package-extension.mjs --policy  -> also write the managed-policy plist
+//   node scripts/package-extension.mjs --unpacked -> local archive retaining the public key
+//   node scripts/package-extension.mjs --policy  -> local archive and managed-policy plist
 //
 // See docs/13-packaging.md §3.
-import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkExtensionId } from '../daemon/dist/extension-id.js';
+import { packageExtension } from './extension-archive.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = join(ROOT, 'extension', 'dist');
@@ -24,12 +25,13 @@ const OUT = join(ROOT, 'dist');
  *
  * For an unpacked or self-distributed build it is derived from the manifest key, and this check
  * is what stops a regenerated key from silently invalidating every stable URL. A Chrome Web
- * Store build is different: the store assigns the ID and the key cannot control it, so
- * `--published` skips the check and the store's ID goes in package.json instead.
+ * Store build is different: the store assigns the ID and the key cannot control it.
+ * The default store package omits the key and the store's ID goes in package.json instead.
+ * `--published` remains accepted as an alias for this default.
  */
 const EXPECTED_ID = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).tabterm
   .extensionId;
-const forStore = process.argv.includes('--published');
+const forStore = !process.argv.includes('--unpacked') && !process.argv.includes('--policy');
 
 if (!existsSync(join(DIST, 'manifest.json'))) {
   console.error('extension/dist is not built. Run `npm run build:extension` first.');
@@ -55,8 +57,9 @@ if (forStore) {
 }
 
 mkdirSync(OUT, { recursive: true });
-const zip = join(OUT, `tabterm-extension-${String(manifest.version)}.zip`);
-execFileSync('/usr/bin/zip', ['-qr', zip, '.', '-x', '*.map'], { cwd: DIST });
+const suffix = forStore ? '' : '-unpacked';
+const zip = join(OUT, `tabterm-extension-${String(manifest.version)}${suffix}.zip`);
+packageExtension(DIST, zip, forStore);
 console.log(`  package: ${zip}`);
 
 if (process.argv.includes('--policy')) {

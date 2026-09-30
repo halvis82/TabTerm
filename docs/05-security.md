@@ -30,6 +30,14 @@ against it before merge.
 
 ## 2. The token is the only boundary
 
+The extension manifest's `key` is a public identity key, not an API credential or a private
+signing key. It may be committed to keep unpacked extension IDs stable. Store upload packages
+omit it because the Chrome Web Store assigns its own identity. Private signing keys, `.env`
+credentials, and runtime authentication tokens must never be committed or packaged.
+Before distributing an archive, scan both the tracked source and Git history for credentials,
+then scan the extracted archive. Review findings without publishing secret values. Test fixtures
+and public keys can trigger false positives, so a scanner result needs review, not blind deletion.
+
 ```
 Origin checking is NOT a security control.
 ```

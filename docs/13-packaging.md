@@ -263,12 +263,21 @@ This is enforced rather than remembered. `daemon/src/extension-id.ts` derives th
 would assign from the manifest's public key — SHA-256 of the DER key, first 16 bytes, each
 nibble in a 26-letter alphabet starting at `a` — and a test asserts the shipped key still
 produces `mcchodnlokiofihbecdeicicfhmgpadb`. `scripts/package-extension.mjs` refuses to build a
-package if it does not, and says which ID the key would have produced.
+local package if it does not, and says which ID the key would have produced.
 
 ```
-node scripts/package-extension.mjs            # dist/tabterm-extension-<version>.zip
-node scripts/package-extension.mjs --policy   # and the managed-preferences plist
+npm run package:extension                     # store-ready dist/tabterm-extension-<version>.zip
+node scripts/package-extension.mjs --unpacked # local archive with -unpacked suffix
+node scripts/package-extension.mjs --policy   # local archive and managed-preferences plist
 ```
+
+The default archive is for the Chrome Web Store. It omits the manifest `key`, which the store
+rejects on upload. `--published` remains an alias for this default. The key is a public identity
+key, not a credential. It stays in the source and unpacked build so existing local terminal URLs
+keep working. Packaging uses a temporary copy and never changes the loaded extension's manifest.
+The local archive has a distinct `-unpacked.zip` filename to prevent confusing the two channels.
+Each archive is created fresh and replaces the previous file only after ZIP integrity passes,
+so removed build files cannot linger as stale entries.
 
 The policy plist is written, never installed: applying it needs root and changes Chrome for
 every profile on the machine, which is not something a build script should do unasked. The
@@ -283,7 +292,8 @@ a tag, and a local ZIP alone is not a published release.
    `extension/public/manifest.json`, and the shared `VERSION` constant.
 2. Run `npm run verify:full` against the release code and build the extension archive with
    `npm run package:extension`. Verify its manifest version, ZIP integrity, and that every entry
-   matches the tested build. Record its SHA-256.
+   matches the tested build. For the store manifest, verify its only change is removal of `key`.
+   Explicitly reject a store ZIP that still contains `key`. Record its SHA-256.
 3. Integrate the verified changes into `main` and push the release commit when publication is
    authorized. Create an annotated tag named `v<version>` on that exact commit, for example
    `v1.0.2`, and push the tag explicitly.

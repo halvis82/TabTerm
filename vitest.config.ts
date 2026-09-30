@@ -38,7 +38,7 @@ const home = mkdtempSync(join(base, 'home-'));
 
 export default defineConfig({
   test: {
-    include: ['{shared,daemon,extension}/src/**/*.test.ts'],
+    include: ['{shared,daemon,extension}/src/**/*.test.ts', 'scripts/**/*.test.mjs'],
     environment: 'node',
     reporters: 'default',
     testTimeout: 30_000,
