@@ -57,7 +57,7 @@
   "tabterm": {
     "extensionId": "mcchodnlokiofihbecdeicicfhmgpadb",
     "extensionIdNote": "The id an unpacked build has, derived from the manifest key. Keep it: a developer loading extension/dist gets this one.",
-    "publishedExtensionId": "",
+    "publishedExtensionId": "llpnnikkigahedhoedecpgjcnmfcgfen",
     "publishedExtensionIdNote": "The id the Chrome Web Store assigns on publish. Put it here after the first upload. Both ids are registered with the native messaging host, so a store install and an unpacked build both work from one install, and nobody has to choose."
   }
 }

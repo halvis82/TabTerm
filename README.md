@@ -135,9 +135,10 @@ reinstalls. That matters: every terminal tab is a `chrome-extension://<id>/...` 
 changed ID would invalidate every one of them in your history.
 
 If you installed it from the Chrome Web Store instead, the store gave it a different id from the
-one the manifest key pins. Put that id in `package.json` under `tabterm.publishedExtensionId` and
-run `./scripts/install.sh` again. Both ids are then registered with the native messaging host, so a
-store install and an unpacked build work side by side and nobody has to choose.
+one the manifest key pins. Its ID is recorded in `package.json` under `tabterm.publishedExtensionId`.
+Run `./scripts/install.sh` from the current source to register it. Both ids are then registered
+with the native messaging host, so a store install and an unpacked build work side by side and
+nobody has to choose.
 
 ### 5. macOS will ask for permission once
 

@@ -302,9 +302,10 @@ a tag, and a local ZIP alone is not a published release.
 5. Report the version, tag, commit, archive filename, and SHA-256 together. If publication is
    deferred, state that the remote tag is pending rather than calling the release published.
 
-A GitHub Release page with downloadable assets is separate from a Git tag. Chrome Web Store
-submission is separate from both. Creating or pushing a tag does not upload the extension ZIP
-or submit it to the store. Report each publication channel independently.
+A GitHub Release page with downloadable assets is separate from a Git tag. Once the
+[release workflow](15-release-automation.md) is connected, pushing an annotated version tag
+runs verification and submits the extension ZIP for store review. Ordinary pushes do not submit
+a release. Report the tag, workflow result, store submission and approval independently.
 
 ---
 

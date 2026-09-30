@@ -51,20 +51,15 @@ npm run doctor
 It checks each link in the chain and names the one that is broken. A healthy machine reports the
 companion program running and listening on `127.0.0.1`.
 
-## Load the extension
+## Use the submitted extension
 
-1. `chrome://extensions`
-2. Turn on **Developer mode**
-3. **Load unpacked**, and choose the `extension/dist` folder inside the clone
+Review the store extension with ID `llpnnikkigahedhoedecpgjcnmfcgfen`.
+The installer reads this ID from `publishedExtensionId` in `package.json` and registers it alongside
+the unpacked development ID, so both installations can connect to the same companion.
+No account, subscription or login credentials are required.
 
-Or install TabTerm from its Chrome Web Store listing, which is the same code.
-
-The unpacked extension's ID is pinned by a `key` in the manifest, so it does not change between
-reloads, and that is the ID the installer registers with the native messaging host. The Store
-assigns its own ID on publish, which no manifest key can control; the installer reads it from
-`publishedExtensionId` in `package.json` and registers it alongside the first, so one install
-serves both. That field is empty until the first upload assigns an ID, so a reviewer following
-these steps is using the unpacked build.
+For development only, Chrome's **Load unpacked** action can load `extension/dist`. That uses a
+different ID and does not test the package submitted for store review.
 
 ## Open a terminal
 
