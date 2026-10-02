@@ -1088,3 +1088,12 @@ offered forever. Records are pruned after 14 days.
 
 Covered end to end by `daemon/src/reboot-restore.test.ts`, which shares one database across two
 daemon lifetimes and asserts the restored panes have the same directories and **different pids**.
+
+
+## Companion update activation
+
+Compatible companion updates preserve the terminal host and use the clean-shutdown terminal-state
+handoff. New session creation pauses briefly during activation, while existing sessions continue.
+An updater never terminates a host to apply an incompatible change. Such releases require manual
+setup. Health checks compare the host instance across the update. See
+[companion updates](16-companion-updates.md).

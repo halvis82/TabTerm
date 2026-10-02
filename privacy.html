@@ -33,7 +33,7 @@
   <body>
     <main>
 <h1>TabTerm privacy policy</h1>
-<p><strong>Last updated:</strong> 2026-09-16</p>
+<p><strong>Last updated:</strong> 2026-10-01</p>
 <p>TabTerm is a terminal. Everything it handles is the sort of thing a terminal handles, which is to say some of it is sensitive. This describes exactly what it touches, where that stays, and what you can delete.</p>
 <p>The short version: <strong>there is no TabTerm server.</strong> Nothing is uploaded, because there is nowhere to upload it to.</p>
 <hr />
@@ -59,7 +59,7 @@
 <p><strong>A local access token.</strong> Generated on your machine so that only the extension can talk to the companion program. It is held in Chrome's session storage, which Chrome clears when the browser closes.</p>
 <hr />
 <h2>Where it goes</h2>
-<p>Nowhere.</p>
+<p>Your terminal data stays on your machine. Optional companion update requests are described below.</p>
 <ul>
 <li><strong>No TabTerm server exists.</strong> There is no backend, no account, no sign-in
 <li><strong>Terminal input and output are never transmitted anywhere by TabTerm</strong>
@@ -68,6 +68,11 @@
 </ul>
 <p>The extension makes no network requests to any remote host. Every connection it makes is to your own machine, over loopback: to the companion program, which is bound to loopback and refuses anything without the local token, and to a local address <strong>you</strong> have asked it to open, which is the feature described under "Services listening on your own machine" below. Neither leaves this machine.</p>
 <p>Programs <strong>you</strong> run in a terminal can of course use the network. That is what a terminal is for, and it is your command doing it rather than TabTerm.</p>
+<hr />
+<h2>Optional companion updates</h2>
+<p>The companion contacts GitHub when you press Check for updates or enable automatic checking. Both automatic checks and automatic installation are off by default. GitHub receives ordinary request information such as your IP address and a TabTerm updater user-agent. No terminal input, output, history, clipboard contents, authentication token or project information is included.</p>
+<p>Installing an update downloads release source from GitHub and dependencies from the package registry using the release lockfile. Build tools may make their normal dependency requests. These requests are for software distribution, not telemetry. The extension itself continues to connect locally and does not download executable extension code from GitHub.</p>
+<p>Update preferences, version metadata, operation status, staging files and the previous program backup are stored under <code>~/.local/state/tabterm/updates/</code>. Turn automatic checks off in Settings to stop scheduled update requests. Reset Settings turns both automatic update options off. Uninstall removes the update helper and its local update files.</p>
 <hr />
 <h2>What is written to your disk, and where</h2>
 <p>All of it under your home directory, readable only by you:</p>

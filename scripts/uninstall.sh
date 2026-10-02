@@ -18,6 +18,10 @@ if [ -f "$LIBEXEC/agent-hooks.mjs" ]; then
   node "$LIBEXEC/agent-hooks.mjs" remove >/dev/null 2>&1 && echo "  agent CLI hooks removed"
 fi
 
+# Stop future checks and the independent updater before removing its executable.
+launchctl bootout "gui/$(id -u)/com.tabterm.updater" 2>/dev/null || true
+rm -rf "$STATE/updates"
+
 rm -rf "$LIBEXEC" && echo "  binaries removed"
 rm -f "$STATE/token" && echo "  token removed"
 

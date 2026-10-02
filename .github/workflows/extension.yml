@@ -37,6 +37,7 @@ jobs:
       - run: npm run build
       - run: npm run verify
       - run: npm run package:extension
+      - run: node scripts/package-companion.mjs
       - name: Verify archive
         env:
           RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
@@ -44,7 +45,10 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: extension-${{ github.sha }}
-          path: dist/tabterm-extension-*.zip
+          path: |
+            dist/tabterm-extension-*.zip
+            dist/tabterm-companion-*.tar.gz
+            dist/companion-release.json
           if-no-files-found: error
 
   submit:
@@ -93,3 +97,23 @@ jobs:
           CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
           CWS_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
         run: node scripts/publish-extension.mjs
+
+  companion:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: extension-${{ github.sha }}
+          path: dist
+      - name: Publish companion release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          gh release create "$RELEASE_TAG" --verify-tag --target "$RELEASE_COMMIT" --title "TabTerm $RELEASE_TAG" --generate-notes dist/companion-release.json dist/tabterm-companion-*.tar.gz dist/tabterm-extension-*.zip

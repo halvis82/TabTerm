@@ -1863,3 +1863,11 @@ Two details that matter more than they look:
   a one-pane tab. A palette offering something that does nothing is worse than a shorter one.
 - **Each action shows its keystroke where one exists.** The palette teaches the shortcut instead
   of becoming the only way to reach it.
+
+
+## Companion updates in Settings
+
+Settings shows extension and companion versions and sends authenticated local update commands.
+The companion performs GitHub requests and builds. The extension acquires no new host permissions
+and executes no downloaded code. Chrome continues to own extension installation and updates.
+Older companions receive setup guidance instead of working update buttons.

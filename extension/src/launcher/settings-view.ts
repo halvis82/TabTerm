@@ -1,3 +1,4 @@
+import { VERSION, type CompanionUpdateStatus } from '@tabterm/shared';
 import { THEME_CHOICES } from '../terminal/themes.js';
 import {
   DEFAULT_LABEL_OPACITY,
@@ -20,6 +21,11 @@ import type { AgentHooksStatus, NotifyPolicy, ShellIntegrationStatus } from '@ta
  */
 
 export interface SettingsOptions {
+  updates?: () => CompanionUpdateStatus | null;
+  companionVersion?: () => string;
+  onCheckUpdate?: () => void;
+  onInstallUpdate?: () => void;
+  onUpdatePreferences?: (checks: boolean, install: boolean) => void;
   onChangeTheme: (theme: string) => void;
   /** Current notification policy, or null until the daemon has answered. */
   notify: () => NotifyPolicy | null;
@@ -168,6 +174,79 @@ function chooser(
 export function buildSettings(options: SettingsOptions): HTMLElement {
   const wrap = document.createElement('div');
   wrap.className = 'cmd-settings';
+
+  const updates = section('Updates');
+  updates.dataset['updates'] = 'true';
+  const state = options.updates?.();
+  const versions = document.createElement('p');
+  versions.className = 'set-desc';
+  versions.textContent = `Extension ${VERSION} · Companion ${state?.installedVersion ?? options.companionVersion?.() ?? 'Connecting'}`;
+  updates.append(versions);
+  const message = document.createElement('p');
+  message.className = 'set-desc';
+  message.dataset['updateStatus'] = 'true';
+  message.setAttribute('role', 'status');
+  message.textContent = state
+    ? state.message
+    : 'If update controls do not appear, install the latest companion once using the setup guide.';
+  updates.append(message);
+  if (state) {
+    if (state.availableVersion) {
+      const available = document.createElement('p');
+      available.className = 'set-desc';
+      available.textContent = `Latest companion: ${state.availableVersion}${state.checkedAt ? ` · Checked ${new Date(state.checkedAt).toLocaleString()}` : ''}`;
+      updates.append(available);
+    }
+    const busy = ['checking', 'preparing', 'installing'].includes(state.phase);
+    for (const [label, action, disabled] of [
+      ['Check for updates', options.onCheckUpdate, busy],
+      ['Update companion', options.onInstallUpdate, busy || !state.canInstall],
+    ] as const) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'cmd-settings-button';
+      button.textContent = label;
+      button.disabled = disabled;
+      button.addEventListener('click', () => {
+        button.disabled = true;
+        action?.();
+      });
+      updates.append(button);
+    }
+    for (const [label, checked, change] of [
+      [
+        'Automatically check for updates',
+        state.automaticChecks,
+        (value: boolean) => options.onUpdatePreferences?.(value, value && state.automaticInstall),
+      ],
+      [
+        'Automatically install compatible updates',
+        state.automaticInstall,
+        (value: boolean) => options.onUpdatePreferences?.(state.automaticChecks || value, value),
+      ],
+    ] as const) {
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = checked;
+      input.addEventListener('change', () => change(input.checked));
+      updates.append(
+        field(
+          label,
+          label.includes('install')
+            ? 'Downloads, builds and installs compatible releases. Terminals stay running. macOS permissions may need renewal. Off by default.'
+            : 'Checks GitHub once a day. Sends no terminal content. Off by default.',
+          input,
+        ),
+      );
+    }
+  }
+  const setup = document.createElement('a');
+  setup.href = 'https://github.com/halvis82/TabTerm#setup';
+  setup.target = '_blank';
+  setup.rel = 'noopener noreferrer';
+  setup.textContent = 'Companion setup guide';
+  updates.append(setup);
+  wrap.append(updates);
 
   // --- Appearance ---------------------------------------------------------
   const look = section('Appearance');

@@ -300,3 +300,18 @@ Terminal pages connect with role `data`. Sending page state to the control role 
 one context that cannot draw anything receives the update and every context that can does not.
 There is no error: the change simply never appears. A favorite edited in one tab stayed stale in
 all of them, and a page asking for the memory mode never heard back at all.
+
+
+## Companion update control
+
+Authenticated clients may send `get-companion-update`, `check-companion-update`,
+`install-companion-update` and `set-companion-updates` with boolean `automaticChecks` and
+`automaticInstall`. The daemon broadcasts `companion-update` with installed/latest version,
+phase, message, check timestamp, preferences and installation availability. Unknown messages
+remain harmless to older daemons. No update URL or shell command is accepted from a client.
+
+The local helper uses `update-health`, `prepare-companion-update` and
+`finish-companion-update`. The response contains daemon version, durable-host availability,
+host instance and session count. Preparation pauses new session creation for at most two minutes.
+These messages require the same local authentication token as every other control operation.
+See [companion updates](16-companion-updates.md).

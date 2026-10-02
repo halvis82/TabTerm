@@ -361,6 +361,8 @@ const COVERS = [
     ['live-homescreen', 'sessions', 'start-screen-refresh', 'pane-chooser'],
   ],
   ['daemon/src/notify-policy.ts', ['notifications']],
+  ['scripts/updater/', [...CORE, 'companion-updates']],
+  ['extension/src/launcher/settings-view.ts', ['settings-live', 'companion-updates']],
   ['scripts/', CORE],
   ['extension/public/terminal.html', ['light-mode', 'light-panels', 'palette', 'command-panel']],
 

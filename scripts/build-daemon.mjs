@@ -71,6 +71,16 @@ const redactOptions = {
   logLevel: 'warning',
 };
 
+const updaterOptions = {
+  entryPoints: ['scripts/updater/worker.mjs'],
+  outfile: 'daemon/dist/update-worker.mjs',
+  bundle: true,
+  platform: 'node',
+  target: 'node22',
+  format: 'esm',
+  logLevel: 'warning',
+};
+
 if (watch) {
   const esbuild = await import('esbuild');
   const ctx = await esbuild.context(options);
@@ -79,9 +89,12 @@ if (watch) {
   await redactCtx.watch();
   const hostCtx = await esbuild.context(hostOptions);
   await hostCtx.watch();
+  const updaterCtx = await esbuild.context(updaterOptions);
+  await updaterCtx.watch();
   console.log('daemon: watching');
 } else {
   await build(options);
   await build(hostOptions);
   await build(redactOptions);
+  await build(updaterOptions);
 }

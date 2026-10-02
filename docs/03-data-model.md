@@ -582,3 +582,12 @@ Not in SQLite deliberately. This is an append-only byte stream with no queries r
 and putting it in the database would mean a write amplification on every keystroke of output for
 a lookup nobody performs. It is also the thing most worth being able to delete by removing a
 file. See `07-terminal-fidelity.md`.
+
+
+## Retained workspace recovery metadata
+
+Session metadata retains its last known workspace ID when a later directory or command update
+omits that ID. An asynchronous lookup can finish after the live workspace has been removed.
+It may refresh the remembered directory, but must not erase the mapping used by expired-tab
+recovery. An explicitly supplied replacement workspace ID still moves that mapping.
+This is an upsert rule, with no schema migration or rewrite of existing history.

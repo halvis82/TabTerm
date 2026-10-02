@@ -88,9 +88,8 @@ docs/          Specification and decision records
 
 ## Setup
 
-Everything runs locally and is built from source. Nothing is downloaded at install time, and
-nothing needs to be notarized, because the bundle is built on your machine rather than shipped
-to it.
+Everything runs locally and is built from source. Setup downloads source and npm dependencies,
+then builds the app bundle on your machine. No prebuilt TabTerm app needs to be notarized.
 
 ### 1. Requirements
 
@@ -106,6 +105,7 @@ way that looks like something else.
 git clone https://github.com/halvis82/TabTerm.git
 cd TabTerm
 npm install
+npm run typecheck
 npm run build
 ```
 
@@ -283,6 +283,18 @@ the tab title and favicon, so a hidden tab waiting on you is visible.
 
 Drop a `.mjs` file in `~/.config/tabterm/plugins/` and restart the daemon. See
 [plugins/README.md](plugins/README.md) and `plugins/example.mjs`.
+
+## Updating
+
+Chrome updates a store-installed extension after a new version passes review. For the companion,
+open TabTerm Settings, **Updates**, then **Check for updates** and **Update companion**.
+Automatic checking and compatible automatic installation are optional and off by default.
+The updater downloads release source, builds it locally and preserves running terminal sessions.
+It needs Node/npm and the build tools from initial setup. Normal updates do not require sudo.
+
+If your companion predates these controls, update your checkout, run `npm ci` and
+`npm run typecheck`, then `./scripts/install.sh` once. Development checkouts and incompatible updates use that manual path.
+See [companion updates](docs/16-companion-updates.md) for compatibility and recovery limits.
 
 ## Troubleshooting
 

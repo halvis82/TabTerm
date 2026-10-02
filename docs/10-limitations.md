@@ -525,3 +525,13 @@ screen redraws can displace the bytes that originally produced that history. Cle
 a one-use parsed-state handoff to preserve retained scrollback. A crash, forced shutdown, or
 invalid handoff falls back to the bounded raw ring, and history it no longer contains cannot be
 recovered. Select all includes retained normal and alternate screen text, not discarded output.
+
+
+## Companion update boundaries
+
+The first updater-capable companion must be installed manually. Source updates still require Node,
+npm and build tools. Database-code, native terminal dependency and incompatible protocol/runtime
+changes require manual setup. Optional Full Disk Access may need re-granting when app contents
+change. Offline machines retain their current installation and report failed checks. A crashed
+updater can recover only while its runtime or the daemon is still runnable. See
+[companion updates](16-companion-updates.md).

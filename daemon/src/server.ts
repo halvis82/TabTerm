@@ -1,3 +1,4 @@
+import type { UpdateManager } from '../../scripts/updater/manager.mjs';
 import { createServer, type Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { mkdir, stat } from 'node:fs/promises';
@@ -324,6 +325,8 @@ export class DaemonServer {
   /** Set by main. Drops every history file and returns how many went. */
   #resetHistory?: () => number;
   #restart?: () => void;
+  updates?: UpdateManager;
+  updateHealth?: () => { durable: boolean; hostInstance: string | null };
 
   setResetHooks(hooks: { history: () => number; restart: () => void }): void {
     this.#resetHistory = hooks.history;
@@ -2519,6 +2522,40 @@ export class DaemonServer {
         return;
       }
 
+      case 'get-companion-update':
+        if (this.updates)
+          send(
+            client.socket,
+            controlFrame({ t: 'companion-update', status: this.updates.snapshot() }),
+          );
+        return;
+      case 'check-companion-update':
+        void this.updates?.check();
+        return;
+      case 'install-companion-update':
+        void this.updates?.install();
+        return;
+      case 'set-companion-updates':
+        this.updates?.preferencesChanged(msg.automaticChecks, msg.automaticInstall);
+        return;
+      case 'update-health':
+      case 'prepare-companion-update':
+      case 'finish-companion-update': {
+        if (msg.t === 'prepare-companion-update')
+          this.#sessions.updatePausedUntil = Date.now() + 120_000;
+        if (msg.t === 'finish-companion-update') this.#sessions.updatePausedUntil = 0;
+        const health = this.updateHealth?.() ?? { durable: false, hostInstance: null };
+        send(
+          client.socket,
+          controlFrame({
+            t: 'update-health',
+            version: VERSION,
+            ...health,
+            sessionCount: this.#sessions.all.length,
+          }),
+        );
+        return;
+      }
       case 'get-archive-status':
       case 'get-notify-policy':
       case 'set-notify-policy': {
@@ -2548,6 +2585,7 @@ export class DaemonServer {
       }
 
       case 'reset-settings': {
+        this.updates?.preferencesChanged(false, false);
         /**
          * Every preference back to its default, and nothing else touched.
          *

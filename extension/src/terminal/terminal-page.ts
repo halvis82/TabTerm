@@ -1,3 +1,4 @@
+import type { CompanionUpdateStatus } from '@tabterm/shared';
 import type { Terminal } from '@xterm/xterm';
 import { UNDO_WINDOW_MS, UndoStack, offerLabel, type UndoOffer } from './undo-offers.js';
 import type {
@@ -162,6 +163,8 @@ const paneStatus = new StatusMachine();
 let notifyPolicy: NotifyPolicy | null = null;
 let agentHooks: AgentHooksStatus | null = null;
 let shellIntegration: ShellIntegrationStatus | null = null;
+let companionUpdate: CompanionUpdateStatus | null = null;
+let companionVersion = 'Connecting';
 let scrollbackBytes: number | null = null;
 let backgroundTimeout: number | null | undefined;
 /**
@@ -5098,6 +5101,7 @@ function askForSettings(): void {
   client?.send({ t: 'get-agent-hooks' });
   client?.send({ t: 'get-agent-command' });
   client?.send({ t: 'get-shell-integration' });
+  client?.send({ t: 'get-companion-update' });
   client?.send({ t: 'get-scrollback-budget' });
   client?.send({ t: 'get-background-timeout' });
 }
@@ -5707,6 +5711,12 @@ function buildCommandPanel(): void {
     settings: () =>
       buildSettings({
         onChangeTheme: applyTheme,
+        updates: () => companionUpdate,
+        companionVersion: () => companionVersion,
+        onCheckUpdate: () => client?.send({ t: 'check-companion-update' }),
+        onInstallUpdate: () => client?.send({ t: 'install-companion-update' }),
+        onUpdatePreferences: (automaticChecks, automaticInstall) =>
+          client?.send({ t: 'set-companion-updates', automaticChecks, automaticInstall }),
         notify: () => notifyPolicy,
         /**
          * Moved here first, then sent.
@@ -6191,6 +6201,8 @@ function onControl(msg: ServerMessage): void {
      older page. */
   switch (msg.t) {
     case 'auth-ok': {
+      companionVersion = msg.serverVersion;
+      companionUpdate = null;
       if (workspaceId)
         client?.send({
           t: 'attach-workspace',
@@ -6984,6 +6996,12 @@ function onControl(msg: ServerMessage): void {
 
     case 'scrollback-budget': {
       scrollbackBytes = msg.bytes;
+      commandPanel?.refreshSettings();
+      return;
+    }
+
+    case 'companion-update': {
+      companionUpdate = msg.status;
       commandPanel?.refreshSettings();
       return;
     }

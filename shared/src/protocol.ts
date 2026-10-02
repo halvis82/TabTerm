@@ -1,3 +1,4 @@
+import type { CompanionUpdateStatus } from './updates.js';
 /**
  * Wire protocol between the extension and the daemon.
  *
@@ -689,6 +690,13 @@ export type ClientMessage =
   | { t: 'get-memory-mode' }
   // Completion notifications, and the agent CLI hooks that make agent turns visible at all.
   // See docs/06-chrome-integration.md and docs/09-agent-integration.md.
+  | { t: 'get-companion-update' }
+  | { t: 'check-companion-update' }
+  | { t: 'install-companion-update' }
+  | { t: 'set-companion-updates'; automaticChecks: boolean; automaticInstall: boolean }
+  | { t: 'update-health' }
+  | { t: 'prepare-companion-update' }
+  | { t: 'finish-companion-update' }
   | { t: 'get-notify-policy' }
   | { t: 'set-notify-policy'; policy: Partial<NotifyPolicy> }
   /**
@@ -971,6 +979,14 @@ export type ServerErrorCode =
   | 'internal';
 
 export type ServerMessage =
+  | { t: 'companion-update'; status: CompanionUpdateStatus }
+  | {
+      t: 'update-health';
+      version: string;
+      durable: boolean;
+      hostInstance: string | null;
+      sessionCount: number;
+    }
   | { t: 'auth-ok'; serverVersion: string; sessionCount: number }
   | { t: 'auth-fail'; code: ServerErrorCode }
   | { t: 'session-created'; sessionId: string; streamId: number; pid: number; workspaceId: string }

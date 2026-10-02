@@ -532,6 +532,31 @@ machine. It was not: the laptop had been closed in the middle of it. The real le
 narrower one, that a machine in use makes a fixed sleep a coin toss, and that a run whose timings
 look impossible should be read as a question rather than as data.
 
+
+## Companion update verification
+
+Updater unit tests use temporary homes and injected network/process adapters. They check release
+metadata, bounded downloads, archive extraction, preference persistence, preparation failures,
+activation ordering and rollback. Worker tests replace actual files in their temporary installation
+and assert that user data and tokens remain intact. The protocol test opens an isolated authenticated
+socket and verifies update commands and the bounded pause on new session creation.
+
+The `companion-updates` browser suite checks Settings versions, opt-in defaults and disabled
+installation before a release check. It performs no remote download or real installation. Existing
+restart, handoff and resilience suites cover terminal continuity through daemon replacement.
+The full browser gate runs against its own daemon and terminal host. Never run update fault
+injection or recovery tests against a person's installed companion.
+
+Hosted workflow checks do not prove a live release or a LaunchAgent installation works on a clean
+Mac. Before rollout, test a published compatible update between two installed versions on a
+disposable account, including forced helper interruption and recovery. Confirm the terminal host,
+processes and retained screen survive, and check both extension/companion publication orders.
+
+On a Mac with a logged-in user, `node scripts/with-node.mjs node test/updater-launchd.mjs`
+checks the real helper job policy. It creates a uniquely named temporary LaunchAgent, interrupts
+its own helper and verifies that launchd reaps the old child before restarting. It never addresses
+the installed companion job or any terminal. This is separate from portable unit tests.
+
 Tests that assert positions in the shared recent-command list run serially. A command emitted by
 another suite can otherwise change the first row between selection and assertion. Command-duration
 checks compare the display with observed shell-event timestamps, accounting for whole-second flooring.

@@ -531,6 +531,9 @@ export class SessionManager {
     return Math.min(1000, Math.max(1, Math.floor(value)));
   }
 
+  /** Briefly block new PTYs during updater activation, without touching existing ones. */
+  updatePausedUntil = 0;
+
   create(opts: {
     cwd?: string;
     command?: readonly string[];
@@ -547,6 +550,8 @@ export class SessionManager {
      * session, and returning one leaves a pane showing nothing and a row in Running Now for a pid
      * that does not exist.
      */
+    if (Date.now() < this.updatePausedUntil)
+      throw new Error('The companion is updating. Try opening the terminal again in a moment.');
     if (!this.canCreate) throw new NoDurableHostError();
     const id = randomUUID();
     /**

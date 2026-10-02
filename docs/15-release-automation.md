@@ -74,7 +74,7 @@ installer run again after receiving this configuration. That is separate from a 
 
 Only the submission job can obtain Google credentials. Pull requests and build jobs have read-only
 repository access. Actions are pinned to commit hashes. Builds happen before authentication and
-only the extension ZIP is uploaded as an artifact. The submission job installs no npm dependencies.
+the verified extension ZIP and companion assets are uploaded as artifacts. The submission job installs no npm dependencies.
 Submissions are serialized. Avoid pushing multiple release tags while review is pending.
 
 ## Failure and retry
@@ -98,3 +98,14 @@ the workflow is configured for later versions.
 - [Chrome Web Store API](https://developer.chrome.com/docs/webstore/using-api)
 - [Service accounts](https://developer.chrome.com/docs/webstore/service-accounts)
 - [Google GitHub authentication](https://github.com/google-github-actions/auth)
+
+
+## Companion release assets
+
+The checks job also runs `scripts/package-companion.mjs`. Its source archive comes from the exact
+commit and its companion manifest records the digest and compatibility. A separate tag-only job
+creates the GitHub Release with that manifest, source archive and extension ZIP after checks pass.
+This uses the job's repository token and needs no Google credentials. The store submission job
+still has its separate authentication and review requirements. No release asset is overwritten.
+Before publishing, validate companion/extension compatibility for either publication order and
+follow the full local release gate. See [companion updates](16-companion-updates.md).

@@ -1,6 +1,6 @@
 # TabTerm privacy policy
 
-**Last updated:** 2026-09-16
+**Last updated:** 2026-10-01
 
 TabTerm is a terminal. Everything it handles is the sort of thing a terminal handles, which is to
 say some of it is sensitive. This describes exactly what it touches, where that stays, and what you
@@ -65,7 +65,7 @@ closes.
 
 ## Where it goes
 
-Nowhere.
+Your terminal data stays on your machine. Optional companion update requests are described below.
 
 - **No TabTerm server exists.** There is no backend, no account, no sign-in
 - **Terminal input and output are never transmitted anywhere by TabTerm**
@@ -79,6 +79,25 @@ described under "Services listening on your own machine" below. Neither leaves t
 
 Programs **you** run in a terminal can of course use the network. That is what a terminal is for,
 and it is your command doing it rather than TabTerm.
+
+---
+
+## Optional companion updates
+
+The companion contacts GitHub when you press Check for updates or enable automatic checking.
+Both automatic checks and automatic installation are off by default. GitHub receives ordinary
+request information such as your IP address and a TabTerm updater user-agent. No terminal input,
+output, history, clipboard contents, authentication token or project information is included.
+
+Installing an update downloads release source from GitHub and dependencies from the package
+registry using the release lockfile. Build tools may make their normal dependency requests.
+These requests are for software distribution, not telemetry. The extension itself continues to
+connect locally and does not download executable extension code from GitHub.
+
+Update preferences, version metadata, operation status, staging files and the previous program
+backup are stored under `~/.local/state/tabterm/updates/`. Turn automatic checks off in Settings
+to stop scheduled update requests. Reset Settings turns both automatic update options off.
+Uninstall removes the update helper and its local update files.
 
 ---
 

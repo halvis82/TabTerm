@@ -501,3 +501,13 @@ the shells in them are not ended for having no tab. See `06-chrome-integration.m
 **The first time still needs a hand.** The receiver for this request is part of the extension, so
 an extension that predates it cannot be asked. One manual reload installs the thing that means
 there never has to be another.
+
+
+## Companion update installation
+
+The installer stages an independent update helper and installation metadata. From an updater job,
+`TABTERM_COMPANION_UPDATE=1` uses an already built source tree/app bundle and skips rebuilding
+and extension reload. The optional permission-status lookup is informational. macOS denying access
+to its permission database does not fail an install. This internal mode is used only after the helper has verified release source
+and saved executable backups. It does not change shell dotfiles or prompt to install agent hooks.
+See [companion updates](16-companion-updates.md) for preparation, activation and recovery.

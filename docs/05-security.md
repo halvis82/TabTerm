@@ -453,3 +453,13 @@ one. Full Disk Access is machine-wide and recorded there; the per-user file hold
 app-data decisions and never mentions it, so looking in the obvious place always answered "not
 granted". Reading it requires the same access, so an empty answer means "cannot tell" rather than
 "not granted", and the wording survives both.
+
+
+## Companion release updates
+
+Update controls require local token authentication and accept no caller-supplied URL, path or
+command. The companion checks fixed GitHub release endpoints only on request or after opt-in.
+Source downloads have a declared byte count and SHA-256, bounded HTTPS redirects and restricted
+archive extraction. No extension remote code or new Chrome host permission is used. GitHub release
+control is the code-distribution trust boundary. A checksum is not an independent signature.
+Build/install runs as the user without sudo. See [companion updates](16-companion-updates.md).

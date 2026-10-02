@@ -1,3 +1,4 @@
+import { UpdateManager } from '../../scripts/updater/manager.mjs';
 import {
   existsSync,
   mkdirSync,
@@ -884,7 +885,23 @@ async function main(): Promise<void> {
     },
   });
 
+  const updates = new UpdateManager({
+    home: process.env['TABTERM_HOME'] ?? homedir(),
+    version: VERSION,
+    port: config.port,
+    enabled:
+      process.platform === 'darwin' &&
+      !process.env['TABTERM_HOME'] &&
+      process.argv[1] === join(homedir(), '.local/libexec/tabterm/daemon.mjs'),
+    changed: (status) => server.broadcastAll({ t: 'companion-update', status }),
+  });
+  server.updates = updates;
+  server.updateHealth = () => ({
+    durable: usingHost && hostClient.connected && hostClient.hostInstance !== null,
+    hostInstance: hostClient.hostInstance,
+  });
   await server.listen();
+  updates.start();
 
   /**
    * And, on a first run, ask for the folders macOS guards.
@@ -946,6 +963,7 @@ async function main(): Promise<void> {
   const shutdown = (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
+    updates.stop();
     info('daemon.shutdown', { signal });
 
     /**

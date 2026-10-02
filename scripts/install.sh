@@ -89,7 +89,9 @@ mkdir -p "$HOME/.local/share/tabterm"
 cp "$REPO/shell/tabterm-integration.zsh" "$HOME/.local/share/tabterm/"
 echo "  shell integration staged (not sourced automatically)"
 
-npm --prefix "$REPO" run build >/dev/null
+if [ "${TABTERM_COMPANION_UPDATE:-0}" != 1 ]; then
+  npm --prefix "$REPO" run build >/dev/null
+fi
 echo "  built daemon and extension"
 
 # The daemon runs from ~/.local/libexec too, for the same TCC reason as the native host:
@@ -97,6 +99,8 @@ echo "  built daemon and extension"
 # Named .mjs so Node treats it as ESM without needing a package.json alongside. The bundle
 # uses import.meta, which a .js file outside a "type": "module" package would reject.
 cp "$REPO/daemon/dist/main.js" "$LIBEXEC/daemon.mjs"
+cp "$REPO/daemon/dist/update-worker.mjs" "$LIBEXEC/update-worker.mjs"
+"$NODE" "$REPO/scripts/write-installation.mjs" "$LIBEXEC/installation.json" "$NODE"
 # The PTY host is staged as its own executable beside the daemon, because it is the half that
 # must keep running while the daemon is replaced. See docs/adr/0017.
 # Replaced only when it actually changed. This is the process holding every terminal, so
@@ -156,8 +160,8 @@ APP="$LIBEXEC/TabTerm.app"
 # ever run this. Not having a signature to compare against is the ordinary first case, not a fault.
 IDENTITY_BEFORE=$(codesign -dvvv "$APP" 2>&1 | sed -n 's/.*CandidateCDHash sha256=\([0-9a-f]*\).*/\1/p' | head -1 || true)
 
-if TABTERM_NODE="$NODE" "$NODE" "$REPO/scripts/build-app-bundle.mjs" \
-     --adopt-runtime "$APP/Contents/MacOS/node" >/dev/null 2>&1 &&
+if { [ "${TABTERM_COMPANION_UPDATE:-0}" = 1 ] || TABTERM_NODE="$NODE" "$NODE" "$REPO/scripts/build-app-bundle.mjs" \
+     --adopt-runtime "$APP/Contents/MacOS/node" >/dev/null 2>&1; } &&
    [ -x "$REPO/dist/TabTerm.app/Contents/MacOS/node" ]; then
   rm -rf "$APP"
   cp -R "$REPO/dist/TabTerm.app" "$APP"
@@ -215,7 +219,9 @@ done
 # loads it and never again. So the last step of installing is asking the one thing that can do
 # something about that, which is the extension itself. Nothing happens if Chrome is not running,
 # and the terminals are in the PTY host either way.
-"$NODE" "$REPO/scripts/reload-extension.mjs" || true
+if [ "${TABTERM_COMPANION_UPDATE:-0}" != 1 ]; then
+  "$NODE" "$REPO/scripts/reload-extension.mjs" || true
+fi
 
 "$REPO/scripts/doctor.sh" || true
 
@@ -292,7 +298,7 @@ if [ -n "$IDENTITY_BEFORE" ] && [ -n "$IDENTITY_AFTER" ] && [ "$IDENTITY_BEFORE"
   # Only worth saying to somebody who had the grant. Reading the system database needs that same
   # access, so an empty answer means "cannot tell" and stays quiet rather than guessing.
   HAD_FDA=$(sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
-    "select 1 from access where service='kTCCServiceSystemPolicyAllFiles' and client='com.tabterm.daemon' limit 1;" 2>/dev/null)
+    "select 1 from access where service='kTCCServiceSystemPolicyAllFiles' and client='com.tabterm.daemon' limit 1;" 2>/dev/null || true)
   if [ -n "$HAD_FDA" ]; then
     cat <<GRANT
 
