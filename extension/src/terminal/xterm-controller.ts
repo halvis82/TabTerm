@@ -6,7 +6,7 @@ import { SearchAddon } from '@xterm/addon-search';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { installCurrentWidths } from '@tabterm/shared';
 import type { ILinkProvider, IMarker } from '@xterm/xterm';
-import { classifyKey, xtermShouldHandle } from './keymap.js';
+import { classifyKey, optionSendsMeta, xtermShouldHandle } from './keymap.js';
 import { placeAndArm } from './menu-shell.js';
 
 /** Where this browser records that it has given a pane a WebGL context. See `rendererWorksHere`. */
@@ -198,9 +198,8 @@ export class XtermController {
       fontSize: 13,
       lineHeight: 1.2,
       scrollback: 10_000,
-      // Option sends Meta, which terminal users expect. The cost is losing accented character
-      // entry via Option+letter. See docs/06-chrome-integration.md §6.
-      macOptionIsMeta: true,
+      // Native Option character entry is the default. Control keys retain Meta below.
+      macOptionIsMeta: false,
       macOptionClickForcesSelection: true,
       /*
        * Right-click must never change what is selected.
@@ -383,6 +382,7 @@ export class XtermController {
    */
   #installKeyboard(): void {
     this.term.attachCustomKeyEventHandler((e) => {
+      this.term.options.macOptionIsMeta = optionSendsMeta(e);
       const action = classifyKey({
         key: e.key,
         metaKey: e.metaKey,

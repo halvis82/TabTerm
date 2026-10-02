@@ -137,3 +137,15 @@ export function classifyKey(e: KeyInput): KeyAction {
 export function xtermShouldHandle(action: KeyAction): boolean {
   return action.kind === 'to-pty';
 }
+
+/** Preserve terminal control chords without consuming native Option text or dead keys. */
+export function optionSendsMeta(e: {
+  key: string;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  isComposing: boolean;
+}): boolean {
+  if (e.isComposing || e.key === 'Dead' || e.key === 'Process' || e.key === 'AltGraph')
+    return false;
+  return e.ctrlKey || e.metaKey || Array.from(e.key).length > 1;
+}

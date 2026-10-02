@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyKey, xtermShouldHandle, type KeyInput } from './keymap.js';
+import { classifyKey, optionSendsMeta, xtermShouldHandle, type KeyInput } from './keymap.js';
 
 const key = (over: Partial<KeyInput>): KeyInput => ({
   key: 'a',
@@ -189,5 +189,22 @@ describe('control and command together belongs to the system', () => {
 
   it('while command f on its own still searches, which is the point of having it', () => {
     expect(classifyKey({ ...press('f'), ctrlKey: false }).kind).toBe('search');
+  });
+});
+
+describe('Option character input', () => {
+  const event = { ctrlKey: false, metaKey: false, isComposing: false };
+  it('leaves layout-produced text and dead keys to native input', () => {
+    for (const key of ['∞', 'é', '€', 'å', 'A', '😀', 'Dead', 'Process', 'AltGraph']) {
+      expect(optionSendsMeta({ ...event, key })).toBe(false);
+    }
+    expect(optionSendsMeta({ ...event, key: 'Unidentified', isComposing: true })).toBe(false);
+  });
+  it('preserves terminal control keys and combined Control/Command chords', () => {
+    for (const key of ['Enter', 'ArrowLeft', 'ArrowRight', 'Backspace', 'Tab', 'Escape']) {
+      expect(optionSendsMeta({ ...event, key })).toBe(true);
+    }
+    expect(optionSendsMeta({ ...event, key: 'b', ctrlKey: true })).toBe(true);
+    expect(optionSendsMeta({ ...event, key: 'p', metaKey: true })).toBe(true);
   });
 });

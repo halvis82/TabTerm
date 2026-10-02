@@ -752,13 +752,15 @@ the command palette instead. The full reachability matrix is produced by the key
 fullscreen**. Focus mode (focus mode) uses it. The lock is released on exit, always, including on crash
 paths.
 
-### Option as Meta
+### Option character input
 
-`macOptionIsMeta` makes Option send Meta to the PTY, which terminal users expect. The cost is that
-Option+letter no longer types accented characters. Default chosen in the keyboard reachability spike and configurable.
+Option with a printable key uses the macOS keyboard layout, including symbols such as `∞`
+and dead-key accent composition. Option with Return, arrows, Backspace and other control keys
+retains its terminal Meta behavior. Control/Command combinations and Option mouse actions are
+unchanged. The terminal chooses `macOptionIsMeta` for each key event before xterm handles it.
 
-This also conflicts with Option-click for file opening (the editor-open work) and with Option-drag for
-rectangular selection. The resolution is documented there.
+Option-letter combinations that produce text now enter that text. For a terminal Meta-letter
+command, press Escape followed by the letter instead.
 
 ### Terminal keys
 
