@@ -531,3 +531,7 @@ as taking three and a half hours, and it was written up here as evidence about r
 machine. It was not: the laptop had been closed in the middle of it. The real lesson is the
 narrower one, that a machine in use makes a fixed sleep a coin toss, and that a run whose timings
 look impossible should be read as a question rather than as data.
+
+Tests that assert positions in the shared recent-command list run serially. A command emitted by
+another suite can otherwise change the first row between selection and assertion. Command-duration
+checks compare the display with observed shell-event timestamps, accounting for whole-second flooring.

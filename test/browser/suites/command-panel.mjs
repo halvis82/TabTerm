@@ -325,7 +325,7 @@ r.ok(
   const tag = `paste-check-${String(Date.now()).slice(-6)}`;
   const count = async () => String(await readScreen(client)).split(tag).length - 1;
   await type(client, `echo ${tag}`);
-  await sleep(1200);
+  await waitUntil(async () => (await count()) === 2, 8000);
   const ran = await count();
   r.ok('a command that ran leaves its name twice', ran === 2, String(ran));
 
@@ -334,12 +334,16 @@ r.ok(
     client,
     `[...document.querySelectorAll('.cmd-tab')].find(t => t.textContent === 'Recent')?.click()`,
   );
-  await waitFor(client, `document.querySelector('.cmd-row') !== null`, 8000);
-  await evaluate(
-    client,
-    `[...document.querySelectorAll('.cmd-row')].find(el => (el.textContent ?? '').includes('${tag}'))?.click()`,
+  const targetRow = `[...document.querySelectorAll('.cmd-row')].find(el => (el.textContent ?? '').includes('${tag}'))`;
+  r.ok(
+    'the completed command is listed before selecting it',
+    await waitFor(client, `!!(${targetRow})`, 8000),
   );
-  await sleep(400);
+  await evaluate(client, `${targetRow}?.click()`);
+  r.ok(
+    'the intended command is selected before Return',
+    await waitFor(client, `${targetRow}?.classList.contains('selected')`, 5000),
+  );
   await press(client, 'Enter', 'Enter', 0, 13, { focus: 'none' });
   await sleep(1500);
   const after = await count();

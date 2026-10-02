@@ -1,5 +1,14 @@
 // Real shell events and hook posts, with no logged-in agent account required.
-import { openTerminal, evaluate, type, waitFor, finish, sleep, press } from '../helpers.mjs';
+import {
+  openTerminal,
+  evaluate,
+  type,
+  waitFor,
+  waitUntil,
+  finish,
+  sleep,
+  press,
+} from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -8,6 +17,17 @@ const tag = `release-${Date.now()}`;
 const a = `echo ${tag}-a`;
 const b = `echo ${tag}-b`;
 const label = "document.querySelector('.pane-time')?.textContent ?? ''";
+const commands = [];
+client.on((event) => {
+  if (event.method !== 'Network.webSocketFrameReceived') return;
+  const frame = event.params?.response;
+  if (frame?.opcode !== 2) return;
+  const bytes = Buffer.from(frame.payloadData, 'base64');
+  if (bytes[0] !== 0) return;
+  const message = JSON.parse(bytes.subarray(1).toString());
+  if (message.t === 'command-start' || message.t === 'command-end') commands.push(message);
+});
+await client.send('Network.enable');
 const run = async (command) => {
   await client.send('Page.bringToFront');
   await type(client, command);
@@ -101,15 +121,33 @@ try {
     await waitFor(client, `(${label}).startsWith(${JSON.stringify(finished)})`, 5000),
     String(await evaluate(client, label)),
   );
+  commands.length = 0;
   await type(client, 'sleep 3');
   r.ok(
     'a shell command replaces the old agent timer',
     await waitFor(client, `(${label}).startsWith('running ')`, 2000),
     String(await evaluate(client, label)),
   );
+  // Shell timing is measured from received events. Fallback process observation and
+  // whole-second flooring can put sleep 3 on either side of a displayed-second boundary.
+  await waitUntil(
+    () => commands.some((event) => event.t === 'command-end' && event.sessionId === sessionId),
+    10000,
+  );
+  const started = commands.find(
+    (event) => event.t === 'command-start' && event.sessionId === sessionId,
+  );
+  const ended = commands.find(
+    (event) => event.t === 'command-end' && event.sessionId === sessionId,
+  );
+  const seconds =
+    started && ended ? Math.floor((ended.completedAt - started.startedAt) / 1000) : null;
   r.ok(
     'its completion reports the shell duration',
-    await waitFor(client, `(${label}).startsWith('took 3s')`, 7000),
+    seconds !== null &&
+      seconds >= 2 &&
+      seconds <= 5 &&
+      (await waitFor(client, `(${label}).startsWith(${JSON.stringify(`took ${seconds}s`)})`, 3000)),
     String(await evaluate(client, label)),
   );
   await run('ls');
