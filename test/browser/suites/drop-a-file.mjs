@@ -78,11 +78,9 @@ r.ok(
 );
 
 const screen = String(await evaluate(client, 'window.__tabterm.readScreen() ?? ""'));
-const line =
-  screen
-    .split(String.fromCharCode(10))
-    .filter((l) => l.trim() !== '')
-    .slice(-1)[0] ?? '';
+// A copied path can wrap across rows, depending on the temporary home and terminal width.
+// Read the same logical text as the existing-file check below.
+const line = screen.replace(/\n/g, '');
 // The name had a space and brackets in it, so what lands has to be quoted and rebuilt.
 r.ok('a path is staged at the prompt', /dropped\//.test(line), line.slice(-90));
 r.ok(

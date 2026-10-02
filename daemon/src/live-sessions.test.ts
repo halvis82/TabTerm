@@ -178,6 +178,7 @@ describe('running now', () => {
     done.vt.write(Buffer.from('$ ls\r\nfile-one\r\nfile-two\r\n$ ', 'utf8'));
     done.commandRunning = false;
 
+    await untilListed(done.id, true);
     expect((await listed()).map((s) => s.sessionId)).toContain(done.id);
   });
 

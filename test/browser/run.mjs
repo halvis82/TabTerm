@@ -138,6 +138,7 @@ const FIRST = [
  * Running it after them costs a few seconds and removes the whole class of question.
  */
 const LAST = [
+  'the-start-screen-holds-still',
   'history-after-update',
   'survives-restart',
   // Kills the daemon on purpose, to reach the one state its check is about: a session adopted

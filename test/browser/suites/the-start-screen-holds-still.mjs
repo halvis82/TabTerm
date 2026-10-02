@@ -74,19 +74,39 @@ await evaluate(
    })()`,
 );
 
+// Observe the page's new authenticated socket, not a particular redraw reason. Unchanged
+// answers can be deduplicated, so a successful reconnect need not draw a `state` update.
+let reauthenticated = false;
+client.on((event) => {
+  if (event.method !== 'Network.webSocketFrameReceived') return;
+  const frame = event.params?.response;
+  if (frame?.opcode !== 2) return;
+  const bytes = Buffer.from(frame.payloadData, 'base64');
+  if (bytes[0] !== 0) return;
+  if (JSON.parse(bytes.subarray(1).toString()).t === 'auth-ok') reauthenticated = true;
+});
+await client.send('Network.enable');
+
 const daemonPid = ownDaemonPid();
 if (daemonPid === null) throw new Error('no daemon of our own');
 process.kill(daemonPid, 'SIGKILL');
 
-// The run script brings the daemon back. Waited until the screen is whole again.
-const back = await waitUntil(async () => (await rows()) >= before, 40000);
+// Retained rows remain visible during the outage. They cannot prove that a reconnect happened.
+// Wait for a newly authenticated socket and fresh drawing as well as the restored row count.
+const back = await waitUntil(
+  async () =>
+    reauthenticated &&
+    (await rows()) >= before &&
+    (await drawings()).some((d) => d.at > drawnBefore),
+  40000,
+);
 // And then a while longer, so a late answer that would draw again is included in the count.
 await sleep(5000);
 
 r.ok(
   'the list is as full as it was once the daemon is back',
   back,
-  `${String(before)} rows before, ${String(await rows())} after`,
+  `${String(before)} rows before, ${String(await rows())} after, reauthenticated=${String(reauthenticated)}`,
 );
 
 const since = (await drawings()).filter((d) => d.at > drawnBefore);
