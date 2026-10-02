@@ -33,6 +33,7 @@ jobs:
           git merge-base --is-ancestor HEAD origin/main
           node --input-type=module -e 'import fs from "node:fs"; const p=JSON.parse(fs.readFileSync("package.json")); if(process.env.RELEASE_TAG !== `v${p.version}`) throw Error("Tag/version mismatch");'
       - run: npm ci
+      - run: npm run typecheck
       - run: npm run build
       - run: npm run verify
       - run: npm run package:extension
