@@ -707,7 +707,7 @@ export class LauncherData {
         `INSERT INTO session_meta (id, workspace_id, cwd, shell, command_json, last_seen_at, last_command)
          VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
-           workspace_id = excluded.workspace_id,
+           workspace_id = COALESCE(excluded.workspace_id, session_meta.workspace_id),
            cwd = excluded.cwd,
            last_seen_at = excluded.last_seen_at,
            last_command = COALESCE(excluded.last_command, last_command)`,

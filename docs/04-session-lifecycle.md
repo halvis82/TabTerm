@@ -828,6 +828,9 @@ shells, in ten directories nobody asked about, against a pseudo-terminal supply 
 
 The previous cwd and last command come from SQLite, which retains expired session metadata per
 the retention table.
+A directory lookup that finishes after the live workspace mapping is removed retains the last
+recorded workspace ID. A later explicit workspace assignment replaces it. This keeps folder
+recovery available when session cleanup and asynchronous directory lookup finish out of order.
 
 ---
 
