@@ -75,6 +75,21 @@ describe('update checks and preferences', () => {
     expect(fetchBytes).toHaveBeenCalledTimes(2);
     expect(launch).not.toHaveBeenCalled();
   });
+  it('reports unwritable check state without fetching and retries after repair', async () => {
+    let now = Date.now();
+    const { m, root, fetchBytes } = manager({ clock: () => now });
+    const preferences = join(root, '.local/state/tabterm/updates/preferences.json');
+    mkdirSync(preferences, { recursive: true });
+    await expect(m.check()).resolves.toBeUndefined();
+    expect(m.snapshot().phase).toBe('error');
+    expect(m.snapshot().canInstall).toBe(false);
+    expect(fetchBytes).not.toHaveBeenCalled();
+    rmSync(preferences, { recursive: true });
+    now += 60_001;
+    await m.check();
+    expect(m.snapshot().phase).toBe('available');
+    expect(fetchBytes).toHaveBeenCalledTimes(2);
+  });
   it('persists opt-in preferences and implies checks for auto installs', async () => {
     const { m, root } = manager();
     m.preferencesChanged(false, true);

@@ -18,6 +18,8 @@ Both automatic options default to off. Automatic checks run at most once a day, 
 last-attempt timestamp. Manual checks are limited to one attempt per minute. Automatic installation
 implies automatic checking. Disabling checks also disables automatic installation. A failed automatic
 installation is not retried repeatedly for the same version. Manual check and retry remain possible.
+If check state cannot be saved, Settings reports the storage failure before any network request.
+A manual check can retry after storage is repaired and the one-minute limit has elapsed.
 Reset Settings disables both options. Uninstall removes the updater job and its local state.
 
 The first updater-capable companion needs one ordinary source install. Older companions cannot

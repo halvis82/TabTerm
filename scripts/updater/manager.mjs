@@ -132,7 +132,17 @@ export class UpdateManager {
     }
     this.lastAttempt = this.clock();
     this.preferences.lastAttempt = this.lastAttempt;
-    writeJson(join(this.directory, 'preferences.json'), this.preferences);
+    try {
+      writeJson(join(this.directory, 'preferences.json'), this.preferences);
+    } catch {
+      this.emit({
+        phase: 'error',
+        message:
+          'Update check could not start. Check available disk space and folder permissions, then try again.',
+        canInstall: false,
+      });
+      return;
+    }
     this.emit({
       phase: 'checking',
       message: 'Checking GitHub for a companion release.',
