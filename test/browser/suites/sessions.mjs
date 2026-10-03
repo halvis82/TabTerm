@@ -89,16 +89,28 @@ r.ok(
  * Measured against a card rather than against the variable that sizes one: what matters is that
  * the box on screen is no taller than two of the things in it.
  */
-const gridHeight = Number(
+const gridSize = JSON.parse(
   await evaluate(
     viewer.client,
-    `Math.round(document.querySelector('.session-grid')?.getBoundingClientRect().height ?? 0)`,
+    `(() => {
+      const grid = document.querySelector('.session-grid');
+      const card = grid?.querySelector('.session-card');
+      if (!grid || !card) return 'null';
+      const style = getComputedStyle(grid);
+      const spacing = ['rowGap', 'paddingTop', 'paddingBottom', 'borderTopWidth', 'borderBottomWidth']
+        .reduce((total, key) => total + (parseFloat(style[key]) || 0), 0);
+      return JSON.stringify({
+        height: grid.getBoundingClientRect().height,
+        card: card.getBoundingClientRect().height,
+        spacing,
+      });
+    })()`,
   ),
 );
 r.ok(
   'and the list is at most two rows tall',
-  heights[0] === undefined || gridHeight <= heights[0] * 2 + 24,
-  `grid ${String(gridHeight)}, card ${String(heights[0])}`,
+  gridSize !== null && gridSize.height <= gridSize.card * 2 + gridSize.spacing + 1,
+  JSON.stringify(gridSize),
 );
 
 r.ok(

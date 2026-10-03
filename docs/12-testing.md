@@ -560,3 +560,6 @@ the installed companion job or any terminal. This is separate from portable unit
 Tests that assert positions in the shared recent-command list run serially. A command emitted by
 another suite can otherwise change the first row between selection and assertion. Command-duration
 checks compare the display with observed shell-event timestamps, accounting for whole-second flooring.
+
+Grid height checks measure card height, row gap, padding and borders in the same browser
+observation. A fixed spacing allowance can reject a valid two-row grid after a style change.
