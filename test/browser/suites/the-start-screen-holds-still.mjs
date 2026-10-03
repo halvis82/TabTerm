@@ -77,13 +77,27 @@ await evaluate(
 // Observe the page's new authenticated socket, not a particular redraw reason. Unchanged
 // answers can be deduplicated, so a successful reconnect need not draw a `state` update.
 let reauthenticated = false;
+let authenticatedSocket = null;
+const listAnswers = new Set();
+const listMessages = new Set(['live-sessions', 'restorable-workspaces', 'resumable-sessions']);
 client.on((event) => {
   if (event.method !== 'Network.webSocketFrameReceived') return;
   const frame = event.params?.response;
   if (frame?.opcode !== 2) return;
   const bytes = Buffer.from(frame.payloadData, 'base64');
   if (bytes[0] !== 0) return;
-  if (JSON.parse(bytes.subarray(1).toString()).t === 'auth-ok') reauthenticated = true;
+  const message = JSON.parse(bytes.subarray(1).toString());
+  if (message.t === 'auth-ok') {
+    reauthenticated = true;
+    authenticatedSocket = event.params.requestId;
+    listAnswers.clear();
+  } else if (
+    reauthenticated &&
+    event.params.requestId === authenticatedSocket &&
+    listMessages.has(message.t)
+  ) {
+    listAnswers.add(message.t);
+  }
 });
 await client.send('Network.enable');
 
@@ -96,6 +110,7 @@ process.kill(daemonPid, 'SIGKILL');
 const back = await waitUntil(
   async () =>
     reauthenticated &&
+    listAnswers.size === listMessages.size &&
     (await rows()) >= before &&
     (await drawings()).some((d) => d.at > drawnBefore),
   40000,
@@ -106,34 +121,25 @@ await sleep(5000);
 r.ok(
   'the list is as full as it was once the daemon is back',
   back,
-  `${String(before)} rows before, ${String(await rows())} after, reauthenticated=${String(reauthenticated)}`,
+  `${String(before)} rows before, ${String(await rows())} after, reauthenticated=${String(reauthenticated)}, list answers=${JSON.stringify([...listAnswers])}`,
 );
 
 const since = (await drawings()).filter((d) => d.at > drawnBefore);
 /*
- * The answers that come back together are drawn together.
- *
- * Coming back really is news: the page is told what is live, what can be resumed, what can be
- * restored and what ports are open, and some of that genuinely differs from before the restart. So
- * the question is not how few drawings there are, it is whether the batch was kept whole. Without
- * the screen being told that a reconnect is a fresh round of asking, `state` and `templates` came
- * back first, found nothing waiting for them and drew on their own; the three list answers arrived
- * and drew again. With it they are one drawing.
- *
- * Asked as a shape rather than a count, because a count belongs to the whole machine. The daemon is
- * shared, so another suite starting a session redraws this screen with `live` alone and a suite of
- * its own restarting the daemon adds a whole second round, and neither is this reconnect being
- * slow. Whether `state` was drawn without the lists beside it is about this batch and nothing else.
+ * State must not draw ahead of the lists and then rebuild when those lists arrive.
+ * A list drawn earlier is already visible, even though its reason was cleared from the
+ * render log before state/templates drew. Treating that order as a premature state draw
+ * rejects the opposite of the regression this check is meant to catch.
  */
 const lists = ['live', 'restorable', 'resumable'];
-const alone = since.filter(
-  (d) =>
-    (d.since.includes('state') || d.since.includes('templates')) &&
-    !d.since.some((key) => lists.includes(key)),
-);
+let listsDrawn = false;
+const premature = since.filter((d) => {
+  if (d.since.some((key) => lists.includes(key))) listsDrawn = true;
+  return (d.since.includes('state') || d.since.includes('templates')) && !listsDrawn;
+});
 r.ok(
-  'and the answers that came back together were drawn together',
-  since.length > 0 && alone.length === 0,
+  'and state does not redraw ahead of the lists',
+  since.length > 0 && (since.length === 1 || premature.length === 0),
   `${String(since.length)} drawings: ${JSON.stringify(since.map((d) => d.since))}`,
 );
 

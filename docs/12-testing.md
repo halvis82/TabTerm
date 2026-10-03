@@ -561,8 +561,13 @@ Tests that assert positions in the shared recent-command list run serially. A co
 another suite can otherwise change the first row between selection and assertion. Command-duration
 checks compare the display with observed shell-event timestamps, accounting for whole-second flooring.
 
-Grid height checks measure card height, row gap, padding and borders in the same browser
-observation. A fixed spacing allowance can reject a valid two-row grid after a style change.
+Reconnect checks observe authentication and the three list replies on the new socket before
+judging the restored screen. One repaint is already batched regardless of its recorded change
+labels. With multiple repaints, state must not draw ahead of the list answers. Lists already
+drawn remain visible and need not repeat their change labels in a later state drawing.
 
 Automatic debugging ports start at 10100 to avoid Fetch-blocked ports such as 10080. An explicit
 `TT_CDP_PORT` override must also use a port that Fetch permits.
+
+Grid height checks measure card height, row gap, padding and borders in the same browser
+observation. A fixed spacing allowance can reject a valid two-row grid after a style change.

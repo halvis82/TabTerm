@@ -875,10 +875,10 @@ between and no shift occurs. But a probe that measures anything mid-change, such
 the browser then reports a **0.053** shift that no eye could have seen and that does not happen when
 nobody is measuring. The instrument was creating the reading.
 
-So the check asks about the shape of the drawings rather than their number: whether `state` was ever
-drawn without the list answers beside it. A number would belong to the whole machine, since the
-daemon is shared and another tab starting a session redraws this screen for reasons of its own.
-Whether one batch was kept whole is about that batch and nothing else.
+The reconnect check waits for fresh authentication and all three list replies, then asks whether
+state drew ahead of the lists and had to rebuild when they arrived. Lists drawn earlier are already
+visible and need not repeat their change labels in a later state drawing. A single drawing is
+already one batch. The check also observes mutations to verify that the list never goes blank.
 
 ### A start screen shows what is true now, not what was true when it opened
 
