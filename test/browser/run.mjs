@@ -1057,8 +1057,9 @@ const parallel = names.filter((n) => !SERIAL.includes(n));
  *
  * Set `TT_CDP_PORT` to pin it, which is what to do when something has to be watched by hand.
  */
+// Fetch blocks some ports even on loopback, including 10080 in the former random range.
 const BASE_PORT =
-  Number(process.env['TT_CDP_PORT'] ?? '') || 9300 + Math.floor(Math.random() * 300) * 10;
+  Number(process.env['TT_CDP_PORT'] ?? '') || 10100 + Math.floor(Math.random() * 300) * 10;
 const width = Math.max(1, Math.min(JOBS, parallel.length || 1));
 const ports = Array.from({ length: width }, (_, i) => BASE_PORT + i);
 /**
