@@ -29,7 +29,9 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
+          git fetch --no-tags origin "refs/tags/$RELEASE_TAG:refs/tabterm/release-tag"
+          test "$(git cat-file -t refs/tabterm/release-tag)" = tag
+          test "$(git rev-parse 'refs/tabterm/release-tag^{commit}')" = "$(git rev-parse HEAD)"
           git merge-base --is-ancestor HEAD origin/main
           node --input-type=module -e 'import fs from "node:fs"; const p=JSON.parse(fs.readFileSync("package.json")); if(process.env.RELEASE_TAG !== `v${p.version}`) throw Error("Tag/version mismatch");'
       - run: npm ci

@@ -109,3 +109,7 @@ This uses the job's repository token and needs no Google credentials. The store 
 still has its separate authentication and review requirements. No release asset is overwritten.
 Before publishing, validate companion/extension compatibility for either publication order and
 follow the full local release gate. See [companion updates](16-companion-updates.md).
+
+The tag check fetches the remote annotation into a separate verification ref and checks that its
+peeled commit matches the checkout. Checkout tools can replace a local tag ref with the commit
+from the event, so the local checkout tag alone does not prove the remote tag is annotated.
