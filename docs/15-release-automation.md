@@ -31,8 +31,11 @@ Unpacked developer extensions still use the local build and reload workflow.
    assertion.repository_id == '1332430488' &&
    assertion.repository_owner_id == '62351640' &&
    assertion.ref.startsWith('refs/tags/v') &&
-   assertion.sub == 'repo:halvis82/TabTerm:environment:chrome-web-store'
+   assertion.sub == 'repo:halvis82@62351640/TabTerm@1332430488:environment:chrome-web-store'
    ```
+
+The subject above uses this repository's immutable subject prefix. Confirm its current value with
+`gh api repos/halvis82/TabTerm/actions/oidc/customization/sub` before configuring a provider.
 
 6. Grant `roles/iam.workloadIdentityUser` on the publishing service account to the pool's
    repository identity:

@@ -150,6 +150,20 @@ describe('update checks and preferences', () => {
   });
 });
 describe('bounded update downloads', () => {
+  it('requests JSON from the release API and binary data from asset hosts', async () => {
+    const seen = [];
+    const fetcher = async (url, options) => {
+      seen.push(options.headers.Accept);
+      return new Response('ok');
+    };
+    await download('https://api.github.com/repos/halvis82/TabTerm/releases/latest', 100, fetcher);
+    await download(
+      'https://github.com/halvis82/TabTerm/releases/download/v1.1.2/companion-release.json',
+      100,
+      fetcher,
+    );
+    expect(seen).toEqual(['application/vnd.github+json', 'application/octet-stream']);
+  });
   it('rejects non-HTTPS and redirects outside GitHub', async () => {
     const f = vi.fn(
       async () =>

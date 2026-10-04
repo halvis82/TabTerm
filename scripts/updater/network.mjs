@@ -20,7 +20,13 @@ export async function download(url, limit, fetchImpl = fetch) {
     const response = await fetchImpl(url, {
       redirect: 'manual',
       signal,
-      headers: { 'User-Agent': 'TabTerm-updater', Accept: 'application/octet-stream' },
+      headers: {
+        'User-Agent': 'TabTerm-updater',
+        Accept:
+          target.hostname === 'api.github.com'
+            ? 'application/vnd.github+json'
+            : 'application/octet-stream',
+      },
     });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get('location');

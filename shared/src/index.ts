@@ -9,7 +9,7 @@ export * from './protocol.js';
  * reporting a problem should not have to say which of two versions they mean. `version.test.ts`
  * fails if they drift or if either goes back to being all zeroes.
  */
-export const VERSION = '1.1.1';
+export const VERSION = '1.1.2';
 export * from './placeholders.js';
 export * from './template-syntax.js';
 export * from './shell-noise.js';

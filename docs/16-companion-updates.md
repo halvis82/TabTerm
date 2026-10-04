@@ -98,3 +98,6 @@ Follow [release automation](15-release-automation.md). The tag workflow checks/b
 creates source metadata, and publishes companion assets in a GitHub Release. Chrome submission is a
 separate job and may remain under review while a compatible companion release is available.
 No existing tag or release asset is overwritten by a retry. Inspect partial releases before retrying.
+
+Release discovery requests GitHub API JSON. Asset downloads request binary data. The API rejects
+the binary media type on the release-listing endpoint, so these request headers differ by host.
