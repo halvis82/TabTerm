@@ -1,6 +1,6 @@
 import type { ResolvedPath } from '@tabterm/shared';
 import { XtermController, type PaneMenuAction } from './xterm-controller.js';
-import { createPathLinkProvider, candidatesIn, readLogicalLine } from './path-links.js';
+import { createPathLinkProvider, candidatesIn, logicalLinesIn } from './path-links.js';
 import { scanIsOverdue, QUIET_MS } from './link-scan.js';
 import { loadHighlights, saveHighlights } from './highlights.js';
 import { DEFAULT_COLOR } from './color-store.js';
@@ -134,13 +134,9 @@ export class PaneHost {
       const last = Math.min(buffer.length, first + controller.term.rows);
       const found = new Set<string>();
       // Logical lines rather than rows, so a path broken across two rows is asked about whole.
-      // See `readLogicalLine`.
-      let y = first;
-      while (y < last) {
-        const line = readLogicalLine(controller.term, y);
-        if (!line) break;
+      // See `logicalLinesIn` for why the stepping lives there and not here.
+      for (const line of logicalLinesIn(controller.term, first, last)) {
         for (const candidate of candidatesIn(line)) found.add(candidate.text);
-        y = (line.rows[line.rows.length - 1]?.y ?? y) + 1;
       }
       const unknown = [...found].filter((c) => this.#opts.lookupPath(c) === undefined);
       if (unknown.length > 0) this.#opts.resolvePaths(paneId, unknown);

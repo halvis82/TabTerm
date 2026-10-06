@@ -6,6 +6,7 @@ import {
   continuesHard,
   readLogicalLine,
   candidatesIn,
+  logicalLinesIn,
 } from './path-links.js';
 import type { Terminal } from '@xterm/xterm';
 
@@ -282,5 +283,44 @@ describe('a path broken across rows by the program that printed it', () => {
     expect(candidatesIn(line as NonNullable<typeof line>).map((c) => c.text)).toEqual([
       '/private/tmp/a-directory-name/changes.pdf',
     ]);
+  });
+});
+
+/**
+ * A pasted line that wraps to more rows than a logical line may hold.
+ *
+ * The scan over the visible rows stepped to the row after the last one a logical line covered,
+ * and a line capped at twelve rows covers its first twelve from every row in it, so the step
+ * landed on the same row every time. A paste of a few hundred characters into a narrow pane made
+ * every TabTerm tab unresponsive, and reopening the tab did it again, since the line was still on
+ * the screen. This has to come back, and has to have read every row once.
+ */
+describe('a line longer than a logical line may be', () => {
+  it('is stepped past rather than read from every row in it', () => {
+    const cols = 20;
+    const rows = Array.from({ length: 30 }, (_, i) => ({ text: 'j'.repeat(cols), wrapped: i > 0 }));
+    rows.push({ text: '/tmp/after.txt', wrapped: false });
+    const term = {
+      cols,
+      buffer: {
+        active: {
+          length: rows.length,
+          getLine: (y: number) => {
+            const row = rows[y];
+            if (!row) return undefined;
+            return {
+              isWrapped: row.wrapped === true,
+              translateToString: (trim: boolean) => (trim ? row.text : row.text.padEnd(cols, ' ')),
+            };
+          },
+        },
+      },
+    } as unknown as Parameters<typeof logicalLinesIn>[0];
+    const started = Date.now();
+    const lines = logicalLinesIn(term, 0, rows.length);
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    const texts = lines.flatMap((l) => candidatesIn(l).map((c) => c.text));
+    expect(texts, 'and the row after the long line is still read').toContain('/tmp/after.txt');
   });
 });

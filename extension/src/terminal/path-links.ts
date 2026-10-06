@@ -294,6 +294,9 @@ export function hangingIndent(row: string): number | null {
 
 const MAX_HANGING_INDENT = 8;
 
+/** A path spanning more rows than this is not a path, and a line this long is read in windows. */
+const MAX_LOGICAL_ROWS = 12;
+
 export interface LogicalLine {
   /** Every row joined. A row xterm wrapped is padded to the width; a row a program broke is not. */
   text: string;
@@ -330,8 +333,10 @@ export function readLogicalLine(term: Terminal, row: number): LogicalLine | null
     return continuesHard(trimmed(y - 1), trimmed(y), width);
   };
 
+  // Bounded both ways. A line longer than this is not a path, and reading its first rows from
+  // every row in it is how a long paste made the page unresponsive. See `logicalLinesIn`.
   let first = row;
-  while (first > 0 && continues(first)) first--;
+  while (first > 0 && row - first < MAX_LOGICAL_ROWS - 1 && continues(first)) first--;
 
   const found: { line: IBufferLine; y: number; wrappedNext: boolean }[] = [];
   let hardJoins = false;
@@ -343,7 +348,7 @@ export function readLogicalLine(term: Terminal, row: number): LogicalLine | null
       if (!l.isWrapped) hardJoins = true;
     }
     found.push({ line: l, y, wrappedNext: false });
-    if (found.length > 12) break; // a path spanning more than this is not a path
+    if (found.length >= MAX_LOGICAL_ROWS) break;
   }
   if (found.length === 0) return null;
   for (let i = 0; i + 1 < found.length; i++) {
@@ -382,6 +387,30 @@ export function readLogicalLine(term: Terminal, row: number): LogicalLine | null
       return { x: offset - row.start + row.skip, y: row.y + 1 };
     },
   };
+}
+
+/**
+ * The logical lines whose rows lie in a range of the buffer, each read once.
+ *
+ * The scan that resolves paths as they are printed used to step through the rows itself, moving
+ * to the row after the last one a logical line covered. A logical line is capped at twelve rows,
+ * and a pasted line that wraps to more than that is read as its first twelve rows from every row
+ * in it, so the step landed on the same row every time and the page never came back. Reported as
+ * a paste of a few hundred characters making every tab unresponsive, and it was: in a narrow
+ * pane a few hundred characters is more than twelve rows. The step is now from the row asked
+ * about, never backwards, whatever the line said it covered.
+ */
+export function logicalLinesIn(term: Terminal, first: number, last: number): LogicalLine[] {
+  const lines: LogicalLine[] = [];
+  let y = first;
+  while (y < last) {
+    const line = readLogicalLine(term, y);
+    if (!line) break;
+    lines.push(line);
+    const end = line.rows[line.rows.length - 1]?.y ?? y;
+    y = Math.max(y, end) + 1;
+  }
+  return lines;
 }
 
 /**
