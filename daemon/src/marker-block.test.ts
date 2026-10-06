@@ -12,6 +12,17 @@ describe('a landmark in the output', () => {
     }
   });
 
+  it("conceals its padding and reveals its label, so a page can tell it from an agent's row", () => {
+    const block = markerBlock({ label: 'before the deploy', color: '#7aa2f7', cols: 60 });
+    for (const line of lines(block)) {
+      expect(line.indexOf(ESC + '[8m'), 'each line begins concealed').toBeLessThan(
+        line.indexOf(' '),
+      );
+    }
+    expect(block).toContain(ESC + '[28m before the deploy ' + ESC + '[8m');
+    expect(markerBlock({ label: '', cols: 40 })).not.toContain(ESC + '[28m');
+  });
+
   it('carries the label it was given', () => {
     expect(markerBlock({ label: 'before the deploy', cols: 60 })).toContain('before the deploy');
   });

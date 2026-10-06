@@ -5,16 +5,18 @@ import { findMarkers, landingRowFor, nearestMarker, rowForRulerFraction } from '
 /**
  * A buffer described by what each line's ends look like.
  *
- * `null` is ordinary output; a number is a bar painted that color across the whole line, which is
- * how a landmark is recognized.
+ * `null` is ordinary output; a number is a landmark row painted that color across the whole line
+ * with its padding concealed, which is how a landmark is recognized. `{ color, plain: true }` is a
+ * row painted the same way by some program, without the concealed padding: an agent's input box.
  */
 function fakeTerminal(
-  rows: (number | null | { color: number; width: number })[],
+  rows: (number | null | { color: number; width?: number; plain?: boolean })[],
   cols = 80,
 ): Terminal {
-  const cell = (color: number | null) => ({
+  const cell = (color: number | null, concealed = color !== null) => ({
     isBgRGB: () => color !== null,
     getBgColor: () => color ?? 0,
+    isInvisible: () => (concealed ? 1 : 0),
   });
   return {
     cols,
@@ -28,9 +30,11 @@ function fakeTerminal(
           const row = rows[y] ?? null;
           if (row === null) return { getCell: () => cell(null) };
           if (typeof row === 'number') return { getCell: () => cell(row) };
+          if (row.plain === true) return { getCell: () => cell(row.color, false) };
           // A bar narrower than the terminal, which is what a landmark printed before a resize
           // looks like.
-          return { getCell: (x: number) => cell(x < row.width ? row.color : null) };
+          const width = row.width ?? cols;
+          return { getCell: (x: number) => cell(x < width ? row.color : null) };
         },
       },
     },
@@ -74,6 +78,35 @@ describe('finding landmarks in the scrollback', () => {
   it('separates two landmarks of the same color with output between them', () => {
     const found = findMarkers(fakeTerminal([0x7aa2f7, null, 0x7aa2f7]));
     expect(found.map((m) => m.row)).toEqual([0, 2]);
+  });
+
+  /**
+   * An agent's input box is a full-width colored row too, and it is not a landmark.
+   *
+   * Claude Code draws its prompt as a row of `48;2;55;55;55`, and the page used to paint that row
+   * as a landmark and then keep painting the response that replaced it. Only concealed padding
+   * says landmark; the color alone says nothing.
+   */
+  it("does not take a program's full-width colored row for a landmark", () => {
+    expect(findMarkers(fakeTerminal([null, { color: 0x373737, plain: true }, null]))).toEqual([]);
+    const several = [null, { color: 0x373737, plain: true }, { color: 0x373737, plain: true }];
+    expect(findMarkers(fakeTerminal(several))).toEqual([]);
+  });
+
+  it('extends a landmark into its label row, which shows its label rather than concealing it', () => {
+    // The label row begins with concealed padding only when the label is short enough to be
+    // centered. A wide label reaches the first cell, and the row still belongs to the bar.
+    const found = findMarkers(
+      fakeTerminal([null, 0x7aa2f7, { color: 0x7aa2f7, plain: true }, 0x7aa2f7]),
+    );
+    expect(found).toEqual([{ row: 1, color: 0x7aa2f7, height: 3 }]);
+  });
+
+  it("does not let a program's row of the same color grow a landmark it touches", () => {
+    // Only the row directly under the bar could be mistaken, and that costs one band on a row
+    // that is already that color. A row of another color after it is where the bar ends.
+    const found = findMarkers(fakeTerminal([0x7aa2f7, { color: 0x373737, plain: true }]));
+    expect(found).toEqual([{ row: 0, color: 0x7aa2f7, height: 1 }]);
   });
 
   it('ignores ordinary output entirely', () => {

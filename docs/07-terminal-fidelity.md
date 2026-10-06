@@ -529,6 +529,19 @@ a reload and a daemon restart because it sits in the ring and on disk with every
 Sending `echo` to the shell instead would put a command in somebody's history, run in whatever
 program happened to be in the foreground, and be impossible while a command was already running.
 
+**Its padding is concealed, and that is how it is recognized.** The page finds landmarks in the
+buffer rather than remembering them, so they come back after a reload and a daemon restart. It
+used to find them by looks alone, a row painted one explicit color from edge to edge, on the
+reasoning that no ordinary output does that. An agent's input box does exactly that: Claude Code
+draws its prompt as a full-width row of `48;2;55;55;55`. The page painted that row as a landmark,
+with a band anchored to the buffer line, and the resync that moves bands was put off by every
+render while an agent's spinner renders every hundred milliseconds, so the band stayed on the
+line while the response scrolled into it. Reported as output text under the input box wearing its
+gray, in Claude Code and Codex, never in iTerm, gone on refresh. So the bar's spaces are written
+with SGR 8, which looks identical and which no program draws its text with, a landmark starts
+only at a row whose first cell carries it, and the resync has a deadline as well as a settle.
+Landmarks printed before this are still bars in the output and are no longer listed on the rail.
+
 **A prompt follows it.** The landmark is printed where the cursor was, so the shell's prompt ends
 up above it and the next command would be typed against a bare line. Discarding the line and
 submitting an empty one is what pressing Enter at a prompt does, and it makes the shell print a

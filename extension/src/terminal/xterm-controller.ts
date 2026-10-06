@@ -87,6 +87,11 @@ export interface ControllerOptions {
   onColorUsed?: (color: string) => void;
 }
 
+/** How long output has to be quiet before the rail re-reads the buffer. */
+const MARKER_QUIET_MS = 220;
+/** And how long a stream of renders may put that off. */
+const MARKER_MAX_WAIT_MS = 600;
+
 export interface PaneMenuAction {
   label: string;
   run: () => void;
@@ -185,6 +190,8 @@ export class XtermController {
   /** Timers waiting for a program to redraw, so they can be dropped when the pane is. */
   readonly #anchorTimers = new Set<number>();
   #markerTimer = 0;
+  /** When a resync put off by renders must run anyway, or zero while none is pending. */
+  #markerDeadline = 0;
   #highlights: HighlightLayer | null = null;
   readonly #opts: ControllerOptions;
 
@@ -765,13 +772,28 @@ export class XtermController {
     this.#markers = rail;
     this.#highlights = new HighlightLayer(this.term, (h) => this.#opts.onHighlightsChanged?.(h));
     this.term.onRender(() => {
+      /*
+       * Waits for the output to settle, but not forever.
+       *
+       * Every render pushed the wait back, and an agent's spinner renders every hundred
+       * milliseconds for as long as it works, so the resync never ran: the bands stayed on the
+       * buffer lines they were on when the turn began, and the response that scrolled into those
+       * lines wore the color. A deadline from the first render that was put off bounds the wait,
+       * the same way the path scan is bounded. See `link-scan.ts`.
+       */
+      const now = Date.now();
+      if (this.#markerDeadline === 0) this.#markerDeadline = now + MARKER_MAX_WAIT_MS;
       clearTimeout(this.#markerTimer);
-      this.#markerTimer = window.setTimeout(() => {
-        // Both on the same tick, and both for the same reason: a decoration is anchored
-        // relative to the cursor line, so anything that scrolled has moved it.
-        this.#highlights?.draw();
-        rail.sync(this.term, this.#highlights?.places() ?? [], this.#inputRows());
-      }, 220);
+      this.#markerTimer = window.setTimeout(
+        () => {
+          this.#markerDeadline = 0;
+          // Both on the same tick, and both for the same reason: a decoration is anchored
+          // relative to the cursor line, so anything that scrolled has moved it.
+          this.#highlights?.draw();
+          rail.sync(this.term, this.#highlights?.places() ?? [], this.#inputRows());
+        },
+        Math.max(0, Math.min(MARKER_QUIET_MS, this.#markerDeadline - now)),
+      );
     });
   }
 

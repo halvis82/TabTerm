@@ -41,9 +41,13 @@ function readableInk(hex: string): string {
 /**
  * The bytes for one landmark.
  *
- * A solid full-width bar, which is what makes it findable by eye at any scroll position and
- * detectable without a hidden sentinel: no ordinary output paints every cell of several
- * consecutive lines the same color.
+ * A solid full-width bar, which is what makes it findable by eye at any scroll position. The
+ * padding is written concealed (SGR 8): the cells look exactly the same, since they are spaces
+ * on a colored background, and the attribute is what tells a landmark apart from any other
+ * full-width colored row. "No ordinary output paints every cell of a line the same color" was
+ * the earlier assumption, and an agent's input box does precisely that: Claude Code draws its
+ * prompt as a full-width gray row, and the page painted it as a landmark. The attribute survives
+ * a reload and a daemon restart, because the serializer carries it with the colors.
  */
 export function markerBlock(opts: { label: string; color?: string; cols: number }): string {
   const color = cleanLabelColor(opts.color) ?? DEFAULT_COLOR;
@@ -58,14 +62,26 @@ export function markerBlock(opts: { label: string; color?: string; cols: number 
   const width = Math.max(20, Math.min(400, Math.floor(opts.cols) - 1));
   const background = ESC + '[48;2;' + String(r) + ';' + String(g) + ';' + String(b) + 'm';
   const reset = ESC + '[0m';
+  const conceal = ESC + '[8m';
+  const reveal = ESC + '[28m';
 
   const label = cleanPaneLabel(opts.label);
   const middle = label === '' ? '' : ' ' + label + ' ';
   const left = Math.max(0, Math.floor((width - middle.length) / 2));
-  const text = (' '.repeat(left) + middle).padEnd(width, ' ').slice(0, width);
+  const shown = middle.slice(0, Math.max(0, width - left));
+  const right = Math.max(0, width - left - shown.length);
 
-  const blank = background + ' '.repeat(width) + reset + '\r\n';
-  const middleLine = background + readableInk(color) + text + reset + '\r\n';
+  const blank = background + conceal + ' '.repeat(width) + reset + '\r\n';
+  // The label itself is revealed, between concealed padding on either side of it.
+  const middleLine =
+    background +
+    readableInk(color) +
+    conceal +
+    ' '.repeat(left) +
+    (shown === '' ? '' : reveal + shown + conceal) +
+    ' '.repeat(right) +
+    reset +
+    '\r\n';
 
   // A newline first, so a landmark never lands halfway along a line still being written.
   const above = Math.floor((BAR_LINES - 1) / 2);

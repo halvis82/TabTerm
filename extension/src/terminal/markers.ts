@@ -3,11 +3,18 @@ import type { IDecoration, Terminal } from '@xterm/xterm';
 /**
  * Finding the landmarks somebody left in the scrollback.
  *
- * A landmark is a solid full-width bar in the output, so it is detected by what it looks like
- * rather than by a hidden sentinel: no ordinary output paints every cell of a line the same
- * explicit color. That means a landmark is found again after a reload, a reattach, or a daemon
- * restart without anything having to remember where it was, and it stops being found the moment
- * its lines fall off the end of the scrollback, which is exactly when it stops being reachable.
+ * A landmark is a solid full-width bar in the output, so it is found in the buffer rather than
+ * remembered: it is found again after a reload, a reattach, or a daemon restart, and it stops
+ * being found the moment its lines fall off the end of the scrollback, which is exactly when it
+ * stops being reachable.
+ *
+ * Looks alone are not enough to recognise one. "No ordinary output paints every cell of a line
+ * the same explicit color" was the rule, and an agent's input box does precisely that: Claude
+ * Code draws its prompt as a full-width row of `48;2;55;55;55`, and the page painted that row,
+ * and then the response that replaced it, as a landmark. So a landmark's padding is written
+ * concealed (SGR 8), which no program draws its text with, and a bar starts only at a row whose
+ * first cell carries that attribute. The rows after it extend the landmark on color alone, since
+ * the label row shows its label and a re-wrapped tail can be anything.
  *
  * Two cells per line, not every cell. A full scan of a large scrollback would be a per-line loop
  * over hundreds of columns for a result nobody is waiting on.
@@ -43,7 +50,7 @@ const MIN_WIDTH = 16;
  * columns untouched, and requiring the last cell to match missed every landmark printed before
  * a resize.
  */
-function barColor(term: Terminal, row: number): number | null {
+function barColor(term: Terminal, row: number): { color: number; sentinel: boolean } | null {
   const line = term.buffer.active.getLine(row);
   if (!line || term.cols < MIN_WIDTH) return null;
 
@@ -53,7 +60,9 @@ function barColor(term: Terminal, row: number): number | null {
   // Explicit 24-bit at both samples. A palette or default background is ordinary output.
   if (!first.isBgRGB() || !inside.isBgRGB()) return null;
   const color = first.getBgColor();
-  return color === inside.getBgColor() ? color : null;
+  if (color !== inside.getBgColor()) return null;
+  // Concealed padding is what only a landmark has. See the note at the top of this file.
+  return { color, sentinel: first.isInvisible() !== 0 };
 }
 
 /**
@@ -64,6 +73,7 @@ function barColor(term: Terminal, row: number): number | null {
  */
 export function findMarkers(term: Terminal): FoundMarker[] {
   const found: FoundMarker[] = [];
+  // The color of the landmark the previous row belonged to, or null when it belonged to none.
   let previous: number | null = null;
 
   for (let row = 0; row < term.buffer.active.length; row++) {
@@ -76,7 +86,14 @@ export function findMarkers(term: Terminal): FoundMarker[] {
       line?.isWrapped === true &&
       first?.isBgRGB() === true &&
       first.getBgColor() === previous;
-    const color: number | null = tail ? previous : barColor(term, row);
+    const bar: { color: number; sentinel: boolean } | null = tail ? null : barColor(term, row);
+    let color: number | null = null;
+    if (tail) color = previous;
+    else if (bar !== null && bar.color === previous) color = previous;
+    // A new landmark begins only at a sentinel row. A colored row that follows no landmark,
+    // or follows one of another color, is somebody else's output.
+    else if (bar !== null && bar.sentinel) color = bar.color;
+
     if (color !== null && color !== previous) found.push({ row, color, height: 1 });
     // A run of the same color is one landmark, however many rows a resize has turned it into.
     else if (color !== null && found.length > 0) {

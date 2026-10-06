@@ -7,7 +7,8 @@ describe('landmarks through real terminal reflow', () => {
   it('keeps short wrapped tails in the same landmark', async () => {
     const term = new headless.Terminal({ cols: 80, rows: 24, allowProposedApi: true });
     try {
-      const line = '\x1b[48;2;122;162;247m' + ' '.repeat(79) + '\x1b[0m\r\n';
+      // Concealed padding, the way the daemon writes a landmark. See `marker-block.ts`.
+      const line = '\x1b[48;2;122;162;247m\x1b[8m' + ' '.repeat(79) + '\x1b[0m\r\n';
       await new Promise<void>((resolve) =>
         term.write('\r\n' + line.repeat(3) + 'prompt\r\n', resolve),
       );
