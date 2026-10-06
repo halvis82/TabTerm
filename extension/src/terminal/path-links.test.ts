@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { createPathLinkProvider, findCandidates, findUrls } from './path-links.js';
+import {
+  createPathLinkProvider,
+  findCandidates,
+  findUrls,
+  continuesHard,
+  readLogicalLine,
+  candidatesIn,
+} from './path-links.js';
 import type { Terminal } from '@xterm/xterm';
 
 const texts = (s: string) => findCandidates(s).map((c) => c.text);
@@ -123,5 +130,92 @@ describe('which mouse button follows a link', () => {
 
   it('does not open a path on a right click either', () => {
     expect(activateFirst('edit src/main.ts now', 2)).toEqual([]);
+  });
+});
+
+/**
+ * A path a program broke by hand, filling a row to its last column and then writing a newline.
+ *
+ * xterm connects rows only when it wrapped them itself, so Claude Code's path in a narrow pane
+ * arrived as two rows with nothing joining them: underlined on the first row only, and opening
+ * the directory that row happened to name. The join is a guess, so the rows' own candidates are
+ * kept beside the joined one and the daemon decides which exists.
+ */
+describe('a path broken across rows by the program that printed it', () => {
+  const fakeTerm = (rows: { text: string; wrapped?: boolean }[], cols: number) =>
+    ({
+      cols,
+      buffer: {
+        active: {
+          length: rows.length,
+          getLine: (y: number) => {
+            const row = rows[y];
+            if (!row) return undefined;
+            return {
+              isWrapped: row.wrapped === true,
+              translateToString: (trim: boolean) => (trim ? row.text : row.text.padEnd(cols, ' ')),
+            };
+          },
+        },
+      },
+    }) as unknown as Parameters<typeof readLogicalLine>[0];
+
+  it('joins a filled row ending in a path character to a row beginning with one', () => {
+    expect(continuesHard('/private/tmp/some-directory-', 'c10627ad/changes.pdf', 28)).toBe(true);
+  });
+
+  it('does not join a row that was not filled to its last column', () => {
+    expect(continuesHard('/private/tmp/dir/', 'changes.pdf', 40)).toBe(false);
+  });
+
+  it('does not join rows that meet on a space', () => {
+    // A row that ends in a space is not filled: xterm trims it, so it is shorter than the pane.
+    expect(continuesHard('the file is in /tmp,', 'and it works', 21)).toBe(false);
+  });
+
+  it("joins on a dot, since a path can break there, and keeps the row's own path beside it", () => {
+    // "changes." then "pdf" is a real break. A sentence that happens to meet the same way costs
+    // one candidate that does not exist, and the row's own path is still offered.
+    const cols = 20;
+    const term = fakeTerm([{ text: 'see /tmp/report.pdf.' }, { text: 'Then rebuild it' }], cols);
+    const line = readLogicalLine(term, 0);
+    expect(line?.hardJoins).toBe(true);
+    const texts = candidatesIn(line as NonNullable<typeof line>).map((c) => c.text);
+    expect(texts).toContain('/tmp/report.pdf.Then');
+    expect(texts).toContain('/tmp/report.pdf');
+  });
+
+  it('reads the two rows as one line and finds the whole path on it', () => {
+    const cols = 30;
+    const first = '/private/tmp/a-directory-name/';
+    const second = 'changes.pdf';
+    const term = fakeTerm(
+      [{ text: 'intro' }, { text: first }, { text: second }, { text: 'after' }],
+      cols,
+    );
+    const line = readLogicalLine(term, 2);
+    expect(line?.rows.map((r) => r.y)).toEqual([1, 2]);
+    expect(line?.hardJoins).toBe(true);
+    const texts = candidatesIn(line as NonNullable<typeof line>).map((c) => c.text);
+    expect(texts).toContain(first + second);
+    expect(texts, 'and the first row on its own, in case the join was wrong').toContain(first);
+    const whole = candidatesIn(line as NonNullable<typeof line>).find(
+      (c) => c.text === first + second,
+    );
+    expect(line?.offsetToColumn(whole?.start ?? -1)).toEqual({ x: 0, y: 2 });
+    expect(line?.offsetToColumn((whole?.end ?? 0) - 1)).toEqual({ x: second.length - 1, y: 3 });
+  });
+
+  it('offers only the joined path when xterm itself wrapped the row', () => {
+    const cols = 30;
+    const term = fakeTerm(
+      [{ text: '/private/tmp/a-directory-name/' }, { text: 'changes.pdf', wrapped: true }],
+      cols,
+    );
+    const line = readLogicalLine(term, 0);
+    expect(line?.hardJoins).toBe(false);
+    expect(candidatesIn(line as NonNullable<typeof line>).map((c) => c.text)).toEqual([
+      '/private/tmp/a-directory-name/changes.pdf',
+    ]);
   });
 });

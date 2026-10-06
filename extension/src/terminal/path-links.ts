@@ -119,14 +119,14 @@ export function createPathLinkProvider(term: Terminal, opts: PathLinkOptions): I
        */
       const held = opts.modifierHeld();
 
-      const line = readWrappedLine(term, bufferLineNumber);
+      const line = readLogicalLine(term, bufferLineNumber - 1);
       if (!line) {
         callback(undefined);
         return;
       }
 
       const urls = findUrls(line.text);
-      const candidates = findCandidates(line.text).filter(
+      const candidates = candidatesIn(line).filter(
         // A path inside a URL is part of the URL, not a separate file reference.
         (c) => !urls.some((u) => c.start >= u.start && c.end <= u.end),
       );
@@ -209,6 +209,12 @@ export function createPathLinkProvider(term: Terminal, opts: PathLinkOptions): I
           }),
         );
       }
+      /*
+       * Longest first. A path broken across two rows is offered whole and as its first row's
+       * fragment, and when both exist, the directory the fragment names and the file the whole
+       * path names, the cell they share belongs to the longer one.
+       */
+      links.sort((a, b) => b.text.length - a.text.length);
       callback(links.length > 0 ? links : undefined);
     },
   };
@@ -232,37 +238,81 @@ function colorFor(term: Terminal, range: IBufferRange): string {
   });
 }
 
+/** A character a path can contain, which is what a row has to end and begin with to be joined. */
+const PATH_CHAR = /[\w.@+~/-]/;
+
 /**
- * Reassemble a logical line from its wrapped rows.
+ * Whether a row that is not marked as wrapped nonetheless continues the row above it.
+ *
+ * xterm marks a row as wrapped only when it wrapped the text itself. A program that lays out
+ * its own output breaks a long path by hand instead: Claude Code fills a row to its last column
+ * and then writes a newline, so the path arrives as two rows that the terminal has no reason
+ * to connect. Reported from a narrow pane in a split, where the path was underlined on its first
+ * row only and opened a directory rather than the file.
+ *
+ * The rule is deliberately loose, a filled row ending in a path character followed by a row
+ * beginning with one, because the daemon decides what exists. Joining two rows of prose that
+ * happen to meet this way costs one candidate that does not resolve, and the rows' own
+ * candidates are still offered, so nothing that was a link stops being one.
+ */
+export function continuesHard(previous: string, next: string, cols: number): boolean {
+  if (previous.length !== cols || next.length === 0) return false;
+  return PATH_CHAR.test(previous[cols - 1] ?? '') && PATH_CHAR.test(next[0] ?? '');
+}
+
+export interface LogicalLine {
+  /** Every row joined, each padded to the terminal's width so offsets map back to cells. */
+  text: string;
+  /** The rows it was read from, in order, with their buffer indexes. */
+  rows: { text: string; y: number }[];
+  /** Whether any of the joins was a guess rather than xterm's own wrap flag. */
+  hardJoins: boolean;
+  width: number;
+  offsetToColumn: (offset: number) => { x: number; y: number } | null;
+}
+
+/**
+ * Reassemble a logical line from the rows it is drawn on.
  *
  * A path near the right edge is split across rows, and matching per row would miss it or match
- * half of it. This joins the rows and can map any offset back to a row and column.
+ * half of it. This joins the rows, whether xterm wrapped them or the program broke them by hand,
+ * and can map any offset back to a row and column. `row` is zero-based.
  */
-function readWrappedLine(
-  term: Terminal,
-  bufferLineNumber: number,
-): { text: string; offsetToColumn: (offset: number) => { x: number; y: number } | null } | null {
+export function readLogicalLine(term: Terminal, row: number): LogicalLine | null {
   const buf = term.buffer.active;
-  const index = bufferLineNumber - 1;
+  const width = term.cols;
+  const trimmed = (y: number): string => buf.getLine(y)?.translateToString(true) ?? '';
+  const continues = (y: number): boolean => {
+    const line = buf.getLine(y);
+    if (!line) return false;
+    if (line.isWrapped) return true;
+    return continuesHard(trimmed(y - 1), trimmed(y), width);
+  };
 
-  let first = index;
-  while (first > 0 && buf.getLine(first)?.isWrapped) first--;
+  let first = row;
+  while (first > 0 && continues(first)) first--;
 
   const rows: { line: IBufferLine; y: number }[] = [];
+  let hardJoins = false;
   for (let y = first; y < buf.length; y++) {
     const l = buf.getLine(y);
     if (!l) break;
-    if (y !== first && !l.isWrapped) break;
+    if (y !== first) {
+      if (!continues(y)) break;
+      if (!l.isWrapped) hardJoins = true;
+    }
     rows.push({ line: l, y });
     if (rows.length > 12) break; // a path spanning more than this is not a path
   }
   if (rows.length === 0) return null;
-
-  const text = rows.map((r) => r.line.translateToString(false)).join('');
-  const width = term.cols;
+  const texts = rows.map((r) => r.line.translateToString(false));
+  const text = texts.join('');
 
   return {
     text,
+    rows: rows.map((r, i) => ({ text: texts[i] ?? '', y: r.y })),
+    hardJoins,
+    width,
     offsetToColumn(offset) {
       if (offset < 0 || offset >= text.length) return null;
       const rowIndex = Math.floor(offset / width);
@@ -271,6 +321,29 @@ function readWrappedLine(
       return { x: offset % width, y: row.y + 1 };
     },
   };
+}
+
+/**
+ * The path candidates on a logical line.
+ *
+ * From the joined text, and when a join was a guess, from each row on its own as well, so a
+ * guess that was wrong costs nothing: the rows' own paths are still offered, and the daemon
+ * says which of them exist.
+ */
+export function candidatesIn(line: LogicalLine): Candidate[] {
+  const found = findCandidates(line.text);
+  if (!line.hardJoins) return found;
+  const seen = new Set(found.map((c) => `${String(c.start)}:${String(c.end)}`));
+  line.rows.forEach((row, i) => {
+    const base = i * line.width;
+    for (const c of findCandidates(row.text)) {
+      const key = `${String(base + c.start)}:${String(base + c.end)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      found.push({ text: c.text, start: base + c.start, end: base + c.end });
+    }
+  });
+  return found;
 }
 
 /**

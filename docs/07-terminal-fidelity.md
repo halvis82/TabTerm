@@ -710,6 +710,15 @@ restored tab shows you its first screen for as long as you look at it, so nothin
 clickable. A question is now only remembered once it has actually gone out, and it lapses after a
 few seconds if no answer arrives.
 
+**A path a program broke across two rows is one path.** xterm connects rows only when it wrapped
+the text itself. A program that lays out its own output breaks a long path by hand, filling a row
+to its last column and writing a newline, and Claude Code in a narrow pane did: the path was
+underlined on its first row only and opened the directory that row happened to name. A filled row
+ending in a path character is now joined to a row beginning with one, for links and for the scan
+that resolves paths as they are printed. The join is a guess, so the rows' own paths are offered
+beside the joined one, the daemon says which exist, and where a file and the directory its first
+row names both do, the longer link owns the cells they share.
+
 **A path that does not exist is asked about again a few seconds later.** A path is printed before
 it exists more often than you would think: an agent names the file it is about to write, and the
 command that creates a file carries the path in the prompt line, where it is read and answered

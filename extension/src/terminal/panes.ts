@@ -1,6 +1,6 @@
 import type { ResolvedPath } from '@tabterm/shared';
 import { XtermController, type PaneMenuAction } from './xterm-controller.js';
-import { createPathLinkProvider, findCandidates } from './path-links.js';
+import { createPathLinkProvider, candidatesIn, readLogicalLine } from './path-links.js';
 import { scanIsOverdue, QUIET_MS } from './link-scan.js';
 import { loadHighlights, saveHighlights } from './highlights.js';
 import { DEFAULT_COLOR } from './color-store.js';
@@ -133,10 +133,14 @@ export class PaneHost {
       const first = buffer.viewportY;
       const last = Math.min(buffer.length, first + controller.term.rows);
       const found = new Set<string>();
-      for (let y = first; y < last; y++) {
-        const text = buffer.getLine(y)?.translateToString(true) ?? '';
-        if (text === '') continue;
-        for (const candidate of findCandidates(text)) found.add(candidate.text);
+      // Logical lines rather than rows, so a path broken across two rows is asked about whole.
+      // See `readLogicalLine`.
+      let y = first;
+      while (y < last) {
+        const line = readLogicalLine(controller.term, y);
+        if (!line) break;
+        for (const candidate of candidatesIn(line)) found.add(candidate.text);
+        y = (line.rows[line.rows.length - 1]?.y ?? y) + 1;
       }
       const unknown = [...found].filter((c) => this.#opts.lookupPath(c) === undefined);
       if (unknown.length > 0) this.#opts.resolvePaths(paneId, unknown);
