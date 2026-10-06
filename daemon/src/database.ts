@@ -280,6 +280,18 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       ALTER TABLE workspaces ADD COLUMN lost_at INTEGER;
     `,
   },
+  {
+    version: 14,
+    sql: `
+      -- A session somebody asked to keep alive, so it is never ended on a timer.
+      --
+      -- Kept here rather than only in memory because the daemon restarts on every update and
+      -- adopts its sessions back from the host, which has no opinion about this. A terminal kept
+      -- alive on purpose that quietly stopped being kept after an update would be the product
+      -- forgetting the one thing it was told. See docs/04-session-lifecycle.md.
+      ALTER TABLE session_meta ADD COLUMN kept_alive INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 export class Database {

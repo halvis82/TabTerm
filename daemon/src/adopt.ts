@@ -59,6 +59,8 @@ export interface AdoptionPlan {
     hasInput?: boolean;
     /** A person closed its pane, which only the host remembers across a daemon restart. */
     paneClosedByUser?: boolean;
+    /** Somebody asked for it to be kept alive, read back from the database. */
+    keptAlive?: boolean;
   }[];
   workspaces: { id: string; layout: LayoutNode }[];
 }
@@ -82,9 +84,17 @@ export function planAdoption(
 
   for (const session of live) {
     const row = db.handle
-      .prepare('SELECT workspace_id, cwd, shell, command_json FROM session_meta WHERE id = ?')
+      .prepare(
+        'SELECT workspace_id, cwd, shell, command_json, kept_alive FROM session_meta WHERE id = ?',
+      )
       .get(session.sessionId) as
-      | { workspace_id: string | null; cwd: string; shell: string; command_json: string | null }
+      | {
+          workspace_id: string | null;
+          cwd: string;
+          shell: string;
+          command_json: string | null;
+          kept_alive: number;
+        }
       | undefined;
 
     let command: readonly string[] | undefined;
@@ -112,6 +122,8 @@ export function planAdoption(
       // dropped. That is how the size used to be lost.
       ...(session.hasInput === true ? { hasInput: true } : {}),
       ...(session.paneClosedByUser === true ? { paneClosedByUser: true } : {}),
+      // Asked to be kept, which the database remembers because the host does not.
+      ...(row?.kept_alive === 1 ? { keptAlive: true } : {}),
     });
     if (row?.workspace_id) wanted.add(row.workspace_id);
   }

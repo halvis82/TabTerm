@@ -376,6 +376,13 @@ both of which keep the terminal. The failure direction is never towards ending o
 fifteen and it started at the wrong moment; now that nothing starts until the tab is gone, the
 number can afford to be generous.
 
+**Keep alive** is the answer for one terminal rather than for all of them. **Keep alive** on a
+pane's menu, or on its card in Running Now, pins the session: it is never ended on a timer,
+whatever happens to its tab or to Chrome, and the pane's bar and its card both say `(kept alive)`
+in purple. The flag is written to the database and read back when a restarted daemon adopts the
+session, so an update does not quietly stop keeping it. The same entry takes it back, and
+`Kill session` still ends it by hand.
+
 ```
 if pinned or persistent:
     never reap
@@ -468,14 +475,13 @@ without one of four things: a pane the person closed, a tab the person closed, a
 inside its undo window, or a process that had already exited. It also checks the other direction,
 that pinned, persistent, attached and tab-open are absolute whatever else is true.
 
-Two of those four are reachable only over the protocol. `set-pin` and `set-persistence` are
-declared, handled, and correct, and nothing in the extension sends either, so in the product as
-shipped a session is protected by being attached or by its tab being open and never by the other
-two. They also live only in memory: a daemon restart adopts sessions from the host, which has no
-opinion about either flag, so anything pinned is unpinned by the next update. Written down because
-the reap policy reads as though four protections are available when two of them are, and because a
-reader deciding whether a terminal is safe should not have to find that out from the absence of a
-caller.
+One of those four is reachable only over the protocol. `set-persistence` is declared, handled,
+and correct, and nothing in the extension sends it, and it lives only in memory: a daemon restart
+adopts sessions from the host, which has no opinion about it. `set-pin` used to be the same, and
+is not any more: **Keep alive** sends it, the flag is written to `session_meta.kept_alive`, and
+adoption reads it back, so a pinned session stays pinned across an update. Written down because
+the reap policy reads as though four protections are available, and a reader deciding whether a
+terminal is safe should know which of them anything actually uses.
 
 **Never used means no evidence of any kind.** The short grace for an untouched pane is thirty
 seconds against a configured timeout of half an hour, so being wrong about which a session is

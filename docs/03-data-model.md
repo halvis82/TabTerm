@@ -591,3 +591,13 @@ omits that ID. An asynchronous lookup can finish after the live workspace has be
 It may refresh the remembered directory, but must not erase the mapping used by expired-tab
 recovery. An explicitly supplied replacement workspace ID still moves that mapping.
 This is an upsert rule, with no schema migration or rewrite of existing history.
+
+## Kept alive
+
+`session_meta.kept_alive` (migration 14) records that somebody asked for a session to be kept
+alive. The daemon holds the flag in memory while it runs and restarts on every update, adopting
+its sessions back from the terminal host, which has no opinion about this. So the flag is written
+here when it is set and read back when the session is adopted, and a terminal that was kept on
+purpose is still kept after an update. A session that has never run anything has no metadata row
+until it is kept, at which point one is written with the flag and nothing else. See
+`04-session-lifecycle.md`.

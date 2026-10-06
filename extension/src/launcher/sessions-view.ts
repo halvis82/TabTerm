@@ -728,6 +728,15 @@ export function buildSessionCard(session: LiveSession, options: SessionsOptions)
   title.title = session.cwd;
   head.append(title);
 
+  // Kept alive on request, said in its own words and colour: it is a promise about the session
+  // rather than a state of it, and "background" beside it would read as the opposite.
+  if (session.keptAlive === true) {
+    const kept = document.createElement('span');
+    kept.className = 'session-kept';
+    kept.textContent = '(kept alive)';
+    head.append(kept);
+  }
+
   const badge = document.createElement('span');
   badge.className = 'session-badge';
   // Said plainly, because "attached" is jargon for something people think of as "open".

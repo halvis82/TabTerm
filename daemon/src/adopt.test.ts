@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { adoptEverything, planAdoption, prunePanes } from './adopt.js';
 import type { AdoptableSession, AdoptionDeps } from './adopt.js';
 import { Database } from './database.js';
+import { LauncherData } from './launcher-data.js';
 import type { LayoutNode } from '@tabterm/shared';
 
 const pane = (sessionId: string): LayoutNode => ({
@@ -115,6 +116,27 @@ describe('what an adoption plan carries about use', () => {
   it('and says nothing when nobody has', () => {
     const plan = planAdoption([{ sessionId: 't2', pid: 202, cwd: '/tmp', seq: 1 }], db, '/bin/zsh');
     expect(plan.sessions[0]?.hasInput).toBeUndefined();
+  });
+
+  /**
+   * Kept alive is the one flag the host cannot carry, because it is a promise rather than a fact
+   * about the terminal, so it comes back from the database instead. A session kept on purpose that
+   * was quietly unkept by the next update would be the product forgetting the one thing it was
+   * told.
+   */
+  it('carries that somebody asked for it to be kept alive, from the database', () => {
+    const launcher = new LauncherData(db);
+    launcher.keepSessionAlive({ id: 't4', cwd: '/tmp', shell: '/bin/zsh' }, true);
+    const kept = planAdoption([{ sessionId: 't4', pid: 204, cwd: '/tmp', seq: 1 }], db, '/bin/zsh');
+    expect(kept.sessions[0]?.keptAlive).toBe(true);
+
+    launcher.keepSessionAlive({ id: 't4', cwd: '/tmp', shell: '/bin/zsh' }, false);
+    const unkept = planAdoption(
+      [{ sessionId: 't4', pid: 204, cwd: '/tmp', seq: 1 }],
+      db,
+      '/bin/zsh',
+    );
+    expect(unkept.sessions[0]?.keptAlive).toBeUndefined();
   });
 });
 

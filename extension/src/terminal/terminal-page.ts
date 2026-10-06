@@ -2731,6 +2731,17 @@ function sessionItems(session: LiveSession): ShellItem[] {
       },
     },
     {
+      // The same toggle the pane's own menu has, because a card is often the only view of a
+      // terminal left running in the background, which is exactly the one worth keeping.
+      label: session.keptAlive === true ? 'Stop keeping alive' : 'Keep alive',
+      run: () =>
+        client?.send({
+          t: 'set-pin',
+          sessionId: session.sessionId,
+          pinned: session.keptAlive !== true,
+        }),
+    },
+    {
       label: 'Kill session',
       danger: true,
       run: () => {
@@ -3569,6 +3580,7 @@ function buildHosts(): void {
     },
     onFocusPane: (paneId) => panesHost?.focus(paneId),
     paneTitle,
+    paneKeptAlive: (paneId) => keptAlive.has(panesHost?.get(paneId)?.sessionId ?? ''),
     onClosePane: (paneId) => {
       splitView?.focus(paneId);
       closeFocused();
@@ -5089,6 +5101,16 @@ const SHELLS = new Set(['zsh', 'bash', 'sh', 'fish', 'dash', '-zsh', '-bash', 'l
 const sessionTitles = new Map<string, TitleFields>();
 
 /**
+ * The sessions somebody asked to keep alive, by session id.
+ *
+ * Learned with the attach and kept current by the daemon's push, the same as a title. A kept
+ * session is never ended on a timer, whatever happens to its tab or to Chrome, and every surface
+ * that shows the session says so: the bar over its pane, the card on the start screen, and the
+ * entry in both menus. See docs/04-session-lifecycle.md.
+ */
+const keptAlive = new Set<string>();
+
+/**
  * What the bar on top of a pane says.
  *
  * The name somebody gave it first, because a name is chosen and everything else is inferred.
@@ -5300,6 +5322,21 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
         void setFlashing(session, on);
         if (!on) tabFlasher.stop();
       },
+    },
+    {
+      /**
+       * Never end this terminal on a timer, whatever happens to its tab or to Chrome.
+       *
+       * The background timeout in settings is for the ordinary case, a tab closed and not
+       * reopened. This is for the terminal somebody means to come back to in a week: a toggle on
+       * the session rather than a setting for all of them, kept by the daemon and written down so
+       * an update does not forget it. Ending it by hand still works, from the same menu.
+       */
+      label: 'Keep alive',
+      enabled: session !== '',
+      checked: keptAlive.has(session),
+      run: () =>
+        client?.send({ t: 'set-pin', sessionId: session, pinned: !keptAlive.has(session) }),
     },
     {
       // A landmark to scroll back to. Printed into the output rather than typed at the shell,
@@ -6325,6 +6362,10 @@ function onControl(msg: ServerMessage): void {
         if (p.hasRun === true) panesUsed.add(p.paneId);
         // And the conversation this pane is in, so the menu can offer to resume it elsewhere.
         if (p.agentSessionId !== undefined) agentSessionIds.set(p.sessionId, p.agentSessionId);
+        // And whether it is kept alive, which the bar says and the menu toggles. Replaced rather
+        // than only added, since a reattach is the daemon's whole account of the session.
+        if (p.keptAlive === true) keptAlive.add(p.sessionId);
+        else keptAlive.delete(p.sessionId);
         /*
          * What each pane is, so its bar can say so immediately.
          *
@@ -7172,6 +7213,14 @@ function onControl(msg: ServerMessage): void {
       return;
     }
 
+    case 'session-kept-alive': {
+      if (msg.keptAlive) keptAlive.add(msg.sessionId);
+      else keptAlive.delete(msg.sessionId);
+      // The bars say it. The cards redraw from the list the daemon sends right after this.
+      splitView?.refreshTitleBars();
+      return;
+    }
+
     case 'command-start': {
       /**
        * Unless it is the redraw the clear itself asked for.
@@ -7538,6 +7587,8 @@ declare global {
       gridMovesFor: (paneId: string) => number;
       /** Which pane has the keyboard, which is the whole of what a focus shortcut changes. */
       focusedPane: () => string;
+      /** The sessions this page believes are kept alive, so a suite can ask what it was told. */
+      keptAlive: () => string[];
       /**
        * How many times the session behind this pane was actually resized.
        *
@@ -7803,6 +7854,7 @@ function installTestHook(): void {
     },
     gridMovesFor: (paneId) => gridMoves.get(paneId) ?? 0,
     focusedPane: () => splitView?.focused ?? '',
+    keptAlive: () => [...keptAlive],
     daemonSizeChangesFor: (paneId) => daemonSizeChanges.get(paneId) ?? 0,
     daemonSizeFor: (paneId) => {
       for (let i = sessionSizes.length - 1; i >= 0; i--) {

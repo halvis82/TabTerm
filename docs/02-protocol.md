@@ -58,7 +58,7 @@ Rules, all enforced:
 | `resize` | `sessionId`, `cols`, `rows` | Daemon applies min across attached clients |
 | `request-scrollback` | `sessionId`, `beforeSeq`, `maxLines` | Paged, never wholesale |
 | `kill-session` | `sessionId`, `signal?` | Escalates per `04-session-lifecycle.md` |
-| `set-pin` | `sessionId` or `workspaceId`, `pinned` | Pinned is never reaped |
+| `set-pin` | `sessionId` or `workspaceId`, `pinned` | Pinned is never reaped. Written to the database, so a restart adopts the session back pinned. Sent by **Keep alive** on a pane's menu and on a session card |
 | `set-persistence` | `sessionId`, `policyId` | |
 | `create-workspace` | `layout`, `chromeTabId?`, `chromeGroupId?` | |
 | `update-layout` | `workspaceId`, `layout` | Transactional, validated |
@@ -116,6 +116,7 @@ Both fields are optional, so an older extension still reports and is simply not 
 | `snapshot` | `sessionId`, `streamId`, `seq`, `cols`, `rows`, `screen`, `scrollback`, `cursor`, `altScreen`, `attrs` | Attach response. See §6 |
 | `cwd` | `sessionId`, `cwd`, `gitRoot?` | OSC 7 |
 | `title` | `sessionId`, `fields{}` | Structured fields, frontend formats. Never a raw string |
+| `session-kept-alive` | `sessionId`, `keptAlive` | To every connection, after `set-pin`, before the `live-sessions` that follows it |
 | `process-state` | `sessionId`, `state`, `foreground?` | |
 | `command-start` | `sessionId`, `commandId`, `command`, `cwd`, `startedAt` | OSC 133 |
 | `command-end` | `sessionId`, `commandId`, `exitCode`, `completedAt`, `interrupted` | OSC 133 |
@@ -131,7 +132,7 @@ Both fields are optional, so an older extension still reports and is simply not 
 | `notify-policy` | `policy{}` | After a get or a set |
 | `agent-hooks` | `status{}` | `installed`, per-target detail, `lastEventAt?` |
 | `scrollback-budget` | `bytes` | After a get or a set |
-| `live-sessions` | `sessions[]` | Each with `attached`, `busy` and a `preview`. See §4.1 |
+| `live-sessions` | `sessions[]` | Each with `attached`, `busy`, `keptAlive?` and a `preview`. See §4.1 |
 | `path-completion` | `partial`, `completed`, `matches[]` | `partial` is echoed so a stale answer can be dropped |
 | `folder-checked` | `path`, `exists`, `isFile?`, `error?`, `checkId?` | `path` and `checkId` are both echoed. A folder that is not there is an answer, not an error |
 | `resumable-sessions` | `sessions[]` | Each with `agent`, `cwd`, `modifiedAt` and a `summary?`. Never contains one that would fail |

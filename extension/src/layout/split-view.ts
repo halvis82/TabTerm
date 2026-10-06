@@ -23,6 +23,8 @@ export interface SplitViewOptions {
   onPaneResized: (paneId: string, element: HTMLElement) => void;
   /** What the bar on top of a pane calls it, which is the session's name or its process. */
   paneTitle?: (paneId: string) => string;
+  /** Whether the session in a pane is kept alive, which its bar says beside the name. */
+  paneKeptAlive?: (paneId: string) => boolean;
   /** Close this pane, from the cross on its bar. */
   onClosePane?: (paneId: string) => void;
   /** The pane's own menu, at a point, from the dots on its bar. */
@@ -287,6 +289,11 @@ export class SplitView {
     name.className = 'pane-bar-name';
     bar.append(name);
 
+    // Said beside the name rather than in it, so a name somebody typed stays exactly their words.
+    const kept = document.createElement('span');
+    kept.className = 'pane-bar-kept';
+    bar.append(kept);
+
     const menu = document.createElement('button');
     menu.className = 'pane-bar-button';
     menu.title = 'This pane';
@@ -387,6 +394,9 @@ export class SplitView {
     for (const [paneId, wrapper] of this.#wrappers) {
       const name = wrapper.querySelector('.pane-bar-name');
       if (name) name.textContent = this.#opts.paneTitle?.(paneId) ?? '';
+      const kept = wrapper.querySelector('.pane-bar-kept');
+      if (kept)
+        kept.textContent = this.#opts.paneKeptAlive?.(paneId) === true ? '(kept alive)' : '';
     }
   }
 

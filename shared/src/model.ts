@@ -406,6 +406,14 @@ export interface LiveSession {
   /** A command is in flight right now. */
   busy: boolean;
   /**
+   * Somebody asked for this session to be kept alive.
+   *
+   * It is then never ended on a timer, whatever happens to its tab or to Chrome. The card says
+   * so, because a terminal that is deliberately kept and one that is merely waiting out the
+   * background timeout look the same otherwise and are not the same thing.
+   */
+  keptAlive?: boolean;
+  /**
    * The agent's own session id, for a session running one, which is what `--resume` takes.
    *
    * Sent so a card can offer the command that reopens the conversation. Learned from the agent's

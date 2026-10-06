@@ -19,6 +19,7 @@
     --selected: #31405e;
     --selected-edge: #8fb6e8;
     --warn: #e8c26a;
+    --kept: #b48cff;
   }
   :root[data-theme='light'] {
     color-scheme: light;
@@ -698,6 +699,12 @@
     color: var(--text);
     font-size: 9.5px;
     letter-spacing: 0.02em;
+  }
+  /* A session somebody asked to keep. Purple, so it reads as a promise rather than a state. */
+  .session-kept {
+    flex: none;
+    font-size: 10.5px;
+    color: var(--kept);
   }
   .session-card[data-state='attached'] .session-badge {
     /*
@@ -1964,6 +1971,14 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-weight: 500;
+  }
+  .pane-bar-kept {
+    flex: 0 0 auto;
+    color: var(--kept);
+    font-weight: 400;
+  }
+  .pane-bar-kept:empty {
+    display: none;
   }
   .pane-bar-button {
     flex: 0 0 auto;

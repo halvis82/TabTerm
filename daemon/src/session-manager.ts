@@ -710,6 +710,8 @@ export class SessionManager {
     hasInput?: boolean;
     /** A person closed its pane, remembered by the host across this daemon's restart. */
     paneClosedByUser?: boolean;
+    /** Somebody asked for it to be kept alive, remembered by the database. */
+    keptAlive?: boolean;
   }): Session {
     const vt = new VtState(info_.cols, info_.rows, this.#config.scrollbackLines);
     /**
@@ -736,7 +738,8 @@ export class SessionManager {
       startedIn: info_.cwd,
       shell: info_.shell,
       pid: info_.pid,
-      pinned: false,
+      // Kept alive on request, which outranks every timer. See `setPinned`.
+      pinned: info_.keptAlive === true,
       persistent: false,
       // Carried over from the host, which kept it across this daemon's restart. Without it a
       // terminal somebody had typed into looked untouched again after every update.

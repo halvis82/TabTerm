@@ -1089,7 +1089,10 @@ one needs no number and keeps the shorter wording. Seven terminals leaving the s
 different proposition from one, and the menu should say so before the press rather than after.
 
 Closing a tab is not ending a terminal. The sessions carry on in the background and the list keeps
-offering them, which is what `Kill session` further up the same menu is for.
+offering them, which is what `Kill session` further up the same menu is for. `Keep alive` beside
+it, and the same entry on the pane's own menu, is the opposite promise: the session is never ended
+on a timer, and the card says `(kept alive)` in purple for as long as that holds. See
+`04-session-lifecycle.md`.
 
 ### A tab takes the room it uses, and no more
 

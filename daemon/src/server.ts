@@ -567,6 +567,7 @@ export class DaemonServer {
             startedAt: session.createdAt,
             preview: lines.slice(-PREVIEW_LINES),
             busy: session.commandRunning,
+            keptAlive: session.pinned,
           };
         })
         .sort((a, b) => b.startedAt - a.startedAt)
@@ -1709,7 +1710,21 @@ export class DaemonServer {
       case 'set-pin': {
         if (!msg.sessionId) return;
         const session = this.#sessions.get(msg.sessionId);
-        if (session) this.#sessions.setPinned(session, msg.pinned);
+        if (!session) return;
+        this.#sessions.setPinned(session, msg.pinned);
+        // Written down, so a daemon restart adopts it back kept. See docs/04-session-lifecycle.md.
+        this.#launcher.keepSessionAlive(
+          { id: session.id, cwd: session.cwd, shell: session.shell },
+          msg.pinned,
+        );
+        // Every surface showing this session says so: the bars and menus in every tab, and the
+        // cards on every start screen, which redraw from the list.
+        this.broadcastAll({
+          t: 'session-kept-alive',
+          sessionId: session.id,
+          keptAlive: msg.pinned,
+        });
+        this.#announceLiveSessions();
         return;
       }
 
@@ -2979,6 +2994,7 @@ export class DaemonServer {
           ...(atHome ? { atHome: true } : {}),
           ...(hasRun ? { hasRun: true } : {}),
           ...(agentSession === undefined ? {} : { agentSessionId: agentSession }),
+          ...(session.pinned ? { keptAlive: true } : {}),
           title,
           time,
         });
@@ -2995,6 +3011,7 @@ export class DaemonServer {
         ...(atHome ? { atHome: true } : {}),
         ...(hasRun ? { hasRun: true } : {}),
         ...(agentSession === undefined ? {} : { agentSessionId: agentSession }),
+        ...(session.pinned ? { keptAlive: true } : {}),
         title,
         time,
       });

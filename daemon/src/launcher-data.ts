@@ -272,6 +272,23 @@ export class LauncherData {
       .slice(0, limit);
   }
 
+  /**
+   * Remember that a session is kept alive, or no longer is.
+   *
+   * The row is the session's own metadata row, which `rememberSession` creates when the session
+   * first runs something. A session that has never run anything has no row yet, so the flag is
+   * written with the rest of the row rather than against a row that may not exist.
+   */
+  keepSessionAlive(meta: { id: string; cwd: string; shell: string }, kept: boolean): void {
+    this.#db.handle
+      .prepare(
+        `INSERT INTO session_meta (id, workspace_id, cwd, shell, command_json, last_seen_at, last_command, kept_alive)
+         VALUES (?, NULL, ?, ?, NULL, ?, NULL, ?)
+         ON CONFLICT(id) DO UPDATE SET kept_alive = excluded.kept_alive`,
+      )
+      .run(meta.id, meta.cwd, meta.shell, Date.now(), kept ? 1 : 0);
+  }
+
   pinDir(path: string, pinned: boolean): void {
     this.#db.handle
       .prepare('UPDATE recent_dirs SET pinned = ? WHERE path = ?')

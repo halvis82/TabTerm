@@ -45,6 +45,9 @@ export const THEMES: Record<string, Theme> = {
       '--selected-edge': '#8fb6e8',
       '--warn': '#e8c26a',
       '--danger': '#ff8a7a',
+      /* What "(kept alive)" is written in: purple, so it reads as a promise about the session
+         rather than as one of its states, which are blue, grey and amber. */
+      '--kept': '#b48cff',
     },
   },
   light: {
@@ -71,6 +74,8 @@ export const THEMES: Record<string, Theme> = {
          a warning nobody can read is not a warning. */
       '--warn': '#8a5a00',
       '--danger': '#b3261e',
+      /* Darker on white for the same reason as the warning colour above it. */
+      '--kept': '#6d28d9',
     },
   },
   midnight: {
@@ -92,6 +97,7 @@ export const THEMES: Record<string, Theme> = {
       '--selected-edge': '#5f8fd0',
       '--warn': '#e8c26a',
       '--danger': '#ff8a7a',
+      '--kept': '#c4a6ff',
     },
   },
 };

@@ -834,6 +834,13 @@ export interface WorkspacePane {
    */
   hasRun?: boolean;
   /**
+   * Somebody asked for this session to be kept alive.
+   *
+   * Sent with the attach for the same reason as the title: it is pushed when it changes, and a
+   * page that has just attached has never been told.
+   */
+  keptAlive?: boolean;
+  /**
    * What this pane's label counts from, so a refreshed tab is not blank until something happens.
    *
    * Elapsed time is worked out in the page from discrete events, which is right: streaming a
@@ -1002,6 +1009,14 @@ export type ServerMessage =
   | { t: 'snapshot'; snapshot: SessionSnapshot }
   | { t: 'cwd'; sessionId: string; cwd: string; gitRoot?: string }
   | { t: 'title'; sessionId: string; fields: TitleFields }
+  /**
+   * A session is now kept alive, or no longer is, said to everybody.
+   *
+   * Every surface that shows the session says so: the card on the start screen, the bar over
+   * the pane, and the entry in both menus. The flag is set from any of them and has to reach all
+   * of them, in every tab.
+   */
+  | { t: 'session-kept-alive'; sessionId: string; keptAlive: boolean }
   | { t: 'process-state'; sessionId: string; state: ProcessState; foreground?: string }
   | {
       t: 'command-start';

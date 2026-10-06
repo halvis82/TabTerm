@@ -194,6 +194,9 @@ function signatureOf(sessions: readonly LiveSession[]): string {
         s.attached ? 'a' : '',
         s.inTab ? 't' : '',
         s.busy ? 'b' : '',
+        // Kept alive is drawn on the card, so a list that only changes this is still a change.
+        // It was left out at first, and the card said nothing until something else moved.
+        s.keptAlive === true ? 'k' : '',
         // To a tenth of a megabyte, which is what the card says.
         Math.round(s.memoryBytes / 104_857.6),
         s.preview.join('\n'),
