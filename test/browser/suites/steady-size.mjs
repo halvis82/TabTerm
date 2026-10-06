@@ -246,7 +246,9 @@ r.ok(
  * would mean this page had argued back.
  */
 {
-  const paneId = String(await evaluate(client, `window.__tabterm.paneIds()[0] ?? ''`));
+  // The focused pane, which is the one `geometry()` measures. A split focuses the pane it
+  // makes now, so the first pane in the layout is no longer the one being watched.
+  const paneId = String(await evaluate(client, `window.__tabterm.focusedPane() ?? ''`));
   r.ok('a pane to look at from two places', paneId !== '');
   // Counted from here, because the log is everything this page has ever been told and the
   // question is only about what the second view caused.
