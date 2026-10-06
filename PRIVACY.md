@@ -97,7 +97,7 @@ connect locally and does not download executable extension code from GitHub.
 
 Update preferences, version metadata, operation status, staging files and the previous program
 backup are stored under `~/.local/state/tabterm/updates/`. Turn automatic checks off in Settings
-to stop scheduled update requests. Reset Settings turns both automatic update options off.
+to stop scheduled update requests. Reset Settings turns both automatic update options back on.
 Uninstall removes the update helper and its local update files.
 
 ---

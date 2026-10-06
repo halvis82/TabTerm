@@ -70,9 +70,9 @@
 <p>Programs <strong>you</strong> run in a terminal can of course use the network. That is what a terminal is for, and it is your command doing it rather than TabTerm.</p>
 <hr />
 <h2>Optional companion updates</h2>
-<p>The companion contacts GitHub when you press Check for updates or enable automatic checking. Both automatic checks and automatic installation are off by default. GitHub receives ordinary request information such as your IP address and a TabTerm updater user-agent. No terminal input, output, history, clipboard contents, authentication token or project information is included.</p>
+<p>The companion contacts GitHub when you press Check for updates, and once a day on its own while automatic checking is on, which it is unless you turn it off in Settings. Automatic installation is on by the same rule and can be turned off the same way. GitHub receives ordinary request information such as your IP address and a TabTerm updater user-agent. No terminal input, output, history, clipboard contents, authentication token or project information is included.</p>
 <p>Installing an update downloads release source from GitHub and dependencies from the package registry using the release lockfile. Build tools may make their normal dependency requests. These requests are for software distribution, not telemetry. The extension itself continues to connect locally and does not download executable extension code from GitHub.</p>
-<p>Update preferences, version metadata, operation status, staging files and the previous program backup are stored under <code>~/.local/state/tabterm/updates/</code>. Turn automatic checks off in Settings to stop scheduled update requests. Reset Settings turns both automatic update options off. Uninstall removes the update helper and its local update files.</p>
+<p>Update preferences, version metadata, operation status, staging files and the previous program backup are stored under <code>~/.local/state/tabterm/updates/</code>. Turn automatic checks off in Settings to stop scheduled update requests. Reset Settings turns both automatic update options back on. Uninstall removes the update helper and its local update files.</p>
 <hr />
 <h2>What is written to your disk, and where</h2>
 <p>All of it under your home directory, readable only by you:</p>

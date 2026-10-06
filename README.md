@@ -287,8 +287,9 @@ Drop a `.mjs` file in `~/.config/tabterm/plugins/` and restart the daemon. See
 ## Updating
 
 Chrome updates a store-installed extension after a new version passes review. For the companion,
-open TabTerm Settings, **Updates**, then **Check for updates** and **Update companion**.
-Automatic checking and compatible automatic installation are optional and off by default.
+open TabTerm Settings, **Updates** at the bottom of the page, then **Check for updates** and
+**Update companion**. Automatic checking and compatible automatic installation are on unless you
+turn them off there.
 The updater downloads release source, builds it locally and preserves running terminal sessions.
 It needs Node/npm and the build tools from initial setup. Normal updates do not require sudo.
 
