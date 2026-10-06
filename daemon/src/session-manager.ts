@@ -712,6 +712,8 @@ export class SessionManager {
     paneClosedByUser?: boolean;
     /** Somebody asked for it to be kept alive, remembered by the database. */
     keptAlive?: boolean;
+    /** The last command the previous daemon knew of here, remembered by the database. */
+    lastCommand?: string;
   }): Session {
     const vt = new VtState(info_.cols, info_.rows, this.#config.scrollbackLines);
     /**
@@ -740,6 +742,9 @@ export class SessionManager {
       pid: info_.pid,
       // Kept alive on request, which outranks every timer. See `setPinned`.
       pinned: info_.keptAlive === true,
+      // What last ran here, as far as anybody knew. Whether it is still running is learned
+      // again from the process table, see the foreground sweep in the server.
+      ...(info_.lastCommand ? { ranLast: info_.lastCommand } : {}),
       persistent: false,
       // Carried over from the host, which kept it across this daemon's restart. Without it a
       // terminal somebody had typed into looked untouched again after every update.

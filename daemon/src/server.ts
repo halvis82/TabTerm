@@ -32,6 +32,7 @@ import { FlowController } from './flow-control.js';
 import { debug, info, warn } from './log.js';
 import { expandHome } from './complete-path.js';
 import { plainText } from './plain-text.js';
+import { foregroundOf, isNoise } from './foreground.js';
 import { INPUT_STATE_OF_A_NEW_SHELL } from './restored-screen.js';
 import { markerBlock } from './marker-block.js';
 import {
@@ -557,7 +558,13 @@ export class DaemonServer {
             cwd: session.cwd,
             // A name somebody typed beats anything derived, so it is carried and preferred.
             ...(workspace ? nameFromLayout(workspace.layout, session.id) : {}),
-            ...(session.titleFields.process ? { process: session.titleFields.process } : {}),
+            // What is running, from the shell integration when there is one, and otherwise from
+            // the process table, which is what names an agent after a daemon restart.
+            ...(session.titleFields.process
+              ? { process: session.titleFields.process }
+              : session.foregroundProcess
+                ? { process: session.foregroundProcess }
+                : {}),
             ...(session.pendingCommand ? { lastCommand: session.pendingCommand } : {}),
             // And the last one that finished, which is what describes a session sitting idle.
             ...(session.ranLast ? { ranLast: session.ranLast } : {}),
@@ -3174,6 +3181,11 @@ export class DaemonServer {
    * and building it serializes every session's screen, which is the expensive part.
    */
   #announceLiveSessions(): void {
+    // The process table is asked first, so a card can name what is in the foreground. The
+    // list goes out with whatever is known now, and again if the answer changes it.
+    void this.#refreshForeground().then((changed) => {
+      if (changed) this.#announceLiveSessions();
+    });
     const sessions = this.#liveSessions();
     for (const c of this.#clients) {
       /**
@@ -3191,6 +3203,42 @@ export class DaemonServer {
 
   /** Clients that have asked what is running, and so have an answer worth keeping up to date. */
   readonly #wantsLiveSessions = new Set<string>();
+
+  /**
+   * Learn what is in the foreground of every live session from the process table.
+   *
+   * The shell integration and the fallback tracker both name a program when a command starts,
+   * and neither can name one that was already running when this daemon started: every restart
+   * adopted the agent sessions back as "shell". The process table can, the same way the
+   * fallback tracker finds the command behind a prompt. Shells and the tracker's noise are not
+   * foreground programs worth naming. Returns whether anything changed, so the list can go out
+   * again.
+   */
+  async #refreshForeground(): Promise<boolean> {
+    let changed = false;
+    const live = this.#sessions.all.filter(
+      (s) => s.state !== 'exited' && s.state !== 'reaped' && s.pid > 0,
+    );
+    for (const session of live) {
+      let name: string | undefined;
+      try {
+        const found = await foregroundOf(session.pid);
+        if (found && !isNoise(found.command)) {
+          const first = found.command.trim().split(/\s+/)[0] ?? '';
+          name = first.split('/').pop() || undefined;
+        }
+      } catch {
+        // The table could not be read. What was known stands.
+        continue;
+      }
+      if (session.foregroundProcess !== name) {
+        if (name === undefined) delete session.foregroundProcess;
+        else session.foregroundProcess = name;
+        changed = true;
+      }
+    }
+    return changed;
+  }
 
   /**
    * Build a workspace of N panes, all rooted in one directory.

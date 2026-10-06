@@ -1202,8 +1202,18 @@ such as `ls` can finish before the fallback observes it. See `08-shell-integrati
 A name somebody typed wins outright. Naming a pane puts the name on the layout node, and that is
 the only line on the card the person wrote themselves, so it says what the terminal is for in a
 way nothing derived from its output can. Without a name the order is: the running command, then a
-program that is not a shell, then the last command run there, then "shell" for a session that has
-genuinely never run anything.
+program that is not a shell, then the last command run there, then "nothing run yet" for a
+session that has genuinely never run anything. Never "shell": it was the line meant to tell the
+cards apart and it was the line they all shared, and the last command is shown on its own rather
+than behind "shell - ".
+
+**A restart does not take the name away.** The daemon restarts on every update and adopts its
+sessions back from the host, and for a while that left every agent card saying "shell", since a
+title is only ever set when a command starts and the agent had started before this daemon did.
+The last command the previous daemon knew of is read back from the session's metadata row, and
+what is actually in the foreground of a pane is read from the process table whenever the list is
+built, the same way the fallback command tracker finds the program behind a prompt. A pane running
+an agent is named after the agent again within a moment of the list being asked for.
 
 The directory above it is shortened from the **left**, by whole segments, because the end of a
 path is the part that distinguishes it: a screen of cards under one project otherwise reads
@@ -1553,6 +1563,17 @@ right click on a terminal was answered with Cut, Copy and Select all for that in
 
 One rule now: an element inside `.xterm`, or carrying `xterm-helper-textarea`, is the terminal.
 Everything that wants a field asks for one through it.
+
+### What a server's row offers
+
+The two lists of servers at the bottom of the start screen, the ones TabTerm's own sessions are
+running and the other loopback ports on the machine, share one shape. Pressing a row shows the
+page behind the port under it, small and sandboxed with no permissions at all, because it answers
+"what is this", which a port number cannot, and it is not a place to use the thing. Opening the
+page in a tab is the **Open** chip beside the row, with Copy and the row's own actions after it.
+The preview used to appear only while a close was being confirmed, so the one way to see what a
+server was happened to be the button that stops it. Reported as having to press close to get the
+preview.
 
 ### The extension reports, the daemon decides
 

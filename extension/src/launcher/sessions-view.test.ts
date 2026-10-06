@@ -76,8 +76,8 @@ describe('what a session is doing', () => {
   });
 
   it('says shell rather than zsh, which is not what people call it', () => {
-    expect(describeSession({ ...base, process: 'zsh' })).toBe('shell');
-    expect(describeSession(base)).toBe('shell');
+    expect(describeSession({ ...base, process: 'zsh' })).toBe('nothing run yet');
+    expect(describeSession(base)).toBe('nothing run yet');
   });
 });
 
@@ -191,8 +191,8 @@ describe('what a session card calls a session', () => {
   });
 
   it('says shell only when nothing has ever run there, where it is the truth', () => {
-    expect(describeSession({ ...base, process: 'zsh' })).toBe('shell');
-    expect(describeSession(base)).toBe('shell');
+    expect(describeSession({ ...base, process: 'zsh' })).toBe('nothing run yet');
+    expect(describeSession(base)).toBe('nothing run yet');
   });
 });
 
@@ -258,7 +258,7 @@ describe('what a session card says about where a session is', () => {
  */
 describe('a shell described by what it last ran', () => {
   it('says the command beside the word', () => {
-    expect(shellRanLabel('ls')).toBe('shell - ls');
+    expect(shellRanLabel('ls')).toBe('ls');
   });
 
   /*
@@ -267,13 +267,13 @@ describe('a shell described by what it last ran', () => {
    */
   it('and cuts a long one from the end, keeping what identifies it', () => {
     const label = shellRanLabel('ssh argonath@192.168.1.168');
-    expect(label.startsWith('shell - ssh argonath@')).toBe(true);
+    expect(label.startsWith('ssh argonath@')).toBe(true);
     expect(label.endsWith('…')).toBe(true);
   });
 
   it('and stays short enough to sit beside the size and the age', () => {
     const label = shellRanLabel('git log --oneline --graph --decorate --all --since=yesterday');
-    expect(label.length).toBeLessThanOrEqual('shell - '.length + 18);
+    expect(label.length).toBeLessThanOrEqual(18);
   });
 
   /*
@@ -281,10 +281,10 @@ describe('a shell described by what it last ran', () => {
    * one line, so it reads as one.
    */
   it('and flattens whitespace so the line stays a line', () => {
-    expect(shellRanLabel('echo   one\n  two')).toBe('shell - echo one two');
+    expect(shellRanLabel('echo   one\n  two')).toBe('echo one two');
   });
 
   it('and falls back to the bare word when there is nothing to say', () => {
-    expect(shellRanLabel('   ')).toBe('shell');
+    expect(shellRanLabel('   ')).toBe('nothing run yet');
   });
 });

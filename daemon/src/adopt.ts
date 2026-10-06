@@ -61,6 +61,8 @@ export interface AdoptionPlan {
     paneClosedByUser?: boolean;
     /** Somebody asked for it to be kept alive, read back from the database. */
     keptAlive?: boolean;
+    /** The last command the daemon knew of here, read back from the database. */
+    lastCommand?: string;
   }[];
   workspaces: { id: string; layout: LayoutNode }[];
 }
@@ -85,7 +87,7 @@ export function planAdoption(
   for (const session of live) {
     const row = db.handle
       .prepare(
-        'SELECT workspace_id, cwd, shell, command_json, kept_alive FROM session_meta WHERE id = ?',
+        'SELECT workspace_id, cwd, shell, command_json, kept_alive, last_command FROM session_meta WHERE id = ?',
       )
       .get(session.sessionId) as
       | {
@@ -94,6 +96,7 @@ export function planAdoption(
           shell: string;
           command_json: string | null;
           kept_alive: number;
+          last_command: string | null;
         }
       | undefined;
 
@@ -124,6 +127,8 @@ export function planAdoption(
       ...(session.paneClosedByUser === true ? { paneClosedByUser: true } : {}),
       // Asked to be kept, which the database remembers because the host does not.
       ...(row?.kept_alive === 1 ? { keptAlive: true } : {}),
+      // And what last ran here, so a card is not reduced to a directory by a restart.
+      ...(row?.last_command ? { lastCommand: row.last_command } : {}),
     });
     if (row?.workspace_id) wanted.add(row.workspace_id);
   }

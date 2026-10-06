@@ -128,7 +128,13 @@ export function describe(session: LiveSession): string {
    * recognises it by.
    */
   if (session.ranLast) return shellRanLabel(session.ranLast);
-  return 'shell';
+  /*
+   * Never "shell". It was the one line meant to tell the cards apart and it was the line they
+   * all shared, and it stayed after every daemon restart adopted the sessions back with nothing
+   * but a directory. The daemon now carries the last command across a restart and names the
+   * program in the foreground, so this is reached only by a terminal nothing has happened in.
+   */
+  return 'nothing run yet';
 }
 
 /**
@@ -152,8 +158,9 @@ const RAN_LAST_MAX = 18;
  */
 export function shellRanLabel(command: string, max = RAN_LAST_MAX): string {
   const clean = command.replace(/\s+/g, ' ').trim();
-  if (clean === '') return 'shell';
-  return clean.length <= max ? `shell - ${clean}` : `shell - ${clean.slice(0, max - 1)}…`;
+  if (clean === '') return 'nothing run yet';
+  // The command alone. "shell - " in front of it said nothing a card needs and was asked to go.
+  return clean.length <= max ? clean : `${clean.slice(0, max - 1)}…`;
 }
 
 /**

@@ -108,7 +108,8 @@ export interface LauncherOptions {
  * read, and the whole point is to not have to: what is worth showing is the handful you would
  * plausibly want, and anything else is reachable by typing a path.
  */
-const MAX_RECENT = 6;
+// Ten rather than six, by request: six hid the folders of a normal week behind a click.
+const MAX_RECENT = 10;
 const MAX_RESTORE = 3;
 
 /**
@@ -2311,13 +2312,15 @@ export class Launcher {
       const wrap = document.createElement('div');
       wrap.className = 'launcher-row-wrap';
 
+      const url = `http://localhost:${String(server.port)}/`;
       const main = document.createElement('button');
       main.className = 'launcher-row';
       main.append(
         strong(`localhost:${String(server.port)}`),
         dim(`${server.command ? `${server.command} · ` : ''}${shorten(server.cwd, home)}`),
       );
-      main.addEventListener('click', () => this.#opts.onOpenServer(server.port));
+      // The row shows what the server is. Opening it is the chip beside it. See `#portPreview`.
+      main.addEventListener('click', () => this.#togglePreview(url));
       wrap.append(main);
 
       const chip = (label: string, title: string, run: () => void) => {
@@ -2332,6 +2335,7 @@ export class Launcher {
         wrap.append(b);
       };
 
+      chip('Open', 'Open it in a tab', () => this.#opts.onOpenServer(server.port));
       chip('Terminal', 'Focus the tab running this server', () =>
         this.#opts.onAttachServer(server),
       );
@@ -2343,6 +2347,7 @@ export class Launcher {
         this.#confirming = { sessionId: server.sessionId, restart: true };
         this.render();
       });
+      if (this.#previewUrl === url) wrap.append(this.#portPreview(url));
 
       if (this.#confirming?.sessionId !== server.sessionId) return wrap;
 
@@ -2469,7 +2474,8 @@ export class Launcher {
       strong(`localhost:${String(other.port)}`),
       dim(what === '' ? other.program : `${other.program} (${what})`),
     );
-    main.addEventListener('click', () => this.#opts.onOpenServer(other.port));
+    // The row shows what the server is. Opening it is the chip beside it. See `#portPreview`.
+    main.addEventListener('click', () => this.#togglePreview(url));
     wrap.append(main);
 
     const chip = (label: string, title: string, run: () => void) => {
@@ -2484,12 +2490,61 @@ export class Launcher {
       wrap.append(b);
     };
 
+    chip('Open', 'Open it in a tab', () => this.#opts.onOpenServer(other.port));
     chip('Copy', 'Copy the address', () => this.#opts.onCopyText?.(url));
     chip('Close', 'Stop whatever is listening here', () => {
       this.#closingPort = other.port;
       this.render();
     });
+    if (this.#previewUrl === url) wrap.append(this.#portPreview(url));
     return wrap;
+  }
+
+  /** The address whose page is shown under its row, or null. One at a time: it is a glance. */
+  #previewUrl: string | null = null;
+
+  #togglePreview(url: string): void {
+    this.#previewUrl = this.#previewUrl === url ? null : url;
+    this.render();
+  }
+
+  /**
+   * The page behind a port, shown under its row.
+   *
+   * It used to appear only while a close was being confirmed, so the one way to see what a
+   * server was happened to be the button that stops it. Reported as having to press close to
+   * get the preview. A click on the row shows it now, and opening the page in a tab is the chip
+   * beside the row, which is where an action belongs.
+   *
+   * Small on purpose: it answers "what is this", which a port number cannot, and it is not a
+   * place to use the thing. Sandboxed with no permissions at all, because nothing from a page
+   * this product did not write has any business running here.
+   */
+  #portPreview(url: string): HTMLElement {
+    const box = document.createElement('div');
+    box.className = 'launcher-port-peek';
+
+    const preview = document.createElement('iframe');
+    preview.className = 'launcher-port-preview';
+    preview.src = url;
+    preview.title = `Preview of ${url}`;
+    preview.setAttribute('sandbox', '');
+    preview.setAttribute('referrerpolicy', 'no-referrer');
+
+    const status = document.createElement('div');
+    status.className = 'launcher-dim';
+    status.textContent = 'Loading preview...';
+    let loaded = false;
+    preview.addEventListener('load', () => {
+      loaded = true;
+      status.remove();
+    });
+    setTimeout(() => {
+      if (!loaded) status.textContent = 'No page here. This port may not be a web server.';
+    }, 2500);
+
+    box.append(preview, status);
+    return box;
   }
 
   /**
