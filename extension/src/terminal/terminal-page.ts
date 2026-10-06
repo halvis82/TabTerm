@@ -7350,6 +7350,7 @@ function onControl(msg: ServerMessage): void {
          */
         const time = timeStateFor(pane.paneId);
         time.agentState = msg.state;
+        let turnEnded = false;
         if (msg.turnStartedAt === undefined) {
           const wasIn = time.agentTurnStartedAt;
           delete time.agentTurnStartedAt;
@@ -7357,6 +7358,7 @@ function onControl(msg: ServerMessage): void {
             (msg.lastTurnMs !== undefined || wasIn !== undefined) &&
             (msg.state === 'idle' || msg.state === 'failed')
           ) {
+            turnEnded = true;
             time.lastTurnMs = msg.lastTurnMs ?? Date.now() - (wasIn ?? Date.now());
             time.lastTurnEndedAt = msg.lastTurnEndedAt ?? Date.now();
             if (wasIn !== undefined)
@@ -7366,6 +7368,20 @@ function onControl(msg: ServerMessage): void {
           time.agentTurnStartedAt = msg.turnStartedAt;
         }
         startTimeTicking();
+        /**
+         * "Flash the tab when a command finishes", for a session whose commands are turns.
+         *
+         * The flash was started by a shell command ending and by nothing else, and an agent's
+         * turn ends with a hook, not a prompt, so the toggle was on and nothing happened.
+         * Reported from exactly that session. A turn ending is the moment, and so is the agent
+         * stopping to ask, which is the other reason to look.
+         */
+        if (
+          flashing.has(msg.sessionId) &&
+          (turnEnded || msg.state === 'waiting' || msg.state === 'approval')
+        ) {
+          tabFlasher.start();
+        }
       }
       return;
     }
@@ -7589,6 +7605,8 @@ declare global {
       focusedPane: () => string;
       /** The sessions this page believes are kept alive, so a suite can ask what it was told. */
       keptAlive: () => string[];
+      /** Whether the tab icon is flashing for attention right now. */
+      flashing: () => boolean;
       /**
        * How many times the session behind this pane was actually resized.
        *
@@ -7855,6 +7873,7 @@ function installTestHook(): void {
     gridMovesFor: (paneId) => gridMoves.get(paneId) ?? 0,
     focusedPane: () => splitView?.focused ?? '',
     keptAlive: () => [...keptAlive],
+    flashing: () => tabFlasher.flashing,
     daemonSizeChangesFor: (paneId) => daemonSizeChanges.get(paneId) ?? 0,
     daemonSizeFor: (paneId) => {
       for (let i = sessionSizes.length - 1; i >= 0; i--) {

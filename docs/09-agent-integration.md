@@ -46,6 +46,12 @@ agent CLI hook fires
 | Session start | `starting` | Title switches to the agent form |
 | Non-zero completion | `failed` | Failure favicon, critical notification |
 
+**The tab flash follows turns too.** "Flash the tab when a command finishes" on a pane's menu
+used to be started by a shell command ending and by nothing else, and an agent's turn ends with a
+hook rather than a prompt, so in an agent session the toggle was on and nothing happened. A turn
+ending starts the flash now, and so does the agent stopping to ask, since that is the other
+reason to look. See `06-chrome-integration.md` for what stops it.
+
 **A turn is timed from the prompt, and the hook name is what says so.** Two hooks derive `working`
 and only one of them means a turn began, so the hook's own name travels with the state it mapped
 to. Reading the start from the state instead meant a turn was restarted by its own interruptions:
