@@ -14,13 +14,13 @@ await waitFor(client, "document.querySelector('.launcher-input')");
 const geo = JSON.parse(await evaluate(client, `JSON.stringify(window.__tabterm.geometry())`));
 const cols = geo.cols;
 
-// A file whose path is longer than the pane is wide, printed broken at the last column the way
-// ink breaks a long word, so no row is marked as wrapped.
+// A file whose path is longer than the pane is wide, printed broken one column short of the
+// pane the way ink breaks a long word, so no row is marked as wrapped and no row is full.
 const tag = `wrap${String(Date.now()).slice(-6)}`;
 const segment = 'a-long-directory-name-'.repeat(Math.ceil((cols + 30) / 22));
 await type(
   client,
-  `d=$(mktemp -d)/${tag}/${segment}x; mkdir -p "$d"; f="$d/changes.pdf"; touch "$f"; printf '%s\\n' "$f" | fold -w ${String(cols)}`,
+  `d=$(mktemp -d)/${tag}/${segment}x; mkdir -p "$d"; f="$d/changes.pdf"; touch "$f"; printf '%s\\n' "$f" | fold -w ${String(cols - 1)}`,
 );
 await sleep(2500);
 
@@ -29,7 +29,9 @@ await sleep(2500);
 const geoNow = JSON.parse(await evaluate(client, `JSON.stringify(window.__tabterm.geometry())`));
 const lines = (await evaluate(client, `window.__tabterm.readScreen()`)).split('\n');
 // The printed rows, not the command that printed them: output starts at the first column.
-const firstRow = lines.findIndex((l) => l.startsWith('/') && l.includes(tag) && l.length === cols);
+const firstRow = lines.findIndex(
+  (l) => l.startsWith('/') && l.includes(tag) && l.length === cols - 1,
+);
 const rows = [];
 for (let y = firstRow; firstRow >= 0 && y < lines.length && rows.length < 6; y++) {
   rows.push(lines[y]);

@@ -60,8 +60,15 @@ export function findCandidates(text: string): Candidate[] {
     if (stripped.length < 2) continue;
     token = stripped;
 
-    // A bare URL is handled by the web links provider, not here.
-    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text.slice(Math.max(0, start - 8), start + token.length))) {
+    /*
+     * A bare URL is handled by the web links provider, not here.
+     *
+     * Except a `file://` one, which nothing else handles and which names a path on this machine:
+     * agents print `file:///Users/...` beside the plain path, and the path inside it is what
+     * somebody wants opened.
+     */
+    const before = text.slice(Math.max(0, start - 8), start + token.length);
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(before) && !/^file:\/\//i.test(before)) {
       continue;
     }
     out.push({ text: token, start, end: start + token.length });
@@ -256,15 +263,23 @@ const PATH_CHAR = /[\w.@+~/-]/;
  * candidates are still offered, so nothing that was a link stops being one.
  */
 export function continuesHard(previous: string, next: string, cols: number): boolean {
-  if (previous.length !== cols || next.length === 0) return false;
-  return PATH_CHAR.test(previous[cols - 1] ?? '') && PATH_CHAR.test(next[0] ?? '');
+  /*
+   * Filled to the last column, or to the one before it.
+   *
+   * ink leaves the last column free: every wrapped row of a Claude Code answer in a 94 column
+   * pane was 93 characters long, measured from a screenshot of paths that were not links. A
+   * terminal that wrapped the text itself fills the row, so both widths mean "this row ran out
+   * of room".
+   */
+  if (previous.length < cols - 1 || previous.length > cols || next.length === 0) return false;
+  return PATH_CHAR.test(previous[previous.length - 1] ?? '') && PATH_CHAR.test(next[0] ?? '');
 }
 
 export interface LogicalLine {
-  /** Every row joined, each padded to the terminal's width so offsets map back to cells. */
+  /** Every row joined. A row xterm wrapped is padded to the width; a row a program broke is not. */
   text: string;
-  /** The rows it was read from, in order, with their buffer indexes. */
-  rows: { text: string; y: number }[];
+  /** The rows it was read from, in order, each with its buffer index and where it starts in `text`. */
+  rows: { text: string; y: number; start: number }[];
   /** Whether any of the joins was a guess rather than xterm's own wrap flag. */
   hardJoins: boolean;
   width: number;
@@ -277,6 +292,10 @@ export interface LogicalLine {
  * A path near the right edge is split across rows, and matching per row would miss it or match
  * half of it. This joins the rows, whether xterm wrapped them or the program broke them by hand,
  * and can map any offset back to a row and column. `row` is zero-based.
+ *
+ * A row xterm wrapped is taken padded to the full width, which is what it is: the wrap happened
+ * because the row was full. A row a program broke is taken as written, because ink stops one
+ * column short, and the padding there put a space inside the path and broke it in two again.
  */
 export function readLogicalLine(term: Terminal, row: number): LogicalLine | null {
   const buf = term.buffer.active;
@@ -292,7 +311,7 @@ export function readLogicalLine(term: Terminal, row: number): LogicalLine | null
   let first = row;
   while (first > 0 && continues(first)) first--;
 
-  const rows: { line: IBufferLine; y: number }[] = [];
+  const found: { line: IBufferLine; y: number; wrappedNext: boolean }[] = [];
   let hardJoins = false;
   for (let y = first; y < buf.length; y++) {
     const l = buf.getLine(y);
@@ -301,24 +320,38 @@ export function readLogicalLine(term: Terminal, row: number): LogicalLine | null
       if (!continues(y)) break;
       if (!l.isWrapped) hardJoins = true;
     }
-    rows.push({ line: l, y });
-    if (rows.length > 12) break; // a path spanning more than this is not a path
+    found.push({ line: l, y, wrappedNext: false });
+    if (found.length > 12) break; // a path spanning more than this is not a path
   }
-  if (rows.length === 0) return null;
-  const texts = rows.map((r) => r.line.translateToString(false));
-  const text = texts.join('');
+  if (found.length === 0) return null;
+  for (let i = 0; i + 1 < found.length; i++) {
+    const next = found[i + 1];
+    const here = found[i];
+    if (here && next) here.wrappedNext = next.line.isWrapped;
+  }
+
+  const rows: { text: string; y: number; start: number }[] = [];
+  let text = '';
+  found.forEach((r, i) => {
+    // The last row is never padded: nothing follows it that the padding would need to reach.
+    const last = i === found.length - 1;
+    const segment =
+      !last && r.wrappedNext ? r.line.translateToString(false) : r.line.translateToString(true);
+    rows.push({ text: segment, y: r.y, start: text.length });
+    text += segment;
+  });
 
   return {
     text,
-    rows: rows.map((r, i) => ({ text: texts[i] ?? '', y: r.y })),
+    rows,
     hardJoins,
     width,
     offsetToColumn(offset) {
       if (offset < 0 || offset >= text.length) return null;
-      const rowIndex = Math.floor(offset / width);
-      const row = rows[rowIndex];
+      let row = rows[0];
+      for (const r of rows) if (r.start <= offset) row = r;
       if (!row) return null;
-      return { x: offset % width, y: row.y + 1 };
+      return { x: offset - row.start, y: row.y + 1 };
     },
   };
 }
@@ -334,15 +367,14 @@ export function candidatesIn(line: LogicalLine): Candidate[] {
   const found = findCandidates(line.text);
   if (!line.hardJoins) return found;
   const seen = new Set(found.map((c) => `${String(c.start)}:${String(c.end)}`));
-  line.rows.forEach((row, i) => {
-    const base = i * line.width;
+  for (const row of line.rows) {
     for (const c of findCandidates(row.text)) {
-      const key = `${String(base + c.start)}:${String(base + c.end)}`;
+      const key = `${String(row.start + c.start)}:${String(row.start + c.end)}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      found.push({ text: c.text, start: base + c.start, end: base + c.end });
+      found.push({ text: c.text, start: row.start + c.start, end: row.start + c.end });
     }
-  });
+  }
   return found;
 }
 

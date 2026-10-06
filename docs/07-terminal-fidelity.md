@@ -715,7 +715,10 @@ the text itself. A program that lays out its own output breaks a long path by ha
 to its last column and writing a newline, and Claude Code in a narrow pane did: the path was
 underlined on its first row only and opened the directory that row happened to name. A filled row
 ending in a path character is now joined to a row beginning with one, for links and for the scan
-that resolves paths as they are printed. The join is a guess, so the rows' own paths are offered
+that resolves paths as they are printed. Filled means the last column or the one before it: ink
+leaves the last column free, and every wrapped row of a Claude Code answer in a 94 column pane
+measured 93 characters. A `file://` URL yields the path inside it, since nothing else would open
+one and agents print them beside the plain path. The join is a guess, so the rows' own paths are offered
 beside the joined one, the daemon says which exist, and where a file and the directory its first
 row names both do, the longer link owns the cells they share.
 

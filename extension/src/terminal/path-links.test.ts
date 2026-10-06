@@ -61,6 +61,19 @@ describe('path candidate detection', () => {
   });
 });
 
+describe('a file URL', () => {
+  it('yields the path inside it, since nothing else would open it', () => {
+    const found = findCandidates('see (file:///Users/someone/guide.pdf) for the rest').map(
+      (c) => c.text,
+    );
+    expect(found).toEqual(['/Users/someone/guide.pdf']);
+  });
+
+  it('while a web URL still keeps its path to itself', () => {
+    expect(findCandidates('https://example.com/some/path.html')).toEqual([]);
+  });
+});
+
 describe('URL detection', () => {
   it('finds a bare URL', () => {
     expect(findUrls('see https://example.com/docs for more').map((u) => u.text)).toContain(
@@ -168,6 +181,12 @@ describe('a path broken across rows by the program that printed it', () => {
     expect(continuesHard('/private/tmp/dir/', 'changes.pdf', 40)).toBe(false);
   });
 
+  it('joins a row filled to the column before the last, which is where ink stops', () => {
+    // Every wrapped row of a Claude Code answer in a 94 column pane was 93 characters long.
+    expect(continuesHard('/Users/someone/Documents/StudyGuide_', 'Lec01.pdf', 37)).toBe(true);
+    expect(continuesHard('/Users/someone/Documents/StudyGuide_', 'Lec01.pdf', 38)).toBe(false);
+  });
+
   it('does not join rows that meet on a space', () => {
     // A row that ends in a space is not filled: xterm trims it, so it is shorter than the pane.
     expect(continuesHard('the file is in /tmp,', 'and it works', 21)).toBe(false);
@@ -204,6 +223,20 @@ describe('a path broken across rows by the program that printed it', () => {
     );
     expect(line?.offsetToColumn(whole?.start ?? -1)).toEqual({ x: 0, y: 2 });
     expect(line?.offsetToColumn((whole?.end ?? 0) - 1)).toEqual({ x: second.length - 1, y: 3 });
+  });
+
+  it('joins rows ink broke one column short, without a space where the padding was', () => {
+    const cols = 31;
+    const first = '/private/tmp/a-directory-name/'; // 30 characters in a 31 column pane
+    const second = 'changes.pdf';
+    const term = fakeTerm([{ text: first }, { text: second }], cols);
+    const line = readLogicalLine(term, 1);
+    expect(line?.text).toBe(first + second);
+    const whole = candidatesIn(line as NonNullable<typeof line>).find(
+      (c) => c.text === first + second,
+    );
+    expect(whole).toBeDefined();
+    expect(line?.offsetToColumn((whole?.end ?? 0) - 1)).toEqual({ x: second.length - 1, y: 2 });
   });
 
   it('offers only the joined path when xterm itself wrapped the row', () => {
