@@ -53,6 +53,7 @@ import { needsAttention, StatusMachine, titleStatus } from './status-machine.js'
 import { describeTime, isLongRunning, type TimeState } from './elapsed.js';
 import { applyFavicon, composeTitle, drawFavicon, type FaviconState } from './titles.js';
 import { TabFlasher, flashingSessions, setFlashing } from './flash-on-finish.js';
+import { askWorker, tellWorker } from '../chrome/worker.js';
 import { HeldInput } from './held-input.js';
 import { MOUSE_HINT } from './mouse-hint.js';
 import { Launcher } from '../launcher/launcher.js';
@@ -1051,8 +1052,9 @@ function dismissClearUndo(paneId?: string): void {
  * looking at something else.
  */
 function showResetConfirmation(sessions: readonly LiveSession[]): void {
-  void chrome.runtime.sendMessage({ t: 'tabterm:count-terminal-tabs' }).then((reply: unknown) => {
-    const tabCount = Number((reply as { count?: number } | undefined)?.count ?? 1);
+  // Nothing back means the worker is asleep or gone, and one tab is the safe assumption.
+  void askWorker<{ count?: number }>({ t: 'tabterm:count-terminal-tabs' }).then((reply) => {
+    const tabCount = Number(reply?.count ?? 1);
     document.body.replaceChildren(
       buildReset({
         sessions,
@@ -1314,7 +1316,7 @@ function showServerOffer(port: number): void {
     `Listening on port ${String(port)}`;
   open.textContent = `Open localhost:${String(port)}`;
   open.onclick = () => {
-    void chrome.runtime.sendMessage({ t: 'tabterm:open-local', port });
+    tellWorker({ t: 'tabterm:open-local', port });
     bar.hidden = true;
   };
   (document.getElementById('server-dismiss') as HTMLElement).onclick = () => {
@@ -2575,7 +2577,7 @@ async function openLiveSession(session: LiveSession): Promise<void> {
    * Taking it over here would replace work somebody is in the middle of, and attaching it beside
    * that work is what `merge-into` above is for when a session belongs to no workspace at all.
    */
-  void chrome.runtime.sendMessage({
+  tellWorker({
     t: 'tabterm:focus-workspace',
     workspaceId: session.workspaceId,
     attachHere: true,
@@ -2924,7 +2926,7 @@ function pageMenuItems(target: Element): ShellItem[] {
                 : 'Close the tab it is in',
             separated: true,
             run: () => {
-              void chrome.runtime.sendMessage({
+              tellWorker({
                 t: 'tabterm:close-workspace-tab',
                 workspaceId: theirTab,
               });
@@ -3909,7 +3911,7 @@ function buildLauncher(): void {
       });
     },
     onOpenServer: (port) => {
-      void chrome.runtime.sendMessage({ t: 'tabterm:open-local', port });
+      tellWorker({ t: 'tabterm:open-local', port });
     },
     onAttachServer: (server) => {
       // Focus the tab that owns the workspace rather than opening a second view of it.
@@ -6576,7 +6578,7 @@ function onControl(msg: ServerMessage): void {
      * group and into its place by age.
      */
     case 'session-detached-to-tab': {
-      void chrome.runtime.sendMessage({
+      tellWorker({
         t: 'tabterm:open-workspace-beside',
         workspaceId: msg.newWorkspaceId,
         besideWorkspaceId: msg.fromWorkspaceId,
@@ -7082,8 +7084,8 @@ function onControl(msg: ServerMessage): void {
 
     case 'reset-done': {
       document.body.replaceChildren(buildResetDone(msg.sessionsEnded, msg.restarting));
-      void chrome.runtime.sendMessage({ t: 'tabterm:close-other-terminals' });
-      if (msg.restarting) void chrome.runtime.sendMessage({ t: 'tabterm:reload-extension' });
+      tellWorker({ t: 'tabterm:close-other-terminals' });
+      if (msg.restarting) tellWorker({ t: 'tabterm:reload-extension' });
       return;
     }
 

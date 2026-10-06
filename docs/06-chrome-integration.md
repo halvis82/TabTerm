@@ -54,6 +54,15 @@ Notifications and daemon-initiated tab actions are **triggered** by the offscree
 is the only context that survives both a hidden tab and a discarded one. They are **fired** by the
 service worker, which is the only context with the APIs.
 
+**A page's message to the worker is best effort.** The worker stops whenever it has been idle,
+and in the worst case is gone until the extension is reloaded; a message sent to it then rejects
+with Chrome's own "No SW". A page that fired and forgot such a message left "Uncaught (in promise)
+Error: No SW" on chrome://extensions, one per message, which was reported as wanting that page
+clean. Every such message goes through one helper that lets the rejection go, and every message
+that wants an answer gets nothing back rather than an error: a tab that could not be counted or a
+port that could not be opened is not a fault the page can act on beyond what the worker's absence
+already is.
+
 The offscreen document relays over `chrome.runtime.sendMessage`, and that message also wakes the
 worker, which by then has died. Verified: with the worker confirmed dead after idling out, a relay
 from the offscreen document woke it and it fired a notification.
