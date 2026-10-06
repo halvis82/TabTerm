@@ -1297,6 +1297,14 @@ fold, so the primary control on the page could not be reached without scrolling 
 
 ## 6.6 What an empty pane shows
 
+**A split focuses the pane it makes**, in the tab that asked for it. Somebody who splits wants the
+new pane, and having to click into it first read as the split not going to the new session. Only
+the tab that asked: a mirror of the workspace in another tab sees the same layout change and keeps
+its keyboard where it was, and a closed pane being put back or a template filling in moves nothing.
+The new pane is found by comparing the attach against the layout the tab already had, rather than
+taken as the last pane listed, because a split lands beside its source and the source is last only
+by chance. The command an action asked to run in the new pane is sent to the same pane.
+
 Splitting a tab produced two empty shells in the home directory, and the first thing anybody does
 with one is go somewhere. So a pane with nothing in it draws a chooser over itself offering the
 two things worth doing: open a folder, with the same Tab completion the start screen has, or bring

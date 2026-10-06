@@ -668,6 +668,36 @@ function takePendingCommand(): string | null {
   clearTimeout(pendingSplitTimer);
   return command;
 }
+
+/**
+ * Whether the pane a split is about to produce should take the keyboard.
+ *
+ * It should when this tab asked for the split: somebody who splits a pane wants the new one, and
+ * having to click into it first was reported as the split not going to the new session. Not when
+ * the layout changed for another reason, a mirror of this workspace in another tab splitting, a
+ * closed pane being put back, a template filling in, because none of those is this person asking
+ * for a pane to type into.
+ *
+ * Bounded in time for the same reason as the command above it: a split that never arrives must
+ * not hand the keyboard to whatever pane appears next.
+ */
+let focusNextPane = false;
+let focusNextPaneTimer: ReturnType<typeof setTimeout> | undefined;
+
+function expectFocusOnNewPane(): void {
+  focusNextPane = true;
+  clearTimeout(focusNextPaneTimer);
+  focusNextPaneTimer = setTimeout(() => {
+    focusNextPane = false;
+  }, 15_000);
+}
+
+function takeFocusWish(): boolean {
+  const wanted = focusNextPane;
+  focusNextPane = false;
+  clearTimeout(focusNextPaneTimer);
+  return wanted;
+}
 /** How many shipped templates have been deleted or changed, so settings can offer to restore. */
 let alteredTemplateCount = 0;
 
@@ -4993,6 +5023,7 @@ function splitFocused(direction: 'horizontal' | 'vertical'): void {
   const paneId = splitView?.focused;
   if (!paneId || !workspaceId) return;
   const size = panesHost?.fit(paneId) ?? attachSize();
+  expectFocusOnNewPane();
   client?.send({ t: 'split-pane', workspaceId, paneId, direction, ...size });
 }
 
@@ -5021,6 +5052,8 @@ function launchAgent(where: 'new-tab' | 'split'): void {
   const paneId = splitView?.focused;
   if (!paneId || !workspaceId) return;
   const size = panesHost?.fit(paneId) ?? attachSize();
+  // Beside this pane is a split, and the agent is what somebody wants to talk to next.
+  if (where === 'split') expectFocusOnNewPane();
   client?.send({ t: 'launch-agent', where, workspaceId, paneId, ...size });
 }
 
@@ -6263,6 +6296,18 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'workspace-attached': {
+      /*
+       * Which of these panes this tab has not seen before, read before the layout replaces the
+       * one it is compared against.
+       *
+       * The attach after a split carries every pane in the workspace, in the order the layout
+       * walks them, and the new pane is wherever the split put it: beside its source, which is
+       * the end of the list only when the source was last. The command an action asked to run
+       * in the new pane used to be sent to the last pane in the list instead, which in a tab of
+       * three was somebody else's shell.
+       */
+      const known = new Set(layout ? collectPanes(layout) : []);
+      const fresh = msg.panes.filter((p) => !known.has(p.paneId));
       // Creating a pane element is idempotent, and a pane that already exists keeps its
       // terminal untouched. Only genuinely new panes get built.
       for (const p of msg.panes) {
@@ -6407,13 +6452,26 @@ function onControl(msg: ServerMessage): void {
       const waiting = takePendingCommand();
       if (waiting !== null) {
         const command = waiting;
-        const newest = msg.panes[msg.panes.length - 1];
+        const newest = fresh[0];
         if (newest) {
           panesHost?.whenSettled(newest.paneId, () => {
             const target = panesHost?.get(newest.paneId);
             if (target) client?.write(target.streamId, new TextEncoder().encode(`${command}\r`));
           });
         }
+      }
+      /**
+       * The pane this tab just split for, with the keyboard.
+       *
+       * After the layout, because the pane's box does not exist until the layout draws it, and
+       * through the split view so the ring moves with the keyboard rather than staying on the
+       * pane that was split. Nothing waits for the new shell's prompt: what is typed before it
+       * is there reaches the terminal and is read when the shell starts reading, which is how a
+       * terminal has always behaved.
+       */
+      if (takeFocusWish()) {
+        const target = fresh[0];
+        if (target) splitView?.focus(target.paneId);
       }
 
       /*
