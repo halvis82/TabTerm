@@ -74,6 +74,15 @@
        definite width, and containing the block axis too would make the terminal inside it lay
        out against nothing. */
     container-type: inline-size;
+    /* A pane is one layer of the page, whatever is stacked inside it.
+
+       Nothing in here made a stacking context, so every z-index inside a pane competed with the
+       page's own: the emulator's scrollbar at 11 and the marker rail at 31 both sat above the
+       command panel, which lives in #overlays at 8, and the rail sat above the command button at
+       30 too. That was pips drawn crisp through the open menu and over the button, reported from
+       a screenshot. The emulator's layers and the rail now order themselves inside the pane, and
+       the pane as a whole sits under everything that floats over the terminal. */
+    isolation: isolate;
   }
   /* The focused pane is the one receiving keystrokes, so it has to be obvious at a glance.
 
@@ -1860,11 +1869,14 @@
     bottom: 4px;
     right: 11px;
     width: 6px;
-    /* Above the command button, which sits in the same corner and covers the first thirty pixels
-       of the rail. The button used to win, so a landmark near the top of the scrollback could be
-       seen and never pressed, and the rail was pushed down out of its way, which put every mark on
-       it a little below the row it meant. The rail passes clicks through and a pip is four pixels
-       tall, so what the button gives up is that much of itself and only where a mark really is. */
+    /* Above the emulator's own scrollbar, which is at 11 and covers the same strip: a pip under
+       it could be seen and never pressed. Only within the pane, which is its own layer, so the
+       command button in the same corner and the command panel both cover the rail. The rail used
+       to win against the button, deliberately, so a landmark in the first thirty pixels of the
+       scrollback could be pressed through it. What that looked like was pips drawn crisp over
+       the button and through the open menu, reported as a bug, and the button wins now. The rail
+       keeps its full height: pushing it down out of the button's way put every mark a little
+       below the row it meant. */
     z-index: 31;
     display: none;
     pointer-events: none;
