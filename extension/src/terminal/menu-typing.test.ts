@@ -26,8 +26,12 @@ describe('picking a menu entry by typing at it', () => {
     // whole thing being broken.
     const typing = new MenuTyping();
     expect(typing.type('n', ITEMS)).toBe(2);
-    expect(typing.type('z', ITEMS)).toBe(2);
+    // A miss answers -1, which the menu reads as "leave the outline where it is", and the
+    // letters already typed are kept, so the next matching letter narrows from them.
+    expect(typing.type('z', ITEMS)).toBe(-1);
+    expect(typing.typed).toBe('n');
     expect(typing.type('a', ITEMS)).toBe(2);
+    expect(typing.typed).toBe('na');
   });
 
   it('starts again after a pause, so the next word is its own', () => {
@@ -78,5 +82,43 @@ describe('which key presses belong to the menu', () => {
     expect(isTypedAtMenu('c', true, false, false)).toBe(false);
     expect(isTypedAtMenu('c', false, true, false)).toBe(false);
     expect(isTypedAtMenu('c', false, false, true)).toBe(false);
+  });
+});
+
+/**
+ * Being wrong is not being stuck.
+ *
+ * Reported: type something that matches nothing and you are locked into it. Two seconds without
+ * a key forgets the letters, and the entry found before stays outlined through the pause, since
+ * a miss and a pause both answer -1, which the menu reads as "leave the outline alone".
+ */
+describe('after a wrong turn', () => {
+  const labels = ['Keep alive', 'Kill session', 'Settings'];
+
+  it('a miss answers nothing new rather than re-answering the old entry', () => {
+    const typing = new MenuTyping();
+    expect(typing.type('k', labels, 1000)).toBe(0);
+    expect(typing.type('i', labels, 1100)).toBe(1);
+    expect(typing.type('z', labels, 1200)).toBe(-1);
+    expect(typing.typed).toBe('ki');
+  });
+
+  it('forgets the letters two seconds after the last key, misses included', () => {
+    const typing = new MenuTyping();
+    typing.type('k', labels, 1000);
+    typing.type('i', labels, 1100);
+    typing.type('z', labels, 1200);
+    // Measured from the miss, which was the last key.
+    expect(typing.type('e', labels, 1200 + MenuTyping.FORGET_AFTER_MS - 1)).toBe(-1);
+    expect(typing.type('s', labels, 1200 + MenuTyping.FORGET_AFTER_MS * 2)).toBe(2);
+    expect(typing.typed).toBe('s');
+  });
+
+  it('starts fresh on a different entry after the pause', () => {
+    const typing = new MenuTyping();
+    expect(typing.type('k', labels, 1000)).toBe(0);
+    expect(typing.type('i', labels, 1100)).toBe(1);
+    expect(typing.type('k', labels, 1100 + MenuTyping.FORGET_AFTER_MS + 1)).toBe(0);
+    expect(typing.type('e', labels, 1100 + MenuTyping.FORGET_AFTER_MS + 2)).toBe(0);
   });
 });

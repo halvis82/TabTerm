@@ -16,8 +16,15 @@ export class MenuTyping {
   #typed = '';
   #lastAt = 0;
 
-  /** Long enough to type a word at a normal speed, short enough that the next word starts fresh. */
-  static readonly FORGET_AFTER_MS = 1500;
+  /**
+   * Two seconds without a key, and what was typed is forgotten.
+   *
+   * Asked for as two seconds. Any key counts as typing, including one that matched nothing, so
+   * the pause is measured from the last thing somebody pressed rather than the last thing that
+   * landed. The entry that was found stays outlined past the pause: forgetting the letters is
+   * not the same as losing the place, and only a new match moves it.
+   */
+  static readonly FORGET_AFTER_MS = 2000;
 
   /** What has been typed so far, for a caller that wants to show it. */
   get typed(): string {
@@ -25,11 +32,12 @@ export class MenuTyping {
   }
 
   /**
-   * Take a character and say which entry it lands on, or -1.
+   * Take a character and say which entry it lands on, or -1 when nothing new was found.
    *
    * A character that matches nothing is **dropped**, rather than added to the prefix. Otherwise
    * one stray key makes every later keystroke miss too, which reads as the feature breaking; the
-   * entry somebody had already narrowed to stays where it was.
+   * entry somebody had already narrowed to stays where it was, and -1 here means "leave the
+   * outline where it is", never "take it away".
    */
   type(
     character: string,
@@ -41,7 +49,7 @@ export class MenuTyping {
     this.#lastAt = now;
     const attempt = this.#typed + character.toLowerCase();
     const hit = MenuTyping.match(attempt, labels, enabled);
-    if (hit === -1) return MenuTyping.match(this.#typed, labels, enabled);
+    if (hit === -1) return -1;
     this.#typed = attempt;
     return hit;
   }

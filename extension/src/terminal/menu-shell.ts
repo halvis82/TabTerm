@@ -141,25 +141,25 @@ export function placeAndArm(menu: HTMLElement, x: number, y: number): () => void
     if (e.key === 'Backspace') {
       eat();
       const items = entries();
-      pick(
-        typing.backspace(
-          items.map((item) => item.textContent ?? ''),
-          items.map((item) => !item.disabled),
-        ),
+      const found = typing.backspace(
+        items.map((item) => item.textContent ?? ''),
+        items.map((item) => !item.disabled),
       );
+      if (found >= 0) pick(found);
       return;
     }
     if (isTypedAtMenu(e.key, e.ctrlKey, e.metaKey, e.altKey)) {
       eat();
       const items = entries();
-      pick(
-        typing.type(
-          e.key,
-          items.map((item) => item.textContent ?? ''),
-          Date.now(),
-          items.map((item) => !item.disabled),
-        ),
+      // Only a match moves the outline. A key that found nothing leaves it where it was, and so
+      // does the pause that forgets the letters: the place is kept until a new match takes it.
+      const found = typing.type(
+        e.key,
+        items.map((item) => item.textContent ?? ''),
+        Date.now(),
+        items.map((item) => !item.disabled),
       );
+      if (found >= 0) pick(found);
       return;
     }
     /*

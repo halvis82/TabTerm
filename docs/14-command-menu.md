@@ -383,6 +383,15 @@ Favorites are `saved_items` rows of kind `command`, with `title` as the display 
 `hotstring` column. Panel position and the last tab live in extension storage, since they are
 properties of a view rather than of the data. See `03-data-model.md`.
 
+## Typing at a menu
+
+Typing picks the first entry that begins with the letters typed, and Return runs it, the way every
+native menu does. A letter that matches nothing is dropped rather than added, so one stray key does
+not make every later key miss, and two seconds without a key forgets the letters entirely. Any key
+counts, a miss included, since the pause is measured from the last thing pressed. The outline on
+the entry found stays through the pause and through a miss: forgetting the letters is not losing
+the place, and only a new match moves it. Reported as being locked in after a wrong letter.
+
 ## Escape closes a menu, and the terminal never hears it
 
 Escape is how a menu is dismissed everywhere, and it is also the interrupt key of every agent CLI

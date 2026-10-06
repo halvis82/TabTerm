@@ -271,15 +271,37 @@ export function continuesHard(previous: string, next: string, cols: number): boo
    * terminal that wrapped the text itself fills the row, so both widths mean "this row ran out
    * of room".
    */
-  if (previous.length < cols - 1 || previous.length > cols || next.length === 0) return false;
-  return PATH_CHAR.test(previous[previous.length - 1] ?? '') && PATH_CHAR.test(next[0] ?? '');
+  if (previous.length < cols - 1 || previous.length > cols) return false;
+  const indent = hangingIndent(next);
+  if (indent === null) return false;
+  return PATH_CHAR.test(previous[previous.length - 1] ?? '') && PATH_CHAR.test(next[indent] ?? '');
 }
+
+/**
+ * How far a continuation row is indented, or null when it is not a continuation at all.
+ *
+ * ink wraps a paragraph under its own first line: the rows of a bullet are indented two spaces,
+ * the rows of a numbered item three, and the path in them starts after that. The second
+ * screenshot of this had the continuation row begin with two spaces, which the first rule read
+ * as "not a path character" and refused. Bounded, because a row that starts with a tab's worth
+ * of space is a code block or a table, and those wrap nothing.
+ */
+export function hangingIndent(row: string): number | null {
+  const indent = row.length - row.trimStart().length;
+  if (indent >= row.length || indent > MAX_HANGING_INDENT) return null;
+  return indent;
+}
+
+const MAX_HANGING_INDENT = 8;
 
 export interface LogicalLine {
   /** Every row joined. A row xterm wrapped is padded to the width; a row a program broke is not. */
   text: string;
-  /** The rows it was read from, in order, each with its buffer index and where it starts in `text`. */
-  rows: { text: string; y: number; start: number }[];
+  /**
+   * The rows it was read from, in order, each with its buffer index, where it starts in `text`,
+   * and how many leading cells were left out of `text` as a hanging indent.
+   */
+  rows: { text: string; y: number; start: number; skip: number }[];
   /** Whether any of the joins was a guess rather than xterm's own wrap flag. */
   hardJoins: boolean;
   width: number;
@@ -330,14 +352,20 @@ export function readLogicalLine(term: Terminal, row: number): LogicalLine | null
     if (here && next) here.wrappedNext = next.line.isWrapped;
   }
 
-  const rows: { text: string; y: number; start: number }[] = [];
+  const rows: { text: string; y: number; start: number; skip: number }[] = [];
   let text = '';
   found.forEach((r, i) => {
     // The last row is never padded: nothing follows it that the padding would need to reach.
     const last = i === found.length - 1;
-    const segment =
+    let segment =
       !last && r.wrappedNext ? r.line.translateToString(false) : r.line.translateToString(true);
-    rows.push({ text: segment, y: r.y, start: text.length });
+    // A row a program broke continues after its hanging indent, not at the indent.
+    let skip = 0;
+    if (i > 0 && !r.line.isWrapped) {
+      skip = hangingIndent(segment) ?? 0;
+      segment = segment.slice(skip);
+    }
+    rows.push({ text: segment, y: r.y, start: text.length, skip });
     text += segment;
   });
 
@@ -351,7 +379,7 @@ export function readLogicalLine(term: Terminal, row: number): LogicalLine | null
       let row = rows[0];
       for (const r of rows) if (r.start <= offset) row = r;
       if (!row) return null;
-      return { x: offset - row.start, y: row.y + 1 };
+      return { x: offset - row.start + row.skip, y: row.y + 1 };
     },
   };
 }

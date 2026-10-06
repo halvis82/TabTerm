@@ -239,6 +239,38 @@ describe('a path broken across rows by the program that printed it', () => {
     expect(line?.offsetToColumn((whole?.end ?? 0) - 1)).toEqual({ x: second.length - 1, y: 2 });
   });
 
+  it('joins a continuation ink indented under its bullet, and maps columns past the indent', () => {
+    // The second screenshot: "  Source: /Users/.../CSE250A_StudyGui" then "  de_Lec01-03.tex".
+    const cols = 40;
+    const first = '  Source: /Users/someone/docs/CSE250A_St'; // 39 characters
+    const second = '  udyGuide.tex (file:///Users/someone/d';
+    const third = '  ocs/CSE250A_StudyGuide.tex)';
+    const term = fakeTerm([{ text: first }, { text: second }, { text: third }], cols);
+    const line = readLogicalLine(term, 2);
+    expect(line?.rows.map((r) => r.y)).toEqual([0, 1, 2]);
+    expect(line?.text).toBe(
+      '  Source: /Users/someone/docs/CSE250A_StudyGuide.tex (file:///Users/someone/docs/CSE250A_StudyGuide.tex)',
+    );
+    const texts = candidatesIn(line as NonNullable<typeof line>).map((c) => c.text);
+    expect(texts).toContain('/Users/someone/docs/CSE250A_StudyGuide.tex');
+    expect(texts.filter((t) => t === '/Users/someone/docs/CSE250A_StudyGuide.tex')).toHaveLength(2);
+    const whole = candidatesIn(line as NonNullable<typeof line>).find(
+      (c) => c.text === '/Users/someone/docs/CSE250A_StudyGuide.tex',
+    );
+    // The link starts on the first row and ends on the second, after its two-space indent.
+    expect(line?.offsetToColumn(whole?.start ?? -1)).toEqual({ x: 10, y: 1 });
+    expect(line?.offsetToColumn((whole?.end ?? 0) - 1)).toEqual({
+      x: 2 + 'udyGuide.tex'.length - 1,
+      y: 2,
+    });
+  });
+
+  it('does not treat a deeply indented row as a continuation', () => {
+    expect(continuesHard('/Users/someone/some-long-directory-name/', '          code', 41)).toBe(
+      false,
+    );
+  });
+
   it('offers only the joined path when xterm itself wrapped the row', () => {
     const cols = 30;
     const term = fakeTerm(

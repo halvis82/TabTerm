@@ -14,13 +14,14 @@ await waitFor(client, "document.querySelector('.launcher-input')");
 const geo = JSON.parse(await evaluate(client, `JSON.stringify(window.__tabterm.geometry())`));
 const cols = geo.cols;
 
-// A file whose path is longer than the pane is wide, printed broken one column short of the
-// pane the way ink breaks a long word, so no row is marked as wrapped and no row is full.
+// A file whose path is longer than the pane is wide, printed the way ink prints a bullet: the
+// first row one column short of the pane, every row after it indented two spaces under it, so
+// no row is marked as wrapped, no row is full, and no continuation starts with the path.
 const tag = `wrap${String(Date.now()).slice(-6)}`;
 const segment = 'a-long-directory-name-'.repeat(Math.ceil((cols + 30) / 22));
 await type(
   client,
-  `d=$(mktemp -d)/${tag}/${segment}x; mkdir -p "$d"; f="$d/changes.pdf"; touch "$f"; printf '%s\\n' "$f" | fold -w ${String(cols - 1)}`,
+  `d=$(mktemp -d)/${tag}/${segment}x; mkdir -p "$d"; f="$d/changes.pdf"; touch "$f"; p="  PDF: $f"; printf '%s\\n' "\${p:0:${String(cols - 1)}}"; printf '%s\\n' "\${p:${String(cols - 1)}}" | fold -w ${String(cols - 3)} | sed 's/^/  /'`,
 );
 await sleep(2500);
 
@@ -30,14 +31,16 @@ const geoNow = JSON.parse(await evaluate(client, `JSON.stringify(window.__tabter
 const lines = (await evaluate(client, `window.__tabterm.readScreen()`)).split('\n');
 // The printed rows, not the command that printed them: output starts at the first column.
 const firstRow = lines.findIndex(
-  (l) => l.startsWith('/') && l.includes(tag) && l.length === cols - 1,
+  (l) => l.startsWith('  PDF: /') && l.includes(tag) && l.length === cols - 1,
 );
 const rows = [];
 for (let y = firstRow; firstRow >= 0 && y < lines.length && rows.length < 6; y++) {
   rows.push(lines[y]);
   if (lines[y].endsWith('changes.pdf')) break;
 }
-const full = rows.join('');
+// What was printed, read back the way the page must read it: the first row from after its
+// label, the continuations from after their indent.
+const full = rows.map((row, i) => (i === 0 ? row.slice('  PDF: '.length) : row.slice(2))).join('');
 const lastRow = firstRow + rows.length - 1;
 r.ok(
   'the path is on screen across rows the program broke by hand',
