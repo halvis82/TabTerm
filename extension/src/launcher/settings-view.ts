@@ -175,80 +175,6 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
   const wrap = document.createElement('div');
   wrap.className = 'cmd-settings';
 
-  const updates = section('Updates');
-  updates.dataset['updates'] = 'true';
-  const state = options.updates?.();
-  const versions = document.createElement('p');
-  versions.className = 'set-desc';
-  versions.textContent = `Extension ${VERSION} · Companion ${state?.installedVersion ?? options.companionVersion?.() ?? 'Connecting'}`;
-  updates.append(versions);
-  const message = document.createElement('p');
-  message.className = 'set-desc';
-  message.dataset['updateStatus'] = 'true';
-  message.setAttribute('role', 'status');
-  message.textContent = state
-    ? state.message
-    : 'If update controls do not appear, install the latest companion once using the setup guide.';
-  updates.append(message);
-  if (state) {
-    if (state.availableVersion) {
-      const available = document.createElement('p');
-      available.className = 'set-desc';
-      available.textContent = `Latest companion: ${state.availableVersion}${state.checkedAt ? ` · Checked ${new Date(state.checkedAt).toLocaleString()}` : ''}`;
-      updates.append(available);
-    }
-    const busy = ['checking', 'preparing', 'installing'].includes(state.phase);
-    for (const [label, action, disabled] of [
-      ['Check for updates', options.onCheckUpdate, busy],
-      ['Update companion', options.onInstallUpdate, busy || !state.canInstall],
-    ] as const) {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'cmd-settings-button';
-      button.textContent = label;
-      button.disabled = disabled;
-      button.addEventListener('click', () => {
-        button.disabled = true;
-        action?.();
-      });
-      updates.append(button);
-    }
-    for (const [label, checked, change] of [
-      [
-        'Automatically check for updates',
-        state.automaticChecks,
-        (value: boolean) => options.onUpdatePreferences?.(value, value && state.automaticInstall),
-      ],
-      [
-        'Automatically install compatible updates',
-        state.automaticInstall,
-        (value: boolean) => options.onUpdatePreferences?.(state.automaticChecks || value, value),
-      ],
-    ] as const) {
-      const input = document.createElement('input');
-      input.type = 'checkbox';
-      input.checked = checked;
-      input.addEventListener('change', () => change(input.checked));
-      updates.append(
-        field(
-          label,
-          label.includes('install')
-            ? 'Downloads, builds and installs compatible releases. Terminals stay running. macOS permissions may need renewal. Off by default.'
-            : 'Checks GitHub once a day. Sends no terminal content. Off by default.',
-          input,
-        ),
-      );
-    }
-  }
-  const setup = document.createElement('a');
-  setup.href = 'https://github.com/halvis82/TabTerm#setup';
-  setup.target = '_blank';
-  setup.rel = 'noopener noreferrer';
-  setup.textContent = 'Companion setup guide';
-  updates.append(setup);
-  wrap.append(updates);
-
-  // --- Appearance ---------------------------------------------------------
   const look = section('Appearance');
   const themeSelect = chooser(THEMES, 'dark', (value) => options.onChangeTheme(value));
   void chrome.storage.local.get('tabterm.theme').then((stored) => {
@@ -499,8 +425,85 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
   });
   keys.append(chromeNote, openShortcuts);
   wrap.append(keys);
+  // Last, by request: nothing here is part of using a terminal, and it changes least often.
+  wrap.append(buildUpdates(options));
 
   return wrap;
+}
+
+/**
+ * Versions, a way to check and a way to update, and the two switches that do it unattended.
+ *
+ * Drawn with the same pieces as every other section: the buttons are the panel's own buttons and
+ * the switches are rows with a checkbox on the right, the way Notifications has them. It used to
+ * be bare browser buttons and bare checkboxes under a label, which was reported as looking out of
+ * place, and it used to be the first section, which put the thing changed least often above
+ * everything changed daily.
+ */
+function buildUpdates(options: SettingsOptions): HTMLElement {
+  const updates = section('Updates');
+  updates.dataset['updates'] = 'true';
+  const state = options.updates?.();
+  const versions = document.createElement('p');
+  versions.className = 'set-desc';
+  versions.textContent = `Extension ${VERSION} · Companion ${state?.installedVersion ?? options.companionVersion?.() ?? 'Connecting'}`;
+  updates.append(versions);
+  const message = document.createElement('p');
+  message.className = 'set-desc';
+  message.dataset['updateStatus'] = 'true';
+  message.setAttribute('role', 'status');
+  message.textContent = state
+    ? state.message
+    : 'If update controls do not appear, install the latest companion once using the setup guide.';
+  updates.append(message);
+  if (state) {
+    if (state.availableVersion) {
+      const available = document.createElement('p');
+      available.className = 'set-desc';
+      available.textContent = `Latest companion: ${state.availableVersion}${state.checkedAt ? ` · Checked ${new Date(state.checkedAt).toLocaleString()}` : ''}`;
+      updates.append(available);
+    }
+    const busy = ['checking', 'preparing', 'installing'].includes(state.phase);
+    const buttons = document.createElement('div');
+    buttons.className = 'cmd-buttons';
+    for (const [label, action, disabled, primary] of [
+      ['Check for updates', options.onCheckUpdate, busy, false],
+      ['Update companion', options.onInstallUpdate, busy || !state.canInstall, true],
+    ] as const) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = primary ? 'cmd-button primary' : 'cmd-button';
+      button.textContent = label;
+      button.disabled = disabled;
+      button.addEventListener('click', () => {
+        button.disabled = true;
+        action?.();
+      });
+      buttons.append(button);
+    }
+    updates.append(buttons);
+    updates.append(
+      toggle(
+        'Check for updates automatically',
+        state.automaticChecks,
+        (value) => options.onUpdatePreferences?.(value, value && state.automaticInstall),
+        'Asks GitHub once a day. Sends no terminal content.',
+      ),
+      toggle(
+        'Install compatible updates automatically',
+        state.automaticInstall,
+        (value) => options.onUpdatePreferences?.(state.automaticChecks || value, value),
+        'Downloads, builds and installs a compatible release. Terminals stay running. macOS may ask for permissions again afterwards.',
+      ),
+    );
+  }
+  const setup = document.createElement('a');
+  setup.href = 'https://github.com/halvis82/TabTerm#setup';
+  setup.target = '_blank';
+  setup.rel = 'noopener noreferrer';
+  setup.textContent = 'Companion setup guide';
+  updates.append(setup);
+  return updates;
 }
 
 /**

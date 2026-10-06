@@ -340,6 +340,7 @@ work at all:
 | Stay quiet while I am looking | Suppress for a pane already on screen |
 | **Agent events** | Installs the agent CLI hooks. Without them agent status does nothing |
 | **Shell integration** | Adds the line to `.zshrc`. Without it there are no exit codes |
+| Updates | Versions, a check, an update, and the two automatic switches. Last on the page, drawn with the panel's own buttons and switches. See `16-companion-updates.md` |
 
 The last two write to files outside TabTerm, so they happen only on an explicit switch, are backed
 up before the first change, and are removable to the byte. Both used to be lines of text in the

@@ -31,12 +31,20 @@ const manifest = {
   },
   compatibility: { protocol: 1, host: 1, storage: 1, nodeMajor: 22, macosMajor: 13 },
 };
-function manager(options = {}) {
+function manager({ preferences, ...options } = {}) {
   const root = home();
   const path = join(root, '.local/libexec/tabterm');
   mkdirSync(path, { recursive: true });
   writeFileSync(join(path, 'update-worker.mjs'), '');
   writeFileSync(join(path, 'installation.json'), '{}');
+  // Written before the manager reads them, the way a person's own choices would be.
+  if (preferences) {
+    mkdirSync(join(root, '.local/state/tabterm/updates'), { recursive: true });
+    writeFileSync(
+      join(root, '.local/state/tabterm/updates/preferences.json'),
+      JSON.stringify(preferences),
+    );
+  }
   const fetchBytes = vi.fn(async (url) =>
     Buffer.from(
       JSON.stringify(
@@ -60,14 +68,28 @@ function manager(options = {}) {
   return { m, root, fetchBytes, launch };
 }
 describe('update checks and preferences', () => {
-  it('does no network work by default', async () => {
-    const { m, fetchBytes } = manager();
+  it('checks on its own by default, and installs a compatible release once', async () => {
+    const { m, fetchBytes, launch } = manager();
+    expect(m.snapshot().automaticChecks).toBe(true);
+    expect(m.snapshot().automaticInstall).toBe(true);
+    await m.tick();
+    expect(fetchBytes).toHaveBeenCalledTimes(2);
+    expect(launch).toHaveBeenCalledTimes(1);
+  });
+  it('respects a choice to turn it off, which is what the old default was', async () => {
+    const { m, fetchBytes } = manager({ preferences: { automaticChecks: false } });
     await m.tick();
     expect(fetchBytes).not.toHaveBeenCalled();
     expect(m.snapshot().automaticInstall).toBe(false);
   });
+  it('never checks on its own from a development checkout', async () => {
+    const { m, fetchBytes } = manager({ enabled: false });
+    await m.tick();
+    expect(fetchBytes).not.toHaveBeenCalled();
+    expect(m.snapshot().automaticChecks).toBe(true);
+  });
   it('checks without installing, deduplicates and rate limits', async () => {
-    const { m, fetchBytes, launch } = manager();
+    const { m, fetchBytes, launch } = manager({ preferences: { automaticInstall: false } });
     await Promise.all([m.check(), m.check()]);
     expect(fetchBytes).toHaveBeenCalledTimes(2);
     expect(m.snapshot().canInstall).toBe(true);
@@ -77,8 +99,13 @@ describe('update checks and preferences', () => {
   });
   it('reports unwritable check state without fetching and retries after repair', async () => {
     let now = Date.now();
-    const { m, root, fetchBytes } = manager({ clock: () => now });
+    const { m, root, fetchBytes } = manager({
+      clock: () => now,
+      preferences: { automaticInstall: false },
+    });
     const preferences = join(root, '.local/state/tabterm/updates/preferences.json');
+    // A directory where the file should be is the simplest unwritable file.
+    rmSync(preferences, { force: true });
     mkdirSync(preferences, { recursive: true });
     await expect(m.check()).resolves.toBeUndefined();
     expect(m.snapshot().phase).toBe('error');
@@ -90,8 +117,8 @@ describe('update checks and preferences', () => {
     expect(m.snapshot().phase).toBe('available');
     expect(fetchBytes).toHaveBeenCalledTimes(2);
   });
-  it('persists opt-in preferences and implies checks for auto installs', async () => {
-    const { m, root } = manager();
+  it('persists preferences and implies checks for auto installs', async () => {
+    const { m, root } = manager({ preferences: { automaticChecks: false } });
     m.preferencesChanged(false, true);
     await m.checking;
     const next = new UpdateManager({ home: root, version: '1.0.2' });
@@ -104,7 +131,7 @@ describe('update checks and preferences', () => {
     ).toBe(false);
   });
   it('requires a check before install and prevents double installs', async () => {
-    const { m, launch } = manager();
+    const { m, launch } = manager({ preferences: { automaticInstall: false } });
     await m.install();
     expect(launch).not.toHaveBeenCalled();
     await m.check();

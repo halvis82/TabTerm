@@ -2600,7 +2600,8 @@ export class DaemonServer {
       }
 
       case 'reset-settings': {
-        this.updates?.preferencesChanged(false, false);
+        // Back to the defaults, which are on. See docs/16-companion-updates.md.
+        this.updates?.preferencesChanged(true, true);
         /**
          * Every preference back to its default, and nothing else touched.
          *

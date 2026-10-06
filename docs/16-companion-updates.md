@@ -6,7 +6,8 @@ supporting shell integration files. Source remains the distribution format.
 
 ## Settings
 
-The Updates section shows installed extension and companion versions. **Check for updates** asks
+The Updates section is the last one on the settings page. It shows installed extension and
+companion versions. **Check for updates** asks
 the companion to read the latest stable GitHub Release and its `companion-release.json` asset.
 A branch push alone is not a companion release. Checks do not download or execute source.
 
@@ -14,13 +15,16 @@ A branch push alone is not a companion release. Checks do not download or execut
 then installs it. It does not pull into or modify a development checkout. The extension stays under
 Chrome's update control. No remote JavaScript is loaded into the extension.
 
-Both automatic options default to off. Automatic checks run at most once a day, with a persisted
-last-attempt timestamp. Manual checks are limited to one attempt per minute. Automatic installation
-implies automatic checking. Disabling checks also disables automatic installation. A failed automatic
-installation is not retried repeatedly for the same version. Manual check and retry remain possible.
-If check state cannot be saved, Settings reports the storage failure before any network request.
-A manual check can retry after storage is repaired and the one-minute limit has elapsed.
-Reset Settings disables both options. Uninstall removes the updater job and its local state.
+Both automatic options are on unless turned off. A preference saved as off is respected, so an
+installation that chose not to check keeps that choice. Only an installed companion checks on its
+own: a development or test daemon never contacts GitHub unattended, and reports that it cannot
+install. Automatic checks run at most once a day, with a persisted last-attempt timestamp. Manual
+checks are limited to one attempt per minute. Automatic installation implies automatic checking.
+Disabling checks also disables automatic installation. A failed automatic installation is not
+retried repeatedly for the same version. Manual check and retry remain possible. If check state
+cannot be saved, Settings reports the storage failure before any network request. A manual check
+can retry after storage is repaired and the one-minute limit has elapsed. Reset Settings turns both
+options back on. Uninstall removes the updater job and its local state.
 
 The first updater-capable companion needs one ordinary source install. Older companions cannot
 update themselves into a feature they do not have. Settings links to the setup guide if the

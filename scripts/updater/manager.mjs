@@ -33,9 +33,12 @@ export class UpdateManager {
       installedVersion: version,
       phase: 'idle',
       message: 'Check for a released companion update.',
-      automaticChecks: this.preferences.automaticChecks === true,
+      // On unless turned off. A terminal that keeps itself current is the ordinary case, and
+      // the first releases shipped with both off, which left every installation on 1.1.0 for
+      // as long as nobody found the switch. An explicit false is still respected.
+      automaticChecks: this.preferences.automaticChecks !== false,
       automaticInstall:
-        this.preferences.automaticChecks === true && this.preferences.automaticInstall === true,
+        this.preferences.automaticChecks !== false && this.preferences.automaticInstall !== false,
       canInstall: false,
       ...(Number.isFinite(this.preferences.checkedAt)
         ? { checkedAt: this.preferences.checkedAt }
@@ -90,7 +93,11 @@ export class UpdateManager {
     void this.tick();
   }
   async tick() {
-    if (this.stopped || !this.status.automaticChecks || busy.has(this.status.phase)) return;
+    // Only an installed companion checks on its own. A development or test daemon could never
+    // install what it found, and with checks on by default it would otherwise ask GitHub once
+    // per start, from every suite run and every checkout.
+    if (!this.enabled || this.stopped || !this.status.automaticChecks) return;
+    if (busy.has(this.status.phase)) return;
     if (this.clock() - this.lastAttempt >= 24 * 60 * 60 * 1000) await this.check();
   }
   refresh() {

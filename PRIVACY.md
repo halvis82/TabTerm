@@ -84,8 +84,9 @@ and it is your command doing it rather than TabTerm.
 
 ## Optional companion updates
 
-The companion contacts GitHub when you press Check for updates or enable automatic checking.
-Both automatic checks and automatic installation are off by default. GitHub receives ordinary
+The companion contacts GitHub when you press Check for updates, and once a day on its own while
+automatic checking is on, which it is unless you turn it off in Settings. Automatic installation is
+on by the same rule and can be turned off the same way. GitHub receives ordinary
 request information such as your IP address and a TabTerm updater user-agent. No terminal input,
 output, history, clipboard contents, authentication token or project information is included.
 

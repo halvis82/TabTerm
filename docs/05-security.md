@@ -458,7 +458,8 @@ granted". Reading it requires the same access, so an empty answer means "cannot 
 ## Companion release updates
 
 Update controls require local token authentication and accept no caller-supplied URL, path or
-command. The companion checks fixed GitHub release endpoints only on request or after opt-in.
+command. The companion checks fixed GitHub release endpoints on request, and once a day on its own
+unless automatic checking has been turned off. Only an installed companion checks unattended.
 Source downloads have a declared byte count and SHA-256, bounded HTTPS redirects and restricted
 archive extraction. No extension remote code or new Chrome host permission is used. GitHub release
 control is the code-distribution trust boundary. A checksum is not an independent signature.

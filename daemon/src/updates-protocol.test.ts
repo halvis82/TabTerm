@@ -109,7 +109,7 @@ it('reports defaults through the authenticated transport', async () => {
   expect(value.t).toBe('companion-update');
   if (value.t === 'companion-update') {
     expect(value.status.installedVersion).toBe('1.1.0');
-    expect(value.status.automaticChecks).toBe(false);
+    expect(value.status.automaticChecks).toBe(true);
     expect(value.status.canInstall).toBe(false);
   }
 });

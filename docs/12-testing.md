@@ -541,8 +541,8 @@ activation ordering and rollback. Worker tests replace actual files in their tem
 and assert that user data and tokens remain intact. The protocol test opens an isolated authenticated
 socket and verifies update commands and the bounded pause on new session creation.
 
-The `companion-updates` browser suite checks Settings versions, opt-in defaults and disabled
-installation before a release check. It performs no remote download or real installation. Existing
+The `companion-updates` browser suite checks Settings versions, the on-by-default switches, the
+section's place at the bottom of the page, and disabled installation before a release check. It performs no remote download or real installation. Existing
 restart, handoff and resilience suites cover terminal continuity through daemon replacement.
 The full browser gate runs against its own daemon and terminal host. Never run update fault
 injection or recovery tests against a person's installed companion.
