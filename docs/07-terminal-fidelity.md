@@ -775,7 +775,9 @@ landed on whichever pane happened to be focused would be a trap.
 does not have focus is held by xterm and never painted, which is indistinguishable from the entry
 doing nothing.
 
-`Clear` performs the real clear, not `term.clear()`. Wiping only this buffer left the output in
+`Clear` is greyed over a program that owns the screen, an agent above all, since clearing there
+wipes the program's own drawing and the daemon's copy of it. Over a shell, `Clear` performs the
+real clear, not `term.clear()`. Wiping only this buffer left the output in
 the daemon and on disk, so it returned on the next reload, which made the entry a lie. See §7.
 
 It then asks the shell to redraw. Purging the buffers alone left a genuinely empty screen with no

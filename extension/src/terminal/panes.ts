@@ -39,6 +39,8 @@ export interface PaneHostOptions {
   onFindResults?: (results: { resultIndex: number; resultCount: number } | undefined) => void;
   /** Whether a pane should answer a right click. See `shouldOpenMenu` on the controller. */
   shouldOpenMenu?: () => boolean;
+  /** Whether a pane's menu may offer Clear. See `canClear` on the controller. */
+  canClear?: (paneId: string) => boolean;
 }
 
 interface Pane {
@@ -109,6 +111,7 @@ export class PaneHost {
       onNotice: (text) => this.#opts.onNotice?.(text),
       onFindResults: (results) => this.#opts.onFindResults?.(results),
       shouldOpenMenu: () => this.#opts.shouldOpenMenu?.() !== false,
+      canClear: () => this.#opts.canClear?.(paneId) !== false,
     });
 
     /**

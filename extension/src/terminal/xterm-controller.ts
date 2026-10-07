@@ -79,6 +79,8 @@ export interface ControllerOptions {
    * it with the start screen's own menu. See `pageMenuItems`.
    */
   shouldOpenMenu?: () => boolean;
+  /** Whether Clear may be offered: not over a program that owns the screen. */
+  canClear?: () => boolean;
   /** The color a highlight gets when the entry is clicked rather than the swatch. */
   highlightColor?: () => string;
   /** The last few highlight colors, for the row of swatches under the map. */
@@ -623,7 +625,9 @@ export class XtermController {
     item('Paste', true, () => void this.pasteFromClipboard());
     // The real clear, not `term.clear()`. Wiping this buffer alone left the output in the daemon
     // and on disk, so it came back on the next reload. See docs/07-terminal-fidelity.md.
-    item('Clear', true, () => this.clear());
+    // Greyed over an agent or any program that owns the screen: clearing there wipes the
+    // program's own drawing and the daemon's copy of it, and the program redraws into a hole.
+    item('Clear', this.#opts.canClear?.() !== false, () => this.clear());
 
     rule();
 

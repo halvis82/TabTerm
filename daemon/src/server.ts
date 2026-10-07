@@ -1120,6 +1120,43 @@ export class DaemonServer {
         return;
       }
 
+      case 'split-template': {
+        const workspace = this.#workspaces.get(msg.workspaceId);
+        if (!workspace) {
+          sendError(client.socket, 'session-expired', 'no such workspace');
+          return;
+        }
+        // In the directory of the pane it goes beside, the same as a plain split.
+        const sourceSessionId = this.#workspaces
+          .sessionIds(workspace)
+          .find((id) => this.#workspaces.paneFor(workspace, id) === msg.paneId);
+        const source = sourceSessionId ? this.#sessions.get(sourceSessionId) : undefined;
+        void (async () => {
+          const cwd = source ? await this.#liveCwd(source) : undefined;
+          const spawn = (): string =>
+            this.#sessions.create({ cols: msg.cols, rows: msg.rows, ...(cwd ? { cwd } : {}) }).id;
+          // One pane beside the host first, and the arrangement grows out of that one, so the
+          // template is a block beside what was here rather than woven through it.
+          const { paneId: root } = this.#workspaces.split(
+            msg.workspaceId,
+            msg.paneId,
+            'horizontal',
+            spawn(),
+          );
+          const problem = this.#growArrangement(msg.workspaceId, root, msg, spawn);
+          if (problem !== null) {
+            sendError(client.socket, 'workspace-invalid-layout', problem);
+            return;
+          }
+          this.#attachWorkspace(client, msg.workspaceId, msg.cols, msg.rows, true);
+          this.#broadcastLayout(msg.workspaceId);
+        })().catch((e: unknown) => {
+          warn('workspace.split-template.failed', { error: safeError(e) });
+          sendError(client.socket, 'internal', causeOf(e));
+        });
+        return;
+      }
+
       case 'close-pane': {
         const workspace = this.#workspaces.get(msg.workspaceId);
         if (!workspace) return;
@@ -3490,6 +3527,61 @@ export class DaemonServer {
   }
 
   /**
+   * Grow an arrangement out of one pane, which is how every template is built.
+   *
+   * A written layout wins over a named shape, which wins over a row or column of `panes`.
+   * Shared by a new workspace and by a template placed beside an existing pane, so the two
+   * cannot drift. Returns what was wrong with a written layout, or null.
+   */
+  #growArrangement(
+    workspaceId: string,
+    rootPane: string,
+    msg: {
+      panes: number;
+      direction: 'horizontal' | 'vertical';
+      shape?: LayoutShape | undefined;
+      layout?: string | undefined;
+    },
+    spawn: () => string,
+  ): string | null {
+    const count = Math.min(6, Math.max(1, Math.floor(msg.panes)));
+    const split = (pane: string, direction: 'horizontal' | 'vertical'): string =>
+      this.#workspaces.split(workspaceId, pane, direction, spawn()).paneId;
+
+    if (msg.layout !== undefined && msg.layout.trim() !== '') {
+      const parsed = checkShape(msg.layout);
+      if ('error' in parsed) return parsed.error;
+      const build = (node: ShapeNode, pane: string): void => {
+        if (node.kind === 'session') return;
+        // The first child stays where it is; each of the rest takes a new pane split from it.
+        let anchor = pane;
+        const [head, ...rest] = node.children;
+        for (const child of rest) {
+          anchor = split(anchor, node.direction);
+          build(child, anchor);
+        }
+        if (head) build(head, pane);
+      };
+      build(parsed.shape.shape, rootPane);
+      return null;
+    }
+    if (msg.shape === 'one-plus-two') {
+      const right = split(rootPane, 'horizontal');
+      split(right, 'vertical');
+      return null;
+    }
+    if (msg.shape === 'quad') {
+      const right = split(rootPane, 'horizontal');
+      split(rootPane, 'vertical');
+      split(right, 'vertical');
+      return null;
+    }
+    let anchor = rootPane;
+    for (let i = 1; i < count; i++) anchor = split(anchor, msg.direction);
+    return null;
+  }
+
+  /**
    * Bring a workspace back after its processes are gone.
    *
    * The layout, the directories and the screens come back. The processes do not, and cannot:
@@ -3648,7 +3740,6 @@ export class DaemonServer {
       return;
     }
 
-    const count = Math.min(6, Math.max(1, Math.floor(msg.panes)));
     const first = this.#sessions.create({ cwd: target, cols: msg.cols, rows: msg.rows });
     const { workspace } = this.#workspaces.create(first.id);
     this.#sessions.noteWorkspaceOwner(client.id, workspace.id);
@@ -3657,53 +3748,10 @@ export class DaemonServer {
     /** Another shell in the same directory, for a pane that is about to exist. */
     const spawn = (): string =>
       this.#sessions.create({ cwd: target, cols: msg.cols, rows: msg.rows }).id;
-    const split = (pane: string, direction: 'horizontal' | 'vertical'): string =>
-      this.#workspaces.split(workspace.id, pane, direction, spawn()).paneId;
-
-    /**
-     * Arrangements that repeated splitting cannot describe.
-     *
-     * One beside two stacked, and four in the corners, both need a particular pane split rather
-     * than always the newest one. Everything else chains from the newest, which is what makes
-     * three panes come out evenly rather than nested one deep.
-     */
-    /**
-     * A written arrangement, built by following the tree it describes.
-     *
-     * The fixed shapes are five particular trees; this is any of them. Built by splitting the
-     * pane a subtree occupies, which is the same operation the buttons use, so nothing about
-     * how a workspace is assembled changes: only how the shape is decided.
-     */
-    if (msg.layout !== undefined && msg.layout.trim() !== '') {
-      const parsed = checkShape(msg.layout);
-      if ('error' in parsed) {
-        sendError(client.socket, 'workspace-invalid-layout', parsed.error);
-        return;
-      }
-      const build = (node: ShapeNode, pane: string): void => {
-        if (node.kind === 'session') return;
-        // The first child stays where it is; each of the rest takes a new pane split from it.
-        let anchor = pane;
-        const [head, ...rest] = node.children;
-        for (const child of rest) {
-          anchor = split(anchor, node.direction);
-          build(child, anchor);
-        }
-        if (head) build(head, pane);
-      };
-      build(parsed.shape.shape, rootPane);
-    } else if (msg.shape === 'one-plus-two') {
-      const right = split(rootPane, 'horizontal');
-      split(right, 'vertical');
-    } else if (msg.shape === 'quad') {
-      const right = split(rootPane, 'horizontal');
-      split(rootPane, 'vertical');
-      split(right, 'vertical');
-    } else {
-      let anchor = rootPane;
-      for (let i = 1; i < count; i++) {
-        anchor = split(anchor, msg.direction);
-      }
+    const problem = this.#growArrangement(workspace.id, rootPane, msg, spawn);
+    if (problem !== null) {
+      sendError(client.socket, 'workspace-invalid-layout', problem);
+      return;
     }
 
     if (this.#launcher.recordDir(target)) this.launcherChanged();

@@ -302,6 +302,24 @@ export type ClientMessage =
       rows: number;
     }
   | { t: 'close-pane'; workspaceId: string; paneId: string }
+  /**
+   * A template's panes beside an existing pane, in that pane's directory.
+   *
+   * What an action set to "beside this pane" does in a tab that has something in it. The same
+   * arrangement words as `create-layout`, realized under a new pane split from `paneId` rather
+   * than in a workspace of its own, so nothing that was in the tab is touched.
+   */
+  | {
+      t: 'split-template';
+      workspaceId: string;
+      paneId: string;
+      panes: number;
+      direction: 'horizontal' | 'vertical';
+      shape?: LayoutShape;
+      layout?: string;
+      cols: number;
+      rows: number;
+    }
   | {
       /**
        * Ask the extension to reload itself.

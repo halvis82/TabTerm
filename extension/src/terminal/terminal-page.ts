@@ -245,6 +245,7 @@ function watchSharedSettings(): void {
     if ('tabterm.templates' in changes) {
       void loadTemplates().then((templates) => {
         knownTemplates = templates;
+        openTicketTemplateIfReady();
         launcher?.setTemplates(templates);
         alteredTemplateCount = countToRestore(templates);
         commandPanel?.refreshSettings();
@@ -589,6 +590,80 @@ function roomForSomethingNew(): { cols: number; rows: number; estimated?: true }
 /** The last size a launch asked for, which is the number the fault was made of. */
 let lastRoomAsked: { cols: number; rows: number } | null = null;
 
+/** The template in this tab, which has started nothing yet and is the start screen's own case. */
+function openTemplateHere(template: LayoutTemplate): void {
+  pendingTemplate = template;
+  layoutRequestedHere = true;
+  const size = roomForSomethingNew();
+  client?.send({
+    t: 'create-layout',
+    path: currentCwd || template.path,
+    panes: template.panes,
+    direction: 'horizontal',
+    shape: template.shape,
+    ...(template.layout ? { layout: template.layout } : {}),
+    createIfMissing: true,
+    ...size,
+  });
+}
+
+/**
+ * The template beside the focused pane, in the directory that pane is in.
+ *
+ * Its panes are new and the keyboard goes to the first of them, the same as a plain split.
+ * Nothing that was here is touched.
+ */
+function splitTemplateHere(template: LayoutTemplate): void {
+  if (!paneActionsAllowed()) return;
+  const paneId = splitView?.focused;
+  if (!paneId || !workspaceId) return;
+  pendingTemplate = template;
+  expectFocusOnNewPane();
+  const size = panesHost?.fit(paneId) ?? attachSize();
+  client?.send({
+    t: 'split-template',
+    workspaceId,
+    paneId,
+    panes: template.panes,
+    direction: 'horizontal',
+    shape: template.shape,
+    ...(template.layout ? { layout: template.layout } : {}),
+    ...size,
+  });
+}
+
+/**
+ * The template in a tab of its own, which opens on the start screen and takes it from there.
+ *
+ * The template travels as a one-shot ticket in session storage, the same way a command does:
+ * a URL that opens a template is a URL that runs its commands, whoever opens it.
+ */
+function openTemplateInNewTab(template: LayoutTemplate): void {
+  const ticket = `template-${String(Date.now())}-${Math.random().toString(36).slice(2, 10)}`;
+  void chrome.storage.session
+    .set({ [ticket]: { template: template.id } })
+    .then(() =>
+      chrome.tabs.create({
+        url: `${chrome.runtime.getURL('terminal.html')}?ticket=${encodeURIComponent(ticket)}`,
+        active: true,
+      }),
+    )
+    .catch(() => {
+      /* Session storage is unavailable in some contexts. Then no tab, rather than a bad one. */
+    });
+}
+
+/** A template a ticket named before the templates had loaded, opened once they have. */
+let ticketTemplateId: string | null = null;
+
+function openTicketTemplateIfReady(): void {
+  if (ticketTemplateId === null) return;
+  const template = knownTemplates.find((t) => t.id === ticketTemplateId);
+  if (!template) return;
+  ticketTemplateId = null;
+  if (thisTabIsUnused()) openTemplateHere(template);
+}
+
 function runCustomAction(action: CustomAction): void {
   if (action.kind === 'template') {
     const template = knownTemplates.find((t) => t.id === action.templateId);
@@ -597,19 +672,25 @@ function runCustomAction(action: CustomAction): void {
       setTimeout(() => setStatus('', 'hidden'), 3000);
       return;
     }
-    pendingTemplate = template;
-    layoutRequestedHere = true;
-    const size = roomForSomethingNew();
-    client?.send({
-      t: 'create-layout',
-      path: currentCwd || template.path,
-      panes: template.panes,
-      direction: 'horizontal',
-      shape: template.shape,
-      ...(template.layout ? { layout: template.layout } : {}),
-      createIfMissing: true,
-      ...size,
-    });
+    /**
+     * A template never replaces a tab that has something in it.
+     *
+     * It used to: the new workspace was adopted by this tab whatever it held, so a tab with a
+     * running session showed three fresh shells and the session it had was still attached
+     * underneath, listed as open in a tab and reachable from nowhere. Reported as "it's just
+     * broken, stuff like that should never be possible". A used tab gets the template beside
+     * its pane or in a new tab, which is what the action's own setting says, and only a tab
+     * that has started nothing takes it in place.
+     */
+    if (thisTabIsUnused()) {
+      openTemplateHere(template);
+      return;
+    }
+    if (action.where === 'split') {
+      splitTemplateHere(template);
+      return;
+    }
+    openTemplateInNewTab(template);
     return;
   }
 
@@ -2773,7 +2854,12 @@ function sessionItems(session: LiveSession): ShellItem[] {
        */
       label: 'Bring here',
       run: () => {
-        if (!session.workspaceId) {
+        /*
+         * A tab with work in it gets the session beside what it has, the same as clicking the
+         * card does. Navigating this tab away, which is right for a start screen, would leave
+         * the panes here showing nothing and their workspace reported closed.
+         */
+        if (!session.workspaceId || !thisTabIsUnused()) {
           void openLiveSession(session);
           return;
         }
@@ -3460,6 +3546,16 @@ function buildHosts(): void {
      * drawn and not shown, and a menu decision has to follow what is on screen.
      */
     shouldOpenMenu: () => launcher?.isShowing !== true,
+    /**
+     * Clear belongs to a shell. Asked for: it should not be offered in an agent session.
+     *
+     * The same judgement as a marker's: a program that owns the screen, an agent above all,
+     * redraws over and around a cleared screen and the daemon's copy is gone for good. Greyed
+     * rather than hidden, so the menu keeps its shape.
+     */
+    canClear: (paneId) =>
+      !markerWouldLandInAProgram(paneId) &&
+      panesHost?.get(paneId)?.controller.term.buffer.active.type !== 'alternate',
     /**
      * Measure again now that the cell is the one this pane will keep.
      *
@@ -6534,7 +6630,7 @@ function onControl(msg: ServerMessage): void {
       if (pendingTemplate) {
         const template = pendingTemplate;
         pendingTemplate = null;
-        msg.panes.forEach((pane, index) => {
+        fresh.forEach((pane, index) => {
           const command = template.commands[index]?.trim();
           if (!command) return;
           panesHost?.whenSettled(pane.paneId, () => {
@@ -6914,6 +7010,7 @@ function onControl(msg: ServerMessage): void {
       void loadTemplates().then((saved) => {
         launcher?.setTemplates(saved);
         knownTemplates = saved;
+        openTicketTemplateIfReady();
         alteredTemplateCount = countToRestore(saved);
         palette?.setActions(paletteActions());
       });
@@ -7671,6 +7768,8 @@ declare global {
       focusedPane: () => string;
       /** The sessions this page believes are kept alive, so a suite can ask what it was told. */
       keptAlive: () => string[];
+      /** Run an action as the Actions page would, so a suite can drive a template from a tab. */
+      runCustomAction: (action: CustomAction) => void;
       /** What the daemon's live checks found, as this page was told. */
       attention: () => Concern[];
       /** Tell a test daemon what to believe, so the Settings section and the notice can be driven. */
@@ -7943,6 +8042,7 @@ function installTestHook(): void {
     gridMovesFor: (paneId) => gridMoves.get(paneId) ?? 0,
     focusedPane: () => splitView?.focused ?? '',
     keptAlive: () => [...keptAlive],
+    runCustomAction: (action: CustomAction) => runCustomAction(action),
     attention: () => [...attention],
     attentionFixture: (concerns: Concern[]) => client?.send({ t: 'attention-fixture', concerns }),
     flashing: () => tabFlasher.flashing,
@@ -8458,6 +8558,12 @@ async function start(): Promise<void> {
       const command: unknown = held[ticket];
       await chrome.storage.session.remove(ticket);
       if (typeof command === 'string' && command !== '') expectPane(command);
+      // A template rather than a command: opened once the templates have loaded.
+      const named = (command as { template?: unknown } | null)?.template;
+      if (typeof named === 'string' && named !== '') {
+        ticketTemplateId = named;
+        openTicketTemplateIfReady();
+      }
     } catch {
       // No session storage is no command, which is the safe direction.
     }

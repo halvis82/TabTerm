@@ -60,6 +60,7 @@ Rules, all enforced:
 | `kill-session` | `sessionId`, `signal?` | Escalates per `04-session-lifecycle.md` |
 | `get-attention` | `recheck?` | What the daemon's live checks found. `recheck` runs them first |
 | `attention-fixture` | `concerns[]` | Honored by a test daemon only |
+| `split-template` | `workspaceId`, `paneId`, `panes`, `direction`, `shape?`, `layout?`, `cols`, `rows` | A template's panes beside an existing pane, in its directory. See `14-command-menu.md` |
 | `set-pin` | `sessionId` or `workspaceId`, `pinned` | Pinned is never reaped. Written to the database, so a restart adopts the session back pinned. Sent by **Keep alive** on a pane's menu and on a session card |
 | `set-persistence` | `sessionId`, `policyId` | |
 | `create-workspace` | `layout`, `chromeTabId?`, `chromeGroupId?` | |

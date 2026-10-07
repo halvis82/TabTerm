@@ -319,6 +319,29 @@ redraw it, which costs nothing when the menu is shut or on another tab.
 
 ---
 
+## 4.95 A template never replaces a tab with work in it
+
+An action that opens a template, whether from the Actions page or a pane's own menu, used to
+hand the new workspace to the tab it ran in whatever that tab held: a tab with a running session
+showed three fresh shells, and the session it had was still attached underneath, listed as open in
+a tab and reachable from nowhere. Reported as "it's just broken, stuff like that should never be
+possible."
+
+Now the action's own setting decides, and only for a tab that has started nothing does the
+template take the tab in place, which is the start screen's own case. "Beside this pane" puts the
+template's panes beside the focused one, in that pane's directory, with the keyboard on the first
+of them, through `split-template`. "In a new tab" opens one, carrying the template as a one-shot
+ticket the way a command does, and the new tab takes it from the start screen. Nothing in the tab
+that ran the action is touched either way.
+
+**Clear is greyed over a program that owns the screen**, an agent above all: clearing there wipes
+the program's own drawing and the daemon's copy of it, and the program redraws into a hole. The
+same judgement as a marker's, and greyed rather than hidden for the same reason.
+
+**Bring here from a card's menu, in a tab with work in it, puts the session beside what is
+there**, the same as clicking the card does. Navigating the tab away is right for a start screen
+and wrong for a tab whose panes would then show nothing.
+
 ## 5. Where favorites come from
 
 - **Starring a row in Recent**, which is the common case
