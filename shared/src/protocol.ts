@@ -25,6 +25,7 @@ import type {
   NotifyPolicy,
   AgentHooksStatus,
   ShellIntegrationStatus,
+  Concern,
 } from './model.js';
 
 export const PROTOCOL_VERSION = 1;
@@ -691,6 +692,10 @@ export type ClientMessage =
   // Completion notifications, and the agent CLI hooks that make agent turns visible at all.
   // See docs/06-chrome-integration.md and docs/09-agent-integration.md.
   | { t: 'get-companion-update' }
+  /** What needs the person's attention right now, checked again when asked. */
+  | { t: 'get-attention'; recheck?: boolean }
+  /** Only a test daemon honors this: what to believe, so the surfaces can be driven. */
+  | { t: 'attention-fixture'; concerns: Concern[] }
   | { t: 'check-companion-update' }
   | { t: 'install-companion-update' }
   | { t: 'set-companion-updates'; automaticChecks: boolean; automaticInstall: boolean }
@@ -987,6 +992,8 @@ export type ServerErrorCode =
 
 export type ServerMessage =
   | { t: 'companion-update'; status: CompanionUpdateStatus }
+  /** The things the person needs to know about, to every connection, whenever they change. */
+  | { t: 'attention'; concerns: Concern[] }
   | {
       t: 'update-health';
       version: string;

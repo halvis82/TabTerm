@@ -1,4 +1,4 @@
-import { VERSION, type CompanionUpdateStatus } from '@tabterm/shared';
+import { VERSION, type CompanionUpdateStatus, type Concern } from '@tabterm/shared';
 import { THEME_CHOICES } from '../terminal/themes.js';
 import {
   DEFAULT_LABEL_OPACITY,
@@ -21,6 +21,9 @@ import type { AgentHooksStatus, NotifyPolicy, ShellIntegrationStatus } from '@ta
  */
 
 export interface SettingsOptions {
+  /** What the daemon's live checks found, or nothing. */
+  attention?: () => readonly Concern[];
+  onRecheckAttention?: () => void;
   updates?: () => CompanionUpdateStatus | null;
   companionVersion?: () => string;
   onCheckUpdate?: () => void;
@@ -174,6 +177,11 @@ function chooser(
 export function buildSettings(options: SettingsOptions): HTMLElement {
   const wrap = document.createElement('div');
   wrap.className = 'cmd-settings';
+
+  // First, when there is anything in it: a thing that is making terminals worse right now
+  // outranks every preference below it.
+  const attention = buildAttention(options);
+  if (attention) wrap.append(attention);
 
   const look = section('Appearance');
   const themeSelect = chooser(THEMES, 'dark', (value) => options.onChangeTheme(value));
@@ -428,6 +436,53 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
   // Last, by request: nothing here is part of using a terminal, and it changes least often.
   wrap.append(buildUpdates(options));
 
+  return wrap;
+}
+
+/**
+ * What the daemon's live checks found, with the fix for each, or nothing at all.
+ *
+ * The doctor script says all of this and nobody runs the doctor on the afternoon a terminal
+ * starts asking for permission on every launch. Asked for as: check for it live and say so in
+ * Settings. The section exists only while there is something in it, so a healthy install never
+ * sees a heading about problems.
+ */
+function buildAttention(options: SettingsOptions): HTMLElement | null {
+  const concerns = options.attention?.() ?? [];
+  if (concerns.length === 0) return null;
+  const wrap = section('Needs attention');
+  wrap.dataset['attention'] = 'true';
+  for (const concern of concerns) {
+    const row = document.createElement('div');
+    row.className = `set-concern is-${concern.level}`;
+    row.dataset['concern'] = concern.id;
+    const title = document.createElement('div');
+    title.className = 'set-label';
+    title.textContent = concern.title;
+    const detail = document.createElement('div');
+    detail.className = 'set-desc';
+    detail.textContent = concern.detail;
+    row.append(title, detail);
+    if (concern.fix !== undefined) {
+      const fix = document.createElement('div');
+      fix.className = 'set-desc set-concern-fix';
+      fix.textContent = concern.fix;
+      row.append(fix);
+    }
+    wrap.append(row);
+  }
+  const buttons = document.createElement('div');
+  buttons.className = 'cmd-buttons';
+  const again = document.createElement('button');
+  again.type = 'button';
+  again.className = 'cmd-button';
+  again.textContent = 'Check again';
+  again.addEventListener('click', () => {
+    again.disabled = true;
+    options.onRecheckAttention?.();
+  });
+  buttons.append(again);
+  wrap.append(buttons);
   return wrap;
 }
 

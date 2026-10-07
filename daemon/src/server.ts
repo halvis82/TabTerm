@@ -33,6 +33,7 @@ import { debug, info, warn } from './log.js';
 import { expandHome } from './complete-path.js';
 import { plainText } from './plain-text.js';
 import { foregroundOf, isNoise } from './foreground.js';
+import type { AttentionMonitor } from './attention.js';
 
 /** How often the foreground of each pane is read again while a start screen is showing the list. */
 const FOREGROUND_SWEEP_MS = 3000;
@@ -330,6 +331,8 @@ export class DaemonServer {
   #resetHistory?: () => number;
   #restart?: () => void;
   updates?: UpdateManager;
+  /** The live checks, when this daemon runs them. See `attention.ts`. */
+  attention?: AttentionMonitor;
   updateHealth?: () => { durable: boolean; hostInstance: string | null };
 
   setResetHooks(hooks: { history: () => number; restart: () => void }): void {
@@ -2547,6 +2550,29 @@ export class DaemonServer {
         return;
       }
 
+      case 'get-attention': {
+        if (!this.attention) return;
+        if (msg.recheck === true) {
+          void this.attention.check().then(() => {
+            send(
+              client.socket,
+              controlFrame({ t: 'attention', concerns: [...(this.attention?.concerns ?? [])] }),
+            );
+          });
+          return;
+        }
+        send(
+          client.socket,
+          controlFrame({ t: 'attention', concerns: [...this.attention.concerns] }),
+        );
+        return;
+      }
+      case 'attention-fixture': {
+        // A test daemon only. The installed daemon judges for itself and takes nobody's word.
+        if (!process.env['TABTERM_HOME'] || !this.attention) return;
+        this.attention.pretend(msg.concerns);
+        return;
+      }
       case 'get-companion-update':
         if (this.updates)
           send(

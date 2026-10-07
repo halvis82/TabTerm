@@ -1,4 +1,4 @@
-import type { CompanionUpdateStatus } from '@tabterm/shared';
+import type { Concern, CompanionUpdateStatus } from '@tabterm/shared';
 import type { Terminal } from '@xterm/xterm';
 import { UNDO_WINDOW_MS, UndoStack, offerLabel, type UndoOffer } from './undo-offers.js';
 import type {
@@ -165,6 +165,8 @@ let notifyPolicy: NotifyPolicy | null = null;
 let agentHooks: AgentHooksStatus | null = null;
 let shellIntegration: ShellIntegrationStatus | null = null;
 let companionUpdate: CompanionUpdateStatus | null = null;
+/** What the daemon's live checks found. See `attention.ts` in the daemon. */
+let attention: readonly Concern[] = [];
 let companionVersion = 'Connecting';
 let scrollbackBytes: number | null = null;
 let backgroundTimeout: number | null | undefined;
@@ -2438,6 +2440,58 @@ void (async () => {
     // Storage refusing means the hint may be said once more, which is the harmless direction.
   }
 })();
+
+/**
+ * A dismissable notice in the corner for each problem the daemon found, until it is read.
+ *
+ * Only a `problem`, which is something making terminals worse right now with a fix the person
+ * can do. A note stays in Settings. Dismissing is remembered by the concern's fingerprint, so the
+ * same situation stays quiet and a changed one is said again. The fix is a press away, in
+ * Settings, rather than squeezed into the corner.
+ */
+const DISMISSED_KEY = 'tabterm.attentionDismissed';
+
+async function showAttentionNotices(concerns: readonly Concern[]): Promise<void> {
+  const column = document.getElementById('notices');
+  if (!column) return;
+  for (const el of column.querySelectorAll('.attention-notice')) el.remove();
+  const problems = concerns.filter((c) => c.level === 'problem');
+  if (problems.length === 0) return;
+  let dismissed: Record<string, string> = {};
+  try {
+    const stored = await chrome.storage.local.get(DISMISSED_KEY);
+    const value: unknown = stored[DISMISSED_KEY];
+    if (value && typeof value === 'object') dismissed = value as Record<string, string>;
+  } catch {
+    /* storage can be refused; then every problem is shown, which is the safe direction */
+  }
+  for (const concern of problems) {
+    if (dismissed[concern.id] === concern.fingerprint) continue;
+    const notice = document.createElement('div');
+    notice.className = 'attention-notice';
+    notice.dataset['concern'] = concern.id;
+    const text = document.createElement('span');
+    text.className = 'attention-notice-text';
+    text.textContent = concern.title;
+    const fix = document.createElement('button');
+    fix.type = 'button';
+    fix.className = 'attention-notice-fix';
+    fix.textContent = 'How to fix';
+    fix.addEventListener('click', () => commandPanel?.openSettings());
+    const hide = document.createElement('button');
+    hide.type = 'button';
+    hide.className = 'attention-notice-hide';
+    hide.title = 'Hide this. Settings keeps it until it is fixed.';
+    hide.textContent = '×';
+    hide.addEventListener('click', () => {
+      notice.remove();
+      dismissed = { ...dismissed, [concern.id]: concern.fingerprint };
+      void chrome.storage.local.set({ [DISMISSED_KEY]: dismissed }).catch(() => undefined);
+    });
+    notice.append(text, fix, hide);
+    column.append(notice);
+  }
+}
 
 function showNotice(text: string): void {
   const el = document.getElementById('notice');
@@ -5159,6 +5213,7 @@ function askForSettings(): void {
   client?.send({ t: 'get-agent-command' });
   client?.send({ t: 'get-shell-integration' });
   client?.send({ t: 'get-companion-update' });
+  client?.send({ t: 'get-attention' });
   client?.send({ t: 'get-scrollback-budget' });
   client?.send({ t: 'get-background-timeout' });
 }
@@ -5784,6 +5839,8 @@ function buildCommandPanel(): void {
       buildSettings({
         onChangeTheme: applyTheme,
         updates: () => companionUpdate,
+        attention: () => attention,
+        onRecheckAttention: () => client?.send({ t: 'get-attention', recheck: true }),
         companionVersion: () => companionVersion,
         onCheckUpdate: () => client?.send({ t: 'check-companion-update' }),
         onInstallUpdate: () => client?.send({ t: 'install-companion-update' }),
@@ -7107,6 +7164,13 @@ function onControl(msg: ServerMessage): void {
       return;
     }
 
+    case 'attention': {
+      attention = msg.concerns;
+      commandPanel?.refreshSettings();
+      void showAttentionNotices(msg.concerns);
+      return;
+    }
+
     case 'shell-integration': {
       shellIntegration = msg.status;
       commandPanel?.refreshSettings();
@@ -7607,6 +7671,10 @@ declare global {
       focusedPane: () => string;
       /** The sessions this page believes are kept alive, so a suite can ask what it was told. */
       keptAlive: () => string[];
+      /** What the daemon's live checks found, as this page was told. */
+      attention: () => Concern[];
+      /** Tell a test daemon what to believe, so the Settings section and the notice can be driven. */
+      attentionFixture: (concerns: Concern[]) => void;
       /** Whether the tab icon is flashing for attention right now. */
       flashing: () => boolean;
       /**
@@ -7875,6 +7943,8 @@ function installTestHook(): void {
     gridMovesFor: (paneId) => gridMoves.get(paneId) ?? 0,
     focusedPane: () => splitView?.focused ?? '',
     keptAlive: () => [...keptAlive],
+    attention: () => [...attention],
+    attentionFixture: (concerns: Concern[]) => client?.send({ t: 'attention-fixture', concerns }),
     flashing: () => tabFlasher.flashing,
     daemonSizeChangesFor: (paneId) => daemonSizeChanges.get(paneId) ?? 0,
     daemonSizeFor: (paneId) => {

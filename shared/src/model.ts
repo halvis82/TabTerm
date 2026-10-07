@@ -436,3 +436,20 @@ export interface LiveSession {
  * their own. The other two cannot be expressed that way, which is why this exists.
  */
 export type LayoutShape = 'single' | 'columns' | 'rows' | 'one-plus-two' | 'quad';
+
+/**
+ * Something the person needs to know about, found by the daemon's live checks.
+ *
+ * A `problem` is making terminals worse right now and has a fix the person can do: it goes to
+ * Settings and to a notice in every tab. A `note` goes to Settings only. The fingerprint says
+ * when the same concern is a different situation, so a dismissed notice comes back if the facts
+ * change and not otherwise.
+ */
+export interface Concern {
+  id: string;
+  level: 'problem' | 'note';
+  title: string;
+  detail: string;
+  fix?: string;
+  fingerprint: string;
+}

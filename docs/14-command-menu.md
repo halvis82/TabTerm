@@ -334,6 +334,7 @@ work at all:
 
 | Setting | Does |
 |---|---|
+| **Needs attention** | Only while the daemon's live checks found something: a missing Full Disk Access grant, a terminal host from before an update, an update needing recovery, each with its fix, and Check again. See `05-security.md` |
 | Theme | Dark, light, midnight |
 | Desktop notifications | The master switch, with a duration threshold |
 | Shell commands, Agent turns | Which completions are worth a notification |

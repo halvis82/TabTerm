@@ -455,6 +455,28 @@ granted". Reading it requires the same access, so an empty answer means "cannot 
 "not granted", and the wording survives both.
 
 
+## The daemon says when a grant is missing
+
+The doctor script reports a missing Full Disk Access grant, a terminal host still running an
+older binary, and an update that needs recovery, and nobody runs the doctor on the afternoon a
+terminal starts asking for permission on every launch. So the installed daemon checks the same
+things live: fifteen seconds after it starts and every ten minutes after that, and again when
+Settings asks. What it finds goes to every connection as `attention`, Settings shows it first
+under **Needs attention** with the fix, and a problem, as opposed to a note, is also a notice in
+the corner of every tab with a way to Settings and a cross. Dismissing is remembered by the
+concern's fingerprint, so the same situation stays quiet and a changed one is said again.
+
+Full Disk Access is probed by reading the user's own TCC database, which exists on every Mac,
+is Apple's rather than another app's so it cannot raise the "access data from other apps"
+prompt, and is readable only with that grant. The folders people notice, Desktop and Documents,
+are the wrong probe: asking about them raises a consent prompt that blocks until answered. The
+host's binary is read from the process table and compared with this build's. The updater's phase
+is the one Settings shows. A checkout running as plain node checks none of this, since the grant
+is about TabTerm.app. Every daemon, installed or not, also counts the Mac's pseudo-terminals
+against the kernel's ceiling, because this machine once reached it and no application could open
+a terminal until a restart; past nine tenths of the ceiling that is a problem too, and the fix
+says the count is machine-wide. See `attention.ts`, and `10-limitations.md` for the ceiling.
+
 ## Companion release updates
 
 Update controls require local token authentication and accept no caller-supplied URL, path or

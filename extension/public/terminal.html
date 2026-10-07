@@ -939,6 +939,45 @@
     backdrop-filter: blur(6px);
     overflow: hidden;
   }
+  /*
+   * Something the daemon found that is making terminals worse right now, said in the corner
+   * where the rest of the page speaks from, until it is read or dismissed. The fix is one press
+   * away, in Settings, rather than squeezed into the notice.
+   */
+  .attention-notice {
+    display: flex;
+    align-items: stretch;
+    max-width: 360px;
+    border-radius: 7px;
+    border: 1px solid color-mix(in srgb, var(--warn, #e8c06a) 55%, transparent);
+    background: var(--panel);
+    backdrop-filter: blur(6px);
+    overflow: hidden;
+    font-size: 11.5px;
+  }
+  .attention-notice-text {
+    padding: 6px 10px;
+    color: var(--text);
+    line-height: 1.35;
+  }
+  .attention-notice-fix,
+  .attention-notice-hide {
+    padding: 4px 9px;
+    border: 0;
+    border-left: 1px solid #2f3346;
+    background: transparent;
+    color: var(--accent);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .attention-notice-hide {
+    color: var(--dim);
+  }
+  .attention-notice-hide:hover {
+    color: var(--danger);
+  }
   #undo-offer-do,
   #undo-offer-hide {
     padding: 4px 9px;
@@ -1486,6 +1525,22 @@
     background: color-mix(in srgb, var(--warn-fg, #e8c06a) 12%, transparent);
   }
 
+  /* Something the daemon found, with its fix under it. A problem carries the warning colour. */
+  .set-concern {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--dim) 35%, transparent);
+  }
+  .set-concern.is-problem {
+    border-color: color-mix(in srgb, var(--warn, #e8c06a) 55%, transparent);
+    background: color-mix(in srgb, var(--warn, #e8c06a) 8%, transparent);
+  }
+  .set-concern-fix {
+    color: var(--text);
+  }
   .cmd-settings {
     display: flex;
     flex-direction: column;

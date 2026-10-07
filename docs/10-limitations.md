@@ -331,7 +331,9 @@ daemon so the new grant is picked up.
 
 Because grants attach to the daemon, denying affects **every terminal**, not just the one that
 asked. `doctor.sh` probes all three folders and distinguishes the three states, with a timeout,
-since a probe that hangs would be the same failure it is trying to detect.
+since a probe that hangs would be the same failure it is trying to detect. The installed daemon
+probes Full Disk Access live as well, by a file that never prompts, and says so in Settings and
+in the tabs when it is missing. See `05-security.md`.
 
 **Fix:** ship the daemon in a signed app bundle with a stable identifier, and pre-warm consent at
 install time rather than letting the first `ls ~/Downloads` hang. Retrofitting forces every grant to be redone.

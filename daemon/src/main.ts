@@ -1,4 +1,5 @@
 import { UpdateManager } from '../../scripts/updater/manager.mjs';
+import { AttentionMonitor, countPtys, findHost, probeFullDiskAccess } from './attention.js';
 import {
   existsSync,
   mkdirSync,
@@ -896,6 +897,43 @@ async function main(): Promise<void> {
     changed: (status) => server.broadcastAll({ t: 'companion-update', status }),
   });
   server.updates = updates;
+
+  /**
+   * The live checks. What the doctor says once at install, said again whenever it changes.
+   *
+   * Installed means the bundle: the grant and the host identity are about TabTerm.app, and a
+   * checkout running as plain node has neither to check. The updater's phase is read from the
+   * same object Settings reads it from.
+   */
+  const installedHome = process.env['TABTERM_HOME'] ?? homedir();
+  const libexec = join(installedHome, '.local/libexec/tabterm');
+  const bundledNode = join(libexec, 'TabTerm.app/Contents/MacOS/node');
+  const installedHere =
+    process.platform === 'darwin' &&
+    !process.env['TABTERM_HOME'] &&
+    process.execPath === bundledNode;
+  const liveChecks = new AttentionMonitor({
+    gather: async () => {
+      const host = installedHere ? await findHost() : null;
+      const status = updates.snapshot();
+      const ptys = process.platform === 'darwin' ? await countPtys() : null;
+      return {
+        installed: installedHere,
+        fullDiskAccess: installedHere ? await probeFullDiskAccess(installedHome) : null,
+        appPath: join(libexec, 'TabTerm.app'),
+        hostExecutable: host?.executable ?? null,
+        bundledNode,
+        hostPid: host?.pid ?? null,
+        updatePhase: status.phase,
+        updateMessage: status.message,
+        ptysUsed: ptys?.used ?? null,
+        ptysMax: ptys?.max ?? null,
+      };
+    },
+    changed: (concerns) => server.broadcastAll({ t: 'attention', concerns }),
+  });
+  server.attention = liveChecks;
+  liveChecks.start();
   server.updateHealth = () => ({
     durable: usingHost && hostClient.connected && hostClient.hostInstance !== null,
     hostInstance: hostClient.hostInstance,

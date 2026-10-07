@@ -58,6 +58,8 @@ Rules, all enforced:
 | `resize` | `sessionId`, `cols`, `rows` | Daemon applies min across attached clients |
 | `request-scrollback` | `sessionId`, `beforeSeq`, `maxLines` | Paged, never wholesale |
 | `kill-session` | `sessionId`, `signal?` | Escalates per `04-session-lifecycle.md` |
+| `get-attention` | `recheck?` | What the daemon's live checks found. `recheck` runs them first |
+| `attention-fixture` | `concerns[]` | Honored by a test daemon only |
 | `set-pin` | `sessionId` or `workspaceId`, `pinned` | Pinned is never reaped. Written to the database, so a restart adopts the session back pinned. Sent by **Keep alive** on a pane's menu and on a session card |
 | `set-persistence` | `sessionId`, `policyId` | |
 | `create-workspace` | `layout`, `chromeTabId?`, `chromeGroupId?` | |
@@ -132,6 +134,7 @@ Both fields are optional, so an older extension still reports and is simply not 
 | `notify-policy` | `policy{}` | After a get or a set |
 | `agent-hooks` | `status{}` | `installed`, per-target detail, `lastEventAt?` |
 | `scrollback-budget` | `bytes` | After a get or a set |
+| `attention` | `concerns[]` | To every connection whenever the live checks change their answer, and in reply to `get-attention`. See `05-security.md` |
 | `live-sessions` | `sessions[]` | Each with `attached`, `busy`, `keptAlive?` and a `preview`. See §4.1 |
 | `path-completion` | `partial`, `completed`, `matches[]` | `partial` is echoed so a stale answer can be dropped |
 | `folder-checked` | `path`, `exists`, `isFile?`, `error?`, `checkId?` | `path` and `checkId` are both echoed. A folder that is not there is an answer, not an error |
