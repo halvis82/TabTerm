@@ -456,13 +456,32 @@ Canvas-generated data URLs assigned to `<link rel="icon">`, except at idle.
 | State | Icon | Means |
 |---|---|---|
 | `idle` | The extension's own icon | Nothing to report |
-| `running` | Caret, sweeping underline | A command is in flight |
+| `running` | Blue ring with a gap that goes round | A command is in flight, or an agent is working |
 | `done` | Grey bar | Finished, with no exit code to say how. See ADR-0016 |
-| `success` | Green tick | Exited zero |
-| `failed` | Red cross | Exited non-zero |
+| `success` | Green tick | Exited zero, or an agent's turn ended |
+| `failed` | Red cross | Exited non-zero, or an agent's turn failed |
 | `waiting` | Amber dot | An agent is waiting for a person |
 | `approval` | Amber dot, ringed | An agent needs approval |
 | `disconnected` | Grey caret | No session |
+
+**Busy looks busy.** The running mark was a caret with an underline that swept, which at 16
+pixels was the idle icon with a detail nobody could see, and "whenever a command is running or
+agent is working, that's shown as progress through favicon" was asked for because it was not. It
+is a ring with a gap that goes round, on a bluer square than idle, the way every other application
+shows progress. The gap advances only while the tab is in front, since a hidden tab cannot drive
+an animation, and a hidden tab holds one steady frame of it, which still reads as busy because
+the ring is the shape and not the motion.
+
+**An agent's turn ending is an outcome.** The icon went straight back to idle when an agent
+finished, so a tab with an agent in it never showed the tick a shell got. A turn this page saw
+end is a success, or a failure if the agent said so. A turn replayed by a reattach is not: it is
+old news, and a tab just navigated to shows nothing to notice.
+
+**Outcomes clear when the tab is noticed, by looking or by doing.** The tab becoming visible
+clears them, and so does any key or press in a pane, so an outcome that arrived while the tab was
+already in front does not stay up through everything typed after it. "When anything is done on
+the tab or it's navigated to, it should go back to normal", as asked. A running mark is not an
+outcome and is left alone by both; an approval is answered rather than noticed and stays.
 
 **Idle is the packaged icon, not a drawn one.** A tab showing a terminal that has nothing to
 report should look like the product, the way a tab of any other application does. It is served as

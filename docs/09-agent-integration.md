@@ -42,9 +42,9 @@ agent CLI hook fires
 | User prompt submitted | `working` | Running favicon, and the only hook that starts a turn's clock |
 | Tool use pending approval | `approval` | Approval favicon, **critical notification**, title status |
 | Notification | `waiting` | Waiting favicon until the tab is looked at, important notification |
-| Stop | `idle` | Idle favicon, completion notification if past the duration threshold |
+| Stop | `idle` | Success favicon for a turn this page saw end, completion notification if past the duration threshold |
 | Session start | `starting` | Title switches to the agent form |
-| Non-zero completion | `failed` | Failure favicon, critical notification |
+| Non-zero completion | `failed` | Failure favicon for a turn this page saw end, critical notification |
 
 **The tab flash follows turns too.** "Flash the tab when a command finishes" on a pane's menu
 used to be started by a shell command ending and by nothing else, and an agent's turn ends with a

@@ -136,7 +136,8 @@ export type FaviconState =
  */
 const COLORS: Record<FaviconState, { bg: string; fg: string }> = {
   idle: { bg: '#2b2f3d', fg: '#8ab4f8' },
-  running: { bg: '#2b2f3d', fg: '#8ab4f8' },
+  // Bluer than idle on purpose: busy has to read as busy at 16 pixels, not as idle with a detail.
+  running: { bg: '#1e2b4f', fg: '#8ab4f8' },
   done: { bg: '#2b2f3d', fg: '#9aa4bd' },
   success: { bg: '#1d3527', fg: '#6ee7a0' },
   waiting: { bg: '#5a3f18', fg: '#ffc857' },
@@ -264,27 +265,34 @@ export function drawFavicon(state: FaviconState, phase = 0): string {
     return canvas.toDataURL('image/png');
   }
 
+  if (state === 'running') {
+    /*
+     * A ring with a gap that goes round: progress, the way every other application shows it.
+     *
+     * It was a caret with an underline that swept, which at 16 pixels was the idle icon with a
+     * detail nobody could see, and "whenever a command is running or agent is working, that's
+     * shown as progress through favicon" was asked for because it was not. The gap advances a
+     * twelfth of a turn per frame, only ever while the tab is visible; a hidden tab holds one
+     * steady frame, which still reads as busy because the ring is the shape, not the motion.
+     */
+    const start = ((phase % 12) / 12) * Math.PI * 2;
+    g.lineWidth = 3.5;
+    g.beginPath();
+    g.arc(16, 16, 9, start, start + Math.PI * 1.5);
+    g.stroke();
+    return canvas.toDataURL('image/png');
+  }
+
   // A terminal prompt caret, which reads at 16 px far better than a glyph would.
   g.beginPath();
   g.moveTo(9, 11);
   g.lineTo(15, 16);
   g.lineTo(9, 21);
   g.stroke();
-
-  if (state === 'running') {
-    // A short underline that sweeps, only ever advanced while the tab is visible.
-    const width = 10;
-    const travel = (phase % 12) / 12;
-    g.beginPath();
-    g.moveTo(18, 22);
-    g.lineTo(18 + width * travel, 22);
-    g.stroke();
-  } else {
-    g.beginPath();
-    g.moveTo(18, 22);
-    g.lineTo(24, 22);
-    g.stroke();
-  }
+  g.beginPath();
+  g.moveTo(18, 22);
+  g.lineTo(24, 22);
+  g.stroke();
 
   return canvas.toDataURL('image/png');
 }

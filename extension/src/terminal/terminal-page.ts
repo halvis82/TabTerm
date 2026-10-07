@@ -7621,9 +7621,8 @@ function onControl(msg: ServerMessage): void {
               ? 'waiting'
               : msg.state === 'working'
                 ? 'running'
-                : msg.state === 'failed'
-                  ? 'failed'
-                  : 'idle';
+                : 'idle';
+        // An outcome, failed included, is set below and only when this page saw the turn end.
         paneStatus.set(pane.paneId, state);
         setFavicon(paneStatus.effective());
         titleFields = { ...titleFields, status: msg.state };
@@ -7677,6 +7676,19 @@ function onControl(msg: ServerMessage): void {
           (msg.state === 'waiting' || msg.state === 'approval') &&
           wasState !== undefined &&
           wasState !== msg.state;
+        /*
+         * A turn that ended is an outcome, the same as a command that ended.
+         *
+         * The icon went straight back to idle when an agent finished, so a tab with an agent
+         * in it never showed the tick a shell got, and "when done either green checkmark or
+         * red cross" was asked for. Only a turn this page saw end: one replayed by a reattach
+         * is old news, and a tab just navigated to shows nothing to notice, as asked.
+         */
+        if (endedNow) {
+          paneStatus.finished(pane.paneId, msg.state === 'failed' ? 1 : 0);
+          setFavicon(paneStatus.effective());
+          refreshTitle();
+        }
         if (flashing.has(msg.sessionId) && (endedNow || pausedNow)) tabFlasher.start();
       }
       return;
@@ -8791,6 +8803,24 @@ async function start(): Promise<void> {
     startTimeTicking();
   };
 
+  /**
+   * Doing anything in the tab is noticing it, the same as looking at it.
+   *
+   * An outcome was cleared only by the tab becoming visible, so one that arrived while the tab
+   * was already in front stayed up through everything typed after it, which made the next one
+   * mean less. "When anything is done on the tab" it goes back to normal, as asked: a key or a
+   * press in a pane puts every outcome back to idle. Capture phase, so it runs whether or not
+   * the terminal takes the key.
+   */
+  const didSomethingInAPane = (e: Event): void => {
+    if (!(e.target instanceof Element) || e.target.closest('.pane') === null) return;
+    if (!paneStatus.seen()) return;
+    refreshTitle();
+    setFavicon(paneStatus.effective());
+  };
+  document.addEventListener('keydown', didSomethingInAPane, true);
+  document.addEventListener('mousedown', didSomethingInAPane, true);
+
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       lookedAtTab();
@@ -8799,7 +8829,10 @@ async function start(): Promise<void> {
       animTimer = undefined;
       // Leave the icon on a full, steady frame rather than wherever the pulse happened to stop,
       // so a hidden tab reads as a state rather than as a moment.
-      if (needsAttention(faviconState) && memorySettings.faviconWhileHidden) {
+      if (
+        (needsAttention(faviconState) || faviconState === 'running') &&
+        memorySettings.faviconWhileHidden
+      ) {
         applyFavicon(drawFavicon(faviconState, 3));
       }
       // A hidden tab throttles timers anyway, and nobody is reading the label.
