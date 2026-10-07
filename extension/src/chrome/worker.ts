@@ -20,7 +20,8 @@ export function tellWorker(message: unknown): void {
 /** Send and wait for an answer, or get nothing back when the worker is not running. */
 export async function askWorker<T>(message: unknown): Promise<T | undefined> {
   try {
-    return (await chrome.runtime.sendMessage(message)) as T;
+    const reply: T | undefined = await chrome.runtime.sendMessage(message);
+    return reply;
   } catch {
     return undefined;
   }

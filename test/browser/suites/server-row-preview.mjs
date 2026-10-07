@@ -3,16 +3,7 @@
 // The page behind a port used to appear only while a close was being confirmed, so the one way
 // to see what a server was happened to be the button that stops it. Reported as having to press
 // close to get the preview. A click on the row shows it now, and Open is the chip beside it.
-import {
-  openTerminal,
-  evaluate,
-  sleep,
-  finish,
-  waitFor,
-  type,
-  interrupt,
-  realClick,
-} from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, finish, waitFor, type, interrupt } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
