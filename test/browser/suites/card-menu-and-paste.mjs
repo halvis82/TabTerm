@@ -58,7 +58,11 @@ r.ok(
 );
 
 const onPane = await menuOver('.pane');
-r.ok('the terminal itself offers Paste', onPane.includes('Paste'), onPane.join(' | '));
+r.ok(
+  'the strip under the start screen offers Paste to terminal',
+  onPane.includes('Paste to terminal'),
+  onPane.join(' | '),
+);
 await evaluate(here.client, "document.querySelector('.term-menu')?.remove()");
 
 /**
@@ -82,7 +86,7 @@ await evaluate(
    })()`,
 );
 await sleep(700);
-await realClick(here.client, '.term-menu-item', 'Paste');
+await realClick(here.client, '.term-menu-item', 'Paste to terminal');
 
 const landed = await waitFor(
   here.client,

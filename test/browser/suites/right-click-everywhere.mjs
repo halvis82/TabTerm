@@ -41,8 +41,12 @@ const menuOn = async (selector, { bare = false } = {}) => {
     client,
     `(() => { const el = document.querySelector(${JSON.stringify(selector)});
        if (!el) return '';
+       // Into view first: a row below the fold has a box off screen, and a press at those
+       // coordinates lands on whatever is there instead, which is the strip.
+       el.scrollIntoView({ block: 'center' });
        const b = el.getBoundingClientRect();
        if (b.width < 2 || b.height < 2) return '';
+
        const mid = { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) };
        if (!${String(bare)}) return JSON.stringify(mid);
        // Down the middle, then along the top edge: somewhere on this element and on nothing in it.
@@ -71,6 +75,11 @@ const menuOn = async (selector, { bare = false } = {}) => {
     ),
   );
   await evaluate(client, "document.querySelector('.term-menu')?.remove()");
+  // And back to the top, so the places after this one are where the rest of the suite expects.
+  await evaluate(
+    client,
+    "(() => { for (const el of document.querySelectorAll('.launcher, .launcher-body, .launcher-scroll')) el.scrollTop = 0; window.scrollTo(0, 0); return 'ok'; })()",
+  );
   return out;
 };
 
@@ -87,13 +96,13 @@ const PLACES = [
     sel: '.launcher',
     // Background means background: the point has to land on the launcher and on nothing in it.
     bare: true,
-    must: ['Paste', 'Settings', 'Close tab'],
+    must: ['Paste to terminal', 'Settings', 'Close tab'],
     mustNot: ['Add a marker here', 'Kill session'],
   },
   {
     what: 'a heading on it',
     sel: '.launcher-heading',
-    must: ['Paste', 'New terminal tab'],
+    must: ['Paste to terminal', 'New terminal tab'],
     mustNot: ['Add a marker here'],
   },
   {
@@ -105,19 +114,32 @@ const PLACES = [
   {
     what: 'a folder chip',
     sel: '.launcher-completion',
-    must: ['Paste'],
+    must: ['Paste to terminal'],
+    mustNot: ['Add a marker here'],
+  },
+  {
+    // Asked for: a folder row answers for its folder, with the general entries underneath.
+    what: 'a recent folder row',
+    sel: '.launcher-row[data-kind="dir"]',
+    must: ['Open this folder', 'Open an agent here', 'Hide', 'Paste to terminal'],
+    mustNot: ['Add a marker here', 'Kill session'],
+  },
+  {
+    what: 'a port row',
+    sel: '.launcher-row[data-kind="port"]',
+    must: ['Copy address', 'Paste to terminal'],
     mustNot: ['Add a marker here'],
   },
   {
     what: 'the hint line',
     sel: '.launcher-hint',
-    must: ['Paste', 'Settings'],
+    must: ['Paste to terminal', 'Settings'],
     mustNot: ['Add a marker here'],
   },
   {
     what: 'a session card in the running list',
     sel: '.session-card',
-    must: ['Paste', 'Settings'],
+    must: ['Paste to terminal', 'Settings'],
     mustNot: ['Add a marker here'],
   },
 ];

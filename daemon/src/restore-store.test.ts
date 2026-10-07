@@ -99,6 +99,23 @@ describe('offering restores', () => {
     expect(store.list(new Set())).toHaveLength(1);
   });
 
+  /**
+   * The host outlives the daemon, so after an ordinary restart a workspace that did not come
+   * back had no living session: its shell had exited on its own. Offering it as taken by a
+   * restart was reported as a layout from eleven minutes earlier on a machine not restarted in
+   * days. It is closed, the way a tab somebody closed is, and never offered.
+   */
+  it('closes a workspace whose sessions had ended when the host survived the restart', () => {
+    const store = fresh();
+    store.save(workspace('w1', ['s1']), () => pane('/w'));
+    store.save(workspace('w2', ['s2']), () => pane('/x'));
+    expect(store.closeDead(new Set(['w1']))).toBe(1);
+    expect(store.list(new Set())).toHaveLength(0);
+    // And a later restart without the host cannot call it lost either: it is already closed.
+    store.markLost(new Set());
+    expect(store.list(new Set()).map((w) => w.workspaceId)).toEqual(['w1']);
+  });
+
   it('does not call a workspace lost when it came back with the daemon', () => {
     const store = fresh();
     store.save(workspace('w1', ['s1']), () => pane('/w'));

@@ -1573,6 +1573,23 @@ right click on a terminal was answered with Cut, Copy and Select all for that in
 One rule now: an element inside `.xterm`, or carrying `xterm-helper-textarea`, is the terminal.
 Everything that wants a field asks for one through it.
 
+### Every row on the start screen answers for what it is
+
+A right click used to mean one of two things on the start screen: a card answered for its
+session, and everything else was the page, with Paste and the ways out. Asked for as a menu for
+each thing, with no surprises about what a right click refers to. So every row carries what it is,
+and the menu reads it back: a recent folder opens, opens an agent in it, is a favorite or is
+hidden, and still offers Finder and its path; a conversation to resume resumes, opens a terminal
+in its folder, copies its resume command, or is hidden; a port on the machine opens, has its
+address copied, or is closed; one of TabTerm's own servers opens, is copied, has its terminal
+focused, restarts or stops; a layout from before a restart reopens or is forgotten. Each entry
+does what the row's own control does, through the same handler.
+
+The general entries stay underneath everywhere: **Paste to terminal**, named for where it goes
+since "Paste" alone on a start screen asked "paste where?", then a new tab, the menu, Settings,
+and closing the tab. And when the strip of terminal under the start screen has text selected, a
+right click anywhere above it offers Copy, which it did not.
+
 ### What a server's row offers
 
 The two lists of servers at the bottom of the start screen, the ones TabTerm's own sessions are

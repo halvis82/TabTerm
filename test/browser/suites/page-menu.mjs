@@ -43,7 +43,7 @@ r.ok(
 );
 r.ok(
   'it offers paste and the ways out',
-  ['Paste', 'New terminal tab', 'Open menu', 'Settings', 'Close tab'].every((l) =>
+  ['Paste to terminal', 'New terminal tab', 'Open menu', 'Settings', 'Close tab'].every((l) =>
     (onLauncher ?? []).includes(l),
   ),
   JSON.stringify(onLauncher),
@@ -107,5 +107,39 @@ r.ok(
   onTerminal.some((l) => l.includes('Add a marker')) && onTerminal.some((l) => l.includes('Paste')),
   onTerminal.join(' | ').slice(0, 140),
 );
+/**
+ * Text selected in the strip under the start screen can be copied from anywhere above it.
+ *
+ * The strip is a terminal, and a selection in it was offered nothing on a right click on the
+ * start screen. Reported with a screenshot of exactly that.
+ */
+{
+  const { client: c2 } = await openTerminal();
+  await waitFor(c2, "document.querySelector('.launcher-input')");
+  await sleep(600);
+  await evaluate(c2, 'window.__tabterm.selectAllInFocusedPane()');
+  await sleep(200);
+  const at = JSON.parse(
+    await evaluate(
+      c2,
+      `(() => { const b = document.querySelector('.launcher-heading').getBoundingClientRect();
+         return JSON.stringify({ x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) }); })()`,
+    ),
+  );
+  await openPaneMenu(c2, at.x, at.y);
+  const withSelection = JSON.parse(
+    await evaluate(
+      c2,
+      `JSON.stringify([...document.querySelectorAll('.term-menu-item')].map((b) => (b.textContent ?? '').trim()))`,
+    ),
+  );
+  r.ok(
+    'with text selected in the strip, the start screen offers Copy',
+    withSelection.includes('Copy'),
+    withSelection.join(' | '),
+  );
+  await evaluate(c2, "document.querySelector('.term-menu')?.remove()");
+}
+
 await finish();
 r.done();

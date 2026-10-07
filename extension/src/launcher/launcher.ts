@@ -207,6 +207,14 @@ function signatureOf(sessions: readonly LiveSession[]): string {
     .join('\u0002');
 }
 
+/** One thing on the start screen a right click can be about. See `whatIsUnder`. */
+export type LauncherThing =
+  | { kind: 'dir'; path: string; pinned: boolean }
+  | { kind: 'resume'; session: ResumableAgentSession }
+  | { kind: 'port'; port: OtherLocalPort }
+  | { kind: 'server'; server: LocalServer }
+  | { kind: 'restore'; workspaceId: string };
+
 export class Launcher {
   readonly #opts: LauncherOptions;
   readonly #el: HTMLElement;
@@ -2158,6 +2166,84 @@ export class Launcher {
   }
 
   /** Workspaces that could be brought back after a restart. */
+  /**
+   * What a right click on the start screen landed on, for the page's menu.
+   *
+   * Asked for as a menu for each thing on the start screen, so a right click never surprises:
+   * a folder row answers for its folder, a conversation for itself, a port for its port. Rows
+   * carry their identity in data attributes and this reads them back, so the page never has to
+   * know how a row is drawn.
+   */
+  whatIsUnder(target: Element): LauncherThing | null {
+    const el = target.closest<HTMLElement>('[data-kind]');
+    if (!el) return null;
+    switch (el.dataset['kind'] ?? '') {
+      case 'dir':
+        return el.dataset['path']
+          ? { kind: 'dir', path: el.dataset['path'], pinned: el.dataset['pinned'] === 'true' }
+          : null;
+      case 'resume': {
+        const session = this.#resumable.find((r) => r.sessionId === el.dataset['id']);
+        return session ? { kind: 'resume', session } : null;
+      }
+      case 'port': {
+        const port = Number(el.dataset['port']);
+        const other = this.#otherPorts.find((o) => o.port === port);
+        return other ? { kind: 'port', port: other } : null;
+      }
+      case 'server': {
+        const server = this.#servers.find((sv) => sv.sessionId === el.dataset['id']);
+        return server ? { kind: 'server', server } : null;
+      }
+      case 'restore':
+        return el.dataset['id'] ? { kind: 'restore', workspaceId: el.dataset['id'] } : null;
+      default:
+        return null;
+    }
+  }
+
+  /** The things a menu does to a row, the same way the row's own controls do them. */
+  chooseDir(path: string): void {
+    this.#opts.onChooseDir(path);
+  }
+  pinDir(path: string, pinned: boolean): void {
+    this.#opts.onPinDir(path, pinned);
+  }
+  forgetDir(path: string): void {
+    this.#opts.onForgetDir(path);
+  }
+  resume(session: ResumableAgentSession): void {
+    this.#opts.onResumeAgent(session);
+  }
+  hideResume(sessionId: string): void {
+    this.#hiddenResumes.add(sessionId);
+    this.#opts.onHideResume(sessionId);
+    this.render();
+  }
+  openServer(port: number): void {
+    this.#opts.onOpenServer(port);
+  }
+  copyText(text: string): void {
+    this.#opts.onCopyText?.(text);
+  }
+  askToClosePort(port: number): void {
+    this.#closingPort = port;
+    this.render();
+  }
+  attachServer(server: LocalServer): void {
+    this.#opts.onAttachServer(server);
+  }
+  askToStopServer(sessionId: string, restart: boolean): void {
+    this.#confirming = { sessionId, restart };
+    this.render();
+  }
+  restore(workspaceId: string, replayCommands: boolean): void {
+    this.#opts.onRestore(workspaceId, replayCommands);
+  }
+  forgetRestorable(workspaceId: string): void {
+    this.#opts.onForgetRestorable(workspaceId);
+  }
+
   setRestorable(workspaces: readonly RestorableSummary[]): void {
     this.#restorable = workspaces;
     this.#answered('restorable');
@@ -2179,6 +2265,8 @@ export class Launcher {
       wrap.className = 'launcher-row-wrap';
 
       const main = document.createElement('button');
+      main.dataset['kind'] = 'restore';
+      main.dataset['id'] = entry.workspaceId;
       main.className = 'launcher-row';
       const dirs = entry.panes.map((p) => shorten(p.cwd, home).split('/').pop() ?? '').join(', ');
       /**
@@ -2314,6 +2402,9 @@ export class Launcher {
 
       const url = `http://localhost:${String(server.port)}/`;
       const main = document.createElement('button');
+      main.dataset['kind'] = 'server';
+      main.dataset['port'] = String(server.port);
+      main.dataset['id'] = server.sessionId;
       main.className = 'launcher-row';
       main.append(
         strong(`localhost:${String(server.port)}`),
@@ -2468,6 +2559,8 @@ export class Launcher {
     wrap.className = 'launcher-row-wrap';
 
     const main = document.createElement('button');
+    main.dataset['kind'] = 'port';
+    main.dataset['port'] = String(other.port);
     main.className = 'launcher-row';
     const what = describeProgram(other.program);
     main.append(
@@ -2756,6 +2849,8 @@ export class Launcher {
 
       const row = document.createElement('button');
       row.className = 'launcher-row is-resume';
+      row.dataset['kind'] = 'resume';
+      row.dataset['id'] = session.sessionId;
       const when = new Date(session.modifiedAt);
       row.append(
         badge(session.agent),
@@ -2972,6 +3067,8 @@ export class Launcher {
     row.className = 'launcher-row-wrap';
 
     const main = document.createElement('button');
+    main.dataset['kind'] = 'dir';
+    main.dataset['pinned'] = dir.pinned ? 'true' : 'false';
     main.className = 'launcher-row';
     // The folder this row is for, so a right click on it can open or copy that folder.
     main.dataset['path'] = dir.path;

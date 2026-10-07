@@ -60,6 +60,28 @@ r.ok(
     `(${rowFor})?.parentElement.querySelector('.launcher-port-preview')?.getAttribute('sandbox')`,
   )) === '',
 );
+// The row's own menu, which does what its chips do.
+await evaluate(
+  here.client,
+  `(() => { const el = ${rowFor}; const b = el.getBoundingClientRect();
+     el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: Math.round(b.left + b.width / 2), clientY: Math.round(b.top + b.height / 2) })); return 'sent'; })()`,
+);
+await sleep(500);
+const onRow = JSON.parse(
+  await evaluate(
+    here.client,
+    `JSON.stringify([...document.querySelectorAll('.term-menu-item')].map((b) => (b.textContent ?? '').trim()))`,
+  ),
+);
+r.ok(
+  'a right click on the row offers open, copy, its terminal, restart and stop',
+  ['Copy address', 'Focus its terminal', 'Restart the server', 'Stop the server'].every((l) =>
+    onRow.includes(l),
+  ) && onRow.some((l) => l.startsWith('Open localhost:')),
+  onRow.join(' | '),
+);
+await evaluate(here.client, "document.querySelector('.term-menu')?.remove()");
+
 await evaluate(here.client, `(${rowFor})?.click()`);
 r.ok(
   'pressing it again puts the preview away',

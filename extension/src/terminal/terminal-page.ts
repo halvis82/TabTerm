@@ -56,7 +56,7 @@ import { TabFlasher, flashingSessions, setFlashing } from './flash-on-finish.js'
 import { askWorker, tellWorker } from '../chrome/worker.js';
 import { HeldInput } from './held-input.js';
 import { MOUSE_HINT } from './mouse-hint.js';
-import { Launcher } from '../launcher/launcher.js';
+import { Launcher, type LauncherThing } from '../launcher/launcher.js';
 import { CommandPanel } from '../launcher/panel-view.js';
 import { DEFAULT_PLACEMENT, type PanelPlacement } from '../launcher/command-panel.js';
 import { buildSettings } from '../launcher/settings-view.js';
@@ -165,6 +165,8 @@ let notifyPolicy: NotifyPolicy | null = null;
 let agentHooks: AgentHooksStatus | null = null;
 let shellIntegration: ShellIntegrationStatus | null = null;
 let companionUpdate: CompanionUpdateStatus | null = null;
+/** When this page began, so a state replayed by a reattach is not taken for news. */
+const pageStartedAt = Date.now();
 /** What the daemon's live checks found. See `attention.ts` in the daemon. */
 let attention: readonly Concern[] = [];
 let companionVersion = 'Connecting';
@@ -2930,6 +2932,118 @@ function folderUnder(target: Element): string {
   return '';
 }
 
+/**
+ * What a row on the start screen offers, by what it is.
+ *
+ * Asked for as a menu for each thing on the start screen, with the general entries still there
+ * underneath: a folder opens, opens an agent, is a favorite or is hidden; a conversation resumes,
+ * opens a terminal in its folder, or is hidden; a port opens, is copied, or is closed; a server
+ * opens, is copied, has its terminal focused, stops or restarts; a layout from before a restart
+ * reopens or is forgotten. Every entry does what the row's own control does, through the launcher.
+ */
+function thingItems(thing: LauncherThing): ShellItem[] {
+  switch (thing.kind) {
+    case 'dir':
+      return [
+        { label: 'Open this folder', run: () => launcher?.chooseDir(thing.path) },
+        {
+          label: 'Open an agent here',
+          run: () => {
+            const size = roomForSomethingNew();
+            client?.send({ t: 'launch-agent', where: 'new-tab', cwd: thing.path, ...size });
+          },
+        },
+        {
+          label: thing.pinned ? 'Unfavorite' : 'Favorite',
+          run: () => launcher?.pinDir(thing.path, !thing.pinned),
+        },
+        { label: 'Hide', run: () => launcher?.forgetDir(thing.path) },
+        ...folderItems(thing.path).map((item, i) =>
+          i === 0 ? { ...item, separated: true } : item,
+        ),
+      ];
+    case 'resume':
+      return [
+        { label: 'Resume this conversation', run: () => launcher?.resume(thing.session) },
+        {
+          label: 'Open a terminal in its folder',
+          run: () => launcher?.chooseDir(thing.session.cwd),
+        },
+        {
+          label: 'Copy resume command',
+          run: () => {
+            const command = resumeCommandFor(thing.session.sessionId, thing.session.cwd);
+            void navigator.clipboard.writeText(command).then(
+              () => showNotice('Resume command copied'),
+              () => {
+                /* denied, and there is nothing useful to say about a clipboard that refuses */
+              },
+            );
+          },
+        },
+        { label: 'Hide', run: () => launcher?.hideResume(thing.session.sessionId) },
+      ];
+    case 'port': {
+      const url = `http://localhost:${String(thing.port.port)}/`;
+      return [
+        {
+          label: `Open localhost:${String(thing.port.port)}`,
+          run: () => launcher?.openServer(thing.port.port),
+        },
+        { label: 'Copy address', run: () => launcher?.copyText(url) },
+        {
+          label: `Close ${thing.port.program}`,
+          danger: true,
+          run: () => launcher?.askToClosePort(thing.port.port),
+        },
+      ];
+    }
+    case 'server': {
+      const url = `http://localhost:${String(thing.server.port)}/`;
+      return [
+        {
+          label: `Open localhost:${String(thing.server.port)}`,
+          run: () => launcher?.openServer(thing.server.port),
+        },
+        { label: 'Copy address', run: () => launcher?.copyText(url) },
+        { label: 'Focus its terminal', run: () => launcher?.attachServer(thing.server) },
+        {
+          label: 'Restart the server',
+          run: () => launcher?.askToStopServer(thing.server.sessionId, true),
+        },
+        {
+          label: 'Stop the server',
+          danger: true,
+          run: () => launcher?.askToStopServer(thing.server.sessionId, false),
+        },
+      ];
+    }
+    case 'restore':
+      return [
+        { label: 'Reopen the layout', run: () => launcher?.restore(thing.workspaceId, false) },
+        { label: 'Forget this layout', run: () => launcher?.forgetRestorable(thing.workspaceId) },
+      ];
+  }
+}
+
+/**
+ * Copy, when the terminal under the start screen has something selected.
+ *
+ * The strip along the bottom is a terminal, and text selected in it was offered nothing on a
+ * right click anywhere above it. Reported with a screenshot of exactly that.
+ */
+function stripCopyItems(): ShellItem[] {
+  const pane = panesHost?.all[0];
+  const selected = pane?.controller.term.getSelection() ?? '';
+  if (selected === '') return [];
+  return [
+    {
+      label: 'Copy',
+      run: () => void pane?.controller.copySelection(selected),
+    },
+  ];
+}
+
 function pageMenuItems(target: Element): ShellItem[] {
   /**
    * A folder somebody pointed at outranks the surface it is drawn on.
@@ -2973,8 +3087,11 @@ function pageMenuItems(target: Element): ShellItem[] {
   const onCard = target.closest('.session-card, .session-wash') !== null;
 
   const onStartScreen = target.closest('.launcher') !== null;
+  // A row on the start screen answers for the thing it is, before anything general.
+  const thing = onStartScreen ? (launcher?.whatIsUnder(target) ?? null) : null;
   return [
     ...(session ? sessionItems(session) : []),
+    ...(thing ? thingItems(thing) : []),
     /**
      * What a named folder offers, in front of what the surface it sits on offers.
      *
@@ -2983,7 +3100,7 @@ function pageMenuItems(target: Element): ShellItem[] {
      * else is true, and taking them away would make the menu depend on exactly where inside a row
      * the pointer landed.
      */
-    ...folderItems(folder).map((item, i) =>
+    ...folderItems(thing?.kind === 'dir' ? '' : folder).map((item, i) =>
       i === 0 && session ? { ...item, separated: true } : item,
     ),
     /**
@@ -2999,10 +3116,13 @@ function pageMenuItems(target: Element): ShellItem[] {
      * guess about where the pointer is: if there is a box or a terminal to receive it, it is
      * offered, and otherwise it is left out rather than shown doing nothing.
      */
+    ...stripCopyItems(),
     ...(onStartScreen || paneForPaste() !== undefined
       ? [
           {
-            label: 'Paste',
+            // Named for where it goes. "Paste" alone on a start screen asked "paste where?".
+            label: 'Paste to terminal',
+            separated: thing !== null || session !== undefined,
             run: () => {
               void navigator.clipboard
                 .readText()
@@ -7517,6 +7637,7 @@ function onControl(msg: ServerMessage): void {
          * the thing worth knowing next and it outlives the turn.
          */
         const time = timeStateFor(pane.paneId);
+        const wasState = time.agentState;
         time.agentState = msg.state;
         let turnEnded = false;
         if (msg.turnStartedAt === undefined) {
@@ -7544,12 +7665,19 @@ function onControl(msg: ServerMessage): void {
          * Reported from exactly that session. A turn ending is the moment, and so is the agent
          * stopping to ask, which is the other reason to look.
          */
-        if (
-          flashing.has(msg.sessionId) &&
-          (turnEnded || msg.state === 'waiting' || msg.state === 'approval')
-        ) {
-          tabFlasher.start();
-        }
+        /*
+         * Only for something that happened while this page was open. A reattach replays the
+         * agent's last state with its timing, and that read as a turn ending and started the
+         * flash on every refresh of a tab that had it on. Reported as exactly that. A turn
+         * ended now if its end is after this page began; a pause is new if the page saw a
+         * different state before it.
+         */
+        const endedNow = turnEnded && (time.lastTurnEndedAt ?? 0) > pageStartedAt;
+        const pausedNow =
+          (msg.state === 'waiting' || msg.state === 'approval') &&
+          wasState !== undefined &&
+          wasState !== msg.state;
+        if (flashing.has(msg.sessionId) && (endedNow || pausedNow)) tabFlasher.start();
       }
       return;
     }
@@ -7773,6 +7901,8 @@ declare global {
       focusedPane: () => string;
       /** The sessions this page believes are kept alive, so a suite can ask what it was told. */
       keptAlive: () => string[];
+      /** Select everything in the focused pane, the way the menu's entry does. */
+      selectAllInFocusedPane: () => void;
       /** Run an action as the Actions page would, so a suite can drive a template from a tab. */
       runCustomAction: (action: CustomAction) => void;
       /** What the daemon's live checks found, as this page was told. */
@@ -8047,6 +8177,11 @@ function installTestHook(): void {
     gridMovesFor: (paneId) => gridMoves.get(paneId) ?? 0,
     focusedPane: () => splitView?.focused ?? '',
     keptAlive: () => [...keptAlive],
+    selectAllInFocusedPane: () => {
+      const pane = splitView?.focused ? panesHost?.get(splitView.focused) : panesHost?.all[0];
+      pane?.controller.term.focus();
+      pane?.controller.selectAll();
+    },
     runCustomAction: (action: CustomAction) => runCustomAction(action),
     attention: () => [...attention],
     attentionFixture: (concerns: Concern[]) => client?.send({ t: 'attention-fixture', concerns }),

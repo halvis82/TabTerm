@@ -662,9 +662,10 @@ async function main(): Promise<void> {
    * time during which output can arrive for sessions the daemon cannot yet receive.
    */
   hostClient.canReceive = (sessionId) => sessions.get(sessionId) !== undefined;
+  let hostSurvived = false;
   if (usingHost) {
     const liveSequences = new Map<string, number>();
-    await adoptEverything(
+    const adopted = await adoptEverything(
       {
         adoptable: async () => {
           const live = await ptyBackend.adoptable();
@@ -699,6 +700,8 @@ async function main(): Promise<void> {
       db,
       config.shell,
     );
+    // A host that handed sessions back is one that outlived the previous daemon.
+    hostSurvived = adopted.sessions > 0;
   }
   checkpoints.clear();
 
@@ -710,7 +713,13 @@ async function main(): Promise<void> {
    * tab somebody closed from one a restart took, and it showed both: 417 workspaces across a
    * fortnight on a machine in daily use, three at a time, under a heading about restarting.
    */
-  restore.markLost(new Set(workspaces.all.map((w) => w.id)));
+  if (hostSurvived) {
+    // Nothing was taken away: the host kept every live session through the restart, so a
+    // workspace that did not come back had already ended on its own. See `closeDead`.
+    restore.closeDead(new Set(workspaces.all.map((w) => w.id)));
+  } else {
+    restore.markLost(new Set(workspaces.all.map((w) => w.id)));
+  }
 
   if (usingHost) {
     /**

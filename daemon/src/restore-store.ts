@@ -405,6 +405,32 @@ export class RestoreStore {
    * this daemon came back without is offered, one somebody closed is marked closed and never
    * appears, and one older than the window is past being wanted back.
    */
+  /**
+   * Workspaces whose sessions ended on their own, when the host survived a daemon restart.
+   *
+   * The host outlives the daemon, so after an ordinary restart every session that was alive is
+   * adopted back. A workspace that did not come back then had no living session: its shell had
+   * exited before the restart. Calling that lost, and offering it under a heading about a
+   * restart with "the original processes did not survive", was reported as a layout from
+   * eleven minutes earlier when the machine had not restarted in days. It is closed instead,
+   * the way a tab somebody closed is.
+   */
+  closeDead(liveWorkspaceIds: ReadonlySet<string>): number {
+    const rows = this.#db.handle
+      .prepare('SELECT id FROM workspaces WHERE closed_at IS NULL AND lost_at IS NULL')
+      .all() as { id: string }[];
+    const stamp = this.#db.handle.prepare('UPDATE workspaces SET closed_at = ? WHERE id = ?');
+    const now = Date.now();
+    let marked = 0;
+    for (const row of rows) {
+      if (liveWorkspaceIds.has(row.id)) continue;
+      stamp.run(now, row.id);
+      marked += 1;
+    }
+    if (marked > 0) info('restore.closed-dead', { workspaces: marked });
+    return marked;
+  }
+
   list(
     excludeLive: ReadonlySet<string>,
     limit = 12,

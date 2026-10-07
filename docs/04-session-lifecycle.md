@@ -917,6 +917,16 @@ Verified end to end against `kill -9` of the daemon, which is the worst case bec
 to run on the way out: the process survived, the tab reconnected without an expiry page, the
 earlier output was on screen, and the session still accepted commands.
 
+### A restart the host survived takes nothing away
+
+The daemon restarts on every update and adopts its sessions back from the host, which outlives
+it. Whatever did not come back used to be stamped as lost by the restart and offered under
+"Reopen from before the restart" with "the original processes did not survive", and that was
+reported as a layout from eleven minutes earlier on a machine not restarted in days. When the
+host handed sessions back, it survived, and a workspace that did not come back had no living
+session: its shell had exited on its own. Those are closed, the way a tab somebody closed is.
+Only a restart the host did not survive, a reboot or a replaced host, marks workspaces lost.
+
 ### Every way a session can end, and what guards each
 
 | How | When it is right | What holds it back |
