@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { Concern, UpdatePhase } from '@tabterm/shared';
 import { processTable } from './process-table.js';
 import { debug, warn } from './log.js';
+import { safeError } from './safe-error.js';
 
 /**
  * Things the person needs to know about, checked live rather than once at install.
@@ -246,7 +247,7 @@ export class AttentionMonitor {
           this.#opts.changed(next);
         }
       } catch (error: unknown) {
-        warn('attention.check-failed', { error: String(error) });
+        warn('attention.check-failed', { error: safeError(error) });
       } finally {
         this.#running = null;
       }
