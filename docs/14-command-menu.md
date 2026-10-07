@@ -338,6 +338,10 @@ that ran the action is touched either way.
 the program's own drawing and the daemon's copy of it, and the program redraws into a hole. The
 same judgement as a marker's, and greyed rather than hidden for the same reason.
 
+**A pane's menu says which folder it means.** "Copy path" on a card or a folder chip is about the
+thing clicked. On a pane's own menu the folder is implicit, and "Copy path" there was reported as
+ambiguous, so it reads "Copy current folder path" and "Open current folder in Finder".
+
 **Bring here from a card's menu, in a tab with work in it, puts the session beside what is
 there**, the same as clicking the card does. Navigating the tab away is right for a start screen
 and wrong for a tab whose panes would then show nothing.

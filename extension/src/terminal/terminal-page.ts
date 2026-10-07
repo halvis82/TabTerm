@@ -2477,15 +2477,20 @@ function resumeItems(sessionId: string): ShellItem[] {
   ];
 }
 
-function folderItems(path: string): ShellItem[] {
+/**
+ * `named` says the folder is the thing that was clicked, a card or a chip, where "Copy path"
+ * needs no more words. On a pane's own menu the folder is implicit, and "Copy path" there was
+ * reported as ambiguous: path of what? So the pane's menu says which folder.
+ */
+function folderItems(path: string, named = true): ShellItem[] {
   if (path === '') return [];
   return [
     {
-      label: 'Open in Finder',
+      label: named ? 'Open in Finder' : 'Open current folder in Finder',
       run: () => client?.send({ t: 'open-path', path, how: 'reveal-in-finder' }),
     },
     {
-      label: 'Copy path',
+      label: named ? 'Copy path' : 'Copy current folder path',
       run: () => {
         void navigator.clipboard.writeText(path).catch(() => {
           /* denied, and there is nothing useful to say about a clipboard that refuses */
@@ -5546,7 +5551,7 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
      */
     ...[
       ...resumeItems(panesHost?.get(paneId)?.sessionId ?? ''),
-      ...folderItems(sessionTitles.get(panesHost?.get(paneId)?.sessionId ?? '')?.cwd ?? ''),
+      ...folderItems(sessionTitles.get(panesHost?.get(paneId)?.sessionId ?? '')?.cwd ?? '', false),
     ].map((item, i) => (i === 0 ? { ...item, separated: true } : item)),
     {
       /**

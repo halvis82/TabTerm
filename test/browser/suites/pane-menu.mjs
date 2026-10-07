@@ -66,6 +66,13 @@ r.ok(
   Number(await evaluate(client, "document.querySelectorAll('.term-menu-rule').length")) >= 4,
 );
 r.ok('with settings reachable from the terminal', items.includes('Settings'), items.join(' | '));
+// The folder is implicit on a pane's menu, so the entries say which folder. On a card or a
+// chip the folder is the thing clicked and "Copy path" needs no more words.
+r.ok(
+  'and the folder entries say which folder they mean',
+  items.includes('Copy current folder path') && items.includes('Open current folder in Finder'),
+  items.join(' | '),
+);
 
 await choose('Select all');
 await sleep(500);
