@@ -19,6 +19,7 @@ import {
   waitUntil,
   realClick,
   ownDaemonPid,
+  ownHostPid,
 } from '../helpers.mjs';
 import { reporter, listTargets, connect } from '../cdp.mjs';
 
@@ -102,13 +103,22 @@ await waitFor(work.client, 'window.__tabterm.paneIds().length === 1', 20000);
  * The shell is killed rather than closed, because a tab somebody closes on purpose is recorded as
  * closed and deliberately never offered back. Then the daemon is killed, because a workspace is
  * only offered for reopening once it is not live any more, and while this daemon is running it
- * holds the workspace whether or not anything is left in it. Both together are what a machine
+ * holds the workspace whether or not anything is left in it. All three together are what a machine
  * going down leaves behind, which is the state that was reported.
  *
  * This is why the suite runs in the phase that is allowed to kill the daemon.
  */
 await type(work.client, 'kill -9 $$\r');
 await sleep(2500);
+/*
+ * The host too. A daemon restart the host survived takes nothing away: every live session is
+ * adopted back, and a workspace that did not come back had a shell that had already exited, which
+ * is closed rather than offered. Only a restart the host did not survive, which is what a machine
+ * going down is, marks workspaces lost and offers them. See docs/04-session-lifecycle.md.
+ */
+const hostPid = ownHostPid();
+if (hostPid !== null) process.kill(hostPid, 'SIGKILL');
+await sleep(800);
 const daemonPid = ownDaemonPid();
 if (daemonPid === null) {
   r.ok('there is a daemon of our own to restart', false, 'run via run.mjs');
