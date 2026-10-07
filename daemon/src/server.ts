@@ -33,6 +33,9 @@ import { debug, info, warn } from './log.js';
 import { expandHome } from './complete-path.js';
 import { plainText } from './plain-text.js';
 import { foregroundOf, isNoise } from './foreground.js';
+
+/** How often the foreground of each pane is read again while a start screen is showing the list. */
+const FOREGROUND_SWEEP_MS = 3000;
 import { INPUT_STATE_OF_A_NEW_SHELL } from './restored-screen.js';
 import { markerBlock } from './marker-block.js';
 import {
@@ -3186,6 +3189,7 @@ export class DaemonServer {
     void this.#refreshForeground().then((changed) => {
       if (changed) this.#announceLiveSessions();
     });
+    this.#keepForegroundFresh();
     const sessions = this.#liveSessions();
     for (const c of this.#clients) {
       /**
@@ -3203,6 +3207,31 @@ export class DaemonServer {
 
   /** Clients that have asked what is running, and so have an answer worth keeping up to date. */
   readonly #wantsLiveSessions = new Set<string>();
+
+  /**
+   * Ask the process table again every few seconds while anybody is looking at the list.
+   *
+   * A sweep that runs only when the list is announced can be the last word on a program that
+   * has since ended: the table is cached for a moment, so a sweep right after a command ends
+   * can still see it, and nothing announces again on its own. A card then said "sleep" for a
+   * shell that had long since moved on. One `ps` every few seconds is the cost of being right.
+   */
+  #foregroundTimer: ReturnType<typeof setInterval> | undefined;
+
+  #keepForegroundFresh(): void {
+    if (this.#foregroundTimer !== undefined) return;
+    this.#foregroundTimer = setInterval(() => {
+      if (this.#wantsLiveSessions.size === 0) {
+        clearInterval(this.#foregroundTimer);
+        this.#foregroundTimer = undefined;
+        return;
+      }
+      void this.#refreshForeground().then((changed) => {
+        if (changed) this.#announceLiveSessions();
+      });
+    }, FOREGROUND_SWEEP_MS);
+    this.#foregroundTimer.unref?.();
+  }
 
   /**
    * Learn what is in the foreground of every live session from the process table.

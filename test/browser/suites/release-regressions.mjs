@@ -155,8 +155,14 @@ try {
     'Running now describes the current shell work',
     await waitFor(
       viewer,
-      `document.querySelector('[data-session-id="${sessionId}"] .session-what')?.textContent === 'shell - ls'`,
+      `document.querySelector('[data-session-id="${sessionId}"] .session-what')?.textContent === 'ls'`,
       10000,
+    ),
+    String(
+      await evaluate(
+        viewer,
+        `document.querySelector('[data-session-id="${sessionId}"] .session-what')?.textContent`,
+      ),
     ),
   );
 } finally {

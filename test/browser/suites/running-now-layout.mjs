@@ -91,13 +91,17 @@ r.ok(
   nowMine === mine,
   `${String(mine)} then, ${String(nowMine)} now`,
 );
-const named = await waitUntil(async () => (await myLabel()).startsWith('shell - '), 20000);
+// The command alone: "shell - " in front of it was asked to go, and "shell" cannot be said at all.
+const named = await waitUntil(
+  async () => (await myLabel()) !== '' && (await myLabel()) !== 'nothing run yet',
+  20000,
+);
 r.ok('a shell that has run something says what it ran', named, await myLabel());
 
-const saysWhat = await waitUntil(async () => (await myLabel()).startsWith('shell - ls'), 20000);
+const saysWhat = await waitUntil(async () => (await myLabel()).startsWith('ls'), 20000);
 r.ok(
-  'and a bare "shell" is not what a used session is called',
-  saysWhat,
+  'and neither "shell" nor "shell - " is what a used session is called',
+  saysWhat && !(await myLabel()).includes('shell'),
   `${await myLabel()} — ${JSON.stringify(await labels())}`,
 );
 
