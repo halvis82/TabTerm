@@ -65,8 +65,8 @@ describe('the footer describes the selected row', () => {
   });
 
   it('offers editing only on a favorite', () => {
-    expect(operationsFor(favorite).join(' ')).toContain('E edits');
-    expect(operationsFor(recent).join(' ')).not.toContain('E edits');
+    expect(operationsFor(favorite).join(' ')).toContain('Cmd+E edits');
+    expect(operationsFor(recent).join(' ')).not.toContain('Cmd+E edits');
   });
 
   it('offers keeping only on a recent command', () => {

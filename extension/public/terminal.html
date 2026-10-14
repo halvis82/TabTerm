@@ -1143,8 +1143,17 @@
      */
     color: var(--danger);
   }
+  /*
+   * The description gives way before the name does.
+   *
+   * Both shrank in proportion to their width, so a favorite named "edit wifi blocker" beside a
+   * long path came out as "ed..." next to most of the path. The name is what somebody chose to
+   * call it and what they look for. The command is a reminder of what it does, and losing its
+   * tail costs nothing they cannot read in the edit form. A shrink this much larger than the
+   * name's takes all of the space from here until there is none left to take.
+   */
   .cmd-row-meta {
-    flex: 1 1 auto;
+    flex: 1 10000 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;

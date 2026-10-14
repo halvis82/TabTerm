@@ -204,12 +204,20 @@ Selection is a step of its own. Nothing in the list acts because the pointer pas
 | **Double-click** | Paste into the terminal, without touching the clipboard |
 | `Enter` | Paste into the terminal |
 | `Command+Enter` | Copy to the clipboard |
-| `e` or right-click (Favorites) | Edit |
+| `Command+E` or right-click (Favorites) | Edit |
 | `Escape` | Close, from anywhere |
 
 **The footer names the operations for whatever is selected**, so the keys are never something
 you have to remember or discover. It changes with the row: an action row has nothing to copy,
 and says so by not offering it.
+
+**A letter typed into a text box is always text.** The search box has the focus whenever the panel
+is open, so a bare key there would take the first letter of a search. Editing is `Command+E` for
+that reason. A bare `e` still edits, but only when focus is somewhere other than a text box.
+
+**In a row, the name gives way last.** A favorite shows its name and, beside it, the command it
+holds. When the two do not fit, the command is cut first and the name only once the command has
+no room left at all. The name is what somebody chose to call it and what they are looking for.
 
 **Pasting closes the panel.** You came here to get a command to the prompt, and once it is there
 the panel is in the way of the thing you are about to do.

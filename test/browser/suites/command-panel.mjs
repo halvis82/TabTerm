@@ -541,6 +541,103 @@ r.ok(
   );
 }
 
+/**
+ * A favorite's name is cut last, and E typed into the search is a letter.
+ *
+ * The name and the command shrank in proportion to their width, so a short name beside a long
+ * path came out as "ed..." next to most of the path. And a bare E edited the selected favorite
+ * from inside the search box, so a search starting with E could not be typed.
+ */
+{
+  const name = 'edit the far away settings file';
+  const body = `vi ~/${'deeply/nested/'.repeat(12)}settings.json`;
+  await evaluate(client, `document.querySelector('.cmd-add')?.click()`);
+  await waitFor(client, `!!document.querySelector('.cmd-edit')`, 8000);
+  await evaluate(
+    client,
+    `(() => {
+       const [title, text] = document.querySelectorAll('.cmd-edit input');
+       title.value = ${JSON.stringify(name)};
+       title.dispatchEvent(new Event('input', { bubbles: true }));
+       text.value = ${JSON.stringify(body)};
+       text.dispatchEvent(new Event('input', { bubbles: true }));
+     })()`,
+  );
+  await evaluate(
+    client,
+    `[...document.querySelectorAll('.cmd-edit .cmd-button')].find(b => b.textContent === 'Save')?.click()`,
+  );
+  const rowOf = `[...document.querySelectorAll('.cmd-row.is-favorite')].find((x) =>
+     x.querySelector('.cmd-row-label')?.textContent === ${JSON.stringify(name)})`;
+  r.ok('a favorite with a long command is saved', await waitFor(client, `!!${rowOf}`, 8000));
+  const fit = JSON.parse(
+    String(
+      await evaluate(
+        client,
+        `(() => {
+           const row = ${rowOf};
+           const label = row.querySelector('.cmd-row-label');
+           const meta = row.querySelector('.cmd-row-meta');
+           return JSON.stringify({
+             label: label.scrollWidth <= label.clientWidth,
+             meta: meta.scrollWidth > meta.clientWidth,
+           });
+         })()`,
+      ),
+    ),
+  );
+  r.ok('and its whole name shows', fit.label === true, JSON.stringify(fit));
+  r.ok('and the command is what gets cut', fit.meta === true, JSON.stringify(fit));
+
+  // Select it, then type an E into the search the way a person does.
+  await evaluate(client, `(${rowOf})?.click()`);
+  await sleep(200);
+  await evaluate(client, `document.querySelector('.cmd-search')?.focus()`);
+  for (const t of ['keyDown', 'keyUp']) {
+    await client.send('Input.dispatchKeyEvent', {
+      type: t,
+      key: 'e',
+      code: 'KeyE',
+      text: t === 'keyDown' ? 'e' : undefined,
+      windowsVirtualKeyCode: 69,
+      nativeVirtualKeyCode: 69,
+    });
+  }
+  await sleep(300);
+  r.ok(
+    'an E typed into the search is a letter in the search',
+    (await evaluate(client, `document.querySelector('.cmd-search')?.value`)) === 'e',
+    String(await evaluate(client, `document.querySelector('.cmd-search')?.value`)),
+  );
+  r.ok(
+    'and does not open the edit form',
+    (await evaluate(client, `!!document.querySelector('.cmd-edit')`)) === false,
+  );
+
+  // Command+E edits it from the search box.
+  await evaluate(
+    client,
+    `(() => { const s = document.querySelector('.cmd-search');
+       s.value = ''; s.dispatchEvent(new Event('input', { bubbles: true })); })()`,
+  );
+  await sleep(200);
+  await evaluate(client, `(${rowOf})?.click()`);
+  await sleep(200);
+  await press(client, 'e', 'KeyE', 4, 69, { focus: 'none' });
+  r.ok(
+    'Command+E edits the selected favorite',
+    await waitFor(client, `!!document.querySelector('.cmd-edit')`, 4000),
+  );
+  await press(client, 'Escape', 'Escape', 0, 27, { focus: 'none' });
+  await sleep(300);
+
+  // Leave nothing behind: the store is shared with every suite.
+  await evaluate(client, `(${rowOf})?.querySelector('.cmd-drop')?.click()`);
+  await sleep(300);
+  await press(client, 'Enter', 'Enter', 0, 13, { focus: 'none' });
+  await waitFor(client, `!${rowOf}`, 8000);
+}
+
 /** A recent can be taken out of the list, which is only the record that it ran. */
 {
   await evaluate(

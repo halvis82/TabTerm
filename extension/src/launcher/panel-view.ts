@@ -1192,7 +1192,18 @@ export class CommandPanel {
     }
 
     const row = this.#rows[this.#selected];
-    if (e.key.toLowerCase() === 'e' && row?.kind === 'favorite' && !this.#search.value) {
+    /**
+     * Command+E edits. A bare E only does it away from a text box.
+     *
+     * The search box has the focus whenever the panel is open, and a bare E there went to the
+     * edit form before the letter reached the box, so a search starting with E could not be
+     * typed. Checking that the search was empty did not help, because it is always empty on the
+     * first letter. A letter typed into a text box is always text.
+     */
+    const inTextBox = isTextBox(e.target);
+    const editKey =
+      e.key.toLowerCase() === 'e' && !e.altKey && !e.ctrlKey && (e.metaKey || !inTextBox);
+    if (editKey && row?.kind === 'favorite') {
       e.preventDefault();
       this.#editing = row.item.id;
       this.render();
@@ -1275,4 +1286,9 @@ export class CommandPanel {
     this.#opts.root.append(note);
     setTimeout(() => note.remove(), 900);
   }
+}
+
+function isTextBox(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
 }

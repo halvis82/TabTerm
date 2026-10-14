@@ -144,7 +144,7 @@ export function operationsFor(row: PanelRow | undefined): string[] {
    */
   if (row.kind === 'heading') return ['Enter runs', 'Click runs', 'Esc closes'];
   const common = ['Enter pastes', 'Double-click pastes', 'Cmd+Enter copies'];
-  if (row.kind === 'favorite') return [...common, 'E edits'];
+  if (row.kind === 'favorite') return [...common, 'Cmd+E edits'];
   return [...common, 'Cmd+S keeps'];
 }
 
