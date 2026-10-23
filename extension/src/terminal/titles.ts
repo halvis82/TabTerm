@@ -180,28 +180,105 @@ function packagedIcon(): string {
 
 /** Frames in one turn of the busy ring. Enough that it turns rather than ticks. */
 export const RING_STEPS = 16;
-const ringFrames = new Map<number, string>();
+/** Frames in one breath of the waiting dot, at the ring's frame rate: two and a half seconds. */
+const PULSE_STEPS = 40;
+/** After this many frames every animation is back where it started, so no two keys draw alike. */
+const CYCLE = 80;
+
+/**
+ * Every icon drawn, kept by what it shows.
+ *
+ * The ring turns sixteen times a second while its tab is in front, and a split icon is the same
+ * few pictures over and over, so drawing each once is cheaper than encoding a PNG per frame.
+ * Bounded, because the set of combinations is small but not fixed.
+ */
+const drawnIcons = new Map<string, string>();
+
+function animates(state: FaviconState): boolean {
+  return state === 'running' || state === 'waiting' || state === 'approval';
+}
 
 export function drawFavicon(state: FaviconState, phase = 0): string {
   if (state === 'idle') {
     const packaged = packagedIcon();
     if (packaged !== '') return packaged;
   }
+  return drawIcon([state], phase);
+}
+
+/**
+ * One icon for a tab whose panes are in different states: a slice for each, side by side.
+ *
+ * Asked for as "one shows the green checkmark and one shows still working", for any number of
+ * panes. Panes with nothing to report take no slice, and two panes in the same state share one,
+ * so a tab of three agents that have all finished is one solid tick. Two slices at most: at
+ * sixteen pixels a third is a sliver of color with no shape left in it. The two are the most
+ * urgent states present, most urgent on the left. See `StatusMachine.picture`.
+ */
+export function drawSplitFavicon(states: readonly FaviconState[], phase = 0): string {
+  const shown = states.slice(0, 2);
+  if (shown.length < 2) return drawFavicon(shown[0] ?? 'idle', phase);
+  return drawIcon(shown, phase);
+}
+
+function drawIcon(states: readonly FaviconState[], phase: number): string {
+  const moving = states.some(animates);
+  const key = `${states.join('+')}:${String(moving ? phase % CYCLE : 0)}`;
+  const kept = drawnIcons.get(key);
+  if (kept !== undefined) return kept;
+
   const size = 32;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const g = canvas.getContext('2d');
   if (!g) return '';
 
-  const { bg, fg } = COLORS[state];
-
-  g.fillStyle = bg;
+  g.save();
   roundRect(g, 0, 0, size, size, 7);
-  g.fill();
+  g.clip();
+  const width = size / states.length;
+  states.forEach((state, i) => {
+    g.fillStyle = COLORS[state].bg;
+    g.fillRect(i * width, 0, width, size);
+  });
+  // A gap between the halves, so two states read as two rather than as one odd color.
+  for (let i = 1; i < states.length; i++) g.clearRect(i * width - 1, 0, 2, size);
+  g.restore();
 
+  const scale = states.length === 1 ? 1 : 0.6;
+  states.forEach((state, i) => {
+    drawGlyph(g, state, phase, (i + 0.5) * width, size / 2, scale);
+  });
+
+  const drawn = canvas.toDataURL('image/png');
+  if (drawnIcons.size > 400) drawnIcons.clear();
+  drawnIcons.set(key, drawn);
+  return drawn;
+}
+
+/**
+ * The mark for one state, centered on (cx, cy), drawn in a 32 pixel box scaled by `scale`.
+ *
+ * Lines are kept thick when scaled down, because a half icon is eight pixels wide on screen and
+ * a stroke scaled with it would vanish.
+ */
+function drawGlyph(
+  g: CanvasRenderingContext2D,
+  state: FaviconState,
+  phase: number,
+  cx: number,
+  cy: number,
+  scale: number,
+): void {
+  const { fg } = COLORS[state];
+  const weight = Math.max(1, 0.8 / scale);
+  g.save();
+  g.translate(cx, cy);
+  g.scale(scale, scale);
+  g.translate(-16, -16);
   g.strokeStyle = fg;
   g.fillStyle = fg;
-  g.lineWidth = 3;
+  g.lineWidth = 3 * weight;
   g.lineCap = 'round';
   g.lineJoin = 'round';
 
@@ -217,10 +294,7 @@ export function drawFavicon(state: FaviconState, phase = 0): string {
     g.moveTo(10, 16);
     g.lineTo(22, 16);
     g.stroke();
-    return canvas.toDataURL('image/png');
-  }
-
-  if (state === 'success' || state === 'attention' || state === 'attention-alt') {
+  } else if (state === 'success' || state === 'attention' || state === 'attention-alt') {
     /**
      * A tick, which reads as "done" without depending on the green being seen as green.
      *
@@ -233,20 +307,14 @@ export function drawFavicon(state: FaviconState, phase = 0): string {
     g.lineTo(14, 22);
     g.lineTo(23, 10);
     g.stroke();
-    return canvas.toDataURL('image/png');
-  }
-
-  if (state === 'failed') {
+  } else if (state === 'failed') {
     g.beginPath();
     g.moveTo(11, 11);
     g.lineTo(21, 21);
     g.moveTo(21, 11);
     g.lineTo(11, 21);
     g.stroke();
-    return canvas.toDataURL('image/png');
-  }
-
-  if (state === 'waiting' || state === 'approval') {
+  } else if (state === 'waiting' || state === 'approval') {
     /**
      * A dot that breathes, because the tab is asking for something.
      *
@@ -254,44 +322,33 @@ export function drawFavicon(state: FaviconState, phase = 0): string {
      * indistinguishable from a tab that has finished loading, and half the pulse would then be
      * a lie. This one is always visible and only changes size.
      */
-    const beat = (Math.sin((phase / 6) * Math.PI) + 1) / 2;
+    const beat = (Math.sin((phase / (PULSE_STEPS / 2)) * Math.PI) + 1) / 2;
     const radius = 4.5 + beat * 2.5;
     g.beginPath();
     g.arc(16, 16, radius, 0, Math.PI * 2);
     g.fill();
     if (state === 'approval') {
       // A ring around it, so the more urgent of the two is not distinguished by color alone.
-      g.lineWidth = 2;
+      g.lineWidth = 2 * weight;
       g.beginPath();
       g.arc(16, 16, 11, 0, Math.PI * 2);
       g.stroke();
     }
-    return canvas.toDataURL('image/png');
-  }
-
-  if (state === 'running') {
-    // Drawn once per frame position and kept: it turns many times a second while it is in front.
-    const key = phase % RING_STEPS;
-    const kept = ringFrames.get(key);
-    if (kept !== undefined) return kept;
+  } else if (state === 'running') {
     /*
      * A ring with a gap that goes round: progress, the way every other application shows it.
      *
      * It was a caret with an underline that swept, which at 16 pixels was the idle icon with a
      * detail nobody could see, and "whenever a command is running or agent is working, that's
      * shown as progress through favicon" was asked for because it was not. The arc advances one
-     * step per frame, only ever while the tab is visible; a hidden tab holds one steady frame,
-     * which still reads as busy because the ring is the shape, not the motion.
-     */
-    /*
-     * On a full, faint track, so one frame of it is a whole picture.
+     * step per frame, only ever while the tab is visible; a hidden tab holds one steady frame.
      *
-     * A hidden tab cannot animate, and the bare arc it was left holding read as a broken circle
-     * rather than as busy: "inconsistent and weird". With the track drawn, a still frame is the
-     * familiar loading ring stopped in place, in a background tab exactly as in the one in front.
+     * On a full, faint track, so one frame of it is a whole picture. The bare arc a hidden tab
+     * was left holding read as a broken circle rather than as busy: "inconsistent and weird".
+     * With the track drawn, a still frame is the familiar loading ring stopped in place.
      */
     const start = ((phase % RING_STEPS) / RING_STEPS) * Math.PI * 2 - Math.PI / 2;
-    g.lineWidth = 3.5;
+    g.lineWidth = 3.5 * weight;
     g.globalAlpha = 0.3;
     g.beginPath();
     g.arc(16, 16, 9, 0, Math.PI * 2);
@@ -300,23 +357,19 @@ export function drawFavicon(state: FaviconState, phase = 0): string {
     g.beginPath();
     g.arc(16, 16, 9, start, start + Math.PI * 0.8);
     g.stroke();
-    const drawn = canvas.toDataURL('image/png');
-    ringFrames.set(key, drawn);
-    return drawn;
+  } else {
+    // A terminal prompt caret, which reads at 16 px far better than a glyph would.
+    g.beginPath();
+    g.moveTo(9, 11);
+    g.lineTo(15, 16);
+    g.lineTo(9, 21);
+    g.stroke();
+    g.beginPath();
+    g.moveTo(18, 22);
+    g.lineTo(24, 22);
+    g.stroke();
   }
-
-  // A terminal prompt caret, which reads at 16 px far better than a glyph would.
-  g.beginPath();
-  g.moveTo(9, 11);
-  g.lineTo(15, 16);
-  g.lineTo(9, 21);
-  g.stroke();
-  g.beginPath();
-  g.moveTo(18, 22);
-  g.lineTo(24, 22);
-  g.stroke();
-
-  return canvas.toDataURL('image/png');
+  g.restore();
 }
 
 function roundRect(

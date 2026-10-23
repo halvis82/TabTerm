@@ -55,6 +55,14 @@ after a turn is the agent's idle reminder rather than a question, so reading it 
 every finished tab amber a minute later and raised "Agent is waiting for you" for a tab the person
 was reading. Both are left out. The state for either is what it was before the event.
 
+**An interrupt ends the turn, and the daemon says so.** No hook fires when somebody presses
+Escape or Control C in an agent, so the agent went on looking like it was working: the tab spun its
+busy ring over an agent sitting at its prompt, and a reload brought it back because the daemon
+still believed it. Escape on a permission prompt left the tab asking for an approval nobody could
+give. Input that looks like an interrupt, while the agent is working, asking or waiting for an
+approval, now sets it resting and tells the tab, with no outcome: the person stopped it, so there
+is nothing to report back.
+
 **The tab flash follows turns too.** "Flash the tab when a command finishes" on a pane's menu
 used to be started by a shell command ending and by nothing else, and an agent's turn ends with a
 hook rather than a prompt, so in an agent session the toggle was on and nothing happened. A turn

@@ -502,7 +502,20 @@ first thing read and the first thing lost. Roughly one man in twelve cannot sepa
 the green, so success is a tick and failure is a cross, and the color agrees with the shape rather
 than carrying it alone.
 
-Multi-pane priority, highest wins, because a tab has exactly one favicon:
+**Several panes that disagree share the icon.** A tab of several panes used to show only the
+most urgent of their states, so an agent that finished beside one still working showed only the
+ring and the finished one went unseen. When panes are in different states, the icon is split
+into two slices side by side, each with its own ground and mark, most urgent on the left: a tick
+beside a ring, for that case. Panes with nothing to report take no slice, and panes in the same
+state share one, so three agents that have all finished are one solid tick. Two slices at most,
+because at 16 pixels a third is a sliver of color with no shape left in it.
+
+**A reload shows what was showing.** A command still running when the tab reloads is shown
+running, as it was before; the agent state replayed after the attach takes over for a pane with an
+agent in it. Before, only the live start of a command set a pane running, so a tab with a server
+or a build in it spun before a refresh and sat idle after it.
+
+The title, the flash and the notifications still go by one state, the most urgent, highest wins:
 
 ```
 approval > waiting > failed > success > done > running > idle

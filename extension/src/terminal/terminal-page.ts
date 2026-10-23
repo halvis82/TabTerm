@@ -55,6 +55,7 @@ import {
   applyFavicon,
   composeTitle,
   drawFavicon,
+  drawSplitFavicon,
   RING_STEPS,
   type FaviconState,
 } from './titles.js';
@@ -1262,7 +1263,7 @@ const tabFlasher = new TabFlasher(
   },
   () => {
     // Back to whatever the panes actually say, which is what the icon meant before the flash.
-    setFavicon(paneStatus.effective());
+    showPanes();
   },
 );
 
@@ -1310,7 +1311,23 @@ function recordFavicon(asked: FaviconState, drew: FaviconState | 'nothing', why:
   if (faviconLog.length > 200) faviconLog.shift();
 }
 
-function setFavicon(state: FaviconState): void {
+/** The panes' own icon, split when they disagree. See `StatusMachine.picture`. */
+function showPanes(): void {
+  setFavicon(paneStatus.effective(), paneStatus.picture());
+}
+
+/** What the icon shows besides its headline state: one entry, or a slice per state. */
+let faviconPicture: readonly FaviconState[] = ['disconnected'];
+
+function paintFavicon(phase: number): void {
+  applyFavicon(
+    faviconPicture.length > 1
+      ? drawSplitFavicon(faviconPicture, phase)
+      : drawFavicon(faviconState, phase),
+  );
+}
+
+function setFavicon(state: FaviconState, picture: readonly FaviconState[] = [state]): void {
   // A flash is a deliberate override and outranks the ordinary icon until it is noticed.
   if (tabFlasher.flashing) {
     /**
@@ -1322,10 +1339,12 @@ function setFavicon(state: FaviconState): void {
      * is what the page thinks is on the tab.
      */
     faviconState = state;
+    faviconPicture = picture;
     recordFavicon(state, 'nothing', 'flashing');
     return;
   }
   faviconState = state;
+  faviconPicture = picture;
   clearInterval(animTimer);
   animTimer = undefined;
   // In the lowest memory mode a hidden tab stops redrawing its icon. Nothing is lost: the
@@ -1334,8 +1353,8 @@ function setFavicon(state: FaviconState): void {
     recordFavicon(state, 'nothing', 'hidden-and-saving-memory');
     return;
   }
-  applyFavicon(drawFavicon(state, animPhase));
-  recordFavicon(state, state, 'drawn');
+  paintFavicon(animPhase);
+  recordFavicon(state, state, picture.length > 1 ? `drawn split ${picture.join('+')}` : 'drawn');
 
   const visible = document.visibilityState === 'visible';
   /**
@@ -1348,16 +1367,11 @@ function setFavicon(state: FaviconState): void {
    * See docs/10-limitations.md tier 1.1.
    */
   if (!visible) return;
-  if (state === 'running') {
+  if (picture.some((s) => s === 'running' || needsAttention(s))) {
     animTimer = window.setInterval(() => {
       animPhase++;
-      applyFavicon(drawFavicon('running', animPhase));
+      paintFavicon(animPhase);
     }, 1000 / RING_STEPS);
-  } else if (needsAttention(state)) {
-    animTimer = window.setInterval(() => {
-      animPhase++;
-      applyFavicon(drawFavicon(state, animPhase));
-    }, 220);
   }
 }
 
@@ -5295,7 +5309,7 @@ function applyLayout(next: LayoutNode): void {
   // A pane that no longer exists must stop influencing the tab's indicator.
   paneStatus.retain(live);
   for (const id of [...paneTime.keys()]) if (!live.includes(id)) paneTime.delete(id);
-  setFavicon(paneStatus.effective());
+  showPanes();
   refreshTitle();
   syncPaneChoosers();
 }
@@ -6828,10 +6842,20 @@ function onControl(msg: ServerMessage): void {
          * the reconnect of a page that already knew.
          */
         if (paneStatus.stateOf(p.paneId) === undefined) paneStatus.set(p.paneId, 'idle');
+        /*
+         * A command still running is shown as running, the same as it was before the reload.
+         *
+         * Only `command-start` set it, and a reload never sees one, so a tab running a server or
+         * a build spun before a refresh and sat idle after it. An agent's own state is replayed
+         * straight after this and takes over, as it does when the agent starts live.
+         */
+        if (p.time?.commandStartedAt !== undefined && !paneStatus.holdsOutcome(p.paneId)) {
+          paneStatus.set(p.paneId, 'running');
+        }
         const state = timeStateFor(p.paneId);
         state.sessionStartedAt ??= Date.now();
       }
-      setFavicon(paneStatus.effective());
+      showPanes();
       /*
        * And the title, from the facts that just arrived.
        *
@@ -7549,7 +7573,7 @@ function onControl(msg: ServerMessage): void {
         lastCommandHere = msg.command;
         refreshTitle();
         paneStatus.set(pane.paneId, 'running');
-        setFavicon(paneStatus.effective());
+        showPanes();
         startTimeTicking();
       }
       return;
@@ -7582,7 +7606,7 @@ function onControl(msg: ServerMessage): void {
         agentSessions.delete(msg.sessionId);
 
         paneStatus.finished(pane.paneId, msg.exitCode);
-        setFavicon(paneStatus.effective());
+        showPanes();
         // Asked for on this session, so the tab says so until somebody notices.
         if (flashing.has(msg.sessionId)) tabFlasher.start();
         /**
@@ -7648,7 +7672,7 @@ function onControl(msg: ServerMessage): void {
         if (!(unprompted && paneStatus.holdsOutcome(pane.paneId))) {
           // An outcome, failed included, is set below and only when this page saw the turn end.
           paneStatus.set(pane.paneId, state);
-          setFavicon(paneStatus.effective());
+          showPanes();
         }
         titleFields = { ...titleFields, status: msg.state };
         refreshTitle();
@@ -7722,7 +7746,7 @@ function onControl(msg: ServerMessage): void {
          */
         if (endedNow) {
           paneStatus.finished(pane.paneId, msg.state === 'failed' ? 1 : 0);
-          setFavicon(paneStatus.effective());
+          showPanes();
           refreshTitle();
         }
         if (flashing.has(msg.sessionId) && (endedNow || pausedNow)) tabFlasher.start();
@@ -7741,7 +7765,7 @@ function onControl(msg: ServerMessage): void {
               ? msg.state
               : 'idle';
       if (pane) paneStatus.set(pane.paneId, state);
-      setFavicon(paneStatus.effective());
+      showPanes();
       refreshTitle();
       return;
     }
@@ -8041,6 +8065,8 @@ declare global {
       faviconNow: () => {
         showing: string;
         effective: string;
+        /** One entry for a whole icon, more for one split into slices. */
+        picture: string[];
         panes: { paneId: string; state: string }[];
         log: { at: number; asked: string; drew: string; why: string }[];
       };
@@ -8446,6 +8472,7 @@ function installTestHook(): void {
     faviconNow: () => ({
       showing: faviconState,
       effective: paneStatus.effective(),
+      picture: [...faviconPicture],
       panes: (layout ? collectPanes(layout) : []).map((paneId) => ({
         paneId,
         state: paneStatus.stateOf(paneId) ?? 'none',
@@ -8835,7 +8862,7 @@ async function start(): Promise<void> {
      * was there to read it, which is the exact case it exists for.
      */
     if (paneStatus.seen()) refreshTitle();
-    setFavicon(paneStatus.effective());
+    showPanes();
     startTimeTicking();
   };
 
@@ -8852,7 +8879,7 @@ async function start(): Promise<void> {
     if (!(e.target instanceof Element) || e.target.closest('.pane') === null) return;
     if (!paneStatus.seen()) return;
     refreshTitle();
-    setFavicon(paneStatus.effective());
+    showPanes();
   };
   document.addEventListener('keydown', didSomethingInAPane, true);
   document.addEventListener('mousedown', didSomethingInAPane, true);
@@ -8866,10 +8893,10 @@ async function start(): Promise<void> {
       // Leave the icon on a full, steady frame rather than wherever the pulse happened to stop,
       // so a hidden tab reads as a state rather than as a moment.
       if (
-        (needsAttention(faviconState) || faviconState === 'running') &&
+        faviconPicture.some((s) => s === 'running' || needsAttention(s)) &&
         memorySettings.faviconWhileHidden
       ) {
-        applyFavicon(drawFavicon(faviconState, 3));
+        paintFavicon(3);
       }
       // A hidden tab throttles timers anyway, and nobody is reading the label.
       stopTimeTicking();

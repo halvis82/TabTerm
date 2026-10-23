@@ -389,9 +389,31 @@ async function main(): Promise<void> {
      * a second prompt queued onto the same turn. The label then counted from a question that had
      * been abandoned.
      */
-    if (s.agentState === 'working' && looksLikeInterrupt(data)) {
+    const busy =
+      s.agentState === 'working' || s.agentState === 'approval' || s.agentState === 'waiting';
+    if (busy && looksLikeInterrupt(data)) {
       turns.interrupt(s.id);
       delete s.agentTurnStartedAt;
+      /*
+       * And the agent is not working any more, which nothing else will ever say.
+       *
+       * No hook fires on an interrupt, so the state stayed `working` until the next prompt: a
+       * tab spun its busy ring over an agent sitting at its prompt, and a reload showed it again,
+       * because the daemon still believed it. Escape on a permission prompt is the same, and left
+       * the tab asking for an approval nobody could give. Resting, with no outcome: the person
+       * stopped it, so there is nothing to report back to them.
+       */
+      s.agentState = 'idle';
+      info('agent.interrupted', { sessionId: s.id });
+      server.notifySession(s, {
+        t: 'agent-state',
+        sessionId: s.id,
+        state: 'idle',
+        ...(s.lastTurnMs === undefined
+          ? {}
+          : { lastTurnMs: s.lastTurnMs, lastTurnEndedAt: s.lastTurnEndedAt }),
+        ...(s.agentSessionId === undefined ? {} : { agentSessionId: s.agentSessionId }),
+      });
     }
   };
   events.onIntegrationDetected = (s) => tracker.markIntegrated(s.id);

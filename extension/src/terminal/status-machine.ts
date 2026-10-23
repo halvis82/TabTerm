@@ -126,6 +126,23 @@ export class StatusMachine {
     return 'idle';
   }
 
+  /**
+   * What the icon draws: every state a pane has something to say in, most urgent first.
+   *
+   * One entry when the panes agree, which is drawn whole. Idle and disconnected panes say
+   * nothing, so a quiet shell beside a finished agent does not split the icon. More than one
+   * entry is drawn as slices side by side, so an agent that finished beside one still working
+   * shows both rather than only the more urgent.
+   */
+  picture(): FaviconState[] {
+    const present = new Set<FaviconState>();
+    for (const pane of this.#panes.values()) present.add(pane.state);
+    const shown = PRIORITY.filter(
+      (state) => present.has(state) && state !== 'idle' && state !== 'disconnected',
+    );
+    return shown.length > 0 ? shown : [this.effective()];
+  }
+
   /** How many panes are in a given state, for a title suffix like "2 running". */
   countIn(state: FaviconState): number {
     let n = 0;

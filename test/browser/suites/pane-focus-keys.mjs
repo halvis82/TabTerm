@@ -46,8 +46,15 @@ await evaluate(client, `window.__tabterm.focus(${JSON.stringify(panes[0])})`);
 await sleep(400);
 r.ok('starting on the first pane', (await focused()) === panes[0], await focused());
 
+// What the page reports back about the key, which is what decides whether Chrome acts on it.
+await evaluate(
+  client,
+  `window.addEventListener('keydown', (e) => { window.__probeKey = { key: e.key, prevented: e.defaultPrevented }; })`,
+);
 await press('ArrowRight', 'ArrowRight', 124);
 r.ok('moves to the next pane', (await focused()) === panes[1], await focused());
+const probe = JSON.stringify(await evaluate(client, 'JSON.stringify(window.__probeKey)'));
+r.ok('and the page tells Chrome it handled the key', probe.includes('true'), probe);
 
 await press('ArrowRight', 'ArrowRight', 124);
 r.ok('and on to the one after that', (await focused()) === panes[2], await focused());

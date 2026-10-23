@@ -172,3 +172,42 @@ describe('an outcome nobody has looked at', () => {
     expect(m.holdsOutcome('a')).toBe(false);
   });
 });
+
+describe('what the icon draws for several panes', () => {
+  it('draws one agent finished beside one still working as both', () => {
+    const m = new StatusMachine();
+    m.finished('a', 0);
+    m.set('b', 'running');
+    expect(m.picture()).toEqual(['success', 'running']);
+  });
+
+  it('draws one solid state when every pane agrees', () => {
+    const m = new StatusMachine();
+    m.finished('a', 0);
+    m.finished('b', 0);
+    m.finished('c', 0);
+    expect(m.picture()).toEqual(['success']);
+  });
+
+  it('leaves out panes with nothing to say', () => {
+    const m = new StatusMachine();
+    m.set('a', 'running');
+    m.set('b', 'idle');
+    expect(m.picture()).toEqual(['running']);
+  });
+
+  it('is the plain state when nothing is happening', () => {
+    const m = new StatusMachine();
+    m.set('a', 'idle');
+    expect(m.picture()).toEqual(['idle']);
+    expect(new StatusMachine().picture()).toEqual(['disconnected']);
+  });
+
+  it('becomes whole again once the finished one is seen', () => {
+    const m = new StatusMachine();
+    m.finished('a', 0);
+    m.set('b', 'running');
+    m.seen();
+    expect(m.picture()).toEqual(['running']);
+  });
+});
