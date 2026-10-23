@@ -1374,38 +1374,55 @@ by chance. The command an action asked to run in the new pane is sent to the sam
 
 Splitting a tab produced two empty shells in the home directory, and the first thing anybody does
 with one is go somewhere. So a pane with nothing in it draws a chooser over itself offering the
-two things worth doing: open a folder, with the same Tab completion the start screen has, or bring
-a session that already exists here.
+two things worth doing: open a folder, or bring a session that already exists here.
+
+**Open a folder is the start screen's picker**, starting in the folder this pane's shell is in: a
+box that Tab completes through the daemon, with the folders inside wherever it points shown under
+it as chips, `..` first, filtered by what has been typed, three rows and then `...`, and `Open here`
+or Return to go. A folder is reached by clicking, typing, or Tab, in any mixture. It used to be a
+button that opened a separate browser with no box at all, on the reasoning that typing a path is
+what `cd` is for, and it was asked for as "the same folder picker as the homepage" instead.
+
+The answers to its questions come back on the one channel every folder question uses, and each is
+matched to the pane that asked by the path it is about. A single "the pane that asked last" was
+cleared by the first answer, so a click into a folder followed quickly by Tab lost the second
+answer to the start screen, and Tab appeared to do nothing.
+
+**Bring a session here is one large button**, saying how many sessions it holds and where they are,
+and pressing it floats out a bubble over most of the tab. The bubble is the start screen's Running
+now, built by the same code: every live session outside this tab, in a tab or in the background,
+grouped by tab the same way so a session already open somewhere reads as part of that tab. The
+sessions in this tab are left out, since they are already here. Choosing is the only thing a card
+does: no menu on a right click, no close, no drag, and the colour behind a group does not pick its
+first card. A press anywhere outside the bubble, the close button, or Escape puts it away, folding
+back into the button it came from.
+
+It used to be a strip of small cards scrolling at the bottom of the pane, and its list was the
+daemon's answer about what could be moved crossed with what was live, with untouched shells taken
+out and the rest cut at eight. Sessions that plainly existed, and were on the start screen, were
+missing from it. The move itself accepts any live session, so the list is now exactly the start
+screen's.
 
 Bringing a session here **takes the pane over**. It used to split the pane, which left the
 untouched shell sitting beside the session that was asked for and took the chooser away with it,
 so the arrangement gained a pane nobody wanted and the way to fix it was gone. The pane keeps its
-id, so the split ratios around it are untouched, and the shell it displaced is ended.
+id, so the split ratios around it are untouched, and the shell it displaced is ended. A session
+showing in another tab asks first, on the card: a second press moves it.
 
 It sits at the **bottom** of the pane. A terminal fills from the top, so a panel anchored there
 would cover the line being typed, which is the one place it must never be. It is over the pane
 rather than replacing it, on the same principle as the start screen: the shell underneath is
 already running and already has the keyboard, so typing goes straight to it and the chooser goes
-away when a command is actually sent.
-
-Every folder in the directory is listed, in a region that scrolls, with the heading and the
-buttons outside it so `Open here` cannot be scrolled out of reach. It used to show the first
-eight, which is a browser that cannot reach most folders: a directory of projects routinely has
-more, and the one being looked for was usually not among the ones shown.
-
-There is deliberately **no path box**. Sitting at a prompt, typing a path is what `cd` is for, and
-a box for it would be a worse version of the terminal underneath. A picker and a list of running
-sessions are the parts typing cannot replace. Only a workspace with more than one
-pane gets them, since a single pane already has the start screen over it.
+away when a command is actually sent. Only a workspace with more than one pane gets one, since a
+single pane already has the start screen over it.
 
 **Only a pane that has printed nothing but a prompt.** Every pane in a multi-pane tab used to get
 one, so a session merged into a pane arrived with a panel over its output offering to replace
 what had just been put there.
 
-The panel is bounded by the pane it sits in and scrolls inside it, rather than running past the
-bottom of a short one where its rows cannot be clicked at all. The list is short, so its order
-matters: a session currently open in a tab comes first, because a short list that omits the one
-you meant is worse than no list.
+The panel is built once and only its button is brought up to date when the list of sessions
+changes, which is often. Rebuilding it took the folder box out of the page and put a new one back,
+so the keyboard left the box in the middle of a word.
 
 ### Naming a session
 

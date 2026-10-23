@@ -1846,17 +1846,19 @@ function syncPaneChoosers(): void {
           client?.write(target.streamId, new TextEncoder().encode(`cd ${quotePath(path)}\r`));
           paneChoosers.get(id)?.dismiss();
         },
-        onListFolder: (path) => {
-          // The same completion the start screen browses with: a trailing slash asks for what
-          // is inside a directory rather than for a suggestion.
-          completingPane = paneId;
+        onCompletePath: (path) => {
+          // The same completion the start screen uses: a trailing slash asks for what is inside
+          // a directory, anything else for the rest of a name.
+          completionAskers.set(path, paneId);
           client?.send({ t: 'complete-path', partial: path });
         },
+        // Where this pane's shell is, which is where somebody looking for a folder begins.
+        startDir: () => sessionTitles.get(pane.sessionId)?.cwd ?? '',
         onTakeSession: (id, session) => {
           if (!workspaceId) return;
           // Moving it, not copying it: a session lives in exactly one workspace, so the tab it
           // came from is asked to close rather than left showing a workspace with nothing in it.
-          takingOverFrom.add(session.workspaceId);
+          if (session.workspaceId !== undefined) takingOverFrom.add(session.workspaceId);
           client?.send({
             t: 'merge-into',
             workspaceId,
@@ -1871,11 +1873,8 @@ function syncPaneChoosers(): void {
           paneChoosers.get(id)?.dismiss();
         },
         onRefreshSessions: () => {
-          // Both lists: what may be moved comes from the daemon's mergeable answer, and what it
-          // looks like comes from the live one. A chooser opened before either has arrived would
-          // otherwise offer nothing at all.
+          // The start screen's list, every live session outside this tab. See `liveElsewhere`.
           client?.send({ t: 'list-live-sessions' });
-          if (workspaceId) client?.send({ t: 'list-mergeable', workspaceId });
         },
       }),
     );
@@ -2270,8 +2269,14 @@ function findCommandRow(command: string): number | null {
 
 /** Workspaces this tab has just taken a session from, so their tabs know to close. */
 const takingOverFrom = new Set<string>();
-/** Which pane asked for a completion, since the answer comes back on one channel. */
-let completingPane: string | null = null;
+/**
+ * Which pane asked about which path, since the answers come back on one channel.
+ *
+ * Keyed by the path asked about, which the answer repeats. One variable for "the pane that asked
+ * last" was cleared by the first answer, so with two questions in flight, a click into a folder
+ * and then Tab, the second answer found nobody waiting and went to the start screen instead.
+ */
+const completionAskers = new Map<string, string>();
 /** Home, as the daemon reports it, for shortening paths in a pane chooser. */
 let launcherHome = '';
 
@@ -7044,7 +7049,6 @@ function onControl(msg: ServerMessage): void {
     case 'mergeable-sessions': {
       mergeable = [...msg.sessions];
       palette?.setMergeable(mergeable);
-      for (const chooser of paneChoosers.values()) chooser.setSessions(mergeable);
       return;
     }
 
@@ -7378,10 +7382,11 @@ function onControl(msg: ServerMessage): void {
     }
 
     case 'path-completion': {
-      // One channel, two possible askers. The pane that asked last owns the answer.
-      const chooser = completingPane ? paneChoosers.get(completingPane) : undefined;
-      completingPane = null;
-      if (chooser) chooser.setListing(msg.partial, msg.matches);
+      // One channel, several possible askers: the pane that asked about this path owns the
+      // answer, and anything no pane asked about is the start screen's.
+      const asker = completionAskers.get(msg.partial);
+      completionAskers.delete(msg.partial);
+      if (asker !== undefined) paneChoosers.get(asker)?.pathCompletion(msg);
       else launcher?.pathCompletion(msg);
       return;
     }

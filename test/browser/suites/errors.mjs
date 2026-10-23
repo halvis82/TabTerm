@@ -42,8 +42,11 @@ const sessionOfA = String(
 await evaluate(
   taker.client,
   `(() => {
-     const row = document.querySelector('.pane-chooser-session[data-session^="${sessionOfA}"]');
-     if (row) { row.click(); setTimeout(() => document.querySelector('.pane-chooser-session.is-confirming')?.click(), 300); }
+     document.querySelector('.pane-chooser-take')?.click();
+     setTimeout(() => {
+       const row = document.querySelector('.pane-chooser-session[data-session^="${sessionOfA}"]');
+       if (row) { row.click(); setTimeout(() => document.querySelector('.pane-chooser-session.is-confirming')?.click(), 300); }
+     }, 500);
    })()`,
 );
 await sleep(4000);

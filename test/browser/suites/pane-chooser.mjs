@@ -56,62 +56,75 @@ r.ok(
   'and the pane already in use does not, since covering output would offer to replace it',
 );
 
-// The picker, which is what a pane cannot already do by typing. There is deliberately no path
-// box: sitting at a prompt, typing a path is what `cd` is for.
-await realClick(b.client, '.pane-chooser-browse');
 /*
- * Waited for, not slept on. The list is a round trip: the picker opens, the daemon is asked to
- * read a directory, and the rows appear when it answers. On a loaded machine that answer can be
- * slower than any number written here, and reading before it lands is a check about nothing: it
- * failed a full run that way, reporting one row where a home directory has dozens.
+ * Open a folder: the start screen's own picker, starting in this pane's folder.
+ *
+ * A path box that Tab completes, and the folders inside wherever it points as chips under it.
  */
+const pickerStart = String(
+  await evaluate(b.client, "document.querySelector('.pane-chooser .launcher-input')?.value ?? ''"),
+);
+r.ok('the folder box starts in a folder, not empty', pickerStart.endsWith('/'), pickerStart);
 const arrived = await waitFor(
   b.client,
-  "document.querySelectorAll('.pane-chooser-folder').length > 1",
+  "document.querySelectorAll('.pane-chooser .launcher-completion').length > 1",
   15000,
 );
-const listed = Number(
-  await evaluate(b.client, "document.querySelectorAll('.pane-chooser-folder').length"),
-);
 r.ok(
-  'the picker lists folders',
-  arrived && listed > 1,
-  arrived
-    ? String(listed)
-    : `only ${String(listed)} after fifteen seconds, so the daemon never answered`,
-);
-
-// It used to show the first eight, which is a browser that cannot reach most folders. A home
-// directory has more than that, and the one being looked for was usually not among them.
-const home = JSON.parse(
-  await evaluate(
-    b.client,
-    `(() => { const list = document.querySelector('.pane-chooser-folders');
-      return JSON.stringify({ rows: list.children.length, scrolls: list.scrollHeight > list.clientHeight + 1 }); })()`,
+  'and the folders inside it are listed under it',
+  arrived,
+  String(
+    await evaluate(
+      b.client,
+      "document.querySelectorAll('.pane-chooser .launcher-completion').length",
+    ),
   ),
 );
-r.ok('every folder in it, not the first handful', home.rows > 9, JSON.stringify(home));
-/**
- * The thing that matters is that `Open here` stays reachable, not that the list scrolls.
- *
- * The folders are chips that wrap now, the way the start screen lists them, so twenty-four of
- * them take three lines rather than twenty-four. The list still scrolls when there are enough,
- * and asserting that it always does would be asserting that it is always cramped.
- */
-const reachable = JSON.parse(
+// Clicking a folder goes into it, the way the start screen does.
+const first = String(
   await evaluate(
     b.client,
-    `(() => {
-       const box = document.querySelector('.pane-chooser-box').getBoundingClientRect();
-       const open = document.querySelector('.pane-chooser-accept').getBoundingClientRect();
-       return JSON.stringify({ inside: open.bottom <= box.bottom + 1, height: Math.round(open.height) });
-     })()`,
+    `(() => { const c = [...document.querySelectorAll('.pane-chooser .launcher-completion')].find((x) => !x.classList.contains('is-up') && !x.classList.contains('is-more'));
+       if (!c) return ''; c.click(); return c.textContent; })()`,
   ),
 );
+await sleep(300);
+const intoIt = String(
+  await evaluate(b.client, "document.querySelector('.pane-chooser .launcher-input')?.value ?? ''"),
+);
 r.ok(
-  'and Open here stays inside the pane however many folders there are',
-  reachable.inside && reachable.height > 0,
-  JSON.stringify({ ...home, ...reachable }),
+  'clicking a folder goes into it',
+  first !== '' && intoIt.endsWith(`${first}/`),
+  `${first} -> ${intoIt}`,
+);
+// And Tab completes in the box, without the key reaching the shell.
+await evaluate(
+  b.client,
+  `(() => { const i = document.querySelector('.pane-chooser .launcher-input'); i.value = ${JSON.stringify(pickerStart)} + ${JSON.stringify(first.slice(0, -1))}; i.focus(); i.dispatchEvent(new Event('input')); })()`,
+);
+await b.client.send('Input.dispatchKeyEvent', {
+  type: 'rawKeyDown',
+  key: 'Tab',
+  code: 'Tab',
+  windowsVirtualKeyCode: 9,
+});
+await b.client.send('Input.dispatchKeyEvent', {
+  type: 'keyUp',
+  key: 'Tab',
+  code: 'Tab',
+  windowsVirtualKeyCode: 9,
+});
+const completed = await waitFor(
+  b.client,
+  `(document.querySelector('.pane-chooser .launcher-input')?.value ?? '').length > ${String(pickerStart.length + first.length - 1)}`,
+  8000,
+);
+r.ok(
+  'Tab completes the folder name',
+  completed,
+  String(
+    await evaluate(b.client, "document.querySelector('.pane-chooser .launcher-input')?.value"),
+  ),
 );
 // Anchored to the bottom of the pane, not merely low in it: a terminal fills from the top, so
 // what matters is that the panel never reaches the line being typed.
@@ -134,8 +147,68 @@ r.ok(
   JSON.stringify(anchored),
 );
 
-await realClick(b.client, '.pane-chooser-cancel', 'Cancel');
-await sleep(500);
+/*
+ * Bring a session here: one big button, and the list floats out of it over most of the tab.
+ */
+const takeButton = String(
+  await evaluate(b.client, "document.querySelector('.pane-chooser-take')?.textContent ?? ''"),
+);
+r.ok(
+  'there is a button to bring a session here',
+  takeButton.includes('Bring a session here'),
+  takeButton,
+);
+await realClick(b.client, '.pane-chooser-take');
+await waitFor(
+  b.client,
+  "document.querySelectorAll('.take-bubble .pane-chooser-session').length > 0",
+  15000,
+);
+const bubble = JSON.parse(
+  await evaluate(
+    b.client,
+    `(() => { const r = document.querySelector('.take-bubble').getBoundingClientRect();
+       const listed = [...document.querySelectorAll('.take-bubble .pane-chooser-session')].map((c) => c.dataset.session);
+       const mine = window.__tabterm.paneSessions().map((p) => p.sessionId);
+       return JSON.stringify({ share: (r.width * r.height) / (innerWidth * innerHeight), listed, mine,
+         kill: document.querySelectorAll('.take-bubble .session-close, .take-bubble [title*="End"]').length }); })()`,
+  ),
+);
+r.ok('the list takes up most of the tab', bubble.share > 0.4, JSON.stringify(bubble.share));
+r.ok(
+  'it lists the session in the other tab',
+  bubble.listed.some((id) => id.startsWith(sourceSession.slice(0, 8))),
+  JSON.stringify(bubble.listed),
+);
+r.ok(
+  'and none of the sessions already in this tab',
+  !bubble.listed.some((id) => bubble.mine.includes(id)),
+  JSON.stringify(bubble),
+);
+r.ok('and offers no way to end one', bubble.kill === 0, String(bubble.kill));
+// A press outside it puts it away.
+await b.client.send('Input.dispatchMouseEvent', {
+  type: 'mousePressed',
+  x: 6,
+  y: 6,
+  button: 'left',
+  clickCount: 1,
+});
+await b.client.send('Input.dispatchMouseEvent', {
+  type: 'mouseReleased',
+  x: 6,
+  y: 6,
+  button: 'left',
+  clickCount: 1,
+});
+const gone = await waitFor(b.client, "!document.querySelector('.take-scrim')", 3000);
+r.ok('a press outside the bubble puts it away', gone);
+await realClick(b.client, '.pane-chooser-take');
+await waitFor(
+  b.client,
+  "document.querySelectorAll('.take-bubble .pane-chooser-session').length > 0",
+  15000,
+);
 
 // A session already open in a tab says so before it is moved.
 // Exactly the session this suite opened, not whichever attached row happens to be first: a
@@ -170,7 +243,7 @@ await sleep(700);
 const warned = String(
   await evaluate(b.client, "document.querySelector('.pane-chooser-warn')?.textContent ?? ''"),
 );
-r.ok('and asks before taking it', warned.includes('close that tab'), warned);
+r.ok('and asks before taking it', warned.includes('Click again to move it here'), warned);
 
 const before = (await listTargets()).filter((t) => t.url.includes('terminal.html')).length;
 // Pressed and released, not `.click()`, since that is what a hand does.
@@ -258,23 +331,23 @@ r.ok(
   await sleep(1500);
   await evaluate(taker.client, "window.__tabterm.split('horizontal')");
   await sleep(3500);
-  await waitFor(
-    taker.client,
-    "document.querySelectorAll('.pane-chooser-session').length > 0",
-    20000,
-  );
-
-  // The heading says what the list is a list of, so a short one is not read as a broken one.
-  const heading = String(
+  // The button says what is behind it, so a short list is not read as a broken one.
+  const counted = String(
     await evaluate(
       taker.client,
-      "document.querySelector('.pane-chooser-heading')?.textContent ?? ''",
+      "document.querySelector('.pane-chooser-take-count')?.textContent ?? ''",
     ),
   );
   r.ok(
-    'the list says whether what is in it is in a tab or in the background',
-    /in a tab|in the background/.test(heading),
-    heading,
+    'the button says whether what it holds is in a tab or in the background',
+    /in a tab|in tabs|in the background/.test(counted),
+    counted,
+  );
+  await realClick(taker.client, '.pane-chooser-take');
+  await waitFor(
+    taker.client,
+    "document.querySelectorAll('.take-bubble .pane-chooser-session').length > 0",
+    20000,
   );
 
   // Take one of the donor tab's two sessions.
@@ -283,7 +356,7 @@ r.ok(
       taker.client,
       `(() => {
          const rows = [...document.querySelectorAll('.pane-chooser-session')];
-         const row = rows.find((x) => (x.textContent ?? '').includes('DONOR') || true);
+         const row = rows.find((x) => (x.textContent ?? '').includes('DONOR')) ?? rows[0];
          if (!row) return '';
          row.click();
          return row.dataset.session ?? '';

@@ -1,92 +1,81 @@
-import type { LiveSession, MergeableSession } from '@tabterm/shared';
-import { buildSessionCard } from '../launcher/sessions-view.js';
+import type { LiveSession } from '@tabterm/shared';
+import { FolderPicker } from '../launcher/folder-picker.js';
+import { buildSessions, isInATab, placeSessions } from '../launcher/sessions-view.js';
 
 /**
  * What an empty pane offers instead of a bare prompt.
  *
- * Splitting a tab produces empty shells in the home directory, and the first thing anybody does
- * with one is go somewhere. So a pane with nothing in it offers the two things it cannot already
- * do by typing: browse for a folder, and take a session that already exists.
+ * Splitting a tab produces empty shells, and the first thing anybody does with one is go
+ * somewhere. So a pane with nothing in it offers the two things it cannot already do as easily
+ * by typing: pick a folder, and bring a session that already exists into it.
  *
- * There is deliberately **no path box**. You are already sitting at a prompt, so typing a path
- * is what `cd` is for; a box for it would be a worse version of the terminal underneath. A
- * picker and a list of running sessions are the parts typing cannot replace.
+ * **A folder** is picked with the start screen's own picker, starting in the folder this pane's
+ * shell is in: a box that Tab completes, with the folders inside wherever it points shown under
+ * it. Asked for as "the same folder picker as the homepage".
+ *
+ * **A session** is one large button, and pressing it floats out a bubble over most of the tab
+ * holding the start screen's Running now list, grouped by tab the same way. It used to be a row
+ * of small cards scrolling at the bottom of the pane, and the list was the daemon's answer about
+ * what could be moved, crossed with what was live, with untouched shells taken out and the rest
+ * cut at eight, so sessions that plainly existed were missing from it. Now it is every session
+ * the start screen lists, which is every live one outside this tab, in a tab or in the
+ * background. Choosing one is the only thing a card does here: no menu, no closing, no dragging.
  *
  * It sits at the **bottom** of the pane, because a terminal fills from the top and the panel
- * must never cover the line being typed. It is over the pane rather than replacing it, on the
- * same principle as the start screen: the shell underneath is already running and already has
- * the keyboard, so typing goes straight to it and this goes away on the first command.
+ * must never cover the line being typed. The shell underneath already has the keyboard, so
+ * typing goes straight to it and this goes away on the first command.
  *
- * Bringing a session here **moves** it, and that is the whole of the rule. A session lives in
- * exactly one workspace, so it leaves wherever it was, whether that tab held it alone or beside
- * others. A tab that loses one of several panes redraws without it; a tab that loses its only one
- * is told it was taken over rather than that its session expired, so it can close instead of
- * offering to restore something that is alive in another tab. Taking one that a tab is currently
- * showing asks first, because that is somebody else's window changing from a click in this one.
- *
- * The list holds every session in another tab, attached or in the background, and leaves out
- * shells nobody has typed into: taking one of those gains nothing and costs whoever opened it
- * their tab. The heading says which kinds are in it, so a short list is not mistaken for a
- * broken one.
+ * Bringing a session here **moves** it. A session lives in exactly one workspace, so it leaves
+ * wherever it was. Taking one that a tab is showing asks first, because that is somebody else's
+ * window changing from a click in this one.
  */
 
 export interface PaneChooserOptions {
   container: HTMLElement;
   paneId: string;
   home: string;
+  /** The folder this pane's shell is in, which is where the picker starts. */
+  startDir: () => string;
   onChooseDir: (paneId: string, path: string) => void;
-  /** Ask the daemon what is inside a directory. The answer arrives at `setListing`. */
-  onListFolder: (path: string) => void;
-  onTakeSession: (paneId: string, session: MergeableSession) => void;
+  /** Ask the daemon to complete a path. The answer arrives at `pathCompletion`. */
+  onCompletePath: (partial: string) => void;
+  onTakeSession: (paneId: string, session: LiveSession) => void;
   onRefreshSessions: () => void;
   /**
    * A right click on this overlay is a right click on the pane under it.
    *
    * Without this the chooser swallowed the gesture: a pane that had just been split was plainly
-   * visible and had no menu at all, which reads as the menu working once and then never again.
-   * The overlay hands it back rather than growing a menu of its own.
+   * visible and had no menu at all.
    */
   onContextMenu?: (paneId: string, x: number, y: number) => void;
-  /**
-   * Everything running, so a session can be offered as the card it has on the start screen.
-   *
-   * A row of text cannot tell four shells in the same repository apart. The card carries the
-   * last lines of the actual screen, which is the thing somebody recognises, and it is the same
-   * component so the two cannot drift.
-   */
+  /** Every live session outside this tab, the same list the start screen draws. */
   liveSessions: () => readonly LiveSession[];
   /** Put away, without choosing anything. */
   onDismiss?: (paneId: string) => void;
 }
 
-/**
- * A shortlist, not an inventory, but a longer one than it was.
- *
- * Four was chosen when the box was half this size. The box now takes what the pane can spare and
- * the list inside it scrolls, so the bound is about how much is worth reading rather than how
- * much fits.
- */
-const MAX_SESSIONS = 8;
-
 export class PaneChooser {
   readonly #opts: PaneChooserOptions;
   readonly #el: HTMLElement;
-  #sessions: readonly MergeableSession[] = [];
+  readonly #picker: FolderPicker;
   #dismissed = false;
-  #confirming: string | null = null;
-  /** The directory being browsed, or null when the picker is closed. */
-  #browsing: string | null = null;
-  #folders: readonly string[] = [];
+  #bubble: SessionBubble | null = null;
 
   constructor(opts: PaneChooserOptions) {
     this.#opts = opts;
     this.#el = document.createElement('div');
     this.#el.className = 'pane-chooser';
     this.#el.addEventListener('contextmenu', (e) => {
-      // Not when there is a real target for it, like a text box somebody is typing a path into.
+      // Not when there is a real target for it, like the box somebody is typing a path into.
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       e.preventDefault();
       opts.onContextMenu?.(opts.paneId, e.clientX, e.clientY);
+    });
+    this.#picker = new FolderPicker({
+      home: opts.home,
+      start: opts.startDir() || opts.home,
+      onCompletePath: opts.onCompletePath,
+      onOpen: (path) => opts.onChooseDir(opts.paneId, path),
     });
     opts.container.append(this.#el);
     this.render();
@@ -101,53 +90,70 @@ export class PaneChooser {
   dismiss(): void {
     if (this.#dismissed) return;
     this.#dismissed = true;
+    this.#bubble?.close();
     this.#el.remove();
   }
 
-  setSessions(sessions: readonly MergeableSession[]): void {
-    /**
-     * What is worth offering, in the order worth offering it.
-     *
-     * An untouched shell is left out: taking one gains nothing and costs whoever opened it their
-     * tab. The rest are sorted so a session somebody is looking at comes first, because a short
-     * list that omits the one you meant is worse than no list.
-     */
-    this.#sessions = sessions
-      .filter((session) => session.hasRun)
-      .slice()
-      .sort((a, b) => Number(b.attached) - Number(a.attached));
-    if (!this.#dismissed) this.render();
+  /** The daemon's answer about a path, for the folder picker. */
+  pathCompletion(reply: { partial: string; completed: string; matches: readonly string[] }): void {
+    if (!this.#dismissed) this.#picker.pathCompletion(reply);
   }
 
-  /** Folders inside the directory being browsed. */
-  setListing(path: string, folders: readonly string[]): void {
-    if (this.#dismissed || this.#browsing === null) return;
-    if (path !== this.#browsing) return;
-    this.#folders = folders;
-    this.render();
-  }
-
+  /**
+   * Bring the button up to date with what is running.
+   *
+   * Only the button. This is called whenever the list of sessions changes, which is often, and
+   * rebuilding the panel took the path box out of the page and put a new one back, so the
+   * keyboard left it in the middle of a word.
+   */
   render(): void {
     if (this.#dismissed) return;
-    this.#el.replaceChildren();
+    if (!this.#take) this.#build();
+    const take = this.#take;
+    const count = this.#takeCount;
+    if (!take || !count) return;
+    const others = this.#opts.liveSessions();
+    take.disabled = others.length === 0;
+    count.textContent = others.length === 0 ? 'nothing else is running' : describeCount(others);
+    // The list behind the bubble changed, so the bubble shows the new one.
+    this.#bubble?.refresh();
+  }
 
+  #take: HTMLButtonElement | null = null;
+  #takeCount: HTMLElement | null = null;
+
+  #build(): void {
     const box = document.createElement('div');
     box.className = 'pane-chooser-box';
-    box.append(this.#browsing === null ? this.#chooserBody() : this.#browserBody());
+
+    const folders = document.createElement('section');
+    folders.className = 'pane-chooser-section';
+    const heading = document.createElement('div');
+    heading.className = 'pane-chooser-heading';
+    heading.textContent = 'Open a folder';
+    folders.append(heading, this.#picker.element);
+    box.append(folders);
+
+    const take = document.createElement('button');
+    take.className = 'pane-chooser-take';
+    const label = document.createElement('span');
+    label.className = 'pane-chooser-take-label';
+    label.textContent = 'Bring a session here';
+    const count = document.createElement('span');
+    count.className = 'pane-chooser-take-count';
+    take.append(label, count);
+    take.addEventListener('click', () => this.#openBubble(take));
+    box.append(take);
+    this.#take = take;
+    this.#takeCount = count;
 
     const foot = document.createElement('div');
     foot.className = 'pane-chooser-foot';
     const hint = document.createElement('span');
     hint.className = 'pane-chooser-hint';
     hint.textContent = 'or just start typing';
-    foot.append(hint);
-
-    /**
-     * A way to put it away without choosing anything.
-     *
-     * It is a large thing to appear over a pane that already works: the prompt is right there
-     * and typing dismisses it, but that is only obvious once you know. A button says so.
-     */
+    // A way to put it away without choosing anything, for anybody who does not know that typing
+    // does it.
     const dismiss = document.createElement('button');
     dismiss.className = 'pane-chooser-dismiss';
     dismiss.textContent = 'Dismiss';
@@ -156,177 +162,201 @@ export class PaneChooser {
       this.dismiss();
       this.#opts.onDismiss?.(this.#opts.paneId);
     });
-    foot.append(dismiss);
+    foot.append(hint, dismiss);
     box.append(foot);
 
-    this.#el.append(box);
+    this.#el.replaceChildren(box);
   }
 
-  #chooserBody(): HTMLElement {
-    const body = document.createElement('div');
-    body.className = 'pane-chooser-rows';
-
-    const browse = document.createElement('button');
-    browse.className = 'pane-chooser-browse';
-    browse.textContent = 'Open a folder';
-    browse.addEventListener('click', () => this.#browse(`${this.#opts.home}/`));
-    body.append(browse);
-
-    /**
-     * The sessions this pane could take, as the cards they have on the start screen.
-     *
-     * Matched by id against what the daemon says is mergeable, so the list is still the daemon's
-     * answer about what may be moved; only the drawing comes from the other place.
-     */
-    const mergeable = new Map(this.#sessions.map((m) => [m.sessionId, m]));
-    const cards = this.#opts
-      .liveSessions()
-      .filter((live) => mergeable.has(live.sessionId))
-      .slice(0, MAX_SESSIONS);
-
-    if (cards.length > 0) {
-      const heading = document.createElement('div');
-      heading.className = 'pane-chooser-heading';
-      /**
-       * What the list is a list of, said rather than left to be worked out.
-       *
-       * It holds every session in another tab, whether that tab is open or the session is running
-       * in the background, and leaves out shells nobody has typed into: taking one of those gains
-       * nothing and costs whoever opened it their tab. Somebody looking at a short list needs to
-       * know whether it is short because there is little, or short because it was filtered.
-       */
-      const inTabs = cards.filter((c) => c.attached).length;
-      const background = cards.length - inTabs;
-      const parts = [];
-      if (inTabs > 0) parts.push(`${String(inTabs)} in a tab`);
-      if (background > 0) parts.push(`${String(background)} in the background`);
-      heading.textContent =
-        parts.length > 0
-          ? `Or bring a session here (${parts.join(', ')})`
-          : 'Or bring a session here';
-      body.append(heading);
-
-      const grid = document.createElement('div');
-      grid.className = 'session-grid pane-chooser-grid';
-      for (const live of cards) {
-        const target = mergeable.get(live.sessionId);
-        if (!target) continue;
-        const card = buildSessionCard(live, {
-          sessions: () => [],
-          home: this.#opts.home,
-          onOpen: () => {
-            /**
-             * Taking a session that a tab is showing moves it, so it asks first.
-             *
-             * The tab it came from is left with nothing, which is somebody else's window
-             * changing because of a click in this one.
-             */
-            if (live.attached && this.#confirming !== live.sessionId) {
-              this.#confirming = live.sessionId;
-              this.render();
-              return;
-            }
-            this.#opts.onTakeSession(this.#opts.paneId, target);
-          },
-        });
-        // Also carries the name the chooser's own checks and styles use: it is a session row
-        // here, drawn as a card, rather than a card that happens to be in a chooser.
-        card.classList.add('pane-chooser-session');
-        card.dataset['session'] = live.sessionId;
-        if (this.#confirming === live.sessionId) {
-          card.classList.add('is-confirming');
-          const warn = document.createElement('div');
-          warn.className = 'pane-chooser-warn';
-          warn.textContent = 'Already open in another tab. Move it here and close that tab?';
-          card.append(warn);
-        }
-        grid.append(card);
-      }
-      body.append(grid);
-    }
-    return body;
+  #openBubble(from: HTMLElement): void {
+    this.#bubble?.close();
+    this.#opts.onRefreshSessions();
+    this.#bubble = new SessionBubble({
+      from,
+      home: this.#opts.home,
+      sessions: this.#opts.liveSessions,
+      onTake: (session) => {
+        this.#bubble?.close();
+        this.#opts.onTakeSession(this.#opts.paneId, session);
+      },
+      onClosed: () => {
+        this.#bubble = null;
+      },
+    });
   }
+}
 
-  #browserBody(): HTMLElement {
-    const body = document.createElement('div');
-    body.className = 'pane-chooser-rows';
+/** "3 in tabs, 2 in the background", so the button says what is behind it. */
+function describeCount(sessions: readonly LiveSession[]): string {
+  const inTabs = sessions.filter(isInATab).length;
+  const background = sessions.length - inTabs;
+  const parts: string[] = [];
+  if (inTabs > 0) parts.push(`${String(inTabs)} in ${inTabs === 1 ? 'a tab' : 'tabs'}`);
+  if (background > 0) parts.push(`${String(background)} in the background`);
+  return parts.join(', ');
+}
 
-    const path = this.#browsing ?? this.#opts.home;
+interface SessionBubbleOptions {
+  /** The button it floats out of, which is where it grows from. */
+  from: HTMLElement;
+  home: string;
+  sessions: () => readonly LiveSession[];
+  onTake: (session: LiveSession) => void;
+  onClosed: () => void;
+}
 
-    const header = document.createElement('div');
-    header.className = 'pane-chooser-heading';
-    header.textContent = shorten(path, this.#opts.home);
-    body.append(header);
+/** How long the bubble takes to grow or fold away, in step with the stylesheet. */
+const BUBBLE_MS = 160;
 
-    /**
-     * Every folder, in a region that scrolls.
-     *
-     * It used to show the first eight, which is a browser that cannot reach most folders: a
-     * directory of projects routinely has more than that, and the one being looked for was
-     * usually not among the ones shown. The list scrolls instead, and the heading and the
-     * buttons stay put so `Open here` cannot be scrolled out of reach.
-     */
-    const list = document.createElement('div');
-    list.className = 'pane-chooser-folders';
+/**
+ * Every session that could be brought here, over most of the tab.
+ *
+ * The start screen's Running now, built by the same function, so it is grouped by tab the same way
+ * and a session already showing in a tab says so. Nothing on it but choosing: no menu on a right
+ * click, no close, no drag. A press anywhere outside it, or Escape, puts it away, and it folds
+ * back into the button it came out of, so it never stands between somebody and the terminal.
+ */
+class SessionBubble {
+  readonly #opts: SessionBubbleOptions;
+  readonly #scrim: HTMLElement;
+  readonly #bubble: HTMLElement;
+  readonly #list: HTMLElement;
+  #confirming: string | null = null;
+  #closed = false;
+  readonly #onKey = (e: KeyboardEvent): void => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    e.stopPropagation();
+    this.close();
+  };
 
-    // Up first, because going back is the thing most often wanted while browsing.
-    const up = document.createElement('button');
-    up.className = 'pane-chooser-folder';
-    up.textContent = '..';
-    up.addEventListener('click', () => this.#browse(`${parentOf(path)}/`));
-    list.append(up);
-
-    for (const folder of this.#folders) {
-      const row = document.createElement('button');
-      row.className = 'pane-chooser-folder';
-      row.textContent = folder;
-      row.addEventListener('click', () => this.#browse(`${trimSlash(path)}/${folder}/`));
-      list.append(row);
-    }
-    body.append(list);
-
-    const actions = document.createElement('div');
-    actions.className = 'pane-chooser-actions';
-
-    const open = document.createElement('button');
-    open.className = 'pane-chooser-accept';
-    open.textContent = 'Open here';
-    open.addEventListener('click', () =>
-      this.#opts.onChooseDir(this.#opts.paneId, trimSlash(path)),
-    );
-
-    const cancel = document.createElement('button');
-    cancel.className = 'pane-chooser-cancel';
-    cancel.textContent = 'Cancel';
-    cancel.addEventListener('click', () => {
-      this.#browsing = null;
-      this.#folders = [];
-      this.render();
+  constructor(opts: SessionBubbleOptions) {
+    this.#opts = opts;
+    this.#scrim = document.createElement('div');
+    this.#scrim.className = 'take-scrim';
+    // A press outside the bubble puts it away. Inside, it is the bubble's.
+    this.#scrim.addEventListener('pointerdown', (e) => {
+      if (e.target === this.#scrim) this.close();
     });
 
-    actions.append(cancel, open);
-    body.append(actions);
-    return body;
+    this.#bubble = document.createElement('div');
+    this.#bubble.className = 'take-bubble';
+    this.#bubble.setAttribute('role', 'dialog');
+    this.#bubble.setAttribute('aria-label', 'Bring a session here');
+    // No menu of its own and none of the page's: choosing is the only thing on offer here.
+    this.#bubble.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    /*
+     * The colour behind a tab's cards opens that tab on the start screen. Here it would take
+     * whichever card is first, which is not a choice anybody made, so only a card answers.
+     */
+    this.#bubble.addEventListener(
+      'click',
+      (e) => {
+        const target = e.target instanceof Element ? e.target : null;
+        if (target?.closest('.session-wash') && !target.closest('.session-card')) {
+          e.stopPropagation();
+          e.preventDefault();
+        }
+      },
+      true,
+    );
+
+    const head = document.createElement('div');
+    head.className = 'take-bubble-head';
+    const title = document.createElement('div');
+    title.className = 'take-bubble-title';
+    title.textContent = 'Bring a session here';
+    const sub = document.createElement('div');
+    sub.className = 'take-bubble-sub';
+    sub.textContent =
+      'Click one to move it into this pane. Sessions already in this tab are not listed.';
+    const close = document.createElement('button');
+    close.className = 'take-bubble-close';
+    close.textContent = '×';
+    close.title = 'Close (Esc)';
+    close.addEventListener('click', () => this.close());
+    const titles = document.createElement('div');
+    titles.append(title, sub);
+    head.append(titles, close);
+
+    this.#list = document.createElement('div');
+    this.#list.className = 'take-bubble-list';
+    this.#bubble.append(head, this.#list);
+    this.#scrim.append(this.#bubble);
+
+    // Grown out of the button, so it reads as the button opening rather than a page appearing.
+    const from = opts.from.getBoundingClientRect();
+    document.body.append(this.#scrim);
+    const box = this.#bubble.getBoundingClientRect();
+    this.#bubble.style.transformOrigin = `${String(from.left + from.width / 2 - box.left)}px ${String(
+      from.top + from.height / 2 - box.top,
+    )}px`;
+    this.refresh();
+    requestAnimationFrame(() => this.#scrim.classList.add('is-open'));
+    document.addEventListener('keydown', this.#onKey, true);
   }
 
-  #browse(path: string): void {
-    this.#browsing = path;
-    this.#folders = [];
-    this.render();
-    this.#opts.onListFolder(path);
+  refresh(): void {
+    if (this.#closed) return;
+    const sessions = this.#opts.sessions();
+    if (sessions.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'take-bubble-empty';
+      empty.textContent = 'Nothing else is running.';
+      this.#list.replaceChildren(empty);
+      return;
+    }
+    const section = buildSessions({
+      sessions: () => sessions,
+      home: this.#opts.home,
+      onOpen: (session) => this.#choose(session),
+    });
+    for (const card of section.querySelectorAll<HTMLElement>('.session-card')) {
+      card.classList.add('pane-chooser-session');
+      const id = card.dataset['sessionId'] ?? '';
+      card.dataset['session'] = id;
+      if (id === this.#confirming) this.#markConfirming(card);
+    }
+    this.#list.replaceChildren(section);
+    placeSessions(this.#list);
   }
-}
 
-function shorten(path: string, home: string): string {
-  return home && path.startsWith(home) ? `~${path.slice(home.length)}` : path;
-}
+  close(): void {
+    if (this.#closed) return;
+    this.#closed = true;
+    document.removeEventListener('keydown', this.#onKey, true);
+    this.#scrim.classList.remove('is-open');
+    setTimeout(() => this.#scrim.remove(), BUBBLE_MS);
+    this.#opts.onClosed();
+  }
 
-function trimSlash(path: string): string {
-  return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
-}
+  #choose(session: LiveSession): void {
+    /**
+     * Taking a session that a tab is showing moves it, so it asks first.
+     *
+     * The tab it came from is left without it, which is somebody else's window changing because
+     * of a click in this one. A second press on the same card is the answer.
+     */
+    if (isInATab(session) && this.#confirming !== session.sessionId) {
+      this.#confirming = session.sessionId;
+      for (const card of this.#list.querySelectorAll<HTMLElement>('.session-card')) {
+        card.classList.remove('is-confirming');
+        card.querySelector('.pane-chooser-warn')?.remove();
+        if (card.dataset['sessionId'] === session.sessionId) this.#markConfirming(card);
+      }
+      return;
+    }
+    this.#opts.onTake(session);
+  }
 
-function parentOf(path: string): string {
-  const trimmed = trimSlash(path);
-  const cut = trimmed.lastIndexOf('/');
-  return cut <= 0 ? '/' : trimmed.slice(0, cut);
+  #markConfirming(card: HTMLElement): void {
+    card.classList.add('is-confirming');
+    const warn = document.createElement('div');
+    warn.className = 'pane-chooser-warn';
+    warn.textContent = 'Open in another tab. Click again to move it here.';
+    card.append(warn);
+  }
 }
