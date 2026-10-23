@@ -22,9 +22,9 @@ const COPIED_MS = 650;
 const FADE_MS = 140;
 
 const COPY_ICON =
-  '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M10.5 3.5v-.5a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 3v5A1.5 1.5 0 0 0 4 9.5h.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
+  '<svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M10.5 3.5v-.5a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 3v5A1.5 1.5 0 0 0 4 9.5h.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
 const CHECK_ICON =
-  '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  '<svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 export class LinkCopyButton {
   readonly #el: HTMLButtonElement;
@@ -156,12 +156,14 @@ function placeAfter(term: Terminal, range: IBufferRange): { x: number; y: number
   const cellH = box.height / term.rows;
   const row = range.end.y - 1 - term.buffer.active.viewportY;
   if (row < 0 || row >= term.rows) return null;
-  const width = 64;
+  const width = 104;
+  // The button's own height, from the stylesheet, so when it goes above it clears the link.
+  const height = 34;
   const rowTop = box.top + row * cellH;
-  const after = box.left + range.end.x * cellW + 6;
+  const after = box.left + range.end.x * cellW + 8;
   if (after + width <= box.right) return { x: after, y: rowTop + cellH / 2 };
   return {
     x: Math.max(box.left, box.left + range.end.x * cellW - width),
-    y: rowTop - cellH / 2 - 4,
+    y: rowTop - height / 2 - 4,
   };
 }
