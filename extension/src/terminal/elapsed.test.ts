@@ -35,7 +35,7 @@ describe('what a pane says about time', () => {
         { commandStartedAt: now - 42_000, sessionStartedAt: now - 900_000, lastDurationMs: 5 },
         now,
       ),
-    ).toBe('running 42s');
+    ).toBe('running 42s · alive 15m 0s');
   });
 
   it('shows how the last command went once it finishes', () => {
@@ -50,8 +50,8 @@ describe('what a pane says about time', () => {
     ).toContain('exit 1');
   });
 
-  it('falls back to how long the session has been open', () => {
-    expect(describeTime({ sessionStartedAt: now - 3_600_000 }, now)).toBe('open 1h 0m');
+  it('falls back to how long the session has been alive', () => {
+    expect(describeTime({ sessionStartedAt: now - 3_600_000 }, now)).toBe('alive 1h 0m');
   });
 
   it('says nothing about a session that just opened', () => {
@@ -80,10 +80,10 @@ describe('what counts as long running', () => {
   });
 });
 
-describe('how long the session has been open', () => {
+describe('how long the session has been alive', () => {
   /**
-   * The start screen says it and a terminal in use did not, so the moment you started working
-   * the one number that puts the rest in context disappeared.
+   * Asked for "in addition to what is already there", so it ends every line rather than being
+   * one of the alternatives, and it counts from the session rather than from the tab.
    */
   it('is shown beside what the last command did', () => {
     const said = describeTime(
@@ -94,8 +94,7 @@ describe('how long the session has been open', () => {
       },
       600_000,
     );
-    expect(said).toContain('took');
-    expect(said).toContain('open');
+    expect(said).toBe('took 1s · 9m 50s ago · alive 10m 0s');
   });
 
   it('is left out while the session is still new', () => {
@@ -104,13 +103,24 @@ describe('how long the session has been open', () => {
       { lastDurationMs: 1200, lastFinishedAt: 3000, sessionStartedAt: 0 },
       4000,
     );
-    expect(said).not.toContain('open');
+    expect(said).not.toContain('alive');
   });
 
-  it('is not shown while something is running, which is the more urgent number', () => {
-    const said = describeTime({ commandStartedAt: 0, sessionStartedAt: 0 }, 600_000);
-    expect(said).toContain('running');
-    expect(said).not.toContain('open');
+  it('is shown while something is running too, after the running time', () => {
+    const said = describeTime({ commandStartedAt: 300_000, sessionStartedAt: 0 }, 600_000);
+    expect(said).toBe('running 5m 0s · alive 10m 0s');
+  });
+
+  it('is shown in an agent pane, through a turn and after it', () => {
+    expect(
+      describeTime(
+        { agentTurnStartedAt: 540_000, agentState: 'working', sessionStartedAt: 0 },
+        600_000,
+      ),
+    ).toBe('answering 1m 0s · alive 10m 0s');
+    expect(
+      describeTime({ lastTurnMs: 30_000, lastTurnEndedAt: 590_000, sessionStartedAt: 0 }, 600_000),
+    ).toBe('answered in 30s · 10s ago · alive 10m 0s');
   });
 });
 
@@ -135,7 +145,7 @@ describe('a pane running an agent', () => {
         },
         at,
       ),
-    ).toBe('answering 1m 14s');
+    ).toBe('answering 1m 14s · alive 1h 0m');
   });
 
   it('says a turn blocked on a person is blocked on them', () => {

@@ -127,7 +127,14 @@ Whichever question that pane is actually about, in this order:
 | An agent is blocked on you | `waiting for you · 30s`, because the thing holding it up is you |
 | An agent has just answered | `answered in 1m 35s · 10s ago` |
 | A command is running | `running 5s` |
-| Otherwise | What the last command did, and how long the session has been open |
+| Otherwise | What the last command did: `took 1s · 9m 50s ago` |
+
+**And then how long the session has been alive, on the end of every line:** `running 5m 0s · alive
+2h 14m`, or `alive 2h 14m` alone when there is nothing else to say. It counts from when the daemon
+started that terminal, which the attach carries with it, so a reload, a reconnect, or moving the
+pane to another tab does not restart it: it is the session's age, never the tab's. It used to be
+said, as `open`, only when nothing else was, which is exactly when it mattered least. A session
+under a minute old says nothing about its age.
 
 The clock is one timestamp sent once and counted up in the page. Streaming a ticking clock over the
 wire would be continuous traffic to say something the receiver can work out for itself.

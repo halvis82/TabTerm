@@ -52,16 +52,36 @@ export function formatAgo(at: number, now = Date.now()): string {
  * The single line a pane shows about time.
  *
  * A running command is the only thing worth watching tick, so it wins. Otherwise the most
- * recently useful fact is how the last command went, and failing that, how long the session
- * has been open. An empty string means show nothing at all rather than something vacuous.
+ * recently useful fact is how the last command went. After whichever of those it says comes how
+ * long the session has been alive, which is said in every state. An empty string means show
+ * nothing at all rather than something vacuous.
  */
 export function describeTime(state: TimeState, now = Date.now()): string {
+  /**
+   * How long the session has been alive, on the end of every line.
+   *
+   * Asked for "in addition to what is already there", so it is a second fact rather than one of
+   * the alternatives below. It counts from the daemon's start for the terminal, which a reload,
+   * a reattach, or a move to another tab all carry with them, so it is the session's age and never
+   * the tab's. It used to be said, as "open", only when nothing else was, which is exactly when it
+   * mattered least. Only once it has been alive a while: nobody needs to be told a session is four
+   * seconds old.
+   */
+  const alive =
+    state.sessionStartedAt !== undefined && now - state.sessionStartedAt > 60_000
+      ? `alive ${formatDuration(now - state.sessionStartedAt)}`
+      : '';
+  const said = whatIsHappening(state, now);
+  if (said === '') return alive;
+  return alive === '' ? said : `${said} · ${alive}`;
+}
+
+function whatIsHappening(state: TimeState, now: number): string {
   /**
    * An agent in a turn is the question, when there is one.
    *
    * It comes first because in that pane every other line is about the wrong thing: the command
-   * that is running is the agent CLI, which started with the session, and how long it has been
-   * open is a fact about this morning rather than about what is happening.
+   * that is running is the agent CLI, which started with the session.
    *
    * A turn blocked on a person says so instead of counting. The clock is still running and the
    * number is still true, and "waiting for you" is what somebody glancing at the pane needs,
@@ -84,23 +104,7 @@ export function describeTime(state: TimeState, now = Date.now()): string {
     const took = formatDuration(state.lastDurationMs);
     const failed = state.lastExitCode !== undefined && state.lastExitCode !== 0;
     const status = failed ? ` · exit ${String(state.lastExitCode)}` : '';
-    /**
-     * How long the session has been open, alongside what the last command did.
-     *
-     * The start screen says how long a session has been open and a terminal in use did not, so
-     * the moment you started working the one number that puts the rest in context disappeared.
-     * Only once it has been open a while: nobody needs to be told a session is four seconds old.
-     */
-    const open =
-      state.sessionStartedAt !== undefined && now - state.sessionStartedAt > 60_000
-        ? ` · open ${formatDuration(now - state.sessionStartedAt)}`
-        : '';
-    return `took ${took}${status} · ${formatAgo(state.lastFinishedAt, now)}${open}`;
-  }
-  if (state.sessionStartedAt !== undefined) {
-    const open = now - state.sessionStartedAt;
-    // Nobody needs to be told a session is four seconds old.
-    if (open > 60_000) return `open ${formatDuration(open)}`;
+    return `took ${took}${status} · ${formatAgo(state.lastFinishedAt, now)}`;
   }
   return '';
 }

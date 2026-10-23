@@ -8119,6 +8119,8 @@ declare global {
       workspaceId: () => string;
       paneIds: () => string[];
       /** What the tab's icon says, what the panes say, and every decision behind it. */
+      /** When each pane's session started, as its corner label counts it. */
+      paneStarts: () => { paneId: string; sessionId: string; startedAt: number | null }[];
       /** The copy button beside a Command-hovered link. */
       linkCopy: () => { shown: boolean; text: string; copied: boolean };
       faviconNow: () => {
@@ -8528,6 +8530,12 @@ function installTestHook(): void {
     },
     workspaceId: () => workspaceId,
     paneIds: () => (layout ? collectPanes(layout) : []),
+    paneStarts: () =>
+      (panesHost?.all ?? []).map((p) => ({
+        paneId: p.paneId,
+        sessionId: p.sessionId,
+        startedAt: timeStateFor(p.paneId).sessionStartedAt ?? null,
+      })),
     linkCopy: () => linkCopy.state,
     faviconNow: () => ({
       showing: faviconState,
