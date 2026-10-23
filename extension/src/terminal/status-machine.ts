@@ -110,6 +110,13 @@ export class StatusMachine {
     return changed;
   }
 
+  /** Whether this pane is holding an outcome nobody has looked at yet. */
+  holdsOutcome(paneId: string): boolean {
+    const pane = this.#panes.get(paneId);
+    if (pane?.sticky !== true) return false;
+    return pane.state === 'success' || pane.state === 'failed' || pane.state === 'done';
+  }
+
   /** The state the tab as a whole should show, since a tab has exactly one favicon. */
   effective(): FaviconState {
     if (this.#panes.size === 0) return 'disconnected';

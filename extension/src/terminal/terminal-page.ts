@@ -51,7 +51,13 @@ import { TypedBuffer, backspaces } from './hotstrings.js';
 import { chooseOpenAction, describeOpen } from './open-action.js';
 import { needsAttention, StatusMachine, titleStatus } from './status-machine.js';
 import { describeTime, isLongRunning, type TimeState } from './elapsed.js';
-import { applyFavicon, composeTitle, drawFavicon, type FaviconState } from './titles.js';
+import {
+  applyFavicon,
+  composeTitle,
+  drawFavicon,
+  RING_STEPS,
+  type FaviconState,
+} from './titles.js';
 import { TabFlasher, flashingSessions, setFlashing } from './flash-on-finish.js';
 import { askWorker, tellWorker } from '../chrome/worker.js';
 import { HeldInput } from './held-input.js';
@@ -155,6 +161,13 @@ let titleFields: TitleFields = {};
 let faviconState: FaviconState = 'disconnected';
 /** A tab has one favicon, so many panes reduce to the most urgent state among them. */
 const paneStatus = new StatusMachine();
+/**
+ * The end of the last turn this page was told about, per session.
+ *
+ * Apart from a pane's clock, which a shell command resets: this is only for telling a turn that
+ * has just ended from one already counted, and a command boundary does not change the answer.
+ */
+const turnEndsSeen = new Map<string, number>();
 /**
  * Daemon-owned settings, mirrored here for the settings pane to render.
  *
@@ -1339,7 +1352,7 @@ function setFavicon(state: FaviconState): void {
     animTimer = window.setInterval(() => {
       animPhase++;
       applyFavicon(drawFavicon('running', animPhase));
-    }, 200);
+    }, 1000 / RING_STEPS);
   } else if (needsAttention(state)) {
     animTimer = window.setInterval(() => {
       animPhase++;
@@ -7622,9 +7635,21 @@ function onControl(msg: ServerMessage): void {
               : msg.state === 'working'
                 ? 'running'
                 : 'idle';
-        // An outcome, failed included, is set below and only when this page saw the turn end.
-        paneStatus.set(pane.paneId, state);
-        setFavicon(paneStatus.effective());
+        /*
+         * Work nobody asked for does not cover an answer nobody has read.
+         *
+         * An agent also works between prompts: a monitor it set up reports, a background task it
+         * started finishes, it posts a recap. Each of those flipped the icon to busy and back,
+         * and the tick that said the person's turn was done went with it. Work a person started
+         * comes with the time it started; work without one leaves an unseen outcome where it is.
+         */
+        const unprompted =
+          msg.turnStartedAt === undefined && (state === 'running' || state === 'idle');
+        if (!(unprompted && paneStatus.holdsOutcome(pane.paneId))) {
+          // An outcome, failed included, is set below and only when this page saw the turn end.
+          paneStatus.set(pane.paneId, state);
+          setFavicon(paneStatus.effective());
+        }
         titleFields = { ...titleFields, status: msg.state };
         refreshTitle();
 
@@ -7642,13 +7667,24 @@ function onControl(msg: ServerMessage): void {
         if (msg.turnStartedAt === undefined) {
           const wasIn = time.agentTurnStartedAt;
           delete time.agentTurnStartedAt;
+          /*
+           * A turn ended when the daemon says one ended, and it says so by moving the end time.
+           *
+           * This used to be read from the last turn's figures merely being present, and they are
+           * on every message once one turn has finished. So every rest that came after, from a
+           * monitor's report to a subagent stopping, looked like the turn ending again: another
+           * tick, another flash, for nothing anybody had asked.
+           */
+          const endedAt = msg.lastTurnEndedAt;
           if (
-            (msg.lastTurnMs !== undefined || wasIn !== undefined) &&
+            endedAt !== undefined &&
+            endedAt !== turnEndsSeen.get(msg.sessionId) &&
             (msg.state === 'idle' || msg.state === 'failed')
           ) {
             turnEnded = true;
+            turnEndsSeen.set(msg.sessionId, endedAt);
             time.lastTurnMs = msg.lastTurnMs ?? Date.now() - (wasIn ?? Date.now());
-            time.lastTurnEndedAt = msg.lastTurnEndedAt ?? Date.now();
+            time.lastTurnEndedAt = endedAt;
             if (wasIn !== undefined)
               sessionStats.turnFinished(time.lastTurnMs, time.lastTurnEndedAt);
           }

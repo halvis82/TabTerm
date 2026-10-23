@@ -154,3 +154,21 @@ describe('what a quiet tab of several panes says', () => {
     expect(titleStatus(m, 7)).toBe('1 running');
   });
 });
+
+describe('an outcome nobody has looked at', () => {
+  it('is held by the pane it belongs to, until it is seen', () => {
+    const m = new StatusMachine();
+    m.finished('a', 0);
+    m.set('b', 'running');
+    expect(m.holdsOutcome('a')).toBe(true);
+    expect(m.holdsOutcome('b')).toBe(false);
+    m.seen();
+    expect(m.holdsOutcome('a')).toBe(false);
+  });
+
+  it('is not a request for somebody, which is a different thing', () => {
+    const m = new StatusMachine();
+    m.set('a', 'waiting');
+    expect(m.holdsOutcome('a')).toBe(false);
+  });
+});

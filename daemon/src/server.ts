@@ -655,6 +655,7 @@ export class DaemonServer {
     title: string,
     body: string,
     target?: { workspaceId?: string; paneId?: string },
+    suppressIfVisible = false,
   ): void {
     /**
      * Every notification that leaves the daemon, by kind, and never by content.
@@ -673,7 +674,14 @@ export class DaemonServer {
       kind: title.split(':')[0]?.trim() ?? 'notice',
       ...(target?.workspaceId === undefined ? {} : { workspaceId: target.workspaceId }),
     });
-    this.broadcast({ t: 'notify', priority, title, body, ...(target ? { target } : {}) });
+    this.broadcast({
+      t: 'notify',
+      priority,
+      title,
+      body,
+      ...(target ? { target } : {}),
+      ...(suppressIfVisible ? { suppressIfVisible: true } : {}),
+    });
   }
 
   /**

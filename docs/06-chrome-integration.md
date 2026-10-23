@@ -456,7 +456,7 @@ Canvas-generated data URLs assigned to `<link rel="icon">`, except at idle.
 | State | Icon | Means |
 |---|---|---|
 | `idle` | The extension's own icon | Nothing to report |
-| `running` | Blue ring with a gap that goes round | A command is in flight, or an agent is working |
+| `running` | Blue arc going round a faint ring | A command is in flight, or an agent is working |
 | `done` | Grey bar | Finished, with no exit code to say how. See ADR-0016 |
 | `success` | Green tick | Exited zero, or an agent's turn ended |
 | `failed` | Red cross | Exited non-zero, or an agent's turn failed |
@@ -467,15 +467,23 @@ Canvas-generated data URLs assigned to `<link rel="icon">`, except at idle.
 **Busy looks busy.** The running mark was a caret with an underline that swept, which at 16
 pixels was the idle icon with a detail nobody could see, and "whenever a command is running or
 agent is working, that's shown as progress through favicon" was asked for because it was not. It
-is a ring with a gap that goes round, on a bluer square than idle, the way every other application
-shows progress. The gap advances only while the tab is in front, since a hidden tab cannot drive
-an animation, and a hidden tab holds one steady frame of it, which still reads as busy because
-the ring is the shape and not the motion.
+is an arc going round a faint full ring, on a bluer square than idle, the way every other
+application shows progress. The arc turns once a second only while the tab is in front, since a
+hidden tab cannot drive an animation, and a hidden tab holds one steady frame of it. The faint ring
+is what makes that frame read as busy: the bare arc it replaced looked like a broken circle when it
+stopped, so a background tab and the one in front looked like two different states.
 
 **An agent's turn ending is an outcome.** The icon went straight back to idle when an agent
 finished, so a tab with an agent in it never showed the tick a shell got. A turn this page saw
 end is a success, or a failure if the agent said so. A turn replayed by a reattach is not: it is
 old news, and a tab just navigated to shows nothing to notice.
+
+**Only a turn a person started.** An agent also works between prompts: a monitor it set up
+reports, a background task finishes, it posts a recap. None of that is an answer somebody is
+waiting for. A turn is known to have ended when the daemon moves its end time, not from the last
+turn's figures being present, which they are on every message once one turn has finished and which
+made every later rest look like a new result. Unprompted work shows the running ring while it
+runs, unless the tab is holding an outcome nobody has looked at yet, which it leaves in place.
 
 **Outcomes clear when the tab is noticed, by looking or by doing.** The tab becoming visible
 clears them, and so does any key or press in a pane, so an outcome that arrived while the tab was
@@ -1498,8 +1506,8 @@ hidden or discarded.
 
 | Event | Priority | Gated by |
 |---|---|---|
-| Agent needs approval | Critical | Nothing. It is the case this exists for |
-| Agent waiting for input | Important | Nothing |
+| Agent needs approval | Critical | Not raised for the tab in front, when only while unfocused is on |
+| Agent asks for input during a turn | Important | Not raised for the tab in front, when only while unfocused is on |
 | Agent turn finished | Important | Duration threshold |
 | Shell command finished | Important | Duration threshold |
 | Shell command failed | Critical | Duration threshold |

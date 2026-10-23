@@ -13,7 +13,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PROTOCOL_VERSION, VERSION, paneCount } from '@tabterm/shared';
 import { initAuth, verifyToken } from './auth.js';
-import { AgentBridge } from './agent-bridge.js';
+import { AgentBridge, adoptedState } from './agent-bridge.js';
 import { loadConfig, paths, ignoredConfigFields } from './config.js';
 import { acquireLock } from './lockfile.js';
 import { debug, error, info, initLog, warn } from './log.js';
@@ -543,6 +543,10 @@ async function main(): Promise<void> {
       // Learned once and kept. Every hook carries it, and it does not change within a session.
       if (agentSessionId !== undefined) session.agentSessionId = agentSessionId;
       const previous = session.agentState;
+      if (adoptedState(hook, state, previous) === null) {
+        info('agent.hook', { sessionId, hook, state, from: previous ?? 'none', ignored: true });
+        return;
+      }
       session.agentState = state;
       server.recordAgentEvent(Date.now());
       // Logged, because until this existed the entire path from a hook to a notification was
@@ -622,6 +626,8 @@ async function main(): Promise<void> {
           state === 'approval' ? 'Agent needs approval' : 'Agent is waiting for you',
           detail ?? session.cwd,
           where ? { workspaceId: where.id } : undefined,
+          // The same rule as a finished turn: the tab in front already shows it.
+          server.notifyPolicy.onlyWhenUnfocused,
         );
       }
 

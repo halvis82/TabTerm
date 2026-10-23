@@ -70,21 +70,66 @@ r.ok(
 /**
  * The order that actually happens on a machine, which is not the order above.
  *
- * An agent finishes its turn first and only notices a minute later that nobody has replied, so
- * `Notification` arrives after `Stop` rather than before it. The icon is then correct and it is
- * also permanent: nothing in the sequence ever clears it again, because the next thing that
- * happens is a person coming back, and coming back is not a hook.
+ * An agent finishes its turn first and a minute later sends its idle reminder, so `Notification`
+ * arrives after `Stop`. That reminder is not news: the turn ending was, and it was already shown.
+ * It used to turn every finished tab amber a minute later and raise "Agent is waiting for you"
+ * for a tab somebody was reading. Now the tick stays.
  */
 await hook('UserPromptSubmit');
 await hook('Stop');
 await hook('Notification');
-r.ok('an agent left alone says it is waiting', (await icon()).showing === 'waiting');
-
-// Looking at the tab is the answer to "waiting for you": the person is here now.
+const reminded = await icon();
+r.ok(
+  'the idle reminder after a turn leaves the tick, not amber',
+  reminded.showing === 'success',
+  JSON.stringify(reminded),
+);
 await evaluate(client, 'window.__tabterm.lookAtTab()');
 await sleep(300);
-const looked = await icon();
-r.ok('and looking at the tab answers it', looked.showing !== 'waiting', JSON.stringify(looked));
+
+/**
+ * A subagent finishing in the middle of a turn is not the agent finishing.
+ *
+ * It was read as idle, so the tab dropped out of busy with every subagent, and sometimes the
+ * person's turn was ended early by it.
+ */
+await hook('UserPromptSubmit');
+await hook('SubagentStop');
+const mid = await icon();
+r.ok(
+  'a subagent stopping mid-turn keeps the tab busy',
+  mid.showing === 'running',
+  JSON.stringify(mid),
+);
+await hook('Stop');
+r.ok('and the agent stopping is the outcome', (await icon()).showing === 'success');
+
+/**
+ * Work between prompts is not a result.
+ *
+ * A monitor reporting, a background task finishing, a recap: the agent works and stops without
+ * anybody having asked. Each of those used to read as a new turn ending, with a new tick and a
+ * new flash. With an outcome nobody has seen yet, it is left in place.
+ */
+await hook('PreToolUse');
+const wokeOverTick = await icon();
+r.ok(
+  'unprompted work leaves an unseen tick in place',
+  wokeOverTick.showing === 'success',
+  JSON.stringify(wokeOverTick),
+);
+await hook('Stop');
+await evaluate(client, 'window.__tabterm.lookAtTab()');
+await sleep(300);
+await hook('PreToolUse');
+r.ok('with nothing unseen, unprompted work shows the ring', (await icon()).showing === 'running');
+await hook('Stop');
+const afterRecap = await icon();
+r.ok(
+  'and ends without a tick, because nobody was waiting for it',
+  afterRecap.showing === 'idle',
+  JSON.stringify(afterRecap),
+);
 
 /**
  * A tab that reloads while an agent is waiting comes back still saying so.

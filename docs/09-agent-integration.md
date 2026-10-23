@@ -41,10 +41,19 @@ agent CLI hook fires
 |---|---|---|
 | User prompt submitted | `working` | Running favicon, and the only hook that starts a turn's clock |
 | Tool use pending approval | `approval` | Approval favicon, **critical notification**, title status |
-| Notification | `waiting` | Waiting favicon until the tab is looked at, important notification |
-| Stop | `idle` | Success favicon for a turn this page saw end, completion notification if past the duration threshold |
+| Notification during a turn | `waiting` | Waiting favicon until the tab is looked at, important notification |
+| Notification after a turn | none | Ignored. It is the agent's idle reminder, sent about a minute after every answer |
+| Stop | `idle` | Success favicon for a turn a person started and this page saw end, completion notification if past the duration threshold |
+| Subagent stop | none | Ignored. A subagent finishing says nothing about the agent that started it |
 | Session start | `starting` | Title switches to the agent form |
 | Non-zero completion | `failed` | Failure favicon for a turn this page saw end, critical notification |
+
+**Two hooks are not what they look like.** `SubagentStop` was read as the agent going idle, and it
+arrives in the middle of a turn: the tab dropped out of working and back with every subagent, and
+when it ended the turn early, the real end had no start and was never reported. And `Notification`
+after a turn is the agent's idle reminder rather than a question, so reading it as waiting turned
+every finished tab amber a minute later and raised "Agent is waiting for you" for a tab the person
+was reading. Both are left out. The state for either is what it was before the event.
 
 **The tab flash follows turns too.** "Flash the tab when a command finishes" on a pane's menu
 used to be started by a shell command ending and by nothing else, and an agent's turn ends with a

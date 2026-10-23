@@ -54,8 +54,17 @@ export function mapHookToState(hook: string): AgentState | null {
     case 'PermissionRequest':
       return 'approval';
     case 'Stop':
-    case 'SubagentStop':
       return 'idle';
+    /*
+     * A subagent finishing says nothing about the agent that started it.
+     *
+     * It was read as the agent going idle, and on one machine that happened 583 times in two days
+     * in the middle of a turn: the tab dropped out of working and back with every subagent, and
+     * nine times it ended the person's turn early, so the turn that really ended later had no
+     * start and was never reported. The agent's own `Stop` is the end of its turn.
+     */
+    case 'SubagentStop':
+      return null;
     case 'SessionStart':
       return 'starting';
     case 'Error':
@@ -65,6 +74,26 @@ export function mapHookToState(hook: string): AgentState | null {
       // better than a confidently incorrect indicator.
       return null;
   }
+}
+
+/**
+ * Whether an event changes what the agent is doing, given what it was doing.
+ *
+ * `Notification` is two different things. During a turn it is the agent stopping to ask somebody
+ * something. After a turn it is the agent's idle reminder, which it sends about a minute after
+ * every answer, and that is not news: the answer was the news, and it was already reported. Read
+ * as waiting, it turned every finished tab amber a minute later and raised "Agent is waiting for
+ * you" for a tab the person was reading. So it counts only while the agent is working.
+ *
+ * Returns null for an event to leave out.
+ */
+export function adoptedState(
+  hook: string,
+  state: AgentState,
+  previous: AgentState | undefined,
+): AgentState | null {
+  if (hook === 'Notification' && previous !== 'working') return null;
+  return state;
 }
 
 export class AgentBridge {

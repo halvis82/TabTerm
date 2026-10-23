@@ -178,6 +178,10 @@ function packagedIcon(): string {
   }
 }
 
+/** Frames in one turn of the busy ring. Enough that it turns rather than ticks. */
+export const RING_STEPS = 16;
+const ringFrames = new Map<number, string>();
+
 export function drawFavicon(state: FaviconState, phase = 0): string {
   if (state === 'idle') {
     const packaged = packagedIcon();
@@ -266,21 +270,39 @@ export function drawFavicon(state: FaviconState, phase = 0): string {
   }
 
   if (state === 'running') {
+    // Drawn once per frame position and kept: it turns many times a second while it is in front.
+    const key = phase % RING_STEPS;
+    const kept = ringFrames.get(key);
+    if (kept !== undefined) return kept;
     /*
      * A ring with a gap that goes round: progress, the way every other application shows it.
      *
      * It was a caret with an underline that swept, which at 16 pixels was the idle icon with a
      * detail nobody could see, and "whenever a command is running or agent is working, that's
-     * shown as progress through favicon" was asked for because it was not. The gap advances a
-     * twelfth of a turn per frame, only ever while the tab is visible; a hidden tab holds one
-     * steady frame, which still reads as busy because the ring is the shape, not the motion.
+     * shown as progress through favicon" was asked for because it was not. The arc advances one
+     * step per frame, only ever while the tab is visible; a hidden tab holds one steady frame,
+     * which still reads as busy because the ring is the shape, not the motion.
      */
-    const start = ((phase % 12) / 12) * Math.PI * 2;
+    /*
+     * On a full, faint track, so one frame of it is a whole picture.
+     *
+     * A hidden tab cannot animate, and the bare arc it was left holding read as a broken circle
+     * rather than as busy: "inconsistent and weird". With the track drawn, a still frame is the
+     * familiar loading ring stopped in place, in a background tab exactly as in the one in front.
+     */
+    const start = ((phase % RING_STEPS) / RING_STEPS) * Math.PI * 2 - Math.PI / 2;
     g.lineWidth = 3.5;
+    g.globalAlpha = 0.3;
     g.beginPath();
-    g.arc(16, 16, 9, start, start + Math.PI * 1.5);
+    g.arc(16, 16, 9, 0, Math.PI * 2);
     g.stroke();
-    return canvas.toDataURL('image/png');
+    g.globalAlpha = 1;
+    g.beginPath();
+    g.arc(16, 16, 9, start, start + Math.PI * 0.8);
+    g.stroke();
+    const drawn = canvas.toDataURL('image/png');
+    ringFrames.set(key, drawn);
+    return drawn;
   }
 
   // A terminal prompt caret, which reads at 16 px far better than a glyph would.
