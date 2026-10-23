@@ -55,6 +55,8 @@ export interface PanelOptions {
   /** Open the form for an action somebody made, which is also where its shortcut is bound. */
   onEditAction?: (id: string) => void;
   onDeleteAction?: (id: string) => void;
+  /** Whether the panel holds the keyboard now, so the terminal can say it is not listening. */
+  onKeyboard?: (has: boolean) => void;
   settings: () => HTMLElement;
   stats: () => HTMLElement;
 }
@@ -191,6 +193,8 @@ export class CommandPanel {
 
     this.#el.append(header, this.#search, this.#body, this.#footer);
     opts.root.append(this.#el);
+    this.#watchPointer();
+    this.#watchKeyboardOwner();
     this.#watchSize();
     this.#watchReading();
 
@@ -371,6 +375,75 @@ export class CommandPanel {
    */
   #beingRead(): boolean {
     return this.#pointerInside && Date.now() - this.#lastScrolledAt < READING_SETTLE_MS;
+  }
+
+  /**
+   * One highlight, and the mouse moves it only by moving.
+   *
+   * Hovering a row drew an outline of its own beside the selection the arrow keys move, so two
+   * rows could be outlined at once, and the hovered one stayed lit under a cursor that had been
+   * hidden by typing. Reported, with "only when the cursor is actually active and moving should we
+   * be able to outline new things with the cursor". So hovering no longer draws anything: a
+   * pointer that really moves onto a row selects it, and the arrow keys carry on from there. A
+   * list scrolling under a still pointer is not the pointer moving, so it changes nothing.
+   */
+  #watchPointer(): void {
+    let lastX = Number.NaN;
+    let lastY = Number.NaN;
+    this.#list.addEventListener('mousemove', (e) => {
+      if (e.screenX === lastX && e.screenY === lastY) return;
+      lastX = e.screenX;
+      lastY = e.screenY;
+      const el = e.target instanceof Element ? e.target.closest<HTMLElement>('.cmd-row') : null;
+      const index = Number(el?.dataset['index'] ?? Number.NaN);
+      const row = this.#rows[index];
+      if (row === undefined || index === this.#selected) return;
+      if (row.kind === 'heading' || (row.kind === 'action' && row.action.enabled === false)) return;
+      this.#selected = index;
+      for (const child of this.#list.children) {
+        child.classList.toggle(
+          'selected',
+          (child as HTMLElement).dataset['index'] === String(index),
+        );
+      }
+      this.#renderFooter(row);
+    });
+  }
+
+  /**
+   * Any press on the panel gives it the keyboard, and the page is told who has it.
+   *
+   * Clicking the terminal and then the panel's top bar left the keyboard in the terminal: the
+   * bar is a drag handle, which cancels the press's default, and the default is what moves focus.
+   * So Tab, and typing, still went to the shell under a panel that had just been clicked. A press
+   * anywhere on the panel that is not on a control of its own now puts the keyboard in the panel,
+   * in the search box when there is one.
+   */
+  #watchKeyboardOwner(): void {
+    this.#el.addEventListener(
+      'pointerdown',
+      (e) => {
+        if (isControl(e.target)) return;
+        // After the press has done whatever it does, so a drag or a row's own click still runs.
+        setTimeout(() => {
+          if (this.isOpen && !this.#el.contains(document.activeElement)) this.#takeKeyboard();
+        }, 0);
+      },
+      { capture: true },
+    );
+    this.#el.addEventListener('focusin', () => this.#opts.onKeyboard?.(true));
+    this.#el.addEventListener('focusout', () => {
+      // Read once the focus has landed. A button rebuilt under the keyboard loses focus to
+      // nothing, and that is the panel's to take back, not the terminal's to have.
+      setTimeout(() => {
+        if (!this.isOpen || this.#el.contains(document.activeElement)) return;
+        if (document.activeElement === document.body || document.activeElement === null) {
+          this.#takeKeyboard();
+          return;
+        }
+        this.#opts.onKeyboard?.(false);
+      }, 0);
+    });
   }
 
   /** Watch for the two things that mean somebody is reading rather than the page being idle. */
@@ -724,6 +797,7 @@ export class CommandPanel {
   #rowElement(row: PanelRow, index: number): HTMLElement {
     const el = document.createElement('div');
     el.className = `cmd-row${index === this.#selected ? ' selected' : ''} is-${row.kind}`;
+    el.dataset['index'] = String(index);
 
     /**
      * A heading is a label, not a row.
@@ -794,7 +868,11 @@ export class CommandPanel {
         remove.textContent = '\u00d7';
         remove.addEventListener('click', (e) => {
           e.stopPropagation();
-          this.#opts.onDeleteAction?.(customId);
+          // Asked first, the same as a favorite: it is a small cross at the end of a row people
+          // click to run, and what it removes was made on purpose, shortcut and all.
+          this.#ask(`Delete "${shortLabel(row.action.title)}"?`, 'Delete', () =>
+            this.#opts.onDeleteAction?.(customId),
+          );
         });
         controls.append(edit, remove);
         // Held, and appended after the description below, so they end the row.
@@ -1336,6 +1414,12 @@ export class CommandPanel {
     this.#opts.root.append(note);
     setTimeout(() => note.remove(), 900);
   }
+}
+
+/** A thing in the panel that takes a press itself: a button, a box, a link. */
+function isControl(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return target.closest('button, input, textarea, select, a, [contenteditable="true"]') !== null;
 }
 
 function isTextBox(target: EventTarget | null): boolean {

@@ -142,6 +142,17 @@ They are now on both, and the way that stays true is that both call the same fun
 of the same closure agree on the day they are written and not much longer, and the difference shows
 up as one surface quietly doing something slightly different from the other.
 
+**The built-in actions are listed by kind.** They used to be in the order they were written, so
+Split down sat three rows below Split right with naming a session between them. The order is now:
+Split right, Split down, Close this pane, Fullscreen focus mode, Pull a terminal in from another
+tab, New terminal tab, Launch an agent in a new tab, Launch an agent beside this pane, Rename
+session, Add a marker here, Clear command history. Then the actions you made, then the ways to make
+and change them.
+
+**Deleting an action you made asks first,** the same as deleting a favorite. The cross sits at the
+end of a row people press to run, and what it removes was made on purpose, shortcut and all. In
+the command palette the first press turns the cross into the question and the second answers it.
+
 A pane action needs a pane. The command menu is not attached to one the way a pane's menu is, so it
 acts on the focused pane, and with nothing focused these are left out rather than offered and doing
 nothing. `menu-aftermath` asserts the two surfaces agree, and fails the moment one of them grows a
@@ -200,6 +211,7 @@ Selection is a step of its own. Nothing in the list acts because the pointer pas
 | Input | Does |
 |---|---|
 | Arrows, `Home`, `End` | Move the highlight |
+| Moving the pointer onto a row | Move the highlight there |
 | Click | Select only |
 | **Double-click** | Paste into the terminal, without touching the clipboard |
 | `Enter` | Paste into the terminal |
@@ -232,6 +244,17 @@ The panel sits over a live terminal, and both accepting keys at once would mean 
 lands in whichever place happened to be focused last. So the panel takes the keyboard outright:
 while it is open the terminal is marked inert and its cursor stops blinking, and closing it hands
 focus straight back to the pane that had it. Both stay visible. Only one is listening.
+
+**There is one highlight, and the pointer moves it only by moving.** Hovering used to draw an
+outline of its own beside the selection the arrow keys move, so two rows could be lit at once, and
+the hovered one stayed lit under a cursor that typing had hidden. A pointer that really moves onto
+a row now selects it, the arrow keys carry on from there, and a list scrolling under a still
+pointer changes nothing.
+
+**A press anywhere on the panel gives it the keyboard.** Clicking the terminal under an open panel
+hands the keyboard to the terminal, which starts listening again. Clicking back on the panel, even
+on its top bar, which is a drag handle and does not move focus by itself, puts the keyboard back
+in the panel, in the search box when there is one, so `Tab` and typing go to the panel again.
 
 On a page with no search box, Stats and settings, the panel itself holds the keyboard. Focus used
 to be sent to the search box on every page, and on those two the box is hidden, so the keyboard was
@@ -326,6 +349,12 @@ with the state of the page is a list nobody can learn.** Reported as "i didn't m
 this menu, in that menu you should just color them or fade them out kinda to be disabled, for any
 action that is not available from the current screen". They stay, faded, with the reason beside
 them, and neither the pointer nor the keyboard will land on one.
+
+**The reason says what is in the way.** Add a marker here, in a pane running an agent, said "Only
+at a prompt", which is true from the inside and means nothing from the outside: an agent has a
+prompt too. A marker is drawn into the terminal and a program that draws its own screen would draw
+over it, so the reason names the program: "Not inside an agent, only at a shell prompt", or "Not
+while a program is running, only at a shell prompt".
 
 **And the list says what is possible now.** It was built when the menu opened, so typing a command
 dismissed the start screen, made four more things possible, and the menu went on saying otherwise

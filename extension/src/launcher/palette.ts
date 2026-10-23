@@ -650,9 +650,24 @@ export class Palette {
           remove.className = 'palette-action-remove';
           remove.title = 'Delete this action';
           remove.textContent = '\u00d7';
+          /*
+           * Asked first, the same as in the command menu: the first press turns the cross into
+           * the question, the second answers it, and leaving the button takes the question back.
+           */
           remove.addEventListener('click', (e) => {
             e.stopPropagation();
+            if (remove.dataset['asking'] !== 'yes') {
+              remove.dataset['asking'] = 'yes';
+              remove.textContent = 'Delete?';
+              remove.title = 'Press again to delete this action';
+              return;
+            }
             this.#opts.onDeleteAction?.(customId);
+          });
+          remove.addEventListener('mouseleave', () => {
+            delete remove.dataset['asking'];
+            remove.textContent = '\u00d7';
+            remove.title = 'Delete this action';
           });
           el.append(edit, remove);
         }

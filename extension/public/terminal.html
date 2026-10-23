@@ -862,8 +862,16 @@
   /* A sibling combinator, because the button is not inside the layout: it sits beside it in the
      document, so a descendant selector matched nothing at all and the rule looked wrong rather
      than absent. */
+  /* And lined up under the rightmost pane's close cross rather than beside it: centered on the
+     cross, and a few pixels below the bar instead of touching it. Measured: the cross is centered
+     22 px from the right edge and the bar ends 29 px down. */
   #terminal.many-panes ~ #cmd-button {
-    top: 28px;
+    top: 34px;
+    right: 9px;
+  }
+  /* The column of notices stays under the button, wherever the button is. */
+  #terminal.many-panes ~ #notices {
+    top: 68px;
   }
   #cmd-button:hover {
     color: var(--text);
@@ -1269,9 +1277,8 @@
     background: var(--selected);
     box-shadow: inset 3px 0 0 var(--selected-edge);
   }
-  .cmd-row:hover:not(.selected) {
-    background: rgba(140, 155, 190, 0.12);
-  }
+  /* No hover outline of its own. A pointer that moves onto a row selects it, so there is only
+     ever one highlighted row, and the arrow keys and the mouse move the same one. */
 
   /* A visible marker, so an abbreviation is discoverable from the list. */
   .cmd-hotstring {
@@ -1346,7 +1353,6 @@
     color: var(--dim);
     opacity: 0.55;
   }
-  .cmd-row:hover .cmd-jump,
   .cmd-row.selected .cmd-jump {
     opacity: 1;
   }

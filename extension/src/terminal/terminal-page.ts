@@ -5576,6 +5576,22 @@ function addMarker(paneId: string): void {
 }
 
 /** Whether marking a place in this pane would land in a program rather than in a transcript. */
+/**
+ * Why a marker cannot go here, in words that say what is in the way.
+ *
+ * It said "Only at a prompt" over an agent session, which is true from the inside and means
+ * nothing from the outside: an agent has a prompt too. A marker is drawn into the terminal, and a
+ * program that draws its own screen would draw over it, so the reason is the program.
+ */
+function whyNoMarker(paneId: string): string {
+  const sessionId = panesHost?.get(paneId)?.sessionId ?? '';
+  const running = (sessionTitles.get(sessionId)?.process ?? '').split('/').pop() ?? '';
+  if (agentSessions.has(sessionId) || AGENT_PROGRAMS.has(running)) {
+    return 'Not inside an agent, only at a shell prompt';
+  }
+  return 'Not while a program is running, only at a shell prompt';
+}
+
 function canMarkHere(paneId: string): boolean {
   const session = panesHost?.get(paneId)?.sessionId ?? '';
   return session !== '' && !markerWouldLandInAProgram(paneId);
@@ -5788,6 +5804,21 @@ function refreshBoundShortcuts(): void {
     });
 }
 
+/** The built-in actions, in the order the menu lists them. See `paletteActions`. */
+const BUILTIN_ORDER = [
+  'split-right',
+  'split-down',
+  'close-pane',
+  'focus-mode',
+  'merge',
+  'new-terminal',
+  'agent-tab',
+  'agent-split',
+  'name-session',
+  'add-marker',
+  'clear-history',
+];
+
 function paletteActions(): PaletteAction[] {
   const paneCount = layout ? collectPanes(layout).length : 1;
   /** A hint only when Chrome says the key is really bound to that command. */
@@ -5858,7 +5889,7 @@ function paletteActions(): PaletteAction[] {
         ? {}
         : {
             enabled: false,
-            why: onAPane ? 'Only at a prompt' : 'Not while the start screen is up',
+            why: onAPane ? whyNoMarker(focused) : 'Not while the start screen is up',
           }),
       run: () => {
         addMarker(focused);
@@ -5937,6 +5968,15 @@ function paletteActions(): PaletteAction[] {
       run: () => client?.send({ t: 'clear-history' }),
     },
   );
+
+  /*
+   * In an order somebody can learn, with things of a kind together.
+   *
+   * They were in the order they were written, so Split down sat three rows away from Split right
+   * with naming a session and a marker between them, which was reported as exactly that. The
+   * layout of panes first, then new tabs and agents, then this session, then history.
+   */
+  actions.sort((a, b) => BUILTIN_ORDER.indexOf(a.id) - BUILTIN_ORDER.indexOf(b.id));
 
   /**
    * Then the ones somebody made.
@@ -6076,6 +6116,16 @@ function buildCommandPanel(): void {
       // listening says the opposite of what is true.
       root.classList.add('panel-has-keyboard');
       panesHost?.blurAll();
+    },
+    /*
+     * And while it stays open, whichever of the two was last pressed has the keyboard.
+     *
+     * Clicking the terminal under an open panel puts the keyboard there, and the terminal has to
+     * say so by listening again. Clicking back on the panel takes it back.
+     */
+    onKeyboard: (has) => {
+      root.classList.toggle('panel-has-keyboard', has);
+      if (has) panesHost?.blurAll();
     },
     onPlacement: (placement) => {
       void chrome.storage.local.set({ 'tabterm.panel': placement });
