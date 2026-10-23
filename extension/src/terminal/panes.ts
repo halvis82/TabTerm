@@ -1,4 +1,5 @@
 import type { ResolvedPath } from '@tabterm/shared';
+import type { IBufferRange, Terminal } from '@xterm/xterm';
 import { XtermController, type PaneMenuAction } from './xterm-controller.js';
 import { createPathLinkProvider, candidatesIn, logicalLinesIn } from './path-links.js';
 import { scanIsOverdue, QUIET_MS } from './link-scan.js';
@@ -21,6 +22,9 @@ export interface PaneHostOptions {
   openPath: (paneId: string, resolved: ResolvedPath, event: MouseEvent) => void;
   openUrl: (url: string) => void;
   modifierHeld: () => boolean;
+  /** A link was pointed at with the modifier held, and left. For the copy button. */
+  onLinkHover?: (term: Terminal, text: string, range: IBufferRange) => void;
+  onLinkLeave?: () => void;
   /** Pane-level entries for the right-click menu, asked for at the moment of the click. */
   menuActions?: (paneId: string) => readonly PaneMenuAction[];
   /** The color a highlight gets on a plain click, and the ones offered in the picker. */
@@ -175,6 +179,8 @@ export class PaneHost {
         activate: (resolved, event) => this.#opts.openPath(paneId, resolved, event),
         openUrl: this.#opts.openUrl,
         modifierHeld: this.#opts.modifierHeld,
+        onHover: (text, range) => this.#opts.onLinkHover?.(controller.term, text, range),
+        onLeave: () => this.#opts.onLinkLeave?.(),
       }),
     );
 

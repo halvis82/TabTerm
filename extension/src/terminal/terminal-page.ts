@@ -51,6 +51,7 @@ import { TypedBuffer, backspaces } from './hotstrings.js';
 import { chooseOpenAction, describeOpen } from './open-action.js';
 import { needsAttention, StatusMachine, titleStatus } from './status-machine.js';
 import { describeTime, isLongRunning, type TimeState } from './elapsed.js';
+import { LinkCopyButton } from './link-copy.js';
 import {
   applyFavicon,
   composeTitle,
@@ -891,6 +892,8 @@ let currentCwd = '';
 
 /** Links are inert unless Command is held, so ordinary text selection stays safe. */
 let cmdHeld = false;
+/** The copy button beside a link pointed at with Command held. See `link-copy.ts`. */
+const linkCopy = new LinkCopyButton();
 
 // ---------------------------------------------------------------------------
 // Chrome-facing surface
@@ -2276,6 +2279,8 @@ function setCmdHeld(held: boolean): void {
   if (held === cmdHeld) return;
   cmdHeld = held;
   document.body.classList.toggle('cmd-held', held);
+  // Letting go of Command takes the offer away, the same as it takes the link away.
+  if (!held) linkCopy.hide();
   /*
    * Holding Command is the moment to find out what is on screen.
    *
@@ -3874,6 +3879,8 @@ function buildHosts(): void {
       if (/^https?:\/\//i.test(url)) void chrome.tabs.create({ url });
     },
     modifierHeld: () => cmdHeld,
+    onLinkHover: (term, text, range) => linkCopy.show(term, range, text),
+    onLinkLeave: () => linkCopy.hideSoon(),
   });
 
   splitView = new SplitView({
@@ -8112,6 +8119,8 @@ declare global {
       workspaceId: () => string;
       paneIds: () => string[];
       /** What the tab's icon says, what the panes say, and every decision behind it. */
+      /** The copy button beside a Command-hovered link. */
+      linkCopy: () => { shown: boolean; text: string; copied: boolean };
       faviconNow: () => {
         showing: string;
         effective: string;
@@ -8519,6 +8528,7 @@ function installTestHook(): void {
     },
     workspaceId: () => workspaceId,
     paneIds: () => (layout ? collectPanes(layout) : []),
+    linkCopy: () => linkCopy.state,
     faviconNow: () => ({
       showing: faviconState,
       effective: paneStatus.effective(),

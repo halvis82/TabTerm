@@ -675,6 +675,15 @@ Weight is not available. The cells are drawn on a canvas by the renderer, and a 
 given colors but not attributes, so there is no way to make a run of existing cells bold without
 rewriting the buffer underneath the program. The underline and the color carry it instead.
 
+**A link held under Command offers to copy it.** While Command is held over a URL or a path, a
+small Copy button fades in just after the link's last character, on its row, or above the end of
+the link when the row has no room left. It copies the link as it reads on screen. Pressing it says
+Copied and fades out; letting go of Command, the pointer leaving both the link and the button, or
+the screen scrolling or resizing under it takes it away the same way. Moving the pointer from the
+link onto the button keeps it: the button decides by whether the pointer is on it when a short
+grace runs out, because the terminal hears the pointer leave after the button hears it arrive. The
+press never reaches the terminal and never takes the keyboard from it. One button serves the page.
+
 **A link is answered for whether or not the modifier is held.** xterm asks its link providers when
 the pointer moves to a different line and keeps that answer until it moves again. Answering
 "nothing here" while Command was up therefore meant that pressing Command afterwards changed

@@ -42,6 +42,10 @@ export interface PathLinkOptions {
    * of accidental opens. Requiring Command matches how editors handle the same problem.
    */
   modifierHeld: () => boolean;
+  /** The pointer is on a link with the modifier held. For the copy button beside it. */
+  onHover?: (text: string, range: IBufferRange) => void;
+  /** And has left it. */
+  onLeave?: () => void;
 }
 
 interface Candidate {
@@ -177,8 +181,12 @@ export function createPathLinkProvider(term: Terminal, opts: PathLinkOptions): I
           clearHighlight();
           if (!held) return;
           highlight = paintRange(term, link.range, colorFor(term, link.range));
+          opts.onHover?.(link.text, link.range);
         },
-        leave: clearHighlight,
+        leave: () => {
+          clearHighlight();
+          opts.onLeave?.();
+        },
       });
 
       for (const u of urls) {
