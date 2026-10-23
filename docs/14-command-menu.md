@@ -205,6 +205,7 @@ Selection is a step of its own. Nothing in the list acts because the pointer pas
 | `Enter` | Paste into the terminal |
 | `Command+Enter` | Copy to the clipboard |
 | `Command+E` or right-click (Favorites) | Edit |
+| `Tab`, `Shift+Tab` | Next or previous page: Favorites, Recent, Actions, Stats, settings, and round |
 | `Escape` | Close, from anywhere |
 
 **The footer names the operations for whatever is selected**, so the keys are never something
@@ -231,6 +232,12 @@ The panel sits over a live terminal, and both accepting keys at once would mean 
 lands in whichever place happened to be focused last. So the panel takes the keyboard outright:
 while it is open the terminal is marked inert and its cursor stops blinking, and closing it hands
 focus straight back to the pane that had it. Both stay visible. Only one is listening.
+
+On a page with no search box, Stats and settings, the panel itself holds the keyboard. Focus used
+to be sent to the search box on every page, and on those two the box is hidden, so the keyboard was
+left on whatever tab button had been pressed and `Shift+Tab` became the browser's own order: it
+went forward to the minimize button rather than back a page. Inside a settings control, `Tab` moves
+between controls, which is what it means in a form.
 
 This is also why `Escape` is handled on the document in the capture phase. Wherever focus has
 ended up, the key that closes the panel has to work.

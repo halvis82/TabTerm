@@ -124,6 +124,55 @@ r.ok(
   ),
 );
 
+/*
+ * Tab and Shift Tab walk the pages in one order, both ways, and never leave the panel.
+ *
+ * Reported: Tab went from Favorites to Stats as expected, but Shift Tab from Stats went forward to
+ * the minimize button. Stats has no search box, so the keyboard was left wherever the browser put
+ * it and the browser's own Tab order took over.
+ */
+await press(client, 'k', 'KeyK', 4, 75);
+await sleep(600);
+await evaluate(
+  client,
+  `[...document.querySelectorAll('.cmd-tab')].find(t => t.textContent === 'Favorites')?.click()`,
+);
+await sleep(200);
+const page = () =>
+  evaluate(
+    client,
+    `document.querySelector('.cmd-gear.on') ? 'settings'
+      : document.querySelector('.cmd-tab.on')?.textContent.toLowerCase()`,
+  );
+const walk = async (shift) => {
+  const seen = [];
+  for (let i = 0; i < 5; i++) {
+    await pressInPalette(client, 'Tab', 'Tab', shift ? 8 : 0, 9);
+    await sleep(150);
+    seen.push(await page());
+  }
+  return seen.join(' ');
+};
+const forward = await walk(false);
+r.ok(
+  'Tab goes recent, actions, stats, settings, favorites',
+  forward === 'recent actions stats settings favorites',
+  forward,
+);
+const back = await walk(true);
+r.ok(
+  'Shift Tab goes the same way backwards',
+  back === 'settings stats actions recent favorites',
+  back,
+);
+const inside = await evaluate(
+  client,
+  `document.querySelector('.cmd-panel').contains(document.activeElement)`,
+);
+r.ok('and the keyboard is still inside the panel', inside === true);
+await pressInPalette(client, 'Escape', 'Escape', 0, 27);
+await sleep(400);
+
 // The Stats tab.
 await press(client, 'k', 'KeyK', 4, 75);
 await sleep(800);

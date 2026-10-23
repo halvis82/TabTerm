@@ -127,6 +127,8 @@ export class CommandPanel {
     this.#el = document.createElement('div');
     this.#el.className = 'cmd-panel';
     this.#el.hidden = true;
+    // Focusable, for the pages with no search box. See `#takeKeyboard`.
+    this.#el.tabIndex = -1;
 
     // A drag handle that is also the tab bar: the panel is small, and a title bar that exists
     // only to be grabbed would cost a row of space for nothing.
@@ -251,7 +253,7 @@ export class CommandPanel {
     // Focus always comes here, even when opened by the button: the panel and the terminal can
     // never both be active, and leaving focus on the button meant keystrokes fell through to
     // the shell while a list was plainly on screen waiting to be used.
-    this.#search.focus();
+    this.#takeKeyboard();
     this.#save();
   }
 
@@ -302,6 +304,7 @@ export class CommandPanel {
       this.#draft = null;
       this.#showingSettings = false;
       this.render();
+      this.#takeKeyboard();
       return true;
     }
     return false;
@@ -321,11 +324,25 @@ export class CommandPanel {
     if (tab === 'recent') this.#opts.onSearch(this.#search.value);
     this.render();
     this.#save();
-    this.#search.focus();
+    this.#takeKeyboard();
   }
 
   #save(): void {
     this.#opts.onPlacement({ ...this.#placement });
+  }
+
+  /**
+   * Keep the keyboard inside the panel, on whatever page is showing.
+   *
+   * Everything went to the search box, and Stats and settings hide it. Focusing a hidden box does
+   * nothing, so the keyboard stayed on the tab button that had just been pressed, or on nothing,
+   * and Shift and Tab from there was the browser's own: it went forward to the minimize button
+   * instead of back to Actions. The panel itself takes it on those pages, so its own Tab handling
+   * keeps answering.
+   */
+  #takeKeyboard(): void {
+    if (this.#search.hidden) this.#el.focus({ preventScroll: true });
+    else this.#search.focus();
   }
 
   /**
@@ -463,6 +480,7 @@ export class CommandPanel {
     this.open();
     this.#showingSettings = true;
     this.render();
+    this.#takeKeyboard();
   }
 
   /**
@@ -669,7 +687,7 @@ export class CommandPanel {
     this.#pendingAsk = null;
     // Only while the panel is still up. Focusing a box in a panel that is closing puts the
     // keyboard somewhere nobody can see.
-    if (this.isOpen) this.#search.focus();
+    if (this.isOpen) this.#takeKeyboard();
   }
 
   #ask(question: string, confirmLabel: string, onConfirm: () => void): void {
@@ -700,7 +718,7 @@ export class CommandPanel {
     this.#pendingAsk = { element: bar, confirm: onConfirm };
     // The box keeps the keyboard, so Return and Escape reach the handler above rather than
     // whichever button the browser happened to focus.
-    this.#search.focus();
+    this.#takeKeyboard();
   }
 
   #rowElement(row: PanelRow, index: number): HTMLElement {
@@ -822,7 +840,7 @@ export class CommandPanel {
         return;
       }
       this.render();
-      this.#search.focus();
+      this.#takeKeyboard();
     });
     el.addEventListener('dblclick', () => {
       this.#selected = index;
@@ -959,6 +977,7 @@ export class CommandPanel {
     gear.addEventListener('click', () => {
       this.#showingSettings = !this.#showingSettings;
       this.render();
+      this.#takeKeyboard();
     });
 
     this.#footer.replaceChildren(hints, gear);
@@ -1144,6 +1163,17 @@ export class CommandPanel {
      * away and the list with it. It closes the form now and leaves the panel where it was; a
      * second press closes the panel, which is what it does everywhere else.
      */
+    /*
+     * Settings are the last page in the Tab order, after Stats.
+     *
+     * Only from the page itself. Tab inside one of its boxes or switches still moves between
+     * them, which is what Tab means in a form.
+     */
+    if (this.#showingSettings && !this.#writingOne && e.key === 'Tab' && e.target === this.#el) {
+      e.preventDefault();
+      this.#cycleTab(e.shiftKey ? -1 : 1);
+      return;
+    }
     if (this.#writingOne || this.#showingSettings) {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -1151,6 +1181,7 @@ export class CommandPanel {
         this.#draft = null;
         this.#showingSettings = false;
         this.render();
+        this.#takeKeyboard();
       }
       return;
     }
@@ -1182,8 +1213,8 @@ export class CommandPanel {
         this.#activate(e.metaKey ? 'copy' : 'paste');
         return;
       case 'Tab':
-        // Cycling tabs from the keyboard, since the panel has three of them and reaching for
-        // the mouse to change list is the thing this panel exists to avoid.
+        // Cycling pages from the keyboard, since reaching for the mouse to change list is the
+        // thing this panel exists to avoid.
         e.preventDefault();
         this.#cycleTab(e.shiftKey ? -1 : 1);
         return;
@@ -1222,10 +1253,29 @@ export class CommandPanel {
     }
   }
 
+  /**
+   * Favorites, Recent, Actions, Stats, settings, and round again. Shift goes the other way.
+   *
+   * Settings are a page here even though they are not a tab, because they were asked for as the
+   * last stop in this order and the gear is otherwise the one page the keyboard cannot reach.
+   */
   #cycleTab(delta: number): void {
-    const order: PanelTab[] = ['favorites', 'recent', 'actions', 'stats'];
-    const at = order.indexOf(this.#placement.tab);
-    this.#setTab(order[(at + delta + order.length) % order.length] as PanelTab);
+    const order: (PanelTab | 'settings')[] = [
+      'favorites',
+      'recent',
+      'actions',
+      'stats',
+      'settings',
+    ];
+    const at = order.indexOf(this.#showingSettings ? 'settings' : this.#placement.tab);
+    const next = order[(at + delta + order.length) % order.length];
+    if (next === 'settings') {
+      this.#showingSettings = true;
+      this.render();
+      this.#takeKeyboard();
+      return;
+    }
+    if (next !== undefined) this.#setTab(next);
   }
 
   #activate(how: 'paste' | 'copy' | 'run'): void {

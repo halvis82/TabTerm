@@ -1006,6 +1006,10 @@
    * terminal panel must not do. The blur keeps it readable over busy output without making it
    * opaque.
    */
+  /* Holding the keyboard on a page with no search box is not a selection, so it draws nothing. */
+  .cmd-panel:focus {
+    outline: none;
+  }
   .cmd-panel {
     position: absolute;
     z-index: 45;
