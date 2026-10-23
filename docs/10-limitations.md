@@ -296,6 +296,38 @@ Note what this measurement also caught: the docs and the installer told people t
 `Command+Shift+E`, which the manifest never offered. Reading the binding back is the only way to
 know what a user will actually press.
 
+### 1.9 Some Control and Command arrows beep however the page handles them
+Measured on macOS 26 with Chrome 156. The default pane keys, Control Command Left and Right,
+play the system alert sound on every press, including each autorepeat, although the page claims
+the key and focus moves.
+
+The sound comes from Chrome's browser process, not the page. Chrome passes every keystroke
+through `interpretKeyEvents:` before the page sees it, so that the input method can act on it,
+and macOS's standard key bindings (`StandardKeyBinding.dict` in AppKit) bind Control Command
+Left, Right and Down to `makeBaseWritingDirection…:`. Chrome implements none of those, so AppKit
+finds no responder and beeps. That happens before the page is involved, so neither
+`preventDefault` nor anything else a page can do prevents it.
+
+Reproduced outside Chrome with a view that mirrors Chrome's: every combination the table binds to
+a writing direction beeps (Control Command Left, Right and Down, Control Option Command Right), and
+every one it leaves unbound is silent (Control Command Up, Control Shift Command Right, Control
+Option Right, Command K).
+
+The fix is per user, in `~/Library/KeyBindings/DefaultKeyBinding.dict`, read by an application
+when it starts, so Chrome has to be restarted once:
+
+```
+{
+    "@^\UF702" = "noop:";
+    "@^\UF703" = "noop:";
+    "@^\UF701" = "noop:";
+}
+```
+
+It applies to every Cocoa application, and what it removes is changing text writing direction
+from the keyboard. TabTerm does not write this file itself. The alternative is binding pane focus
+to a combination the table leaves alone, in the shortcut settings.
+
 ### 1.7 Kitty graphics protocol
 xterm.js supports Sixel and the iTerm2 inline-image protocol via addon, so images are partly
 recoverable. The **Kitty graphics protocol is not supported**. Tools targeting it do not render.

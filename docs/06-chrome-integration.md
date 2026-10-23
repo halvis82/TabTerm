@@ -781,6 +781,11 @@ Command+F opens terminal search. Control+Command+F and Shift+Command+F pass thro
 keymap without opening search. Control+Command combinations remain available to page-level pane
 shortcuts or to Chrome and macOS.
 
+Control Command Left and Right, the default keys for moving between panes, make macOS play its
+alert sound inside Chrome however the page handles them, because the system binds them to a text
+command Chrome does not implement. The cause and the one-time fix are in `10-limitations.md` tier
+1.9.
+
 ### What a page cannot receive
 
 These are consumed by Chrome or macOS and never reach the page in a cancelable form:
