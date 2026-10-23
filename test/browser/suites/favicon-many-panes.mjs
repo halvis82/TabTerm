@@ -47,7 +47,7 @@ const reload = async () => {
 
 await hook(a, 'UserPromptSubmit');
 await hook(b, 'UserPromptSubmit');
-r.ok('two agents working is one ring', (await picture()) === 'running', await picture());
+r.ok('two agents working is two rings', (await picture()) === 'running+running', await picture());
 
 await hook(a, 'Stop');
 r.ok(
@@ -57,11 +57,15 @@ r.ok(
 );
 
 await hook(b, 'Stop');
-r.ok('both finished is one solid tick', (await picture()) === 'success', await picture());
+r.ok('both finished is two ticks', (await picture()) === 'success+success', await picture());
 
 await evaluate(client, 'window.__tabterm.lookAtTab()');
 await sleep(300);
-r.ok('and looking at the tab clears it', (await picture()) === 'idle', await picture());
+r.ok(
+  'and looking at the tab clears both to plain halves',
+  (await picture()) === 'idle+idle',
+  await picture(),
+);
 
 /*
  * An interrupt ends the turn, and nothing else ever says so.
@@ -70,12 +74,12 @@ r.ok('and looking at the tab clears it', (await picture()) === 'idle', await pic
  * working: the ring spun over an agent sitting at its prompt, and a reload brought it back.
  */
 await hook(b, 'UserPromptSubmit');
-r.ok('a new turn spins', (await picture()) === 'running', await picture());
+r.ok('a new turn spins in its half', (await picture()) === 'running+idle', await picture());
 await evaluate(client, `window.__tabterm.sendInput(${JSON.stringify(b.paneId)}, '\\u001b')`);
 await sleep(800);
-r.ok('Escape stops the ring', (await picture()) === 'idle', await picture());
+r.ok('Escape stops the ring', (await picture()) === 'idle+idle', await picture());
 await reload();
-r.ok('and a reload agrees', (await picture()) === 'idle', await picture());
+r.ok('and a reload agrees', (await picture()) === 'idle+idle', await picture());
 
 /*
  * Before and after a reload say the same thing.
@@ -85,16 +89,16 @@ r.ok('and a reload agrees', (await picture()) === 'idle', await picture());
  */
 await evaluate(client, `window.__tabterm.focus(${JSON.stringify(a.paneId)})`);
 await evaluate(client, `window.__tabterm.sendInput(${JSON.stringify(a.paneId)}, 'sleep 60\\r')`);
-await waitFor(client, `window.__tabterm.faviconNow().picture.join('+') === 'running'`, 10000);
-r.ok('a long command spins', (await picture()) === 'running', await picture());
+await waitFor(client, `window.__tabterm.faviconNow().picture.join('+') === 'running+idle'`, 10000);
+r.ok('a long command spins in its half', (await picture()) === 'running+idle', await picture());
 await reload();
-r.ok('and still spins after a reload', (await picture()) === 'running', await picture());
+r.ok('and still spins after a reload', (await picture()) === 'running+idle', await picture());
 
 await hook(b, 'UserPromptSubmit');
 await reload();
 r.ok(
-  'a working agent beside it is still one ring after a reload',
-  (await picture()) === 'running',
+  'a working agent beside it is two rings after a reload',
+  (await picture()) === 'running+running',
   await picture(),
 );
 await hook(b, 'Stop');

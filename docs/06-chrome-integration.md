@@ -502,13 +502,15 @@ first thing read and the first thing lost. Roughly one man in twelve cannot sepa
 the green, so success is a tick and failure is a cross, and the color agrees with the shape rather
 than carrying it alone.
 
-**Several panes that disagree share the icon.** A tab of several panes used to show only the
-most urgent of their states, so an agent that finished beside one still working showed only the
-ring and the finished one went unseen. When panes are in different states, the icon is split
-into two slices side by side, each with its own ground and mark, most urgent on the left: a tick
-beside a ring, for that case. Panes with nothing to report take no slice, and panes in the same
-state share one, so three agents that have all finished are one solid tick. Two slices at most,
-because at 16 pixels a third is a sliver of color with no shape left in it.
+**A tab of several panes shows two halves.** A tab of several panes used to show only the most
+urgent of their states, so an agent that finished beside one still working showed only the ring and
+the finished one went unseen. The icon of a tab with more than one pane is now always split into
+two halves side by side, each with its own ground and mark: the two most urgent panes' states, the
+more urgent on the left. A tick beside a ring when one of two has finished, two rings while both
+work, two ticks when both have, and two plain marks, the terminal chevron on the idle ground, when
+nothing is happening, so a split tab is recognisable as one from the tab strip. Two halves at most,
+because at 16 pixels a third is a sliver of color with no shape left in it. A tab of one pane is
+drawn whole, and idle there is the packaged icon.
 
 **A reload shows what was showing.** A command still running when the tab reloads is shown
 running, as it was before; the agent state replayed after the attach takes over for a pane with an

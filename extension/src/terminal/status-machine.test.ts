@@ -181,33 +181,44 @@ describe('what the icon draws for several panes', () => {
     expect(m.picture()).toEqual(['success', 'running']);
   });
 
-  it('draws one solid state when every pane agrees', () => {
+  it('draws two halves when the panes agree, too', () => {
     const m = new StatusMachine();
     m.finished('a', 0);
     m.finished('b', 0);
-    m.finished('c', 0);
-    expect(m.picture()).toEqual(['success']);
-  });
-
-  it('leaves out panes with nothing to say', () => {
-    const m = new StatusMachine();
+    expect(m.picture()).toEqual(['success', 'success']);
     m.set('a', 'running');
-    m.set('b', 'idle');
-    expect(m.picture()).toEqual(['running']);
+    m.set('b', 'running');
+    expect(m.picture()).toEqual(['running', 'running']);
   });
 
-  it('is the plain state when nothing is happening', () => {
+  it('draws two plain halves for a tab of several panes doing nothing', () => {
+    const m = new StatusMachine();
+    m.set('a', 'idle');
+    m.set('b', 'idle');
+    m.set('c', 'idle');
+    expect(m.picture()).toEqual(['idle', 'idle']);
+  });
+
+  it('takes the two most urgent of more than two, the more urgent on the left', () => {
+    const m = new StatusMachine();
+    m.set('a', 'idle');
+    m.set('b', 'running');
+    m.finished('c', 0);
+    expect(m.picture()).toEqual(['success', 'running']);
+  });
+
+  it('draws one picture for a tab of one pane', () => {
     const m = new StatusMachine();
     m.set('a', 'idle');
     expect(m.picture()).toEqual(['idle']);
     expect(new StatusMachine().picture()).toEqual(['disconnected']);
   });
 
-  it('becomes whole again once the finished one is seen', () => {
+  it('turns a finished half back to plain once it is seen', () => {
     const m = new StatusMachine();
     m.finished('a', 0);
     m.set('b', 'running');
     m.seen();
-    expect(m.picture()).toEqual(['running']);
+    expect(m.picture()).toEqual(['running', 'idle']);
   });
 });

@@ -127,20 +127,24 @@ export class StatusMachine {
   }
 
   /**
-   * What the icon draws: every state a pane has something to say in, most urgent first.
+   * What the icon draws: one picture for a tab of one pane, two halves for a tab of several.
    *
-   * One entry when the panes agree, which is drawn whole. Idle and disconnected panes say
-   * nothing, so a quiet shell beside a finished agent does not split the icon. More than one
-   * entry is drawn as slices side by side, so an agent that finished beside one still working
-   * shows both rather than only the more urgent.
+   * A tab of several panes always shows two halves, the two most urgent panes' states with the
+   * more urgent on the left, so a split tab looks like one at a glance whatever it is doing: two
+   * rings while two things work, two ticks when both have finished, a tick beside a ring when one
+   * has, and two plain marks when nothing is happening. Asked for in those words after the halves
+   * were first drawn only when the panes disagreed. Two halves at most, because at sixteen pixels a
+   * third is a sliver of colour with no shape left in it.
+   *
+   * A pane with no session yet says nothing and takes no half, unless that is all there is.
    */
   picture(): FaviconState[] {
-    const present = new Set<FaviconState>();
-    for (const pane of this.#panes.values()) present.add(pane.state);
-    const shown = PRIORITY.filter(
-      (state) => present.has(state) && state !== 'idle' && state !== 'disconnected',
-    );
-    return shown.length > 0 ? shown : [this.effective()];
+    const states = [...this.#panes.values()]
+      .map((pane) => pane.state)
+      .filter((state) => state !== 'disconnected')
+      .sort((a, b) => PRIORITY.indexOf(a) - PRIORITY.indexOf(b));
+    if (states.length < 2) return [this.effective()];
+    return states.slice(0, 2);
   }
 
   /** How many panes are in a given state, for a title suffix like "2 running". */
