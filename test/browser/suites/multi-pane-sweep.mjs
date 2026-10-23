@@ -46,8 +46,17 @@ const boxes = async () =>
       client,
       `JSON.stringify([...document.querySelectorAll('.pane')].map((p) => {
          const b = p.getBoundingClientRect();
+         /*
+          * On the terminal, not on whatever is drawn over it. An empty pane has its chooser in
+          * its lower part, path box included, and a right click on a text box is that box's. The
+          * chooser leaves the top of the pane free, so aim between the pane's bar and it.
+          */
+         const bar = p.querySelector('.pane-bar')?.getBoundingClientRect();
+         const chooser = p.querySelector('.pane-chooser-box')?.getBoundingClientRect();
+         const top = bar && bar.height > 0 ? bar.bottom : b.top;
+         const y = chooser ? (top + chooser.top) / 2 : b.top + b.height / 2;
          return { id: p.dataset.paneId ?? '', x: Math.round(b.left + b.width / 2),
-                  y: Math.round(b.top + b.height / 2), w: Math.round(b.width), h: Math.round(b.height) };
+                  y: Math.round(y), w: Math.round(b.width), h: Math.round(b.height) };
        }))`,
     ),
   );
