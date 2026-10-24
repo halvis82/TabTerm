@@ -37,8 +37,9 @@ const press = async (shift) => {
       modifiers: (shift ? 8 : 0) | 4, // Shift and Meta
       key: 'f',
       code: 'KeyF',
+      // No native key code: with one, the press Chrome is meant to keep reaches the menu bar of a
+      // headless browser, which has none, and plays the alert sound. See `press` in helpers.mjs.
       windowsVirtualKeyCode: 70,
-      nativeVirtualKeyCode: 3,
     });
   }
   await sleep(500);

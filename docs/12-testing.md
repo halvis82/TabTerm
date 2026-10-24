@@ -500,6 +500,22 @@ off. That is what a test browser should have anyway: none of it is the product, 
 traffic sitting in the middle of a measurement. It is reasoned from that record rather than proved
 by removing it, since the attempt cannot be forced.
 
+## A Command press the page leaves alone is sent without a native key code
+
+A full run played the system alert sound a few times. Watched for the same way: every alert sound
+opens a connection to `systemsoundserverd` that names the process asking, and a run with the log
+open and the process list sampled each second named the headless browsers, at moments when
+`find-leaves-chrome-alone`, `release-regressions` and `terminal` were running. Each of them presses
+a Command shortcut the page deliberately does not take, such as Command Shift F, which belongs to
+Chrome.
+
+`Input.dispatchKeyEvent` with a `nativeVirtualKeyCode` makes Chrome build a real macOS key event.
+One the page leaves alone goes on to the menu bar, a headless browser has no menu bar, and AppKit
+answers a key nothing claims with the alert sound. The same press without a native code reaches the
+page identically and makes no sound, measured one way and then the other. So `press` in
+`helpers.mjs` leaves the native code off whenever Command is held, and the suites that build their
+own Command presses do the same. Presses the page handles keep it, since they never reach AppKit.
+
 ## How many browsers a run drives, and why it is not more
 
 The pool ran four browsers at once. Measured across four full runs on an ordinary laptop that is

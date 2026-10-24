@@ -342,7 +342,10 @@ export async function press(
       code,
       modifiers,
       windowsVirtualKeyCode: keyCode,
-      nativeVirtualKeyCode: keyCode,
+      // Not with Command. A native key code makes Chrome build a real macOS key event, and one
+      // the page leaves alone goes to the menu bar, which a headless browser has none of, so
+      // AppKit plays the alert sound. The page sees the same key either way.
+      ...((modifiers & 4) === 0 ? { nativeVirtualKeyCode: keyCode } : {}),
     });
   }
 }
