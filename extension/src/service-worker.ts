@@ -8,6 +8,7 @@ import {
   type NotifyPriority,
 } from './chrome/notifications.js';
 import { buildAction } from './chrome/cross-actions.js';
+import { openTabAtEnd } from './chrome/new-tab.js';
 
 /**
  * Service worker: dispatch only.
@@ -170,10 +171,7 @@ async function bringToFront(windowId: number | undefined): Promise<void> {
  * that one really is about the page it came from. See `openStaged`.
  */
 async function openTerminal(): Promise<void> {
-  const created = await chrome.tabs.create({
-    url: chrome.runtime.getURL('terminal.html'),
-    active: true,
-  });
+  const created = await openTabAtEnd(chrome.runtime.getURL('terminal.html'));
   await bringToFront(created.windowId);
 }
 
@@ -858,6 +856,10 @@ function reopenOnce(): Promise<void> {
  * fresh calls exercise the look-again that happens immediately before each tab is created. The
  * only thing it can open is this extension's own pages.
  */
+/** What the new-terminal shortcut runs, for the new-tab-returns suite. Chrome cannot press it. */
+(globalThis as unknown as { __tabtermNewTerminal?: () => Promise<void> }).__tabtermNewTerminal =
+  openTerminal;
+
 (
   globalThis as unknown as { __tabtermReopen?: (fresh?: boolean) => Promise<void> }
 ).__tabtermReopen = (fresh = false) => {
@@ -1281,7 +1283,7 @@ async function launchAgentTab(): Promise<void> {
   const url = new URL(chrome.runtime.getURL('terminal.html'));
   url.searchParams.set('agent', '1');
   // At the end of the window, like any new tab. The same rule as a plain terminal above.
-  const created = await chrome.tabs.create({ url: url.toString(), active: true });
+  const created = await openTabAtEnd(url.toString());
   await bringToFront(created.windowId);
 }
 

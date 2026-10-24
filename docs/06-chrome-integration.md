@@ -125,6 +125,13 @@ what was in front of it, and the plainer rule is the one the browser's own key a
 The exception is a tab staged with text from a page, which keeps its place beside the tab it came
 from, because that one really is about the page.
 
+**Closing it goes back to the tab it was opened from.** Chrome does this for Cmd+T by remembering
+which tab a new one came from, and forgets it once somebody switches tabs by hand. A tab created
+without an opener has none, so closing a new terminal fell to its neighbour, which at the end of the
+strip is whichever tab happened to be last. The new terminal and agent tabs name the tab in front as
+their opener (`chrome/new-tab.ts`), which hands Chrome the same rule, forgetting included. The
+`new-tab-returns` suite checks where it opens and where closing it lands.
+
 **A command also brings Chrome's window to the front.** `active: true` on a tab selects it within
 its window and does nothing to the window itself, which is invisible while Chrome is the focused
 application and wrong the moment it is not. A shortcut set to global fires from another app

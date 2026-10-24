@@ -62,6 +62,7 @@ import {
 } from './titles.js';
 import { TabFlasher, flashingSessions, setFlashing } from './flash-on-finish.js';
 import { askWorker, tellWorker } from '../chrome/worker.js';
+import { openTabAtEnd } from '../chrome/new-tab.js';
 import { HeldInput } from './held-input.js';
 import { MOUSE_HINT } from './mouse-hint.js';
 import { Launcher, type LauncherThing } from '../launcher/launcher.js';
@@ -2451,7 +2452,7 @@ function wayOutItems(separated: boolean): ShellItem[] {
       label: 'New terminal tab',
       separated,
       run: () => {
-        void chrome.tabs.create({ url: chrome.runtime.getURL('terminal.html'), active: true });
+        void openTabAtEnd(chrome.runtime.getURL('terminal.html'));
       },
     },
     menuToggleItem(),
@@ -5935,7 +5936,7 @@ function paletteActions(): PaletteAction[] {
       title: 'New terminal tab',
       ...key('new-terminal'),
       run: () => {
-        void chrome.tabs.create({ url: chrome.runtime.getURL('terminal.html'), active: true });
+        void openTabAtEnd(chrome.runtime.getURL('terminal.html'));
       },
     },
   ];

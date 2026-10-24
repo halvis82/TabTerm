@@ -99,6 +99,8 @@ const FIRST = [
    * getting three times slower.
    */
   'works-with-no-internet',
+  // Arranges and reads the whole tab strip, where another suite's tab is a wrong answer.
+  'new-tab-returns',
   // This suite acts on row positions in the daemon's shared recent-command list.
   // Commands from another suite can replace its first row between selection and assertion.
   'command-panel',
