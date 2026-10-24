@@ -1392,6 +1392,13 @@ or Return to go. A folder is reached by clicking, typing, or Tab, in any mixture
 button that opened a separate browser with no box at all, on the reasoning that typing a path is
 what `cd` is for, and it was asked for as "the same folder picker as the homepage" instead.
 
+The list under the box is one function, `folderList` in `launcher/folder-picker.ts`, which the start
+screen draws its list with as well, so the two cannot drift apart. The boxes stay separate, because
+the start screen's is tied to its templates, its folder check, dropping a path in, and a screen that
+redraws under it. `..` takes one segment off what was typed and keeps its form, so `Documents/` goes
+back to the empty box and `~/x/` to `~/`. From home it goes to the folder above home. On the start
+screen it used to be offered there and do nothing.
+
 The answers to its questions come back on the one channel every folder question uses, and each is
 matched to the pane that asked by the path it is about. A single "the pane that asked last" was
 cleared by the first answer, so a click into a folder followed quickly by Tab lost the second

@@ -13,8 +13,9 @@ import { resolveTypedPath, unresolveTypedPath } from './typed-path.js';
  * It starts in a folder rather than empty, because a pane already has one: the shell in it is
  * somewhere, and that is where somebody looking for a folder near their work wants to begin.
  *
- * The start screen keeps its own copy of this behavior inside the launcher for now, where it is
- * tangled with templates and the folder check. They answer the same questions in the same words.
+ * The start screen keeps its own box, because there the box is tangled with templates, the folder
+ * check, dropping a path in and a screen that redraws under it. The list under the box is shared:
+ * both draw it with `folderList` below, so the folders, `..` and the `...` cannot drift apart.
  */
 
 export interface FolderPickerOptions {
@@ -139,58 +140,106 @@ export class FolderPicker {
   #draw(): void {
     this.#list?.remove();
     this.#list = null;
-    const dir = this.#currentDir();
-    if (this.#listing?.dir !== dir) return;
-
-    const typed = this.#input.value;
-    const fragment = typed
-      .slice(typed.lastIndexOf('/') + 1)
-      .trim()
-      .toLowerCase();
-    const matching = this.#listing.entries.filter((name) =>
-      name.toLowerCase().startsWith(fragment),
-    );
-
-    const list = document.createElement('div');
-    list.className = 'launcher-completions';
-
-    // Up first, so it never moves.
-    if (dir !== '/') {
-      const up = document.createElement('button');
-      up.className = 'launcher-completion is-up';
-      up.textContent = '..';
-      up.addEventListener('click', () => {
-        // Worked out on the absolute path, so `..` from `~` goes to the folder above home rather
-        // than to whatever is left of the text, and shown again in the short form.
-        const here = trimSlash(expandTilde(this.#currentDir(), this.#opts.home));
-        const parent = here.slice(0, here.lastIndexOf('/') + 1) || '/';
-        this.#go(withSlash(tildeForm(parent, this.#opts.home)));
-      });
-      list.append(up);
-    }
-    for (const name of matching) {
-      const chip = document.createElement('button');
-      chip.className = 'launcher-completion';
-      chip.textContent = name;
-      chip.dataset['path'] = this.#resolved(`${this.#typedDir()}${name}`);
-      chip.addEventListener('click', () => this.#go(`${this.#typedDir()}${name}/`));
-      list.append(chip);
-    }
-    if (matching.length === 0) {
-      const none = document.createElement('div');
-      none.className = 'launcher-completion-more';
-      none.textContent = fragment === '' ? 'no folders in here' : 'nothing matching';
-      list.append(none);
-    }
-
+    if (this.#listing?.dir !== this.#currentDir()) return;
+    const list = folderList({
+      typed: this.#input.value,
+      entries: this.#listing.entries,
+      home: this.#opts.home,
+      resolve: (typed) => this.#resolved(typed),
+      onGo: (value) => this.#go(value),
+    });
     this.element.append(list);
     this.#list = list;
     trimToRows(list);
   }
 }
 
+/** How many chips to build at most. A home directory can hold hundreds and the list is a means. */
+const MAX_FOLDERS = 40;
+
+/**
+ * The folders inside wherever a path box points, as chips, `..` first.
+ *
+ * Filtered by what has been typed after the last slash. A chip puts its folder in the box with a
+ * trailing slash, which moves the list into it, and `..` takes one step back up. Both are built
+ * from the text as typed, so `Documents/` stays relative and `~/x/` keeps its tilde.
+ *
+ * Measured into rows by `trimToRows` once it is in the document, which is the only time offsets
+ * mean anything.
+ */
+export function folderList(opts: {
+  typed: string;
+  entries: readonly string[];
+  home: string;
+  resolve: (typed: string) => string;
+  onGo: (value: string) => void;
+}): HTMLElement {
+  const { typed, resolve, onGo } = opts;
+  const cut = typed.lastIndexOf('/');
+  const typedDir = cut === -1 ? '' : typed.slice(0, cut + 1);
+  const fragment = typed
+    .slice(cut + 1)
+    .trim()
+    .toLowerCase();
+  const matching = opts.entries.filter((name) => name.toLowerCase().startsWith(fragment));
+
+  const list = document.createElement('div');
+  list.className = 'launcher-completions';
+
+  // Up first, so it never moves.
+  const up = upFrom(typedDir, opts.home);
+  if (up !== null) {
+    const chip = document.createElement('button');
+    chip.className = 'launcher-completion is-up';
+    chip.textContent = '..';
+    chip.dataset['path'] = resolve(typedDir);
+    chip.addEventListener('click', () => onGo(up));
+    list.append(chip);
+  }
+  for (const name of matching.slice(0, MAX_FOLDERS)) {
+    const chip = document.createElement('button');
+    chip.className = 'launcher-completion';
+    chip.textContent = name;
+    // The whole path, where a right click can find it. The label is only one segment.
+    chip.dataset['path'] = resolve(`${typedDir}${name}`);
+    chip.addEventListener('click', () => onGo(`${typedDir}${name}/`));
+    list.append(chip);
+  }
+  if (matching.length > MAX_FOLDERS) {
+    const more = document.createElement('div');
+    more.className = 'launcher-completion-more';
+    more.textContent = `and ${String(matching.length - MAX_FOLDERS)} more, keep typing`;
+    list.append(more);
+  }
+  if (matching.length === 0) {
+    const none = document.createElement('div');
+    none.className = 'launcher-completion-more';
+    none.textContent = fragment === '' ? 'no folders in here' : 'nothing matching';
+    list.append(none);
+  }
+  return list;
+}
+
+/**
+ * Where `..` goes from the directory part of what is typed, or null at the root.
+ *
+ * One segment off the text when it has one to lose, so `Documents/` goes to the empty box, which
+ * means home, and `~/x/` to `~/`. From home itself, typed as nothing or as `~/`, it goes to the
+ * folder above home, written out in full since there is no short form for it. The start screen
+ * used to offer `..` at home and do nothing when it was pressed.
+ */
+export function upFrom(typedDir: string, home: string): string | null {
+  if (typedDir === '/') return null;
+  const trimmed = typedDir.replace(/\/$/, '');
+  if (trimmed === '' || trimmed === '~') {
+    if (!home.startsWith('/') || home === '/') return null;
+    return withSlash(home.slice(0, home.lastIndexOf('/')) || '/');
+  }
+  return trimmed.slice(0, trimmed.lastIndexOf('/') + 1);
+}
+
 /** Keep `ROWS` rows of chips and say how many more there are. Measured, since names vary. */
-function trimToRows(list: HTMLElement): void {
+export function trimToRows(list: HTMLElement): void {
   const children = [...list.children] as HTMLElement[];
   const rows: number[] = [];
   for (const child of children) if (!rows.includes(child.offsetTop)) rows.push(child.offsetTop);
@@ -216,13 +265,6 @@ function tildeForm(path: string, home: string): string {
     return `~${path.slice(home.length)}`;
   }
   return path;
-}
-
-/** And back, for working out where `..` goes. */
-function expandTilde(path: string, home: string): string {
-  if (!home.startsWith('/')) return path;
-  if (path === '~' || path === '~/') return home;
-  return path.startsWith('~/') ? `${home}${path.slice(1)}` : path;
 }
 
 function withSlash(path: string): string {

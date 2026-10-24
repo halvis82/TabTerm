@@ -1,5 +1,6 @@
 import { buildSessions, isDraggingSession, placeSessions } from './sessions-view.js';
 import { resolveTypedPath, unresolveTypedPath } from './typed-path.js';
+import { folderList, trimToRows } from './folder-picker.js';
 import { clearBelow } from '../terminal/layers.js';
 import { checkShape, previewPanes } from '@tabterm/shared';
 
@@ -826,9 +827,6 @@ export class Launcher {
    */
   #listing: { dir: string; entries: readonly string[] } | null = null;
 
-  /** How many to draw. A home directory can hold hundreds and the list is a means, not a view. */
-  static readonly #MAX_FOLDERS = 40;
-
   /**
    * The directory part of what is typed, always ending in a slash.
    *
@@ -842,13 +840,6 @@ export class Launcher {
     const dir = cut === -1 ? '' : typed.slice(0, cut + 1);
     const resolved = this.#resolved(dir);
     return resolved.endsWith('/') ? resolved : `${resolved}/`;
-  }
-
-  /** The part after the last slash, which is what filters the list. */
-  #currentFragment(): string {
-    const typed = this.#dirInput?.value ?? '';
-    const cut = typed.lastIndexOf('/');
-    return cut === -1 ? typed.trim() : typed.slice(cut + 1).trim();
   }
 
   /**
@@ -937,93 +928,32 @@ export class Launcher {
     this.#completionList?.remove();
     this.#completionList = null;
 
-    const dir = this.#currentDir();
-    if (this.#listing?.dir !== dir) return;
-    const fragment = this.#currentFragment().toLowerCase();
-    const matching = this.#listing.entries.filter((name) =>
-      name.toLowerCase().startsWith(fragment),
-    );
-
-    const list = document.createElement('div');
-    list.className = 'launcher-completions';
-
-    /** What has been typed, up to and including the last slash. Empty when there is none. */
-    const typedDir = (): string => {
-      const typed = input.value;
-      const cut = typed.lastIndexOf('/');
-      return cut === -1 ? '' : typed.slice(0, cut + 1);
-    };
-
-    const go = (name: string): void => {
-      /**
-       * Built from what was typed, not from the resolved path.
-       *
-       * Resolving turns `Documents` into an absolute path, and putting that back in the box
-       * replaced what somebody had written with `/Users/them/Documents/`. The box keeps the
-       * form they chose; only the questions asked of the daemon are resolved.
-       *
-       * The trailing slash is the point: it says "and now the next one", and it is what moves
-       * the list into the folder just chosen.
-       */
-      input.value = `${typedDir()}${name}/`;
-      input.focus();
-      input.setSelectionRange(input.value.length, input.value.length);
-      this.#folderState = null;
-      this.#ensureListing();
-      this.#renderFolders();
-      this.#renderFolderState();
-      this.#askFolderState();
-    };
-
-    // Up, when there is anywhere to go. Always first, so it never moves.
-    if (dir !== '/' && dir !== '~/') {
-      const up = document.createElement('button');
-      up.className = 'launcher-completion is-up';
-      up.textContent = '..';
-      up.dataset['path'] = this.#resolved(typedDir());
-      up.addEventListener('click', () => {
-        // One segment off what is typed. An empty box means home, which is where `..` from the
-        // first level lands anyway.
-        const trimmed = typedDir().replace(/\/$/, '');
-        input.value = trimmed === '' ? '' : `${trimmed.slice(0, trimmed.lastIndexOf('/') + 1)}`;
+    if (this.#listing?.dir !== this.#currentDir()) return;
+    /**
+     * Drawn by the same `folderList` a new pane's chooser uses, so the two cannot drift apart.
+     *
+     * A chip or `..` is built from what was typed, not from the resolved path: resolving turns
+     * `Documents` into an absolute path, and putting that back in the box replaced what somebody
+     * had written with `/Users/them/Documents/`. The box keeps the form they chose; only the
+     * questions asked of the daemon are resolved. The trailing slash a chip adds is the point: it
+     * says "and now the next one", and it is what moves the list into the folder just chosen.
+     */
+    const list = folderList({
+      typed: input.value,
+      entries: this.#listing.entries,
+      home: this.#state?.home ?? '~',
+      resolve: (typed) => this.#resolved(typed),
+      onGo: (value) => {
+        input.value = value;
         input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
         this.#folderState = null;
         this.#ensureListing();
         this.#renderFolders();
         this.#renderFolderState();
         this.#askFolderState();
-      });
-      list.append(up);
-    }
-
-    for (const name of matching.slice(0, Launcher.#MAX_FOLDERS)) {
-      const item = document.createElement('button');
-      item.className = 'launcher-completion';
-      item.textContent = name;
-      /**
-       * The folder this chip stands for, written where a right click can find it.
-       *
-       * The chip's text is one segment; what somebody wants to open in Finder or put on the
-       * clipboard is the whole path. Resolved here, where the directory being listed is known,
-       * rather than reconstructed later from a label.
-       */
-      item.dataset['path'] = this.#resolved(`${typedDir()}${name}`);
-      item.addEventListener('click', () => go(name));
-      list.append(item);
-    }
-
-    if (matching.length > Launcher.#MAX_FOLDERS) {
-      const more = document.createElement('div');
-      more.className = 'launcher-completion-more';
-      more.textContent = `and ${String(matching.length - Launcher.#MAX_FOLDERS)} more, keep typing`;
-      list.append(more);
-    }
-    if (matching.length === 0) {
-      const none = document.createElement('div');
-      none.className = 'launcher-completion-more';
-      none.textContent = fragment === '' ? 'no folders in here' : 'nothing matching';
-      list.append(none);
-    }
+      },
+    });
 
     /**
      * Directly under the box, not at the end of the form.
@@ -1034,47 +964,15 @@ export class Launcher {
      */
     input.parentElement?.insertAdjacentElement('afterend', list);
     this.#completionList = list;
-    this.#trimFolderRows(list);
-  }
-
-  /**
-   * Three rows of folders, then a `...`.
-   *
-   * The list used to be a fixed 132px box with a scrollbar: a home directory with six folders
-   * left a band of empty space between it and the buttons, and one with sixty hid the rest
-   * behind a scrollbar nobody goes looking for. Three rows is enough to recognise where you
-   * are, and past that typing is faster than hunting anyway.
-   *
-   * Measured rather than counted, because how many chips fit on a row depends on how long the
-   * folder names are. Done after the list is in the document, which is the only time offsets
-   * mean anything.
-   */
-  #trimFolderRows(list: HTMLElement): void {
-    const children = [...list.children] as HTMLElement[];
-    if (children.length === 0) return;
-    const rows: number[] = [];
-    for (const child of children) {
-      if (!rows.includes(child.offsetTop)) rows.push(child.offsetTop);
-    }
-    if (rows.length <= 3) return;
-
-    const cutoff = rows[3] as number;
-    let hidden = 0;
-    for (const child of children) {
-      if (child.offsetTop < cutoff) continue;
-      child.remove();
-      hidden++;
-    }
-    const more = document.createElement('span');
-    more.className = 'launcher-completion is-more';
-    more.textContent = '...';
-    more.title = `${String(hidden)} more. Type to narrow the list.`;
-    list.append(more);
-    // Adding it can itself push a chip onto a fourth row, so one more is taken off if so.
-    if (more.offsetTop >= cutoff) {
-      const last = list.children[list.children.length - 2];
-      last?.remove();
-    }
+    /**
+     * Three rows of folders, then a `...`.
+     *
+     * The list used to be a fixed 132px box with a scrollbar: a home directory with six folders
+     * left a band of empty space between it and the buttons, and one with sixty hid the rest
+     * behind a scrollbar nobody goes looking for. Three rows is enough to recognise where you
+     * are, and past that typing is faster than hunting anyway.
+     */
+    trimToRows(list);
   }
 
   /**
