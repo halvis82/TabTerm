@@ -38,4 +38,6 @@ cat <<NEXT
 Remove by hand, since install never added them automatically:
   - the TabTerm extension, at chrome://extensions
   - any TabTerm line in your .zshrc
+  - the three noop: bindings in ~/Library/KeyBindings/DefaultKeyBinding.dict, if you added them
+    when installing (a copy from before is beside it, ending .before-tabterm)
 NEXT

@@ -241,6 +241,23 @@ if [ -t 0 ] && [ -f "$LIBEXEC/agent-hooks.mjs" ]; then
   fi
 fi
 
+# The beep on Control Command Left and Right, which are the default pane keys. It comes from
+# macOS's key bindings, not from TabTerm, and the fix is a file every application reads, so it is
+# asked rather than assumed, like the hooks above. See docs/10-limitations.md tier 1.9.
+if [ -t 0 ] && [ "$(python3 "$REPO/scripts/key-bindings.py" status 2>/dev/null)" = missing ]; then
+  echo
+  echo "Control Command Left and Right, which move between panes, play the alert sound in Chrome"
+  echo "because macOS binds them to changing text writing direction. Binding them to nothing in"
+  echo "~/Library/KeyBindings/DefaultKeyBinding.dict silences them, in every app. Bindings already"
+  echo "there are kept, and an existing file is copied aside first. Restart Chrome afterwards."
+  printf "  Add the bindings now? [y/N] "
+  read -r reply
+  case "$reply" in
+    [yY]*) echo "  $(python3 "$REPO/scripts/key-bindings.py" install). Restart Chrome for it to apply." ;;
+    *)     echo "  Skipped. docs/10-limitations.md tier 1.9 has the file to write by hand." ;;
+  esac
+fi
+
 # --- a host from before this build ------------------------------------------
 # macOS attaches a privacy decision to the process responsible for a request, and the PTY host is
 # the ancestor of every shell, so it is the process macOS names. A host running an unbundled

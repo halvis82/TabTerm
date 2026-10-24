@@ -325,7 +325,10 @@ when it starts, so Chrome has to be restarted once:
 ```
 
 It applies to every Cocoa application, and what it removes is changing text writing direction
-from the keyboard. TabTerm does not write this file itself. The alternative is binding pane focus
+from the keyboard. So TabTerm does not write it unasked: `scripts/install.sh` offers to, when run
+from a terminal and the bindings are not there yet. It adds only the three keys, leaves any of them
+the person already bound to something else, and copies an existing file aside to
+`DefaultKeyBinding.dict.before-tabterm` first (`scripts/key-bindings.py`). The alternative is binding pane focus
 to a combination the table leaves alone, in the shortcut settings.
 
 ### 1.7 Kitty graphics protocol
