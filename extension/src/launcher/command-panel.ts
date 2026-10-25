@@ -184,7 +184,10 @@ export function clampPlacement(
   viewport: { width: number; height: number },
   panel: { width: number; height: number },
 ): PanelPlacement {
-  const maxX = Math.max(0, viewport.width - panel.width);
+  // A panel as wide as the window, which is what a narrow one gets, sits centered in it.
+  const narrow = panel.width >= viewport.width - 2 * 8;
+  const minX = narrow ? Math.max(0, Math.round((viewport.width - panel.width) / 2)) : 0;
+  const maxX = narrow ? minX : Math.max(0, viewport.width - panel.width);
   const maxY = Math.max(0, viewport.height - panel.height);
   /**
    * A negative coordinate means "never placed", and that lands in the middle.
@@ -194,7 +197,10 @@ export function clampPlacement(
    * most likely to be reading, and a first-run default in a corner reads as a mistake rather
    * than a choice. The middle is where a thing you just opened belongs.
    */
-  const x = placement.x < 0 ? Math.round(maxX / 2) : Math.min(maxX, Math.max(0, placement.x));
+  const x =
+    placement.x < 0
+      ? Math.round((minX + maxX) / 2)
+      : Math.round(Math.min(maxX, Math.max(minX, placement.x)));
   const y = placement.y < 0 ? Math.round(maxY / 2) : Math.min(maxY, Math.max(0, placement.y));
   return { ...placement, x: Math.max(0, x), y };
 }

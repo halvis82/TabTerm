@@ -1055,7 +1055,8 @@
   .cmd-panel {
     position: absolute;
     z-index: 45;
-    width: 460px;
+    /* Never wider than the window, less a margin each side, so a side panel shows all of it. */
+    width: min(460px, calc(100vw - 16px));
     max-height: min(560px, calc(100% - 24px));
     display: flex;
     flex-direction: column;
@@ -1435,6 +1436,13 @@
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 6px;
+  }
+  /* In a narrow window, such as the side panel, two columns: four figures make an even square
+     rather than a row of three with one left over. */
+  @media (max-width: 520px) {
+    .cmd-figures {
+      grid-template-columns: repeat(2, 1fr);
+    }
   }
   .cmd-figure {
     padding: 7px 9px;

@@ -150,6 +150,15 @@ describe('remembering where the panel was', () => {
     expect(placed.y).toBeLessThanOrEqual(viewport.height - panel.height);
   });
 
+  it('sits centered in a window barely wider than it, such as the side panel', () => {
+    // The panel shrinks to the window less a margin each side, so wherever it was put elsewhere,
+    // here it has one place: the middle, with the same margin on both sides.
+    const narrow = { width: 360, height: 760 };
+    const fitted = { width: 344, height: 460 };
+    expect(clampPlacement({ ...DEFAULT_PLACEMENT, x: 300, y: 10 }, narrow, fitted).x).toBe(8);
+    expect(clampPlacement(DEFAULT_PLACEMENT, narrow, fitted).x).toBe(8);
+  });
+
   it('never goes negative, even in a window smaller than the panel', () => {
     const placed = clampPlacement(
       { ...DEFAULT_PLACEMENT, x: -50, y: -50 },

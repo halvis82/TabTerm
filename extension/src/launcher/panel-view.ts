@@ -62,6 +62,8 @@ export interface PanelOptions {
 }
 
 const PANEL_WIDTH = 460;
+/** The gap kept at each side when the window is narrower than the panel. In step with the CSS. */
+const NARROW_MARGIN = 8;
 
 /** A command short enough to sit inside a question. */
 function shortLabel(text: string): string {
@@ -484,7 +486,7 @@ export class CommandPanel {
     const clamped = clampPlacement(
       this.#placement,
       { width: window.innerWidth, height: window.innerHeight },
-      { width: PANEL_WIDTH, height: this.#el.offsetHeight || 420 },
+      { width: this.#el.offsetWidth || PANEL_WIDTH, height: this.#el.offsetHeight || 420 },
     );
     /**
      * Remembered as soon as it has a real position, not only when it is dragged.
@@ -497,7 +499,11 @@ export class CommandPanel {
     this.#placement = clamped;
     this.#el.style.left = `${String(clamped.x)}px`;
     this.#el.style.top = `${String(clamped.y)}px`;
-    if (moved) this.#save();
+    /*
+     * Not saved from a window too narrow for the panel, such as the side panel. The position is
+     * shared by every tab, and squeezing it to the edge of a narrow one moved it in all the others.
+     */
+    if (moved && window.innerWidth >= PANEL_WIDTH + 2 * NARROW_MARGIN) this.#save();
   }
 
   /**

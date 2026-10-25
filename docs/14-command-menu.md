@@ -207,6 +207,11 @@ that looks empty for a reason nothing on screen explains.
   terminal panel must not do.
 - **Draggable**, and where you put it is remembered for the next session. A fixed position is
   wrong for a panel that sits over content the user is reading.
+- **Never wider than the window.** In a window narrower than the panel, such as the side panel, it
+  shrinks to the window less 8 pixels each side and sits centered, and the Stats figures go to two
+  columns so four of them make an even square. It was a fixed 460 pixels, so a side panel cut its
+  right side off. A position squeezed to fit a narrow window is not remembered, because the
+  position is shared by every tab and saving it moved the panel in all of them.
 - **Minimizable** to a small puck, which reopens where it was.
 
 ---
