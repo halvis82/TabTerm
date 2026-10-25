@@ -128,6 +128,11 @@ openssl rand -base64 33 | tr -d '\n' | tee /dev/stderr | npx wrangler secret put
 
 The last line makes a random secret, prints it so you can copy it, and stores it on the relay.
 
+**If deploy says "You need a workers.dev subdomain" (code 10063).** A new account has none until
+the Workers page in the dashboard is opened once. Open <https://dash.cloudflare.com>, then
+**Workers & Pages**, and run `npx wrangler deploy` again. A brand new address can take a few
+minutes before it answers over https.
+
 `npx` fetches wrangler for the moment it runs and keeps nothing in the repository. The relay can be
 redeployed the same way after an update; your devices stay paired.
 
