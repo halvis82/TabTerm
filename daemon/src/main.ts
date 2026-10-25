@@ -1,5 +1,11 @@
 import { UpdateManager } from '../../scripts/updater/manager.mjs';
-import { AttentionMonitor, countPtys, findHost, probeFullDiskAccess } from './attention.js';
+import {
+  AttentionMonitor,
+  countPtys,
+  findHost,
+  probeFullDiskAccess,
+  remembered,
+} from './attention.js';
 import {
   existsSync,
   mkdirSync,
@@ -949,9 +955,11 @@ async function main(): Promise<void> {
     process.platform === 'darwin' &&
     !process.env['TABTERM_HOME'] &&
     process.execPath === bundledNode;
+  // The process table is the one costly fact, and the host it finds changes only at an update.
+  const hostEvery10Min = remembered(findHost, 10 * 60_000);
   const liveChecks = new AttentionMonitor({
     gather: async () => {
-      const host = installedHere ? await findHost() : null;
+      const host = installedHere ? await hostEvery10Min() : null;
       const status = updates.snapshot();
       const ptys = process.platform === 'darwin' ? await countPtys() : null;
       return {

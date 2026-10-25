@@ -2619,6 +2619,11 @@ async function showAttentionNotices(concerns: readonly Concern[]): Promise<void>
   }
 }
 
+// Dismissed in one tab, gone from every tab, rather than waiting for the next change to redraw.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && DISMISSED_KEY in changes) void showAttentionNotices(attention);
+});
+
 function showNotice(text: string): void {
   const el = document.getElementById('notice');
   if (!el) return;

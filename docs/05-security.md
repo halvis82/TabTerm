@@ -460,11 +460,20 @@ granted". Reading it requires the same access, so an empty answer means "cannot 
 The doctor script reports a missing Full Disk Access grant, a terminal host still running an
 older binary, and an update that needs recovery, and nobody runs the doctor on the afternoon a
 terminal starts asking for permission on every launch. So the installed daemon checks the same
-things live: fifteen seconds after it starts and every ten minutes after that, and again when
-Settings asks. What it finds goes to every connection as `attention`, Settings shows it first
-under **Needs attention** with the fix, and a problem, as opposed to a note, is also a notice in
-the corner of every tab with a way to Settings and a cross. Dismissing is remembered by the
-concern's fingerprint, so the same situation stays quiet and a changed one is said again.
+things live: fifteen seconds after it starts and every five seconds after that, and again when
+Settings asks. Five seconds because the moment that matters is the person in System Settings
+switching the grant on, and the notice has to go away while they are still looking. Only the
+process table costs anything, and the host it finds changes only at an update, so it is read
+once every ten minutes. What it finds goes to every connection as `attention`, Settings shows it
+first under **Needs attention** with the fix, and a problem, as opposed to a note, is also a
+notice in the corner of every tab with a way to Settings and a cross. Dismissing is remembered by
+the concern's fingerprint, so the same situation stays quiet and a changed one is said again, and
+a notice dismissed in one tab goes from every other tab at once.
+
+System Settings can show TabTerm switched on while the grant is not in effect. The bundle is
+signed ad hoc, so every install gives it a new signature, and the old entry stays listed without
+applying (see `13-packaging.md`). So the notice says "not in effect" rather than "not granted",
+and its detail says why the switch can be misleading.
 
 Full Disk Access is probed by reading the user's own TCC database, which exists on every Mac,
 is Apple's rather than another app's so it cannot raise the "access data from other apps"

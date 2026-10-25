@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AttentionMonitor, judgeAttention, type AttentionFacts } from './attention.js';
+import { AttentionMonitor, judgeAttention, remembered, type AttentionFacts } from './attention.js';
 
 const healthy: AttentionFacts = {
   installed: true,
@@ -115,5 +115,22 @@ describe('the monitor', () => {
     facts = { ...healthy };
     await monitor.check();
     expect(heard, 'and says so when it is fixed').toEqual([1, 0]);
+  });
+});
+
+describe('a costly fact on a slower clock', () => {
+  it('asks once per window and again after it', async () => {
+    let clock = 0;
+    let asked = 0;
+    const ask = remembered(
+      () => Promise.resolve(++asked),
+      600_000,
+      () => clock,
+    );
+    expect(await ask()).toBe(1);
+    clock = 5_000;
+    expect(await ask(), 'a five second check reuses it').toBe(1);
+    clock = 600_000;
+    expect(await ask(), 'and the window ending asks again').toBe(2);
   });
 });

@@ -16,7 +16,7 @@ await sleep(400);
 const problem = (fingerprint) => ({
   id: 'full-disk-access',
   level: 'problem',
-  title: 'Full Disk Access is not granted to TabTerm',
+  title: 'Full Disk Access is not in effect for TabTerm',
   detail: 'An agent that reads another app’s data makes macOS ask on every launch.',
   fix: 'System Settings, Privacy & Security, Full Disk Access, add TabTerm.app.',
   fingerprint,
@@ -88,6 +88,16 @@ await pretend([problem('fda:off:again')]);
 r.ok(
   'a changed situation is said again',
   await waitFor(client, "!!document.querySelector('.attention-notice')", 5000),
+);
+
+// Another tab dismissing it, which reaches this one through storage.
+await evaluate(
+  client,
+  "chrome.storage.local.set({ 'tabterm.attentionDismissed': { 'full-disk-access': 'fda:off:again' } })",
+);
+r.ok(
+  'dismissed in another tab, it goes from this one at once',
+  await waitFor(client, "!document.querySelector('.attention-notice')", 3000),
 );
 
 await pretend([]);

@@ -54,18 +54,20 @@ export function judgeAttention(facts: AttentionFacts): Concern[] {
     concerns.push({
       id: 'full-disk-access',
       level: 'problem',
-      title: 'Full Disk Access is not granted to TabTerm',
+      title: 'Full Disk Access is not in effect for TabTerm',
       detail:
-        'An agent that reads another app’s data makes macOS ask in TabTerm’s name on ' +
-        'every launch, and a shell cannot read the folders macOS protects. An update can take ' +
-        'the grant away: macOS keys it to the app’s signature, and the entry stays listed ' +
-        'while no longer applying.',
+        'System Settings can show TabTerm switched on while it is not in effect: macOS keys ' +
+        'the grant to the app’s signature, every install signs a new one, and the old entry ' +
+        'stays listed without applying. Without it, an agent that reads another app’s data ' +
+        'makes macOS ask in TabTerm’s name on every launch, and a shell cannot read the ' +
+        'folders macOS protects.',
       fix:
         'System Settings, Privacy & Security, Full Disk Access. If TabTerm is listed, select it ' +
         'and press minus first. Then press plus and add ' +
         facts.appPath +
         '. Read what that grants before you do: it is broad, and it goes to the process that runs ' +
-        'your shells.',
+        'your shells. This is checked every few seconds, so the notice goes away by itself once ' +
+        'the grant applies.',
       fingerprint: 'fda:off',
     });
   }
@@ -185,6 +187,24 @@ export async function countPtys(): Promise<{ used: number; max: number } | null>
   }
 }
 
+/**
+ * Keeps a costly answer for a while, so a fact that rarely changes can ride along on a check that
+ * runs every few seconds.
+ */
+export function remembered<T>(
+  ask: () => Promise<T>,
+  forMs: number,
+  now: () => number = Date.now,
+): () => Promise<T> {
+  let held: { value: T; at: number } | null = null;
+  return async () => {
+    if (held && now() - held.at < forMs) return held.value;
+    const value = await ask();
+    held = { value, at: now() };
+    return value;
+  };
+}
+
 /** The running terminal host's executable, from the process table, or null when none runs. */
 export async function findHost(): Promise<{ executable: string; pid: number } | null> {
   const table = await processTable();
@@ -203,7 +223,11 @@ export async function findHost(): Promise<{ executable: string; pid: number } | 
 export interface AttentionMonitorOptions {
   gather: () => Promise<AttentionFacts>;
   changed: (concerns: Concern[]) => void;
-  /** How often to look again. Every ten minutes by default: these change rarely and ps costs. */
+  /**
+   * How often to look again. Every five seconds by default, so a grant given or taken away shows
+   * in every tab while the person is still looking at System Settings. The gatherer keeps the
+   * process table, the one costly fact, on its own slower clock.
+   */
   everyMs?: number;
 }
 
@@ -227,7 +251,7 @@ export class AttentionMonitor {
   start(): void {
     // A little after start, so a machine still waking up is not judged on its first second.
     setTimeout(() => void this.check(), 15_000).unref?.();
-    this.#timer = setInterval(() => void this.check(), this.#opts.everyMs ?? 10 * 60_000);
+    this.#timer = setInterval(() => void this.check(), this.#opts.everyMs ?? 5_000);
     this.#timer.unref?.();
   }
 
