@@ -669,6 +669,36 @@ describe('a pane in an arrangement somebody built', () => {
   });
 });
 
+describe('opening a session in a pane that is in use', () => {
+  it('keeps the session that was there, in a workspace of its own', async () => {
+    sessions.keepBackgroundSeconds = null;
+    const here = await makeSession('open-here-1', false);
+    const other = await makeSession('open-here-2', false);
+    const workspace = workspaces.findBySession(here.sessionId);
+    const pane = workspace ? workspaces.paneFor(workspace, here.sessionId) : undefined;
+    here.c.send({
+      t: 'merge-into',
+      workspaceId: workspace?.id ?? '',
+      targetPaneId: pane ?? '',
+      sessionId: other.sessionId,
+      direction: 'horizontal',
+      replace: true,
+      keepDisplaced: true,
+    });
+    await sleep(PAST_GRACE);
+    expect(workspaces.findBySession(other.sessionId)?.id, 'the other one is here').toBe(
+      workspace?.id,
+    );
+    const kept = sessions.get(here.sessionId);
+    expect(kept, 'the replaced session is still running').toBeTruthy();
+    expect(kept?.state).not.toBe('expiring');
+    const home = workspaces.findBySession(here.sessionId);
+    expect(home?.id, 'in a workspace of its own').not.toBe(workspace?.id);
+    here.c.close();
+    other.c.close();
+  });
+});
+
 describe('a pane nobody used', () => {
   it('goes soon after its tab closes, rather than lingering', async () => {
     // The counterpart of the test above: that one pins "never destroy work", this one pins

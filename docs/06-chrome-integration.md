@@ -1451,6 +1451,16 @@ so the arrangement gained a pane nobody wanted and the way to fix it was gone. T
 id, so the split ratios around it are untouched, and the shell it displaced is ended. A session
 showing in another tab asks first, on the card: a second press moves it.
 
+**Open a session here, on any pane.** Every pane's right-click menu has **Open a session here**,
+which floats out the same bubble from the pane, titled for what it does, with the same list: every
+live session outside this tab. Choosing one shows it in that pane in the same way. The difference
+is the pane being replaced, which here may be somebody's work. So the session that was in it is
+not ended: the merge carries `keepDisplaced`, the daemon gives that session a workspace of its own
+and every tab lets go of it, and it keeps running in the background and is listed in Running now,
+the way a closed tab's session is. A pane nobody has used is still just an empty shell and is
+ended, as Bring a session here does. The `open-session-here` suite checks the bubble, the list,
+the move and that the replaced session is still alive.
+
 It sits at the **bottom** of the pane. A terminal fills from the top, so a panel anchored there
 would cover the line being typed, which is the one place it must never be. It is over the pane
 rather than replacing it, on the same principle as the start screen: the shell underneath is

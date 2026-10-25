@@ -1,3 +1,6 @@
+import type { FaviconState } from './titles.js';
+import { isSticky, needsAttention } from './status-machine.js';
+
 /**
  * Flashing the tab icon when a command finishes, per session.
  *
@@ -173,4 +176,19 @@ export class PaneGlow {
     this.#stopListening?.();
     this.#stopListening = null;
   }
+}
+
+/**
+ * One frame of the flash, as the slices of the icon.
+ *
+ * A tab of one pane flashes its whole icon. A tab of several keeps the split icon and flashes only
+ * the half that finished, so the other half still says what its pane is doing. Asked for as the
+ * flash being "compatible with the split screen icon". The half that finished is the one whose
+ * state is waiting to be seen, an outcome or a request; the first half when none is.
+ */
+export function flashFrame(picture: readonly FaviconState[], on: boolean): FaviconState[] {
+  const flash: FaviconState = on ? 'attention' : 'attention-alt';
+  if (picture.length < 2) return [flash];
+  const finished = picture.findIndex((s) => isSticky(s) || needsAttention(s));
+  return picture.map((s, i) => (i === (finished === -1 ? 0 : finished) ? flash : s));
 }

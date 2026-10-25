@@ -399,6 +399,13 @@ export type ClientMessage =
        * to bring a session in. `direction` is ignored when this is set.
        */
       replace?: boolean;
+      /**
+       * With `replace`, keep the session that was in the pane running in the background instead
+       * of ending it. Sent by "Open a session here" on a pane in use, where the session being
+       * replaced is somebody's work rather than an empty shell. It gets a workspace of its own,
+       * so it is listed in Running now like the session of a closed tab.
+       */
+      keepDisplaced?: boolean;
     }
   | { t: 'detach-pane-to-tab'; workspaceId: string; paneId: string }
   /**

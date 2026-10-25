@@ -1524,10 +1524,20 @@ export class DaemonServer {
           );
 
           // The shell that was in the pane is in no layout now, so it is ended rather than left
-          // running where nothing can reach it.
+          // running where nothing can reach it. Unless it was asked to be kept: then it gets a
+          // workspace of its own and every tab lets go of it, the way a closed tab's session does.
           if (displaced) {
             const old = this.#sessions.get(displaced);
-            if (old) void this.#sessions.terminate(old, { kind: 'user-replaced-pane' });
+            if (old && msg.keepDisplaced === true) {
+              this.#workspaces.create(displaced);
+              for (const c of this.#clients) {
+                if (!c.authed || !c.streams.has(displaced)) continue;
+                this.#sessions.detach(old, c.id);
+                this.#unbind(c, displaced);
+              }
+            } else if (old) {
+              void this.#sessions.terminate(old, { kind: 'user-replaced-pane' });
+            }
           }
 
           // Whoever was rendering the source workspace needs to hear about it. If the merge

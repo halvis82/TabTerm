@@ -69,6 +69,13 @@ hook rather than a prompt, so in an agent session the toggle was on and nothing 
 ending starts the flash now, and so does the agent stopping to ask, since that is the other
 reason to look. See `06-chrome-integration.md` for what stops it.
 
+**In a tab of several panes the flash keeps the split icon.** The icon of such a tab is split
+into the two most urgent panes' states, and the flash used to replace it with one whole flashing
+icon, so for as long as it flashed the tab no longer said that the other pane was still working.
+Now only the half that finished alternates between the two flash colors, and the other half keeps
+showing its pane. The half that finished is the one whose state waits to be seen, an outcome or a
+request (`flashFrame`). The `split-flash` suite checks it with one pane working and one finished.
+
 **The pane that finished glows as well.** Somebody already on the tab is looking at the terminal
 rather than at the icon, and in a tab of several panes the icon cannot say which pane it was. So
 with the same setting on, the pane whose command or turn ended gets a glow along its edge, green

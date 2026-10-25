@@ -196,9 +196,12 @@ function describeCount(sessions: readonly LiveSession[]): string {
   return parts.join(', ');
 }
 
-interface SessionBubbleOptions {
+export interface SessionBubbleOptions {
   /** The button it floats out of, which is where it grows from. */
   from: HTMLElement;
+  /** What it says at the top. "Bring a session here" over an empty pane. */
+  title?: string;
+  sub?: string;
   home: string;
   sessions: () => readonly LiveSession[];
   onTake: (session: LiveSession) => void;
@@ -216,7 +219,7 @@ const BUBBLE_MS = 160;
  * click, no close, no drag. A press anywhere outside it, or Escape, puts it away, and it folds
  * back into the button it came out of, so it never stands between somebody and the terminal.
  */
-class SessionBubble {
+export class SessionBubble {
   readonly #opts: SessionBubbleOptions;
   readonly #scrim: HTMLElement;
   readonly #bubble: HTMLElement;
@@ -242,7 +245,7 @@ class SessionBubble {
     this.#bubble = document.createElement('div');
     this.#bubble.className = 'take-bubble';
     this.#bubble.setAttribute('role', 'dialog');
-    this.#bubble.setAttribute('aria-label', 'Bring a session here');
+    this.#bubble.setAttribute('aria-label', opts.title ?? 'Bring a session here');
     // No menu of its own and none of the page's: choosing is the only thing on offer here.
     this.#bubble.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -268,10 +271,11 @@ class SessionBubble {
     head.className = 'take-bubble-head';
     const title = document.createElement('div');
     title.className = 'take-bubble-title';
-    title.textContent = 'Bring a session here';
+    title.textContent = opts.title ?? 'Bring a session here';
     const sub = document.createElement('div');
     sub.className = 'take-bubble-sub';
     sub.textContent =
+      opts.sub ??
       'Click one to move it into this pane. Sessions already in this tab are not listed.';
     const close = document.createElement('button');
     close.className = 'take-bubble-close';

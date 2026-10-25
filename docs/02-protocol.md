@@ -65,7 +65,7 @@ Rules, all enforced:
 | `set-persistence` | `sessionId`, `policyId` | |
 | `create-workspace` | `layout`, `chromeTabId?`, `chromeGroupId?` | |
 | `update-layout` | `workspaceId`, `layout` | Transactional, validated |
-| `merge-session` | `sessionId`, `workspaceId`, `targetPaneId`, `direction`, `replace?` | `replace` takes the pane over instead of splitting it |
+| `merge-session` | `sessionId`, `workspaceId`, `targetPaneId`, `direction`, `replace?`, `keepDisplaced?` | `replace` takes the pane over instead of splitting it. The session it replaces is ended, unless `keepDisplaced`, which gives it a workspace of its own so it keeps running in the background |
 | `reopen-pane` | `workspaceId`, `sessionId`, `targetPaneId?` | Puts back a pane closed within the last five minutes |
 | `detach-pane` | `workspaceId`, `paneId` | Returns a URL for the new tab |
 | `list-sessions` / `list-workspaces` / `list-projects` | filters | |

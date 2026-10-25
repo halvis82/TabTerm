@@ -22,7 +22,7 @@ import { getToken } from '../transport/token.js';
 import { daemonPort } from '../transport/port.js';
 import { SplitView, collectPanes } from '../layout/split-view.js';
 import { PaneHost } from './panes.js';
-import { PaneChooser } from './pane-chooser.js';
+import { PaneChooser, SessionBubble } from './pane-chooser.js';
 import { openLabelForm } from './label-form.js';
 import { describeError } from './describe-error.js';
 import { XtermController } from './xterm-controller.js';
@@ -69,7 +69,13 @@ import {
   RING_STEPS,
   type FaviconState,
 } from './titles.js';
-import { PaneGlow, TabFlasher, flashingSessions, setFlashing } from './flash-on-finish.js';
+import {
+  PaneGlow,
+  TabFlasher,
+  flashFrame,
+  flashingSessions,
+  setFlashing,
+} from './flash-on-finish.js';
 import { askWorker, tellWorker } from '../chrome/worker.js';
 import { openTabAtEnd } from '../chrome/new-tab.js';
 import { HeldInput } from './held-input.js';
@@ -1329,7 +1335,14 @@ function refreshFlashing(): void {
  */
 const tabFlasher = new TabFlasher(
   (on) => {
-    applyFavicon(drawFavicon(on ? 'attention' : 'attention-alt', animPhase));
+    // Inside the split icon when the tab has several panes. See `flashFrame`.
+    const frame = flashFrame(paneStatus.picture(), on);
+    applyFavicon(
+      frame.length > 1
+        ? drawSplitFavicon(frame, animPhase)
+        : drawFavicon(frame[0] ?? 'attention', animPhase),
+    );
+    lastFlashFrame = frame;
   },
   () => {
     // Back to whatever the panes actually say, which is what the icon meant before the flash.
@@ -1388,6 +1401,9 @@ function recordFavicon(asked: FaviconState, drew: FaviconState | 'nothing', why:
   faviconLog.push({ at: Date.now(), asked, drew, why });
   if (faviconLog.length > 200) faviconLog.shift();
 }
+
+/** The last frame the flash drew, for a check to read. */
+let lastFlashFrame: readonly FaviconState[] = [];
 
 /** The panes' own icon, split when they disagree. See `StatusMachine.picture`. */
 function showPanes(): void {
@@ -1955,6 +1971,51 @@ function syncPaneChoosers(): void {
       }),
     );
   }
+}
+
+/**
+ * Show another session in this pane, from a pane's menu.
+ *
+ * The same bubble an empty pane's Bring a session here floats out, holding the start screen's
+ * Running now minus the sessions already in this tab, offered on any pane. Choosing one moves it
+ * into this pane. A pane in use is somebody's work, so the session that was in it is not ended:
+ * it is kept running in the background, in Running now, the way a closed tab's session is. An
+ * untouched shell is ended, as Bring a session here does, since it is nothing anybody made.
+ */
+let sessionBubble: SessionBubble | null = null;
+
+function openSessionHere(paneId: string): void {
+  const el = document.querySelector<HTMLElement>(`.pane[data-pane-id="${CSS.escape(paneId)}"]`);
+  if (!el || !workspaceId) return;
+  sessionBubble?.close();
+  client?.send({ t: 'list-live-sessions' });
+  sessionBubble = new SessionBubble({
+    from: el,
+    home: launcherHome,
+    title: 'Open a session here',
+    sub: 'Click one to show it in this pane. What is here now keeps running, in Running now.',
+    sessions: () => liveElsewhere,
+    onTake: (session) => {
+      sessionBubble?.close();
+      const pane = panesHost?.get(paneId);
+      if (!pane || !workspaceId) return;
+      if (session.workspaceId !== undefined) takingOverFrom.add(session.workspaceId);
+      paneChoosers.get(paneId)?.dismiss();
+      client?.send({
+        t: 'merge-into',
+        workspaceId,
+        targetPaneId: paneId,
+        sessionId: session.sessionId,
+        direction: 'horizontal',
+        replace: true,
+        keepDisplaced: paneHasBeenUsed(paneId, pane),
+      });
+    },
+    onClosed: () => {
+      sessionBubble = null;
+      panesHost?.focus(paneId);
+    },
+  });
 }
 
 /** How much a pane has printed, which is how an empty one is told from one in use. */
@@ -5804,6 +5865,12 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
       keys: keysFor('detach-pane'),
       run: target(() => detachFocused()),
     },
+    {
+      // Any session outside this tab, shown in this pane. See `openSessionHere`.
+      label: 'Open a session here',
+      enabled: session !== '' && workspaceId !== '',
+      run: target(() => openSessionHere(paneId)),
+    },
     /**
      * The actions, on the pane they act on.
      *
@@ -7550,6 +7617,7 @@ function onControl(msg: ServerMessage): void {
       launcher?.setLiveSessions(liveElsewhere);
       // A pane offering to take one draws the same cards, so it redraws when they change.
       for (const chooser of paneChoosers.values()) chooser.render();
+      sessionBubble?.refresh();
       // The counts, once they are known. The confirmation is already on screen by now.
       if (openPanelAt === 'reset') showResetConfirmation(msg.sessions);
       return;
@@ -8232,6 +8300,11 @@ declare global {
       /** The Copy output button, and what each pane's finished commands would copy. */
       outputCopy: () => { shown: boolean; text: string; copied: boolean; label: string };
       outputBlocks: (paneId: string) => CopiedOutput[];
+      /** Live sessions outside this tab, as the start screen lists them. */
+      liveSessions: () => { sessionId: string }[];
+      refreshLive: () => void;
+      /** The slices the tab flash drew last. */
+      flashFrame: () => string[];
       /** Whether this page is in the side panel, and which panes have a chooser over them. */
       inSidePanel: () => boolean;
       choosersShown: () => string[];
@@ -8654,6 +8727,9 @@ function installTestHook(): void {
       })),
     linkCopy: () => linkCopy.state,
     outputCopy: () => outputCopy.state,
+    flashFrame: () => [...lastFlashFrame],
+    liveSessions: () => liveElsewhere.map((x) => ({ sessionId: x.sessionId })),
+    refreshLive: () => client?.send({ t: 'list-live-sessions' }),
     inSidePanel: () => inSidePanel,
     choosersShown: () => [...paneChoosers.keys()],
     rowPoint: (paneId: string, needle: string) => {
