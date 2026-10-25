@@ -387,13 +387,14 @@ integration, a local server dashboard, reboot restore, and a plugin API.
 
 Plus a floating command menu with favorites, history, hotstrings and session statistics, tab
 status in the favicon and title, and desktop notifications when a long command or an agent turn
-finishes.
+finishes. A terminal can sit beside any page in Chrome's side panel, a finished command's output
+copies in one press, and any running session can be opened in any pane from its menu.
 
 Terminals survive an update. PTYs live in a separate host process, so replacing the daemon does
 not end anything running, and a restarted daemon adopts the sessions it finds. History is kept on
 disk per session, bounded by a budget you set in megabytes.
 
-664 unit tests and 124 browser checks. `npm run verify` gates every change.
+2004 unit tests and 142 browser suites. `npm run verify` gates every change.
 
 Read [limitations](docs/10-limitations.md) before filing anything: what Chrome and macOS will
 not permit is documented there with measurements, including the things that cannot be fixed.

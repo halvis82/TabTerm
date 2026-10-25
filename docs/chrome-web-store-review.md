@@ -93,6 +93,15 @@ the prompt of a terminal, **not run**. The same menu can send a link's address o
 This is the only path by which anything from a web page reaches TabTerm, and it takes an explicit
 choice from the menu every time. There are no content scripts.
 
+## The side panel
+
+On any web page that is not a TabTerm tab, right click the TabTerm icon in the toolbar and choose
+**Open a terminal beside this page**. Chrome's side panel opens with a fresh shell in the home
+folder, next to the page.
+
+This is the only use of the `sidePanel` permission. The panel opens only from that menu entry, for
+the tab in front, and it shows TabTerm's own terminal page. Nothing is read from the page beside it.
+
 ## Local services
 
 Run something that listens. In a TabTerm terminal:
