@@ -1,3 +1,9 @@
+import {
+  COPY_LINES_CHOICES,
+  COPY_LINES_KEY,
+  DEFAULT_COPY_LINES,
+  saneCopyLines,
+} from '../terminal/command-output.js';
 import { VERSION, type CompanionUpdateStatus, type Concern } from '@tabterm/shared';
 import { THEME_CHOICES } from '../terminal/themes.js';
 import {
@@ -280,6 +286,27 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
       ),
     );
   }
+  /*
+   * How much one Copy output takes, beside the scrollback because that is what it is a share of.
+   *
+   * A choice of steps up to a ceiling rather than a number to type, so no value can put more on
+   * the clipboard than a page can hand over comfortably. Past it, the newest lines are copied and
+   * the button says how many.
+   */
+  hasTerminalSettings = true;
+  const copySelect = chooser(COPY_LINES_CHOICES, String(DEFAULT_COPY_LINES), (value) => {
+    void chrome.storage.local.set({ [COPY_LINES_KEY]: saneCopyLines(value) });
+  });
+  void chrome.storage.local.get(COPY_LINES_KEY).then((stored) => {
+    copySelect.value = String(saneCopyLines(stored[COPY_LINES_KEY] ?? DEFAULT_COPY_LINES));
+  });
+  terminals.append(
+    field(
+      'Copy output takes at most',
+      'Hover a finished command to copy its output. Longer output copies its last lines.',
+      copySelect,
+    ),
+  );
   if (hasTerminalSettings) wrap.append(terminals);
 
   wrap.append(buildNotifications(options));

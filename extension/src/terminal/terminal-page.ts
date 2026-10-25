@@ -53,6 +53,15 @@ import { needsAttention, StatusMachine, titleStatus } from './status-machine.js'
 import { describeTime, isLongRunning, type TimeState } from './elapsed.js';
 import { LinkCopyButton } from './link-copy.js';
 import {
+  AGENT_PROGRAMS,
+  COPY_LINES_KEY,
+  DEFAULT_COPY_LINES,
+  saneCopyLines,
+  type CommandBlocks,
+  type CopiedOutput,
+  type OutputBlock,
+} from './command-output.js';
+import {
   applyFavicon,
   composeTitle,
   drawFavicon,
@@ -60,7 +69,7 @@ import {
   RING_STEPS,
   type FaviconState,
 } from './titles.js';
-import { TabFlasher, flashingSessions, setFlashing } from './flash-on-finish.js';
+import { PaneGlow, TabFlasher, flashingSessions, setFlashing } from './flash-on-finish.js';
 import { askWorker, tellWorker } from '../chrome/worker.js';
 import { openTabAtEnd } from '../chrome/new-tab.js';
 import { HeldInput } from './held-input.js';
@@ -896,6 +905,56 @@ let cmdHeld = false;
 /** The copy button beside a link pointed at with Command held. See `link-copy.ts`. */
 const linkCopy = new LinkCopyButton();
 
+/**
+ * Copy output, offered over a finished command. The same button as a link's, so it looks and
+ * moves the same, placed just after the command line. See `command-output.ts`.
+ */
+const outputCopy = new LinkCopyButton(document.body, 'output-copy');
+/** The most lines one press copies, from Settings. */
+let copyLines = DEFAULT_COPY_LINES;
+void chrome.storage.local
+  .get(COPY_LINES_KEY)
+  .then((stored) => (copyLines = saneCopyLines(stored[COPY_LINES_KEY] ?? DEFAULT_COPY_LINES)))
+  .catch(() => undefined);
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && COPY_LINES_KEY in changes) {
+    copyLines = saneCopyLines(changes[COPY_LINES_KEY]?.newValue ?? DEFAULT_COPY_LINES);
+  }
+});
+
+/**
+ * A finished block's text, read once rather than on every move of the pointer over it.
+ *
+ * Read again when the limit changes or when the block's start scrolls out of memory, which are
+ * the two things that change what a press would copy.
+ */
+const copiedBlocks = new WeakMap<
+  OutputBlock,
+  { limit: number; startGone: boolean; out: CopiedOutput }
+>();
+
+function offerOutput(term: Terminal, blocks: CommandBlocks, block: OutputBlock): void {
+  let held = copiedBlocks.get(block);
+  if (!held || held.limit !== copyLines || held.startGone !== block.start.isDisposed) {
+    held = {
+      limit: copyLines,
+      startGone: block.start.isDisposed,
+      out: blocks.copy(block, copyLines),
+    };
+    copiedBlocks.set(block, held);
+  }
+  // Against the command line while it is on screen, and the top of what shows of it otherwise.
+  const row = Math.max(blocks.headRow(block), term.buffer.active.viewportY);
+  if (held.out.lines === 0 || row > blocks.lastRow(block)) {
+    outputCopy.hideSoon();
+    return;
+  }
+  const label = held.out.partial
+    ? `Copy last ${held.out.lines.toLocaleString('en-US')} lines`
+    : 'Copy output';
+  outputCopy.showAtRow(term, row, held.out.text, label);
+}
+
 // ---------------------------------------------------------------------------
 // Chrome-facing surface
 // ---------------------------------------------------------------------------
@@ -1214,9 +1273,6 @@ const agentSessions = new Set<string>();
  */
 const agentSessionIds = new Map<string, string>();
 
-/** Agent CLIs by name, for the case where the only thing known is what is running. */
-const AGENT_PROGRAMS = new Set(['claude', 'codex', 'aider', 'cursor-agent', 'gemini', 'copilot']);
-
 /**
  * Whether a marker would be printed into a program rather than into scrollback.
  *
@@ -1270,6 +1326,14 @@ const tabFlasher = new TabFlasher(
     showPanes();
   },
 );
+
+/** The pane that finished, marked on the pane itself. See `PaneGlow`. */
+const paneGlow = new PaneGlow();
+
+function glowPane(paneId: string, failed: boolean): void {
+  const el = document.querySelector<HTMLElement>(`.pane[data-pane-id="${CSS.escape(paneId)}"]`);
+  if (el) paneGlow.glow(el, failed);
+}
 
 /**
  * Remove the lone `%` zsh sometimes leaves above the first prompt.
@@ -2287,6 +2351,8 @@ function setCmdHeld(held: boolean): void {
   document.body.classList.toggle('cmd-held', held);
   // Letting go of Command takes the offer away, the same as it takes the link away.
   if (!held) linkCopy.hide();
+  // And holding it is about links, so the output's offer steps aside for theirs.
+  else outputCopy.hide();
   /*
    * Holding Command is the moment to find out what is on screen.
    *
@@ -3892,6 +3958,8 @@ function buildHosts(): void {
     modifierHeld: () => cmdHeld,
     onLinkHover: (term, text, range) => linkCopy.show(term, range, text),
     onLinkLeave: () => linkCopy.hideSoon(),
+    onOutputHover: (term, blocks, block) => offerOutput(term, blocks, block),
+    onOutputLeave: () => outputCopy.hideSoon(),
   });
 
   splitView = new SplitView({
@@ -5659,7 +5727,10 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
         if (on) flashing.add(session);
         else flashing.delete(session);
         void setFlashing(session, on);
-        if (!on) tabFlasher.stop();
+        if (!on) {
+          tabFlasher.stop();
+          paneGlow.clear();
+        }
       },
     },
     {
@@ -7676,7 +7747,10 @@ function onControl(msg: ServerMessage): void {
         paneStatus.finished(pane.paneId, msg.exitCode);
         showPanes();
         // Asked for on this session, so the tab says so until somebody notices.
-        if (flashing.has(msg.sessionId)) tabFlasher.start();
+        if (flashing.has(msg.sessionId)) {
+          tabFlasher.start();
+          glowPane(pane.paneId, msg.exitCode !== undefined && msg.exitCode !== 0);
+        }
         /**
          * The panel is live while it is open.
          *
@@ -7817,7 +7891,10 @@ function onControl(msg: ServerMessage): void {
           showPanes();
           refreshTitle();
         }
-        if (flashing.has(msg.sessionId) && (endedNow || pausedNow)) tabFlasher.start();
+        if (flashing.has(msg.sessionId) && (endedNow || pausedNow)) {
+          tabFlasher.start();
+          glowPane(pane.paneId, msg.state === 'failed');
+        }
       }
       return;
     }
@@ -8134,6 +8211,13 @@ declare global {
       paneStarts: () => { paneId: string; sessionId: string; startedAt: number | null }[];
       /** The copy button beside a Command-hovered link. */
       linkCopy: () => { shown: boolean; text: string; copied: boolean };
+      /** The Copy output button, and what each pane's finished commands would copy. */
+      outputCopy: () => { shown: boolean; text: string; copied: boolean; label: string };
+      outputBlocks: (paneId: string) => CopiedOutput[];
+      /** Where on the page a row on screen containing `needle` is, to point at it. */
+      rowPoint: (paneId: string, needle: string) => { x: number; y: number } | null;
+      /** Panes glowing because they finished. See `PaneGlow`. */
+      glowingPanes: () => { paneId: string; failed: boolean }[];
       faviconNow: () => {
         showing: string;
         effective: string;
@@ -8548,6 +8632,28 @@ function installTestHook(): void {
         startedAt: timeStateFor(p.paneId).sessionStartedAt ?? null,
       })),
     linkCopy: () => linkCopy.state,
+    outputCopy: () => outputCopy.state,
+    rowPoint: (paneId: string, needle: string) => {
+      const term = panesHost?.get(paneId)?.controller.term;
+      const box = term?.element?.querySelector('.xterm-screen')?.getBoundingClientRect();
+      if (!term || !box) return null;
+      const buffer = term.buffer.active;
+      for (let row = 0; row < term.rows; row++) {
+        const text = buffer.getLine(buffer.viewportY + row)?.translateToString(true) ?? '';
+        if (!text.includes(needle)) continue;
+        return {
+          x: box.left + box.width * 0.3,
+          y: box.top + ((row + 0.5) * box.height) / term.rows,
+        };
+      }
+      return null;
+    },
+    glowingPanes: () =>
+      paneGlow.glowing.map((el) => ({
+        paneId: el.dataset['paneId'] ?? '',
+        failed: el.classList.contains('is-failed'),
+      })),
+    outputBlocks: (paneId: string) => panesHost?.get(paneId)?.blocks.all(copyLines) ?? [],
     faviconNow: () => ({
       showing: faviconState,
       effective: paneStatus.effective(),

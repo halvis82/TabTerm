@@ -120,3 +120,57 @@ export class TabFlasher {
     this.#stopListening = null;
   }
 }
+
+/**
+ * The pane that finished, marked in the page as well as in the icon.
+ *
+ * Asked for because somebody already on the tab is looking at the terminal and not at the icon,
+ * and in a tab of several panes the icon cannot say which pane it was. So the pane itself glows
+ * along its edge, pulsing a few times and then holding faintly, green for a success and red for a
+ * failure. It follows the same per-session setting as the flash, and goes the same way: the first
+ * key, click or movement of the pointer on the tab.
+ *
+ * A short grace for movement only, because a pointer already moving when the command ends would
+ * otherwise take the glow away before it had been drawn once. A key or a click is always meant.
+ */
+const GLOW_GRACE_MS = 500;
+
+export class PaneGlow {
+  readonly #panes = new Set<HTMLElement>();
+  #since = 0;
+  #stopListening: (() => void) | null = null;
+
+  /** Panes glowing now, for a check to read. */
+  get glowing(): HTMLElement[] {
+    return [...this.#panes];
+  }
+
+  glow(pane: HTMLElement, failed: boolean): void {
+    pane.classList.remove('finish-glow', 'is-failed');
+    // Read back, so a pane that glows again restarts its pulses rather than holding.
+    void pane.offsetWidth;
+    pane.classList.add('finish-glow');
+    pane.classList.toggle('is-failed', failed);
+    this.#panes.add(pane);
+    this.#since = performance.now();
+    if (this.#stopListening) return;
+
+    const onEvent = (e: Event): void => {
+      if (document.visibilityState === 'hidden') return;
+      if (e.type === 'pointermove' && performance.now() - this.#since < GLOW_GRACE_MS) return;
+      this.clear();
+    };
+    const events = ['keydown', 'pointerdown', 'pointermove', 'wheel'];
+    for (const name of events) window.addEventListener(name, onEvent, true);
+    this.#stopListening = () => {
+      for (const name of events) window.removeEventListener(name, onEvent, true);
+    };
+  }
+
+  clear(): void {
+    for (const pane of this.#panes) pane.classList.remove('finish-glow', 'is-failed');
+    this.#panes.clear();
+    this.#stopListening?.();
+    this.#stopListening = null;
+  }
+}

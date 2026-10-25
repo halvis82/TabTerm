@@ -69,6 +69,15 @@ hook rather than a prompt, so in an agent session the toggle was on and nothing 
 ending starts the flash now, and so does the agent stopping to ask, since that is the other
 reason to look. See `06-chrome-integration.md` for what stops it.
 
+**The pane that finished glows as well.** Somebody already on the tab is looking at the terminal
+rather than at the icon, and in a tab of several panes the icon cannot say which pane it was. So
+with the same setting on, the pane whose command or turn ended gets a glow along its edge, green
+for a success and red for a failure, pulsing three times and then holding faintly. The first key,
+click, scroll or movement of the pointer on the tab removes it; movement only after half a second,
+so a pointer already moving when the command ends does not remove it before it is seen. It is
+drawn on a layer over the pane, so it takes no room and moves no text. With the setting off,
+nothing glows.
+
 **A turn is timed from the prompt, and the hook name is what says so.** Two hooks derive `working`
 and only one of them means a turn began, so the hook's own name travels with the state it mapped
 to. Reading the start from the state instead meant a turn was restarted by its own interruptions:

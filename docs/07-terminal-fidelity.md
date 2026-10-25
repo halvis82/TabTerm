@@ -686,6 +686,29 @@ press never reaches the terminal and never takes the keyboard from it. One butto
 It is about twice the height of a row of text, at 15 pixel type: at the size of the text beside it,
 it was reported as almost too hard to see.
 
+**A finished command offers to copy its output.** Pointing at a finished command's output, or at
+its command line, fades in the same button, reading Copy output, just after the command line's
+text, or after the top row of the output that is on screen, kept clear of the command button in
+the pane's corner. It copies the output as text: a
+line the terminal wrapped comes back as the one line the program printed, blank lines inside the
+output are kept, and the blank edges and each row's trailing padding are dropped.
+
+Where the output starts and ends comes from the shell integration's `OSC 133;C` and `OSC 133;D`,
+read by the page from the same stream as the output, so the markers taken there sit exactly on
+the first and last rows. The daemon's `command-start` and `command-end` travel separately from
+the bytes and could not say which row anything is on. A command is finished when its `D`
+arrives, which is the shell drawing its next prompt, so a `tail -f`, a loop or a program waiting
+for input has no button however quiet it looks. An agent (`claude`, `codex` and the others, also
+behind `npx` or a `VAR=value`) and anything that used the alternate screen get none: their output
+is their own interface. Nor does a command with no output.
+
+Settings, Terminals, **Copy output takes at most** chooses how many lines one press copies, from
+1,000 to 50,000, 10,000 by default. Longer output copies its newest lines and the button says
+how many ("Copy last 10,000 lines"), and so does output whose beginning has already left the
+scrollback. Holding Command hands the pointer to links, so the output's button steps aside. The
+200 most recent commands per pane are remembered; a tab that reloads from a saved screen rather
+than from the stream starts remembering again from its next command.
+
 **A link is answered for whether or not the modifier is held.** xterm asks its link providers when
 the pointer moves to a different line and keeps that answer until it moves again. Answering
 "nothing here" while Command was up therefore meant that pressing Command afterwards changed

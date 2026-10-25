@@ -34,10 +34,12 @@ export class LinkCopyButton {
   #watching: IDisposable[] = [];
   #copied = false;
   #pointerOn = false;
+  /** What the button says, which for a command's output says how much of it. */
+  #label = 'Copy';
 
-  constructor(root: HTMLElement = document.body) {
+  constructor(root: HTMLElement = document.body, extraClass = '') {
     this.#el = document.createElement('button');
-    this.#el.className = 'link-copy';
+    this.#el.className = extraClass === '' ? 'link-copy' : `link-copy ${extraClass}`;
     this.#el.type = 'button';
     this.#el.hidden = true;
     this.#el.tabIndex = -1;
@@ -69,26 +71,54 @@ export class LinkCopyButton {
   }
 
   /** What is being offered, for a check to read. */
-  get state(): { shown: boolean; text: string; copied: boolean } {
+  get state(): { shown: boolean; text: string; copied: boolean; label: string } {
     return {
       shown: this.#el.classList.contains('is-shown'),
       text: this.#text,
       copied: this.#copied,
+      label: this.#label,
     };
   }
 
   /** Offer to copy `text`, placed just after the end of `range` in `term`. */
   show(term: Terminal, range: IBufferRange, text: string): void {
     if (this.#copied) return;
-    clearTimeout(this.#hideTimer);
-    clearTimeout(this.#removeTimer);
     const place = placeAfter(term, range);
     if (!place) return;
-    if (this.#text !== text) this.#reset();
-    this.#text = text;
-    this.#el.title = `Copy ${text}`;
+    this.#offer(term, text, 'Copy', `Copy ${text}`);
     this.#el.style.left = `${String(Math.round(place.x))}px`;
     this.#el.style.top = `${String(Math.round(place.y))}px`;
+  }
+
+  /**
+   * Offer to copy `text` just after the text on buffer row `row`.
+   *
+   * For a command's output, where the thing being offered is a block of rows rather than a few
+   * cells, so the button sits beside the command line the way the link's sits beside the link.
+   * Held clear of the pane's top right corner, where the command button is, when the row is
+   * too long to leave room after it.
+   */
+  showAtRow(term: Terminal, row: number, text: string, label: string): void {
+    if (this.#copied) return;
+    const place = placeOnRow(term, row);
+    if (!place) return;
+    this.#offer(term, text, label, label);
+    // Measured once shown, since the label decides the width.
+    const width = this.#el.offsetWidth || 150;
+    const x = Math.min(place.after, place.right - width - CORNER_CLEAR);
+    this.#el.style.left = `${String(Math.round(Math.max(place.left, x)))}px`;
+    this.#el.style.top = `${String(Math.round(place.y))}px`;
+  }
+
+  #offer(term: Terminal, text: string, label: string, title: string): void {
+    clearTimeout(this.#hideTimer);
+    clearTimeout(this.#removeTimer);
+    if (this.#text !== text || this.#label !== label) {
+      this.#text = text;
+      this.#label = label;
+      this.#reset();
+    }
+    this.#el.title = title;
     this.#el.hidden = false;
     // The next frame, so the fade has a starting point to fade from.
     requestAnimationFrame(() => this.#el.classList.add('is-shown'));
@@ -137,7 +167,10 @@ export class LinkCopyButton {
 
   #reset(): void {
     this.#el.classList.remove('is-copied');
-    this.#el.innerHTML = `${COPY_ICON}<span>Copy</span>`;
+    this.#el.innerHTML = COPY_ICON;
+    const span = document.createElement('span');
+    span.textContent = this.#label;
+    this.#el.append(span);
   }
 }
 
@@ -165,5 +198,31 @@ function placeAfter(term: Terminal, range: IBufferRange): { x: number; y: number
   return {
     x: Math.max(box.left, box.left + range.end.x * cellW - width),
     y: rowTop - height / 2 - 4,
+  };
+}
+
+/** Room kept at the right for the command button that sits in a pane's top right corner. */
+const CORNER_CLEAR = 44;
+
+/** Just after the text on buffer row `row`, centered on it, or null when it is off screen. */
+function placeOnRow(
+  term: Terminal,
+  row: number,
+): { after: number; left: number; right: number; y: number } | null {
+  const screen = term.element?.querySelector('.xterm-screen');
+  if (!(screen instanceof HTMLElement)) return null;
+  const box = screen.getBoundingClientRect();
+  if (box.width === 0 || term.rows === 0 || term.cols === 0) return null;
+  const onScreen = row - term.buffer.active.viewportY;
+  if (onScreen < 0 || onScreen >= term.rows) return null;
+  const cellW = box.width / term.cols;
+  const cellH = box.height / term.rows;
+  const used = term.buffer.active.getLine(row)?.translateToString(true).length ?? 0;
+  return {
+    after: box.left + used * cellW + 12,
+    left: box.left,
+    right: box.right,
+    // Never above the pane, which a command on the top row would otherwise put half of it.
+    y: Math.max(box.top + 17, box.top + onScreen * cellH + cellH / 2),
   };
 }

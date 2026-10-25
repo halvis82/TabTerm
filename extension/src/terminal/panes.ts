@@ -5,6 +5,7 @@ import { createPathLinkProvider, candidatesIn, logicalLinesIn } from './path-lin
 import { scanIsOverdue, QUIET_MS } from './link-scan.js';
 import { loadHighlights, saveHighlights } from './highlights.js';
 import { DEFAULT_COLOR } from './color-store.js';
+import { CommandBlocks, type OutputBlock } from './command-output.js';
 
 /**
  * One terminal per pane.
@@ -25,6 +26,9 @@ export interface PaneHostOptions {
   /** A link was pointed at with the modifier held, and left. For the copy button. */
   onLinkHover?: (term: Terminal, text: string, range: IBufferRange) => void;
   onLinkLeave?: () => void;
+  /** The pointer is over a finished command's output, or has left it. For Copy output. */
+  onOutputHover?: (term: Terminal, blocks: CommandBlocks, block: OutputBlock) => void;
+  onOutputLeave?: () => void;
   /** Pane-level entries for the right-click menu, asked for at the moment of the click. */
   menuActions?: (paneId: string) => readonly PaneMenuAction[];
   /** The color a highlight gets on a plain click, and the ones offered in the picker. */
@@ -55,6 +59,8 @@ interface Pane {
   controller: XtermController;
   /** Read the rows on screen for paths right now, rather than when the output settles. */
   scanLinks: () => void;
+  /** Where each finished command's output is. See `command-output.ts`. */
+  blocks: CommandBlocks;
 }
 
 export class PaneHost {
@@ -184,6 +190,25 @@ export class PaneHost {
       }),
     );
 
+    /*
+     * Copy output, offered while the pointer is over a finished command.
+     *
+     * Not while a button is held, which is somebody selecting, and not while Command is held,
+     * which is somebody pointing at a link and being offered that link instead.
+     */
+    const blocks = new CommandBlocks(controller.term);
+    element.addEventListener('mousemove', (e) => {
+      if (e.buttons !== 0 || this.#opts.modifierHeld()) {
+        this.#opts.onOutputLeave?.();
+        return;
+      }
+      const row = rowAt(controller.term, e.clientY);
+      const block = row === null ? undefined : blocks.blockAt(row);
+      if (block) this.#opts.onOutputHover?.(controller.term, blocks, block);
+      else this.#opts.onOutputLeave?.();
+    });
+    element.addEventListener('mouseleave', () => this.#opts.onOutputLeave?.());
+
     this.#panes.set(paneId, {
       paneId,
       sessionId,
@@ -191,6 +216,7 @@ export class PaneHost {
       element,
       controller,
       scanLinks: scanVisible,
+      blocks,
     });
     return element;
   }
@@ -365,6 +391,7 @@ export class PaneHost {
     for (const [paneId, pane] of this.#panes) {
       if (keep.has(paneId)) continue;
       this.#byStream.delete(pane.streamId);
+      pane.blocks.dispose();
       pane.controller.dispose();
       pane.element.remove();
       this.#panes.delete(paneId);
@@ -374,4 +401,14 @@ export class PaneHost {
   disposeAll(): void {
     this.retain([]);
   }
+}
+
+/** The buffer row under a point on the page, or null when it is not over the rows. */
+function rowAt(term: Terminal, clientY: number): number | null {
+  const screen = term.element?.querySelector('.xterm-screen');
+  if (!(screen instanceof HTMLElement) || term.rows === 0) return null;
+  const box = screen.getBoundingClientRect();
+  if (clientY < box.top || clientY >= box.bottom) return null;
+  const onScreen = Math.floor(((clientY - box.top) / box.height) * term.rows);
+  return term.buffer.active.viewportY + onScreen;
 }
