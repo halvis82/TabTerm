@@ -17,7 +17,13 @@ import {
   saneScale,
 } from '../terminal/label-look.js';
 import { describeKeys, prettyKeys } from '../terminal/page-shortcuts.js';
-import type { AgentHooksStatus, NotifyPolicy, ShellIntegrationStatus } from '@tabterm/shared';
+import type {
+  AgentHooksStatus,
+  NotifyPolicy,
+  RemoteAccessState,
+  ShellIntegrationStatus,
+} from '@tabterm/shared';
+import qrcode from 'qrcode-generator';
 /**
  * Settings, reached from the gear in the panel's footer.
  *
@@ -61,6 +67,13 @@ export interface SettingsOptions {
   onRestoreTemplates: () => void;
   onRestoreSettings: () => void;
   onEraseEverything: () => void;
+  /** Remote access, or null until the daemon has answered. */
+  remote?: () => RemoteAccessState | null;
+  /** A pairing link just made, for the code on screen, or null. */
+  remotePairing?: () => { link: string; expiresAt: number } | null;
+  onRemoteSet?: (change: { enabled?: boolean; relayUrl?: string; relaySecret?: string }) => void;
+  onRemotePair?: () => void;
+  onRemoteDevice?: (change: { deviceId: string; typing?: boolean; forget?: boolean }) => void;
 }
 
 /**
@@ -334,6 +347,9 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
   if (hasTerminalSettings) wrap.append(terminals);
 
   wrap.append(buildNotifications(options));
+
+  const remote = buildRemote(options);
+  if (remote) wrap.append(remote);
 
   wrap.append(buildDangerZone(options));
 
@@ -610,6 +626,204 @@ function buildUpdates(options: SettingsOptions): HTMLElement {
   setup.textContent = 'Companion setup guide';
   updates.append(setup);
   return updates;
+}
+
+/**
+ * Remote access: these terminals from a phone or another computer, through the person's own relay.
+ *
+ * Off until turned on, and nothing here works until a relay address and its secret are entered,
+ * which is the only part of the setup that happens outside TabTerm. Pairing is a code to scan: the
+ * key travels inside it, so it never passes through the relay. See docs/17-remote-access.md.
+ */
+function buildRemote(options: SettingsOptions): HTMLElement | null {
+  if (!options.remote) return null;
+  const wrap = section('Remote access');
+  wrap.dataset['remote'] = 'true';
+  const state = options.remote();
+  if (!state) {
+    const pending = document.createElement('p');
+    pending.className = 'set-desc';
+    pending.textContent = 'Waiting for the daemon.';
+    wrap.append(pending);
+    return wrap;
+  }
+
+  const intro = document.createElement('p');
+  intro.className = 'set-desc';
+  intro.textContent =
+    'Watch and type into these terminals from your phone or another computer, in a browser. ' +
+    'It goes through a relay you run on your own free Cloudflare account, encrypted so the ' +
+    'relay cannot read it. Every device you add unlocks with Face ID, Touch ID or its passcode. ' +
+    'From a device you can never end a session or open anything on this Mac.';
+  wrap.append(intro);
+
+  const guide = document.createElement('a');
+  guide.href = 'https://github.com/halvis82/TabTerm/blob/main/docs/17-remote-access.md';
+  guide.target = '_blank';
+  guide.rel = 'noopener noreferrer';
+  guide.textContent = 'How to set up your relay, about five minutes';
+  wrap.append(guide);
+
+  wrap.append(
+    toggle('Remote access', state.enabled, (on) => options.onRemoteSet?.({ enabled: on })),
+  );
+
+  const status = document.createElement('p');
+  status.className = 'set-desc';
+  status.setAttribute('role', 'status');
+  status.dataset['remoteStatus'] = state.status;
+  const browsers =
+    state.browsers === 0
+      ? ''
+      : ` · ${String(state.browsers)} device${state.browsers === 1 ? '' : 's'} connected now`;
+  status.textContent =
+    state.status === 'connected'
+      ? `Connected to your relay${browsers}`
+      : state.status === 'connecting'
+        ? 'Connecting to your relay'
+        : state.status === 'error'
+          ? (state.detail ?? 'Not connected')
+          : 'Off';
+  wrap.append(status);
+
+  // The relay: its address, and its secret, which is written once and never shown again.
+  const address = document.createElement('input');
+  address.className = 'launcher-input set-input';
+  address.spellcheck = false;
+  address.placeholder = 'https://tabterm-relay.you.workers.dev';
+  address.value = state.relayUrl;
+  address.dataset['remoteUrl'] = 'true';
+  const secret = document.createElement('input');
+  secret.className = 'launcher-input set-input';
+  secret.type = 'password';
+  secret.autocomplete = 'off';
+  secret.spellcheck = false;
+  secret.placeholder = state.hasSecret ? 'Saved. Type a new one to replace it' : 'The relay secret';
+  secret.dataset['remoteSecret'] = 'true';
+  const save = document.createElement('button');
+  save.type = 'button';
+  save.className = 'cmd-button';
+  save.textContent = 'Save relay';
+  save.addEventListener('click', () => {
+    const change: { relayUrl: string; relaySecret?: string } = { relayUrl: address.value.trim() };
+    if (secret.value.trim() !== '') change.relaySecret = secret.value.trim();
+    secret.value = '';
+    options.onRemoteSet?.(change);
+  });
+  wrap.append(
+    field('Relay address', 'The address your relay was given when you deployed it.', address),
+    field('Relay secret', 'The secret you set on the relay. Stored on this Mac only.', secret),
+  );
+  const saveRow = document.createElement('div');
+  saveRow.className = 'cmd-buttons';
+  saveRow.append(save);
+  wrap.append(saveRow);
+
+  // Adding a device.
+  const pairRow = document.createElement('div');
+  pairRow.className = 'set-field';
+  const pairLabel = document.createElement('span');
+  pairLabel.className = 'set-label';
+  pairLabel.textContent = 'Add a device';
+  const pairNote = document.createElement('span');
+  pairNote.className = 'set-desc';
+  pairNote.textContent =
+    "Scan the code with the phone's camera, or open the link on the other computer. It works " +
+    'once, for ten minutes, and the device then asks for Face ID, Touch ID or its passcode.';
+  const pairButton = document.createElement('button');
+  pairButton.type = 'button';
+  pairButton.className = 'cmd-button primary';
+  pairButton.textContent = 'Show a pairing code';
+  pairButton.disabled = state.status !== 'connected';
+  pairButton.addEventListener('click', () => options.onRemotePair?.());
+  pairRow.append(pairLabel, pairNote, pairButton);
+  const pairing = options.remotePairing?.();
+  if (pairing && pairing.expiresAt > Date.now()) {
+    pairRow.append(pairingCode(pairing));
+  }
+  wrap.append(pairRow);
+
+  // The trusted devices.
+  if (state.devices.length > 0) {
+    const list = document.createElement('div');
+    list.className = 'set-remote-devices';
+    for (const device of state.devices) {
+      const row = document.createElement('div');
+      row.className = 'set-field';
+      row.dataset['remoteDevice'] = device.id;
+      const name = document.createElement('span');
+      name.className = 'set-label';
+      name.textContent = device.name;
+      const when = document.createElement('span');
+      when.className = 'set-desc';
+      when.textContent =
+        `Added ${new Date(device.addedAt).toLocaleDateString()}` +
+        (device.lastSeenAt === undefined ? '' : ` · Last used ${ago(device.lastSeenAt)}`);
+      row.append(
+        name,
+        when,
+        toggle('Can type', device.typing, (typing) =>
+          options.onRemoteDevice?.({ deviceId: device.id, typing }),
+        ),
+        confirming({
+          label: 'Remove',
+          description: '',
+          confirm: `Yes, remove ${device.name}`,
+          onConfirm: () => options.onRemoteDevice?.({ deviceId: device.id, forget: true }),
+        }),
+      );
+      list.append(row);
+    }
+    wrap.append(field('Trusted devices', 'Removing one cuts it off at once.', list));
+  }
+  return wrap;
+}
+
+/** The code to scan, drawn as an SVG so it stays sharp, with the link under it. */
+function pairingCode(pairing: { link: string; expiresAt: number }): HTMLElement {
+  const box = document.createElement('div');
+  box.className = 'set-pairing';
+  box.dataset['remotePairing'] = 'true';
+  const qr = qrcode(0, 'M');
+  qr.addData(pairing.link);
+  qr.make();
+  const n = qr.getModuleCount();
+  const quiet = 4;
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', `0 0 ${String(n + quiet * 2)} ${String(n + quiet * 2)}`);
+  svg.setAttribute('width', '220');
+  svg.setAttribute('height', '220');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', 'Pairing code');
+  let d = '';
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      if (qr.isDark(y, x)) d += `M${String(x + quiet)} ${String(y + quiet)}h1v1h-1z`;
+    }
+  }
+  const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  bg.setAttribute('width', '100%');
+  bg.setAttribute('height', '100%');
+  bg.setAttribute('fill', '#ffffff');
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', d);
+  path.setAttribute('fill', '#000000');
+  svg.append(bg, path);
+  const link = document.createElement('code');
+  link.className = 'set-pairing-link';
+  link.textContent = pairing.link;
+  const copy = document.createElement('button');
+  copy.type = 'button';
+  copy.className = 'cmd-button';
+  copy.textContent = 'Copy link';
+  copy.addEventListener('click', () => {
+    void navigator.clipboard.writeText(pairing.link).then(() => (copy.textContent = 'Copied'));
+  });
+  const expires = document.createElement('span');
+  expires.className = 'set-desc';
+  expires.textContent = `Works once, until ${new Date(pairing.expiresAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}. Anyone with this code can pair, so show it only to your own device.`;
+  box.append(svg, expires, copy, link);
+  return box;
 }
 
 /**

@@ -156,6 +156,11 @@ Non-optional, per `05-security.md` §10.
 - A project `plugin.ts` never executes without a trust grant
 - A trust grant is invalidated when the file's content hash changes
 - Every default redaction pattern is scrubbed before persistence
+- Remote access (`daemon/src/remote/bridge.test.ts`, against the relay's real code): a stranger with
+  an id nobody issued opens nothing, a wrong passkey is refused, a pairing link works once, a removed
+  device is cut off, a watch-only device's typing goes nowhere, and no message a browser can send
+  ends, opens or resizes anything. `test/remote/e2e.mjs` repeats the important ones in a real
+  browser with a virtual authenticator, and fails if a watching phone changes a terminal's size
 
 ---
 

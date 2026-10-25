@@ -1692,6 +1692,32 @@
     font: inherit;
     font-size: 13px;
   }
+  /* Remote access: the code to scan, on white so every phone camera reads it, and the devices. */
+  .set-pairing {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .set-pairing svg {
+    border-radius: 8px;
+    max-width: 100%;
+    height: auto;
+  }
+  .set-pairing-link {
+    font-size: 11px;
+    color: var(--dim);
+    word-break: break-all;
+    user-select: all;
+  }
+  .set-remote-devices {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-left: 10px;
+    border-left: 2px solid rgba(90, 100, 130, 0.25);
+  }
   /* Label on the left, switch on the right, descriptions under the label where they belong. */
   .set-toggle {
     display: flex;

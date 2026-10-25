@@ -9,3 +9,6 @@ package-lock.json
 # what the generator produces, and the test that stops the published policy going stale compares
 # the two exactly.
 privacy.html
+
+# Built by scripts/build-relay.mjs, and checked to be current by relay-page.test.ts.
+relay/page.html

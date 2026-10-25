@@ -68,6 +68,7 @@ Chrome extension  ──┬── service worker      (dispatch only)
 | [Performance](docs/11-performance.md) | Memory budgets, flow control, throttling |
 | [Testing](docs/12-testing.md) | Fixtures, round-trip tests, verification |
 | [Packaging](docs/13-packaging.md) | App bundle, launchd, distribution, install |
+| [Remote access](docs/17-remote-access.md) | Your terminals from a phone or another computer, and setting up the relay |
 | [Decisions](docs/adr/) | Architecture decision records |
 
 The specification is kept current with the code. A change that alters the protocol, the schema, or a

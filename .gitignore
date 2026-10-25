@@ -24,6 +24,10 @@ logs/
 extension-key.*
 token
 
+# The relay's local secrets and wrangler's working files
+relay/.dev.vars
+relay/.wrangler/
+
 # Local personal plugins
 plugins/*
 !plugins/.gitkeep

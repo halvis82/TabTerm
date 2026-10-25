@@ -53,6 +53,11 @@ import { looksLikeInterrupt } from './agent-turns.js';
 import { readUserSettings } from './user-settings.js';
 import { safeError, safeStack } from './safe-error.js';
 import { TerminalCheckpoints } from './terminal-checkpoints.js';
+import { RemoteControl } from './remote/index.js';
+import { remoteTabs } from './remote/tabs.js';
+
+/** How much history a remote browser gets when it opens a terminal. Enough to scroll back through. */
+const REMOTE_SCROLLBACK_LINES = 2000;
 
 /**
  * The daemon owns every PTY. No terminal process is ever tied to a Chrome page's lifetime,
@@ -983,6 +988,78 @@ async function main(): Promise<void> {
     durable: usingHost && hostClient.connected && hostClient.hostInstance !== null,
     hostInstance: hostClient.hostInstance,
   });
+  /*
+   * Remote access. Off unless somebody turned it on in Settings, in which case one outgoing
+   * connection is made to their own relay. A browser watching a terminal listens to the same
+   * output the history archive does and never attaches, so it changes nothing about the session
+   * on this Mac: not its size, not whether a tab has it, not when it is ended. See
+   * docs/17-remote-access.md.
+   */
+  const outputListeners = new Set<(sessionId: string, chunk: string) => void>();
+  const resizeListeners = new Set<(sessionId: string, cols: number, rows: number) => void>();
+  const tabsListeners = new Set<() => void>();
+  const outputBefore = events.onOutput;
+  events.onOutput = (s, chunk) => {
+    outputBefore?.(s, chunk);
+    for (const l of outputListeners) l(s.id, chunk);
+  };
+  const resizedBefore = events.onResized;
+  events.onResized = (s, cols, rows) => {
+    resizedBefore?.(s, cols, rows);
+    for (const l of resizeListeners) l(s.id, cols, rows);
+  };
+  let tabsTimer: ReturnType<typeof setTimeout> | undefined;
+  server.sessionsChanged = () => {
+    if (tabsListeners.size === 0 || tabsTimer !== undefined) return;
+    tabsTimer = setTimeout(() => {
+      tabsTimer = undefined;
+      for (const l of tabsListeners) l();
+    }, 250);
+  };
+  const listen = <T>(set: Set<T>, l: T): (() => void) => {
+    set.add(l);
+    return () => set.delete(l);
+  };
+  server.remote = new RemoteControl(
+    paths.state,
+    {
+      tabs: () =>
+        remoteTabs(
+          sessions.all.map((s) => ({
+            id: s.id,
+            state: s.state,
+            pid: s.pid,
+            cwd: s.cwd,
+            commandRunning: s.commandRunning,
+            ...(s.titleFields.process || s.foregroundProcess
+              ? { process: s.titleFields.process ?? s.foregroundProcess }
+              : {}),
+            ...(s.pendingCommand ? { pendingCommand: s.pendingCommand } : {}),
+            ...(s.ranLast ? { ranLast: s.ranLast } : {}),
+            ...(s.agentState ? { agentState: s.agentState } : {}),
+          })),
+          workspaces.all,
+          (id) => sessions.tabHolds(id),
+        ),
+      screen: (sessionId) => {
+        const s = sessions.get(sessionId);
+        if (!s || s.state === 'exited' || s.state === 'reaped') return null;
+        const snap = s.vt.snapshot(REMOTE_SCROLLBACK_LINES);
+        return { cols: snap.cols, rows: snap.rows, data: snap.screen };
+      },
+      write: (sessionId, text) => {
+        const s = sessions.get(sessionId);
+        if (!s || s.state === 'exited' || s.state === 'reaped') return false;
+        sessions.write(s, Buffer.from(text, 'utf8'));
+        return true;
+      },
+      onOutput: (l) => listen(outputListeners, l),
+      onResized: (l) => listen(resizeListeners, l),
+      onTabsChanged: (l) => listen(tabsListeners, l),
+    },
+    (state) => server.broadcastAll({ t: 'remote-state', state }),
+  );
+
   await server.listen();
   updates.start();
 
@@ -1047,6 +1124,7 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     updates.stop();
+    server.remote?.stop();
     info('daemon.shutdown', { signal });
 
     /**

@@ -83,6 +83,7 @@ import type { OutputArchive } from './output-archive.js';
 import type { PluginHost } from './plugin-api.js';
 import type { ProjectIndex } from './project-index.js';
 import type { WorkspaceStore } from './workspace-store.js';
+import type { RemoteControl } from './remote/index.js';
 import { DEFAULT_KEEP_BACKGROUND_SECONDS, titleFieldsOf, usedLines } from './session-manager.js';
 import { NoDurableHostError } from './session-manager.js';
 import type { Session, SessionManager } from './session-manager.js';
@@ -334,6 +335,13 @@ export class DaemonServer {
   /** The live checks, when this daemon runs them. See `attention.ts`. */
   attention?: AttentionMonitor;
   updateHealth?: () => { durable: boolean; hostInstance: string | null };
+  /** Remote access, set by main. See `remote/index.ts`. */
+  remote?: RemoteControl;
+  /**
+   * Told whenever something a list of sessions shows may have changed: a session's own event, or
+   * the shape of the tabs. Remote access uses it to keep a browser's list current.
+   */
+  sessionsChanged?: () => void;
 
   setResetHooks(hooks: { history: () => number; restart: () => void }): void {
     this.#resetHistory = hooks.history;
@@ -721,6 +729,7 @@ export class DaemonServer {
   }
 
   notifySession(session: Session, message: ServerMessage): void {
+    this.sessionsChanged?.();
     for (const c of this.#clients) {
       if (c.authed && c.streams.has(session.id)) send(c.socket, controlFrame(message));
     }
@@ -2690,6 +2699,41 @@ export class DaemonServer {
         return;
       }
 
+      /*
+       * Remote access, from Settings, which lives in the terminal page. Every connection here has
+       * already proved it holds the token, so it is the extension. A remote browser never reaches
+       * this switch at all: it talks to `remote/bridge.ts`, which has no message for any of this.
+       */
+      case 'remote-get':
+      case 'remote-set':
+      case 'remote-pair':
+      case 'remote-device': {
+        const remote = this.remote;
+        if (!remote) return;
+        if (msg.t === 'remote-set') {
+          remote.configure({
+            ...(typeof msg.enabled === 'boolean' ? { enabled: msg.enabled } : {}),
+            ...(typeof msg.relayUrl === 'string' ? { relayUrl: msg.relayUrl.slice(0, 500) } : {}),
+            ...(typeof msg.relaySecret === 'string'
+              ? { relaySecret: msg.relaySecret.slice(0, 500) }
+              : {}),
+          });
+        } else if (msg.t === 'remote-pair') {
+          const pairing = remote.pair();
+          if (pairing) send(client.socket, controlFrame({ t: 'remote-pairing', ...pairing }));
+        } else if (msg.t === 'remote-device') {
+          if (typeof msg.deviceId !== 'string') return;
+          remote.device({
+            deviceId: msg.deviceId,
+            ...(typeof msg.typing === 'boolean' ? { typing: msg.typing } : {}),
+            ...(typeof msg.name === 'string' ? { name: msg.name } : {}),
+            ...(msg.forget === true ? { forget: true } : {}),
+          });
+        }
+        send(client.socket, controlFrame({ t: 'remote-state', state: remote.state }));
+        return;
+      }
+
       case 'reset-settings': {
         // Back to the defaults, which are on. See docs/16-companion-updates.md.
         this.updates?.preferencesChanged(true, true);
@@ -3265,6 +3309,7 @@ export class DaemonServer {
    * and building it serializes every session's screen, which is the expensive part.
    */
   #announceLiveSessions(): void {
+    this.sessionsChanged?.();
     // The process table is asked first, so a card can name what is in the foreground. The
     // list goes out with whatever is known now, and again if the answer changes it.
     void this.#refreshForeground().then((changed) => {

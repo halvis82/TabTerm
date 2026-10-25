@@ -22,7 +22,9 @@ against it before merge.
 
 ### Out of scope
 
-- Remote attackers. Nothing binds off loopback, ever.
+- Remote attackers. Nothing binds off loopback, ever. Remote access, which is off unless turned on,
+  connects **out** to the person's own relay and adds no listener. What it does expose, to a
+  device holding both a paired key and its passkey, is described in `17-remote-access.md` §3.
 - A user who is already root, or malware already running as the user with full disk access.
 - Physical access.
 
@@ -419,6 +421,8 @@ Applied to any change touching this surface.
 - [ ] No new secret written to disk, or it is 0600 and never logged
 - [ ] Any new persisted field considered for the redaction pipeline
 - [ ] `10-limitations.md` updated if a new constraint was discovered
+- [ ] Nothing new reachable from a remote device: `remote/bridge.ts` handles only listing, watching and
+  typing, and a change there is reviewed against `17-remote-access.md` §1
 
 ## The prompt TabTerm cannot prevent
 

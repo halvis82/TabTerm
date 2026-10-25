@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#0d1117" />
+    <meta name="referrer" content="no-referrer" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>TabTerm</title>
+    <style>
+      /*XTERM_CSS*/
+    </style>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0d1117;
+        --panel: #161b22;
+        --raised: #1c2128;
+        --line: #30363d;
+        --fg: #e6edf3;
+        --dim: #8b949e;
+        --accent: #58a6ff;
+        --warn: #f0b72f;
+        --ok: #3fb950;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          16px/1.4 -apple-system,
+          BlinkMacSystemFont,
+          system-ui,
+          sans-serif;
+        -webkit-text-size-adjust: 100%;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        min-height: 100dvh;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      button {
+        font: inherit;
+        color: inherit;
+        cursor: pointer;
+      }
+
+      /* Locked */
+      #screen-lock {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        padding: 32px 24px;
+        padding-top: max(32px, env(safe-area-inset-top));
+        text-align: center;
+      }
+      .mark {
+        width: 56px;
+        height: 56px;
+        border-radius: 14px;
+        background: var(--raised);
+        border: 1px solid var(--line);
+        display: grid;
+        place-items: center;
+        font:
+          600 22px ui-monospace,
+          Menlo,
+          monospace;
+        color: var(--accent);
+      }
+      #lock-status {
+        color: var(--dim);
+        max-width: 32ch;
+        margin: 0;
+      }
+      #lock-status[data-tone='warn'] {
+        color: var(--warn);
+      }
+      #pair-form {
+        display: flex;
+        gap: 8px;
+        width: min(100%, 420px);
+      }
+      #pair-input {
+        flex: 1;
+        min-width: 0;
+        height: 46px;
+        padding: 0 12px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: var(--raised);
+        color: var(--fg);
+        font:
+          15px ui-monospace,
+          Menlo,
+          monospace;
+      }
+      #pair-form button {
+        height: 46px;
+        padding: 0 18px;
+        border-radius: 10px;
+        border: 0;
+        background: var(--accent);
+        color: #0d1117;
+        font-weight: 600;
+      }
+      #unlock {
+        min-width: 220px;
+        height: 50px;
+        border-radius: 12px;
+        border: 0;
+        background: var(--accent);
+        color: #0d1117;
+        font-weight: 600;
+      }
+
+      /* The list */
+      #screen-list {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 16px;
+        padding-top: max(10px, env(safe-area-inset-top));
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+      }
+      header h1 {
+        font-size: 17px;
+        margin: 0;
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      #device-name {
+        color: var(--dim);
+        font-size: 13px;
+      }
+      #tabs {
+        padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+      .tab-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--dim);
+        text-transform: none;
+        margin: 0 0 8px 2px;
+      }
+      .pane {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        width: 100%;
+        text-align: left;
+        padding: 12px 14px;
+        margin-bottom: 8px;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        background: var(--raised);
+      }
+      .pane:active {
+        background: var(--line);
+      }
+      .pane-top {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .pane-title {
+        font-weight: 600;
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .pane-cwd {
+        color: var(--dim);
+        font-size: 13px;
+        font-family: ui-monospace, Menlo, monospace;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .badge {
+        font-size: 12px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid currentColor;
+      }
+      .badge.needs {
+        color: var(--warn);
+      }
+      .badge.busy {
+        color: var(--ok);
+      }
+      .empty {
+        color: var(--dim);
+        text-align: center;
+        margin-top: 40px;
+      }
+
+      /* A terminal */
+      #screen-terminal {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        height: 100dvh;
+      }
+      .icon-button {
+        min-width: 40px;
+        height: 36px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: var(--raised);
+        padding: 0 10px;
+      }
+      #term-wrap {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+        padding: 4px;
+      }
+      #term {
+        display: inline-block;
+      }
+      #keys,
+      #watch-only {
+        display: flex;
+        gap: 6px;
+        overflow-x: auto;
+        padding: 8px 10px;
+        padding-bottom: max(8px, env(safe-area-inset-bottom));
+        border-top: 1px solid var(--line);
+        background: var(--panel);
+      }
+      #keys button {
+        flex: none;
+        min-width: 46px;
+        height: 38px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: var(--raised);
+        font-size: 14px;
+      }
+      #watch-only {
+        color: var(--dim);
+        font-size: 13px;
+        justify-content: center;
+      }
+    </style>
+  </head>
+  <body>
+    <main id="screen-lock">
+      <div class="mark">&gt;_</div>
+      <p id="lock-status">Starting</p>
+      <button id="unlock" type="button" hidden>Unlock</button>
+      <form id="pair-form" hidden>
+        <input
+          id="pair-input"
+          type="text"
+          inputmode="url"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+          placeholder="Paste a pairing link"
+          aria-label="Pairing link"
+        />
+        <button type="submit">Pair</button>
+      </form>
+    </main>
+
+    <main id="screen-list" hidden>
+      <header>
+        <h1>TabTerm</h1>
+        <span id="device-name"></span>
+      </header>
+      <div id="tabs"></div>
+    </main>
+
+    <main id="screen-terminal" hidden>
+      <header>
+        <button id="back" class="icon-button" type="button" aria-label="Back to the list">
+          Back
+        </button>
+        <h1 id="term-title"></h1>
+        <button id="zoom-out" class="icon-button" type="button" aria-label="Smaller text">
+          A-
+        </button>
+        <button id="zoom-in" class="icon-button" type="button" aria-label="Larger text">A+</button>
+      </header>
+      <div id="term-wrap"><div id="term"></div></div>
+      <div id="keys">
+        <button type="button" id="type">Keyboard</button>
+        <button type="button" data-key="esc">Esc</button>
+        <button type="button" data-key="tab">Tab</button>
+        <button type="button" data-key="ctrlc">Ctrl C</button>
+        <button type="button" data-key="up" aria-label="Up">&#8593;</button>
+        <button type="button" data-key="down" aria-label="Down">&#8595;</button>
+        <button type="button" data-key="left" aria-label="Left">&#8592;</button>
+        <button type="button" data-key="right" aria-label="Right">&#8594;</button>
+        <button type="button" data-key="enter">Return</button>
+      </div>
+      <div id="watch-only" hidden>
+        This device can watch, and typing is turned off for it on your Mac.
+      </div>
+    </main>
+    <script>
+      /*MAIN_JS*/
+    </script>
+  </body>
+</html>

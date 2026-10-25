@@ -18,6 +18,7 @@
     "reload-extension": "node scripts/reload-extension.mjs",
     "build:daemon": "node scripts/build-daemon.mjs",
     "build:extension": "node scripts/build-extension.mjs",
+    "build:relay": "node scripts/build-relay.mjs",
     "package:app": "npm run build:daemon && node scripts/build-app-bundle.mjs",
     "package:extension": "npm run build:extension && node scripts/package-extension.mjs",
     "doctor": "bash scripts/doctor.sh",

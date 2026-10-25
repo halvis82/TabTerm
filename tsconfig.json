@@ -1,4 +1,9 @@
 {
   "files": [],
-  "references": [{ "path": "./shared" }, { "path": "./daemon" }, { "path": "./extension" }]
+  "references": [
+    { "path": "./shared" },
+    { "path": "./daemon" },
+    { "path": "./extension" },
+    { "path": "./relay/page" }
+  ]
 }

@@ -750,6 +750,14 @@ export type ClientMessage =
   | { t: 'get-background-timeout' }
   /** Every session the daemon holds, with enough of its screen to recognize it. */
   | { t: 'list-live-sessions' }
+  /*
+   * Remote access, from Settings. See docs/17-remote-access.md. The relay's secret travels this
+   * way once, when it is entered, and is never sent back: the answer says only whether one is set.
+   */
+  | { t: 'remote-get' }
+  | { t: 'remote-set'; enabled?: boolean; relayUrl?: string; relaySecret?: string }
+  | { t: 'remote-pair' }
+  | { t: 'remote-device'; deviceId: string; typing?: boolean; name?: string; forget?: boolean }
   /**
    * Complete a directory path, the way a shell would.
    *
@@ -1168,6 +1176,8 @@ export type ServerMessage =
   | { t: 'scrollback-budget'; bytes: number }
   | { t: 'background-timeout'; seconds: number | null }
   | { t: 'live-sessions'; sessions: readonly LiveSession[] }
+  | { t: 'remote-state'; state: RemoteAccessState }
+  | { t: 'remote-pairing'; link: string; expiresAt: number }
   /**
    * Something the start screen draws has changed. No payload, deliberately.
    *
@@ -1419,6 +1429,18 @@ export interface ProjectConfigInfo {
 }
 
 export type ControlMessage = ClientMessage | ServerMessage;
+
+/** Remote access as Settings shows it. Never carries a key or the relay's secret. */
+export interface RemoteAccessState {
+  enabled: boolean;
+  relayUrl: string;
+  hasSecret: boolean;
+  status: 'off' | 'connecting' | 'connected' | 'error';
+  detail?: string;
+  /** Browsers unlocked and connected right now. */
+  browsers: number;
+  devices: { id: string; name: string; addedAt: number; lastSeenAt?: number; typing: boolean }[];
+}
 
 // ---------------------------------------------------------------------------
 // Convenience

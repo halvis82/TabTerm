@@ -117,6 +117,7 @@ import {
 } from '../launcher/templates.js';
 import type {
   AgentHooksStatus,
+  RemoteAccessState,
   LiveSession,
   NotifyPolicy,
   ShellIntegrationStatus,
@@ -205,6 +206,10 @@ const turnEndsSeen = new Map<string, number>();
  */
 let notifyPolicy: NotifyPolicy | null = null;
 let agentHooks: AgentHooksStatus | null = null;
+/** Remote access as the daemon reports it, and a pairing link while its code is on screen. */
+let remoteAccess: RemoteAccessState | null = null;
+let remotePairing: { link: string; expiresAt: number } | null = null;
+let pairedBefore = 0;
 let shellIntegration: ShellIntegrationStatus | null = null;
 let companionUpdate: CompanionUpdateStatus | null = null;
 /** When this page began, so a state replayed by a reattach is not taken for news. */
@@ -5699,6 +5704,7 @@ function askForSettings(): void {
   client?.send({ t: 'get-memory-mode' });
   client?.send({ t: 'get-notify-policy' });
   client?.send({ t: 'get-agent-hooks' });
+  client?.send({ t: 'remote-get' });
   client?.send({ t: 'get-agent-command' });
   client?.send({ t: 'get-shell-integration' });
   client?.send({ t: 'get-companion-update' });
@@ -6412,6 +6418,11 @@ function buildCommandPanel(): void {
         },
         agentHooks: () => agentHooks,
         onChangeAgentHooks: (enabled) => client?.send({ t: 'set-agent-hooks', enabled }),
+        remote: () => remoteAccess,
+        remotePairing: () => remotePairing,
+        onRemoteSet: (change) => client?.send({ t: 'remote-set', ...change }),
+        onRemotePair: () => client?.send({ t: 'remote-pair' }),
+        onRemoteDevice: (change) => client?.send({ t: 'remote-device', ...change }),
         agentCommand: () => agentCommand,
         onChangeAgentCommand: (command) => client?.send({ t: 'set-agent-command', command }),
         backgroundTimeout: () => backgroundTimeout,
@@ -7610,6 +7621,22 @@ function onControl(msg: ServerMessage): void {
 
     case 'agent-hooks': {
       agentHooks = msg.status;
+      commandPanel?.refreshSettings();
+      return;
+    }
+
+    case 'remote-state': {
+      remoteAccess = msg.state;
+      // A device that has just paired is the code having done its job, so it goes.
+      if (remotePairing && msg.state.devices.length > pairedBefore) remotePairing = null;
+      pairedBefore = msg.state.devices.length;
+      commandPanel?.refreshSettings();
+      return;
+    }
+
+    case 'remote-pairing': {
+      remotePairing = { link: msg.link, expiresAt: msg.expiresAt };
+      pairedBefore = remoteAccess?.devices.length ?? 0;
       commandPanel?.refreshSettings();
       return;
     }

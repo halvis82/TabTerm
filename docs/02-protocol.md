@@ -320,3 +320,17 @@ The local helper uses `update-health`, `prepare-companion-update` and
 host instance and session count. Preparation pauses new session creation for at most two minutes.
 These messages require the same local authentication token as every other control operation.
 See [companion updates](16-companion-updates.md).
+
+## Remote access control
+
+Authenticated clients may send `remote-get`, `remote-set` with optional boolean `enabled` and
+string `relayUrl` and `relaySecret`, `remote-pair`, and `remote-device` with `deviceId` and one of
+boolean `typing`, string `name` or `forget: true`. Each is answered with `remote-state`, which is
+also sent to every client whenever it changes. It carries whether remote access is on, the relay
+address, whether a secret is set, the connection status, how many devices are connected and the
+trusted devices. It never carries the secret or any key. `remote-pair` is also answered with
+`remote-pairing`: the link for a new device and when it expires.
+
+A remote browser never speaks this protocol. It reaches the daemon through the relay and speaks the
+sealed protocol in `shared/src/remote.ts`, which offers listing, watching and typing only. See
+[remote access](17-remote-access.md).

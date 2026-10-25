@@ -62,12 +62,19 @@
 <p>Your terminal data stays on your machine. Optional companion update requests are described below.</p>
 <ul>
 <li><strong>No TabTerm server exists.</strong> There is no backend, no account, no sign-in
-<li><strong>Terminal input and output are never transmitted anywhere by TabTerm</strong>
+<li><strong>Terminal input and output are never transmitted anywhere by TabTerm</strong>, unless you turn on
+ remote access, below, and then only to a relay you run yourself, encrypted so the relay cannot
+ read it
 <li><strong>No analytics. No telemetry. No crash reporting</strong>
 <li><strong>No advertising, and no data is sold or shared with anybody</strong>
 </ul>
 <p>The extension makes no network requests to any remote host. Every connection it makes is to your own machine, over loopback: to the companion program, which is bound to loopback and refuses anything without the local token, and to a local address <strong>you</strong> have asked it to open, which is the feature described under "Services listening on your own machine" below. Neither leaves this machine.</p>
 <p>Programs <strong>you</strong> run in a terminal can of course use the network. That is what a terminal is for, and it is your command doing it rather than TabTerm.</p>
+<hr />
+<h2>Optional remote access</h2>
+<p>Off unless you turn it on in Settings. When it is on, the companion program connects out to a relay <strong>you deploy on your own Cloudflare account</strong>, so you can open your terminals from your own phone or another computer. TabTerm has no relay of its own and receives nothing.</p>
+<p>What passes through your relay is encrypted end to end with a key made on your Mac for each device you pair. The key reaches the device inside the pairing link's fragment, which browsers never send to a server, so neither your relay nor Cloudflare can read terminal content. They can see that a device connected, when, and how much data went each way, as for any website. Cloudflare's own privacy policy covers your Cloudflare account.</p>
+<p>Every device unlocks with its own passkey, behind Face ID, Touch ID or its passcode. The list of trusted devices, their public keys and the relay secret are stored on your Mac only, in <code>~/.local/state/tabterm/remote.json</code>, readable by you only. Removing a device in Settings cuts it off at once. Turning remote access off stops every connection. The extension itself makes no new connections for this, and needs no new permission.</p>
 <hr />
 <h2>Optional companion updates</h2>
 <p>The companion contacts GitHub when you press Check for updates, and once a day on its own while automatic checking is on, which it is unless you turn it off in Settings. Automatic installation is on by the same rule and can be turned off the same way. GitHub receives ordinary request information such as your IP address and a TabTerm updater user-agent. No terminal input, output, history, clipboard contents, authentication token or project information is included.</p>

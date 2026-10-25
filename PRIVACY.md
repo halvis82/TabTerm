@@ -68,7 +68,9 @@ closes.
 Your terminal data stays on your machine. Optional companion update requests are described below.
 
 - **No TabTerm server exists.** There is no backend, no account, no sign-in
-- **Terminal input and output are never transmitted anywhere by TabTerm**
+- **Terminal input and output are never transmitted anywhere by TabTerm**, unless you turn on
+  remote access, below, and then only to a relay you run yourself, encrypted so the relay cannot
+  read it
 - **No analytics. No telemetry. No crash reporting**
 - **No advertising, and no data is sold or shared with anybody**
 
@@ -79,6 +81,26 @@ described under "Services listening on your own machine" below. Neither leaves t
 
 Programs **you** run in a terminal can of course use the network. That is what a terminal is for,
 and it is your command doing it rather than TabTerm.
+
+---
+
+## Optional remote access
+
+Off unless you turn it on in Settings. When it is on, the companion program connects out to a relay
+**you deploy on your own Cloudflare account**, so you can open your terminals from your own phone or
+another computer. TabTerm has no relay of its own and receives nothing.
+
+What passes through your relay is encrypted end to end with a key made on your Mac for each device
+you pair. The key reaches the device inside the pairing link's fragment, which browsers never send
+to a server, so neither your relay nor Cloudflare can read terminal content. They can see that a
+device connected, when, and how much data went each way, as for any website. Cloudflare's own
+privacy policy covers your Cloudflare account.
+
+Every device unlocks with its own passkey, behind Face ID, Touch ID or its passcode. The list of
+trusted devices, their public keys and the relay secret are stored on your Mac only, in
+`~/.local/state/tabterm/remote.json`, readable by you only. Removing a device in Settings cuts it
+off at once. Turning remote access off stops every connection. The extension itself makes no new
+connections for this, and needs no new permission.
 
 ---
 

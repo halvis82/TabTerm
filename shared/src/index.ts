@@ -16,3 +16,4 @@ export * from './shell-noise.js';
 export * from './char-width.js';
 
 export * from './updates.js';
+export * from './remote.js';

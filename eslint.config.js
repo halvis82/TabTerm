@@ -16,7 +16,7 @@ export default tseslint.config(
 
   // Product code: fully type-aware.
   {
-    files: ['{shared,daemon,extension}/src/**/*.ts'],
+    files: ['{shared,daemon,extension}/src/**/*.ts', 'relay/page/**/*.ts'],
     extends: [js.configs.recommended, tseslint.configs.recommendedTypeChecked],
     languageOptions: {
       parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
@@ -51,6 +51,14 @@ export default tseslint.config(
         { name: 'name', message: 'Say window.name when the window is what you mean.' },
         { name: 'status', message: 'Say window.status when the window is what you mean.' },
       ],
+    },
+  },
+
+  // The relay runs on Cloudflare Workers, where these are globals.
+  {
+    files: ['relay/worker.js'],
+    languageOptions: {
+      globals: { ...globals.serviceworker, WebSocketPair: 'readonly' },
     },
   },
 
