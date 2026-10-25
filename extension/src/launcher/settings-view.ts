@@ -95,7 +95,7 @@ const LABEL_OPACITY_CHOICES: readonly (readonly [string, string])[] = [
   ['0.16', 'Faint (default)'],
   ['0.3', 'Clear'],
   ['0.45', 'Strong'],
-  ['0.6', 'Strongest'],
+  ['0.95', 'Strongest'],
 ];
 
 /** And sizes, as a multiple of the size it works out from the pane. */
@@ -204,7 +204,7 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
   });
   const opacityWarning = document.createElement('div');
   opacityWarning.className = 'cmd-settings-warning';
-  opacityWarning.textContent = 'At this strength the name will cover the output behind it.';
+  opacityWarning.textContent = 'At this strength the name hides the output behind it.';
   opacityWarning.hidden = true;
 
   const scaleSelect = chooser(LABEL_SCALE_CHOICES, String(DEFAULT_LABEL_SCALE), (value) => {

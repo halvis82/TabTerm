@@ -40,15 +40,16 @@ describe('the settings for the name drawn over a pane', () => {
    * terminal, and the setting is meant to make it easier to read rather than to hide the output.
    */
   it('but never lets it become the thing you are reading', () => {
-    expect(saneOpacity(5)).toBeLessThanOrEqual(0.9);
+    expect(saneOpacity(5)).toBeLessThanOrEqual(0.95);
     expect(saneScale(99)).toBeLessThanOrEqual(2);
     expect(saneScale(0)).toBeGreaterThanOrEqual(0.4);
   });
 
-  it('warns once the name is strong enough to sit over the output', () => {
+  it('warns only at the level that really hides the output', () => {
     expect(obscuresOutput(DEFAULT_LABEL_OPACITY)).toBe(false);
     expect(obscuresOutput(0.3)).toBe(false);
-    expect(obscuresOutput(0.45)).toBe(true);
-    expect(obscuresOutput(0.6)).toBe(true);
+    expect(obscuresOutput(0.45), 'Strong still lets the output show through').toBe(false);
+    expect(obscuresOutput(0.95)).toBe(true);
+    expect(saneOpacity(0.6), 'Strongest as it was stored before').toBe(0.95);
   });
 });
