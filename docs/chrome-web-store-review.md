@@ -82,8 +82,13 @@ it is worth one minute of a reviewer's time.
 Select text in the terminal with the mouse, then **Command C**. Click into the terminal and press
 **Command V**. The text is pasted at the prompt and is not run.
 
-Both use the `clipboardRead` and `clipboardWrite` permissions, and only on those two actions.
-Nothing reads the clipboard at any other time.
+Both use the `clipboardRead` and `clipboardWrite` permissions. Nothing reads the clipboard at any
+other time.
+
+A program in the terminal can also copy, the way vim, tmux and anything over ssh do in every
+terminal: run `printf '\033]52;c;%s\a' "$(printf hello | base64)"` and `hello` is on the clipboard,
+with a short notice saying so. That is a write only. A program asking to read the clipboard is never
+answered, and Settings, Terminals can turn program copies off.
 
 ## The context menu
 

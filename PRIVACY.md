@@ -192,7 +192,7 @@ registered to accept messages only from the TabTerm extension.
 | `notifications` | Tell you when a command finished or an agent needs you |
 | `contextMenus` | The right-click actions that send a selection or a link to a terminal |
 | `clipboardRead` | Paste, when you invoke it |
-| `clipboardWrite` | Copy, when you invoke it |
+| `clipboardWrite` | Copy, when you invoke it, and a copy made by a program running in your terminal, such as vim or tmux (you can turn that off in Settings). Programs can never read the clipboard |
 
 TabTerm requests no access to websites. It has no content scripts and no host permissions, so it
 cannot read pages you visit. The only webpage data it ever sees is what you hand it deliberately

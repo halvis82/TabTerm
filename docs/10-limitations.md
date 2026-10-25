@@ -332,8 +332,9 @@ the person already bound to something else, and copies an existing file aside to
 to a combination the table leaves alone, in the shortcut settings.
 
 ### 1.7 Kitty graphics protocol
-xterm.js supports Sixel and the iTerm2 inline-image protocol via addon, so images are partly
-recoverable. The **Kitty graphics protocol is not supported**. Tools targeting it do not render.
+xterm.js supports Sixel and the iTerm2 inline-image protocol through an addon, which TabTerm does
+not install, so no image protocol renders today. The **Kitty graphics protocol is not supported** by
+xterm.js at all. Tools targeting it do not render.
 
 ---
 

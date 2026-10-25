@@ -335,7 +335,7 @@ review failure.
 | `nativeMessaging` | Token bootstrap only |
 | `contextMenus` | Explicit browser-to-terminal actions |
 | `clipboardRead` | Paste into the terminal, on an explicit Paste |
-| `clipboardWrite` | Copy a selection out of the terminal, on an explicit Copy |
+| `clipboardWrite` | Copy a selection out of the terminal, on an explicit Copy, and a program's own copy (`OSC 52`), which Settings can turn off |
 | `alarms` | Re-report which tabs are open on a timer |
 | `sidePanel` | A terminal beside a page, opened from the toolbar icon's menu for that tab only |
 

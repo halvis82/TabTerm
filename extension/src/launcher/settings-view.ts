@@ -4,6 +4,7 @@ import {
   DEFAULT_COPY_LINES,
   saneCopyLines,
 } from '../terminal/command-output.js';
+import { BELL_KEY, PROGRAM_COPY_KEY } from '../terminal/osc52.js';
 import { VERSION, type CompanionUpdateStatus, type Concern } from '@tabterm/shared';
 import { THEME_CHOICES } from '../terminal/themes.js';
 import {
@@ -307,6 +308,29 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
       copySelect,
     ),
   );
+  /*
+   * What programs may do beyond drawing. Both on by default, as in other terminals, and both a
+   * switch because a copy made for you and a flash you did not ask for are each somebody's taste.
+   */
+  const programCopy = toggle(
+    'Programs can copy to the clipboard',
+    true,
+    (on) => void chrome.storage.local.set({ [PROGRAM_COPY_KEY]: on }),
+    'vim, tmux and programs over ssh copy this way. They can never read the clipboard.',
+  );
+  const bell = toggle(
+    'Show the bell',
+    true,
+    (on) => void chrome.storage.local.set({ [BELL_KEY]: on }),
+    'A brief flash on the pane, and the tab flashes when it is in the background.',
+  );
+  void chrome.storage.local.get([PROGRAM_COPY_KEY, BELL_KEY]).then((stored) => {
+    const copyBox = programCopy.querySelector('input');
+    const bellBox = bell.querySelector('input');
+    if (copyBox) copyBox.checked = stored[PROGRAM_COPY_KEY] !== false;
+    if (bellBox) bellBox.checked = stored[BELL_KEY] !== false;
+  });
+  terminals.append(programCopy, bell);
   if (hasTerminalSettings) wrap.append(terminals);
 
   wrap.append(buildNotifications(options));

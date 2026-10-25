@@ -52,6 +52,7 @@ import { chooseOpenAction, describeOpen } from './open-action.js';
 import { needsAttention, StatusMachine, titleStatus } from './status-machine.js';
 import { describeTime, isLongRunning, type TimeState } from './elapsed.js';
 import { LinkCopyButton } from './link-copy.js';
+import { BELL_KEY, PROGRAM_COPY_KEY, describeCopy } from './osc52.js';
 import {
   AGENT_PROGRAMS,
   COPY_LINES_KEY,
@@ -937,6 +938,79 @@ chrome.storage.onChanged.addListener((changes, area) => {
     copyLines = saneCopyLines(changes[COPY_LINES_KEY]?.newValue ?? DEFAULT_COPY_LINES);
   }
 });
+
+/** Settings for what programs may do beyond drawing, both on unless turned off. */
+let programsMayCopy = true;
+let showBell = true;
+void chrome.storage.local
+  .get([PROGRAM_COPY_KEY, BELL_KEY])
+  .then((stored) => {
+    programsMayCopy = stored[PROGRAM_COPY_KEY] !== false;
+    showBell = stored[BELL_KEY] !== false;
+  })
+  .catch(() => undefined);
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return;
+  if (PROGRAM_COPY_KEY in changes) programsMayCopy = changes[PROGRAM_COPY_KEY]?.newValue !== false;
+  if (BELL_KEY in changes) showBell = changes[BELL_KEY]?.newValue !== false;
+});
+
+/** What programs copied and how many bells rang, for a check to read. */
+const programCopies: { paneId: string; text: string; ok: boolean }[] = [];
+const bellsRung: string[] = [];
+
+/**
+ * A program put text on the clipboard. See `osc52.ts`.
+ *
+ * Said in the status line, briefly, so a copy nobody made by hand is never a surprise. Chrome lets
+ * a page write the clipboard only while it has the focus, which is when somebody is pressing the
+ * key in vim that asked for it, so a copy from a tab in the background is said rather than lost.
+ */
+function programCopy(paneId: string, text: string): void {
+  if (!programsMayCopy) return;
+  void navigator.clipboard.writeText(text).then(
+    () => {
+      programCopies.push({ paneId, text, ok: true });
+      setStatus(describeCopy(text), 'ok');
+      setTimeout(() => setStatus('', 'hidden'), 1600);
+    },
+    () => {
+      programCopies.push({ paneId, text, ok: false });
+      setStatus('A program tried to copy while this tab was in the background', 'warn');
+      setTimeout(() => setStatus('', 'hidden'), 3000);
+    },
+  );
+}
+
+/** One ring per pane in this long at most. zsh rings on every completion that finds nothing. */
+const BELL_GAP_MS = 400;
+const lastBell = new Map<string, number>();
+
+/**
+ * A program rang the bell.
+ *
+ * A brief flash on the pane, which is all a visual bell is in any terminal. When nobody is looking
+ * at this tab it flashes the icon instead, the same way a finished command does, since a bell
+ * nobody sees is the case it exists for: `make; tput bel` while you read something else.
+ */
+function ringBell(paneId: string): void {
+  if (!showBell) return;
+  const now = performance.now();
+  if (now - (lastBell.get(paneId) ?? -Infinity) < BELL_GAP_MS) return;
+  lastBell.set(paneId, now);
+  bellsRung.push(paneId);
+  const el = document.querySelector<HTMLElement>(`.pane[data-pane-id="${CSS.escape(paneId)}"]`);
+  if (el) {
+    el.classList.remove('bell-ring');
+    // Read back, so a second ring restarts the flash rather than continuing it.
+    void el.offsetWidth;
+    el.classList.add('bell-ring');
+    setTimeout(() => el.classList.remove('bell-ring'), 500);
+  }
+  if (document.visibilityState === 'hidden' || !document.hasFocus()) {
+    if (!tabFlasher.flashing) tabFlasher.start();
+  }
+}
 
 /**
  * A finished block's text, read once rather than on every move of the pointer over it.
@@ -4039,6 +4113,8 @@ function buildHosts(): void {
     onLinkLeave: () => linkCopy.hideSoon(),
     onOutputHover: (term, blocks, block) => offerOutput(term, blocks, block),
     onOutputLeave: () => outputCopy.hideSoon(),
+    onProgramCopy: (paneId, text) => programCopy(paneId, text),
+    onBell: (paneId) => ringBell(paneId),
   });
 
   splitView = new SplitView({
@@ -8312,6 +8388,9 @@ declare global {
       rowPoint: (paneId: string, needle: string) => { x: number; y: number } | null;
       /** Panes glowing because they finished. See `PaneGlow`. */
       glowingPanes: () => { paneId: string; failed: boolean }[];
+      /** What programs copied, and the panes whose bell rang, in order. */
+      programCopies: () => { paneId: string; text: string; ok: boolean }[];
+      bellsRung: () => string[];
       faviconNow: () => {
         showing: string;
         effective: string;
@@ -8753,6 +8832,8 @@ function installTestHook(): void {
         failed: el.classList.contains('is-failed'),
       })),
     outputBlocks: (paneId: string) => panesHost?.get(paneId)?.blocks.all(copyLines) ?? [],
+    programCopies: () => [...programCopies],
+    bellsRung: () => [...bellsRung],
     faviconNow: () => ({
       showing: faviconState,
       effective: paneStatus.effective(),

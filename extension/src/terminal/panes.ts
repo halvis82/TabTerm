@@ -6,6 +6,7 @@ import { scanIsOverdue, QUIET_MS } from './link-scan.js';
 import { loadHighlights, saveHighlights } from './highlights.js';
 import { DEFAULT_COLOR } from './color-store.js';
 import { CommandBlocks, type OutputBlock } from './command-output.js';
+import { parseOsc52 } from './osc52.js';
 
 /**
  * One terminal per pane.
@@ -29,6 +30,10 @@ export interface PaneHostOptions {
   /** The pointer is over a finished command's output, or has left it. For Copy output. */
   onOutputHover?: (term: Terminal, blocks: CommandBlocks, block: OutputBlock) => void;
   onOutputLeave?: () => void;
+  /** A program asked to put text on the clipboard. See `osc52.ts`. */
+  onProgramCopy?: (paneId: string, text: string) => void;
+  /** A program rang the bell. */
+  onBell?: (paneId: string) => void;
   /** Pane-level entries for the right-click menu, asked for at the moment of the click. */
   menuActions?: (paneId: string) => readonly PaneMenuAction[];
   /** The color a highlight gets on a plain click, and the ones offered in the picker. */
@@ -197,6 +202,22 @@ export class PaneHost {
      * which is somebody pointing at a link and being offered that link instead.
      */
     const blocks = new CommandBlocks(controller.term);
+
+    /*
+     * What a program asks of the terminal beyond drawing: a copy, and the bell.
+     *
+     * Not while a saved screen is being put back. Those bytes were acted on when they first
+     * arrived, and a reload is not a program asking again.
+     */
+    controller.term.parser.registerOscHandler(52, (data) => {
+      if (this.#restoring.has(paneId)) return true;
+      const asked = parseOsc52(data);
+      if (asked.kind === 'write') this.#opts.onProgramCopy?.(paneId, asked.text);
+      return true;
+    });
+    controller.term.onBell(() => {
+      if (!this.#restoring.has(paneId)) this.#opts.onBell?.(paneId);
+    });
     element.addEventListener('mousemove', (e) => {
       if (e.buttons !== 0 || this.#opts.modifierHeld()) {
         this.#opts.onOutputLeave?.();
@@ -282,6 +303,9 @@ export class PaneHost {
     if (this.#waiting.get(paneId)?.seen === true) this.#sawOutput(paneId);
   }
 
+  /** Panes a saved screen is being written into. See the handlers in `create`. */
+  readonly #restoring = new Set<string>();
+
   readonly #waiting = new Map<string, { fn: () => void; timer: number; seen: boolean }>();
 
   #sawOutput(paneId: string): void {
@@ -329,7 +353,9 @@ export class PaneHost {
     ) {
       pane.controller.term.resize(cols, rows);
     }
+    this.#restoring.add(paneId);
     pane.controller.write(new TextEncoder().encode(screen), () => {
+      this.#restoring.delete(paneId);
       /* a snapshot is not acked: it never came off the credit window */
       /**
        * The callback fires once xterm has actually parsed the bytes, which is the first moment

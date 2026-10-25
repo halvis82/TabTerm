@@ -448,6 +448,31 @@ that passes through something the page might have wanted.
 Drag selects, double-click selects a word or path, triple-click selects a line, and shift-click
 extends, all from xterm.
 
+### A program's own copy, and the bell
+
+vim with `set clipboard`, neovim, tmux, and anything running over ssh copy by asking the terminal:
+`OSC 52` carries the text in base64, because on a remote machine the terminal is the only thing that
+can reach this Mac's clipboard. TabTerm puts that text on the clipboard and says so in the status
+line, "Copied 12 lines from the program", so a copy nobody made by hand is never a surprise.
+
+- **Write only.** The same sequence with `?` asks for the clipboard back. That is never answered,
+  since it would hand whatever was last copied to any program that prints the right bytes, a `cat`
+  of a file somebody was sent included
+- **No clearing.** An empty payload would wipe what somebody copied, so it is ignored
+- **Not again on a reload.** A saved screen being put back is not a program asking, so neither a
+  copy nor a bell is acted on while one is written
+- **Bounded** at four million characters, and turned off by Settings, Terminals, **Programs can copy
+  to the clipboard**
+- Chrome lets a page write the clipboard only while it has the focus. A copy from a tab in the
+  background is said in the status line rather than lost silently
+
+The bell (`BEL`, what `tput bel` and `printf '\a'` send) flashes the pane's edge once, the visual
+bell other terminals have. When nobody is looking at the tab it flashes the tab's icon as well, the
+same way a finished command does, since a bell nobody sees is the case it exists for. One ring per
+pane in 400 milliseconds at most, because zsh rings on every completion that finds nothing. Settings,
+Terminals, **Show the bell** turns it off. The code is `osc52.ts` and `ringBell` in
+`terminal-page.ts`, and the `program-copy-bell` suite checks both, the reload included.
+
 ### A gap a program drew is still a gap
 
 A full screen interface lays itself out by jumping the cursor rather than by writing spaces,
@@ -939,7 +964,8 @@ Populated by the VT fidelity spike and updated whenever one is found.
 
 | Gap | Impact | Status |
 |---|---|---|
-| Kitty graphics protocol | Tools targeting it do not render images | Not supported. Sixel and the iTerm2 inline-image protocol are available via addon |
+| Kitty graphics protocol | Tools targeting it do not render images | Not supported |
+| Sixel and the iTerm2 inline-image protocol | `imgcat` and similar print nothing | Not supported. xterm's image addon would add both and is not installed |
 | iTerm2 Semantic History | Not recreated as such | Superseded by the path detection work path detection |
 | iTerm2 triggers | Not implemented | Out of scope for now |
 | iTerm2 profiles | Not implemented | Replaced by workspace templates |

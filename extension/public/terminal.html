@@ -139,6 +139,34 @@
     }
   }
 
+  /* The bell, as a terminal's visual bell: one brief brightening of the pane's edge and nothing
+     held afterwards, since a bell is a moment rather than a state. See `ringBell`. */
+  .pane.bell-ring::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 41;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow:
+      inset 0 0 0 2px rgba(255, 214, 102, 0.85),
+      inset 0 0 30px rgba(255, 214, 102, 0.22);
+    animation: bell-ring 420ms ease-out forwards;
+  }
+  @keyframes bell-ring {
+    to {
+      box-shadow:
+        inset 0 0 0 2px rgba(255, 214, 102, 0),
+        inset 0 0 30px rgba(255, 214, 102, 0);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pane.bell-ring::before {
+      animation-duration: 1ms;
+      animation-delay: 300ms;
+    }
+  }
+
   /* A quiet corner label. It must never compete with the terminal for attention. */
   .pane-time {
     position: absolute;
