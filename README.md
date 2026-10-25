@@ -227,6 +227,11 @@ grant stops applying and the prompt returns. If that happens, remove `TabTerm.ap
 Disk Access list with the **-** button and add it again. `./scripts/doctor.sh` says which state you
 are in, so check there first rather than guessing.
 
+**Unless you sign it with a certificate.** If your login keychain has a code-signing certificate,
+even one you made yourself in Keychain Access, the installer offers to sign TabTerm with it. The
+grant then names the certificate rather than the contents and survives every update. Add the grant
+once more after the first install that signs this way, and that is the last time.
+
 `./scripts/doctor.sh` reads the grant from the system privacy database and reports which of the
 two states you are in.
 

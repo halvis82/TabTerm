@@ -55,3 +55,11 @@ worse: grants key to the versioned Homebrew `node` path, so every Node upgrade s
 identity and every prompt names `node` rather than TabTerm. See tier 2.1.
 
 **Ship unsigned and tell people to right-click Open.** That is for downloads, and there are none.
+
+## Amendment, 2026-10-24
+
+The grant does not need a Developer ID to survive an update. Any code-signing certificate in the
+login keychain, including a self-made one, gives a requirement that names the certificate instead
+of the contents. `install.sh` now offers to sign with one when the keychain has it and remembers the
+answer. Without one, everything above still holds. See `13-packaging.md`.
+

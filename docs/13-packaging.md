@@ -104,13 +104,25 @@ of the hash. **There will not be one:** TabTerm is distributed as source and bui
 it runs on, and a certificate needs a paid Apple Developer account for a project whose install path
 is already a `git clone`. See `adr/0018`.
 
-So any change to the bundle's contents costs the grant, permanently rather than until something
-arrives. That is affordable because the grant is optional: it exists only so an agent probing
+**Any code-signing certificate in the login keychain fixes it too, including a self-made one.**
+Signed with one, the requirement becomes `identifier "com.tabterm.daemon" and certificate leaf =
+H"..."`, which names the certificate rather than the contents and stays the same across rebuilds,
+so the grant survives every update. Gatekeeper does not care, since a locally built bundle is never
+assessed. When the keychain has such a certificate, `install.sh` offers once, with a terminal, to
+sign with it, and remembers the answer in `~/.local/state/tabterm/sign-identity` so later installs
+and the updater sign the same way without asking. `TABTERM_SIGN_IDENTITY` overrides it, and `-`
+means ad hoc. A certificate that has gone from the keychain, or a signing that fails, falls back to
+ad hoc with a warning rather than failing the install. Switching from ad hoc to a certificate is a
+change of requirement, so the grant has to be added once more after that first install, and then
+never again.
+
+Without a certificate, any change to the bundle's contents costs the grant, permanently rather
+than until something arrives. That is affordable because the grant is optional: it exists only so an agent probing
 another application's data directory does not produce a prompt in TabTerm's name, and refusing that
 prompt costs nothing but the agent's organization plugins.
 
-**So the installer says when it happens.** It records the signature before it writes the bundle and
-compares afterwards, and when they differ and the machine has a Full Disk Access row for
+**So the installer says when it happens.** It records the designated requirement before it writes
+the bundle and compares afterwards, and when they differ and the machine has a Full Disk Access row for
 `com.tabterm.daemon`, it says the grant no longer applies and how to restore it. It cannot prevent
 the loss; what it can do is stop the discovery being an agent asking for permission a day later,
 with nothing on screen to connect it to an update.

@@ -158,7 +158,43 @@ APP="$LIBEXEC/TabTerm.app"
 # A new install therefore left a browser with an extension and nothing to connect to, and it was
 # invisible to everyone who already had a bundle from an earlier install, which is everyone who had
 # ever run this. Not having a signature to compare against is the ordinary first case, not a fault.
-IDENTITY_BEFORE=$(codesign -dvvv "$APP" 2>&1 | sed -n 's/.*CandidateCDHash sha256=\([0-9a-f]*\).*/\1/p' | head -1 || true)
+#
+# Compared as the designated requirement rather than the hash, because that is what the privacy
+# system holds the grant against. Ad hoc, the requirement is the hash. With a certificate it names
+# the identifier and the certificate, and stays the same while the contents change.
+IDENTITY_BEFORE=$(codesign -d -r- "$APP" 2>&1 | sed -n 's/^designated => //p' | head -1 || true)
+
+# What to sign the bundle with. Ad hoc by default, which costs Full Disk Access at every change to
+# the bundle (see docs/13-packaging.md). A code-signing certificate in the login keychain, even a
+# self-made one, keeps it: the grant then names the certificate rather than the contents.
+#
+# Asked once, with a terminal, and remembered, so the updater and later installs sign the same way
+# without asking. TABTERM_SIGN_IDENTITY overrides it, and "-" means ad hoc.
+SIGN_CHOICE="$STATE/sign-identity"
+if [ -n "${TABTERM_SIGN_IDENTITY:-}" ]; then
+  SIGN_WITH="$TABTERM_SIGN_IDENTITY"
+elif [ -s "$SIGN_CHOICE" ]; then
+  SIGN_WITH=$(head -1 "$SIGN_CHOICE")
+else
+  SIGN_WITH="-"
+  CANDIDATE=$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/^ *[0-9]*) [0-9A-F]* "\(.*\)"$/\1/p' | head -1 || true)
+  if [ -n "$CANDIDATE" ] && [ -t 0 ]; then
+    echo
+    echo "  Your keychain has a code-signing certificate: $CANDIDATE"
+    echo "  Signing TabTerm with it keeps Full Disk Access across updates. Without it, every"
+    echo "  update makes macOS forget the grant."
+    printf "  Sign TabTerm with it? [y/N] "
+    read -r reply
+    case "$reply" in [yY]*) SIGN_WITH="$CANDIDATE" ;; esac
+    mkdir -p "$STATE"
+    printf '%s\n' "$SIGN_WITH" > "$SIGN_CHOICE"
+  fi
+fi
+if [ "$SIGN_WITH" != "-" ] &&
+   ! security find-identity -v -p codesigning 2>/dev/null | grep -qF "\"$SIGN_WITH\""; then
+  echo "  WARNING: the signing certificate \"$SIGN_WITH\" is not in the keychain, signing ad hoc"
+  SIGN_WITH="-"
+fi
 
 if { [ "${TABTERM_COMPANION_UPDATE:-0}" = 1 ] || TABTERM_NODE="$NODE" "$NODE" "$REPO/scripts/build-app-bundle.mjs" \
      --adopt-runtime "$APP/Contents/MacOS/node" >/dev/null 2>&1; } &&
@@ -166,7 +202,13 @@ if { [ "${TABTERM_COMPANION_UPDATE:-0}" = 1 ] || TABTERM_NODE="$NODE" "$NODE" "$
   rm -rf "$APP"
   cp -R "$REPO/dist/TabTerm.app" "$APP"
   # The copy loses nothing, but a signature checked by path wants re-sealing where it now lives.
-  codesign --force --deep --sign - --identifier com.tabterm.daemon "$APP" >/dev/null 2>&1 || true
+  if [ "$SIGN_WITH" != "-" ] &&
+     codesign --force --deep --sign "$SIGN_WITH" --identifier com.tabterm.daemon "$APP" >/dev/null 2>&1; then
+    echo "  signed with: $SIGN_WITH (Full Disk Access survives updates)"
+  else
+    [ "$SIGN_WITH" != "-" ] && echo "  WARNING: signing with \"$SIGN_WITH\" failed, signing ad hoc"
+    codesign --force --deep --sign - --identifier com.tabterm.daemon "$APP" >/dev/null 2>&1 || true
+  fi
   if "$APP/Contents/MacOS/node" -e "require('node:sqlite')" >/dev/null 2>&1; then
     LAUNCH_NODE="$APP/Contents/MacOS/node"
     echo "  privacy identity: com.tabterm.daemon (prompts say TabTerm, and are asked once)"
@@ -308,9 +350,10 @@ fi
 # an icon that did it the first time, and the way anyone found out was an agent asking for
 # permission on every launch a day later.
 #
-# Nothing here can prevent it without a Developer ID certificate. What it can do is say so at the
-# moment it happens, while the person is still looking at an install.
-IDENTITY_AFTER=$(codesign -dvvv "$APP" 2>&1 | sed -n 's/.*CandidateCDHash sha256=\([0-9a-f]*\).*/\1/p' | head -1)
+# Signing with a certificate prevents it, and the choice above offers that when the keychain has
+# one. Without one, what this can do is say so at the moment it happens, while the person is still
+# looking at an install.
+IDENTITY_AFTER=$(codesign -d -r- "$APP" 2>&1 | sed -n 's/^designated => //p' | head -1)
 if [ -n "$IDENTITY_BEFORE" ] && [ -n "$IDENTITY_AFTER" ] && [ "$IDENTITY_BEFORE" != "$IDENTITY_AFTER" ]; then
   # Only worth saying to somebody who had the grant. Reading the system database needs that same
   # access, so an empty answer means "cannot tell" and stays quiet rather than guessing.
