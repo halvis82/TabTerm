@@ -187,6 +187,7 @@ registered to accept messages only from the TabTerm extension.
 | `storage` | Settings and interface state |
 | `offscreen` | Hold the local connection open while Chrome suspends the extension's worker |
 | `alarms` | Periodically tell the companion program which tabs are still open, so a terminal is not ended while its tab exists |
+| `sidePanel` | Show a terminal beside a page in Chrome's side panel, only when you choose it from the toolbar icon's menu. The extension does not read the page it sits beside |
 | `nativeMessaging` | The token handover described above |
 | `notifications` | Tell you when a command finished or an agent needs you |
 | `contextMenus` | The right-click actions that send a selection or a link to a terminal |

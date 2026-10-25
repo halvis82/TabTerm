@@ -1,4 +1,9 @@
-import { ALL_MENU } from './chrome/icon-menu.js';
+import {
+  ALL_MENU,
+  SIDE_PANEL_ENTRY,
+  SIDE_PANEL_PATH,
+  offersSidePanel,
+} from './chrome/icon-menu.js';
 import { daemonPort } from './transport/port.js';
 import { getToken } from './transport/token.js';
 import {
@@ -859,6 +864,10 @@ function reopenOnce(): Promise<void> {
 /** What the new-terminal shortcut runs, for the new-tab-returns suite. Chrome cannot press it. */
 (globalThis as unknown as { __tabtermNewTerminal?: () => Promise<void> }).__tabtermNewTerminal =
   openTerminal;
+/** What the icon's side panel entry runs, for the side-panel suite. Chrome cannot click it. */
+(
+  globalThis as unknown as { __tabtermSidePanel?: (tab: chrome.tabs.Tab) => void }
+).__tabtermSidePanel = (tab) => openSidePanelTerminal(tab);
 
 (
   globalThis as unknown as { __tabtermReopen?: (fresh?: boolean) => Promise<void> }
@@ -1167,8 +1176,12 @@ function installContextMenus(): void {
   });
 }
 
-chrome.contextMenus.onClicked.addListener((info) => {
+chrome.contextMenus.onClicked.addListener((info, tab) => {
   const id = String(info.menuItemId);
+  if (id === SIDE_PANEL_ENTRY) {
+    openSidePanelTerminal(tab);
+    return;
+  }
   if (id === 'reset-tabterm') {
     void chrome.tabs.create({ url: `${chrome.runtime.getURL('terminal.html')}?panel=reset` });
     return;
@@ -1203,6 +1216,49 @@ chrome.contextMenus.onClicked.addListener((info) => {
   // doing nothing, because it would look like the action worked.
   if (!action) return;
   void openTerminalWithStaged(action);
+});
+
+/**
+ * A terminal in Chrome's side panel, beside the page in front.
+ *
+ * Per tab: the panel belongs to the tab it was opened from, goes when another tab is in front
+ * and comes back with it. Both calls are made in the same task as the click, without waiting on
+ * the first, because Chrome lets `open` through only while the click still counts as a gesture.
+ */
+function openSidePanelTerminal(tab: chrome.tabs.Tab | undefined): void {
+  if (tab?.id === undefined || !offersSidePanel(tab.url, chrome.runtime.getURL(''))) return;
+  void chrome.sidePanel
+    .setOptions({ tabId: tab.id, path: SIDE_PANEL_PATH, enabled: true })
+    .catch(() => undefined);
+  void chrome.sidePanel.open({ tabId: tab.id }).catch((e: unknown) => {
+    console.warn('TabTerm: side panel', e);
+  });
+}
+
+/**
+ * Show the side panel entry only where it means something.
+ *
+ * Chrome builds the icon's menu without asking, so the entry is shown or hidden ahead of time,
+ * whenever the tab in front changes or changes address. The click is checked again regardless.
+ */
+function syncSidePanelEntry(tab: chrome.tabs.Tab | undefined): void {
+  chrome.contextMenus.update(
+    SIDE_PANEL_ENTRY,
+    { visible: offersSidePanel(tab?.url, chrome.runtime.getURL('')) },
+    () => void chrome.runtime.lastError,
+  );
+}
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  void chrome.tabs.get(tabId).then(syncSidePanelEntry, () => undefined);
+});
+chrome.tabs.onUpdated.addListener((_id, change, tab) => {
+  if (change.url !== undefined && tab.active) syncSidePanelEntry(tab);
+});
+chrome.windows.onFocusChanged.addListener(() => {
+  void chrome.tabs.query({ active: true, lastFocusedWindow: true }).then(
+    ([tab]) => syncSidePanelEntry(tab),
+    () => undefined,
+  );
 });
 
 /**

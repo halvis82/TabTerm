@@ -17,6 +17,7 @@
     "nativeMessaging",
     "notifications",
     "offscreen",
+    "sidePanel",
     "storage",
     "tabGroups",
     "tabs"

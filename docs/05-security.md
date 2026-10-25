@@ -337,6 +337,7 @@ review failure.
 | `clipboardRead` | Paste into the terminal, on an explicit Paste |
 | `clipboardWrite` | Copy a selection out of the terminal, on an explicit Copy |
 | `alarms` | Re-report which tabs are open on a timer |
+| `sidePanel` | A terminal beside a page, opened from the toolbar icon's menu for that tab only |
 
 That is the whole of `permissions` in the manifest, and `manifest-permissions.test.ts` fails if this
 table and the manifest ever disagree in either direction.

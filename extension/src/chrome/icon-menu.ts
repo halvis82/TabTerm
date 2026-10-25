@@ -17,6 +17,23 @@ export interface MenuEntry {
   documentUrlPatterns?: string[];
 }
 
+/** The entry that opens a terminal in the side panel, which the worker shows and hides. */
+export const SIDE_PANEL_ENTRY = 'side-panel-terminal';
+
+/** What the side panel loads: the terminal page, in the mode that belongs beside a page. */
+export const SIDE_PANEL_PATH = 'terminal.html?sidepanel=1';
+
+/**
+ * Whether a tab gets the side panel terminal.
+ *
+ * Every page except TabTerm's own. A terminal beside a terminal is a split, and TabTerm already
+ * has one of those that knows about the panes around it. A tab whose address is not known yet is
+ * offered it, since the worker checks again when the click arrives.
+ */
+export function offersSidePanel(url: string | undefined, extensionOrigin: string): boolean {
+  return url === undefined || !url.startsWith(extensionOrigin);
+}
+
 /**
  * The icon's menu, in order.
  *
@@ -33,6 +50,8 @@ export interface MenuEntry {
  */
 export const ICON_MENU: readonly MenuEntry[] = [
   { id: 'new-terminal-tab', title: 'New TabTerm terminal', contexts: ['action'] },
+  // A terminal beside the page in front, in Chrome's side panel. Hidden on TabTerm's own tabs.
+  { id: SIDE_PANEL_ENTRY, title: 'Open a terminal beside this page', contexts: ['action'] },
   { id: 'launch-agent-tab', title: 'Launch an agent in a new tab', contexts: ['action'] },
   { id: 'open-settings', title: 'TabTerm settings', contexts: ['action'] },
   // Under Settings rather than beside it: it is a setting, it is just one Chrome owns.

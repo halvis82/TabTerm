@@ -141,6 +141,32 @@ which is why it only ever showed up on the shortcuts. Raising the window is best
 window can be gone by the time it runs, and failing to raise one is not a reason to fail the thing
 that opened it.
 
+### A terminal beside a page, in the side panel
+
+Right-clicking the toolbar icon offers **Open a terminal beside this page**, second after New
+TabTerm terminal. It opens Chrome's side panel for the tab in front only: the panel goes when
+another tab is in front and comes back with its tab. It is `chrome.sidePanel.setOptions` with that
+tab's id and `open`, both made in the same task as the click, because Chrome lets `open` through
+only while the click still counts as a gesture. There is no panel for every tab and the icon's
+plain click is unchanged.
+
+It is not offered on TabTerm's own tabs, where a terminal beside a terminal is a split and the
+split already knows about the panes around it. Chrome builds the icon's menu without asking, so
+the worker shows or hides the entry whenever the tab in front changes or changes address, and
+checks again when the click arrives.
+
+The panel loads `terminal.html?sidepanel=1`. That page has no start screen, which is a full page of
+things that needs room the panel does not have. It starts a fresh shell in home and puts the new
+pane's chooser over it, the same folder picker and **Bring a session here** a split pane gets,
+which works at the panel's width. Choosing a folder `cd`s there and bringing a session moves it in,
+closing the tab it came from, exactly as in a split. Typing anything dismisses it. Closing the panel
+is closing a tab: the session is kept for the background timeout and is in Running now, and opening
+the panel again starts a fresh shell rather than reattaching.
+
+The `sidePanel` permission shows no warning when the extension is installed or updated. The
+`side-panel` suite checks the worker's handling for a page and for a TabTerm tab, and the page
+itself at a side panel's width, since a test cannot click the icon's menu.
+
 ### Stable URL
 
 ```

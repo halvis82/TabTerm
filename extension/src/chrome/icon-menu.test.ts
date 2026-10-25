@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_MENU, ICON_MENU, PAGE_MENU } from './icon-menu.js';
+import { ALL_MENU, ICON_MENU, PAGE_MENU, SIDE_PANEL_ENTRY, offersSidePanel } from './icon-menu.js';
 
 /**
  * The menu a right click offers, checked as a value.
@@ -43,5 +43,20 @@ describe('what a right click offers', () => {
     const ids = ALL_MENU.map((m) => m.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ALL_MENU).toHaveLength(PAGE_MENU.length + ICON_MENU.length);
+  });
+
+  it('offers a terminal beside the page right after a new one', () => {
+    expect(ICON_MENU[1]?.id).toBe(SIDE_PANEL_ENTRY);
+    expect(ICON_MENU[1]?.title).toBe('Open a terminal beside this page');
+  });
+
+  it('offers it beside any page but TabTerm’s own', () => {
+    const origin = 'chrome-extension://abc/';
+    expect(offersSidePanel('https://example.com/docs', origin)).toBe(true);
+    expect(offersSidePanel('chrome://newtab/', origin)).toBe(true);
+    expect(offersSidePanel(undefined, origin)).toBe(true);
+    expect(offersSidePanel('chrome-extension://abc/terminal.html?workspace=w1', origin)).toBe(
+      false,
+    );
   });
 });

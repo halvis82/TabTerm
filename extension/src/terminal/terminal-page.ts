@@ -149,6 +149,16 @@ const params = new URLSearchParams(location.search);
 const reattaching = params.has('workspace');
 /** Opened from the toolbar icon's settings entry, so the panel starts on that pane. */
 const openPanelAt = params.get('panel');
+/**
+ * Whether this page is in Chrome's side panel, beside a web page, rather than in a tab.
+ *
+ * Opened from the toolbar icon's menu. It is a fresh shell in home with the new pane's chooser
+ * over it, the folder picker and Bring a session here, rather than the start screen: the side
+ * panel is narrow and sits beside something else, and the chooser is the compact way to say
+ * where this terminal should be. See docs/06-chrome-integration.md.
+ */
+const inSidePanel = params.get('sidepanel') === '1';
+if (inSidePanel) document.documentElement.classList.add('in-side-panel');
 
 const root = document.getElementById('terminal') as HTMLElement;
 const statusEl = document.getElementById('status') as HTMLElement;
@@ -1861,7 +1871,8 @@ function syncPaneChoosers(): void {
       paneChoosers.delete(paneId);
     }
   }
-  if (paneIds.length < 2) return;
+  // One pane has the start screen for this, except in the side panel, which has none.
+  if (paneIds.length < (inSidePanel ? 1 : 2)) return;
   /**
    * Nothing is offered until the daemon has said what these panes are.
    *
@@ -2019,6 +2030,13 @@ function decideStartScreen(): void {
 
 function openStartScreen(): void {
   if (!launcher || launcher.dismissed) return;
+  // The side panel has no start screen. Its single pane gets the chooser instead.
+  if (inSidePanel) {
+    launcher.dismiss();
+    refitAllPanes();
+    syncPaneChoosers();
+    return;
+  }
   /**
    * The launched flag belongs to a tab **showing a workspace**, and this URL names none.
    *
@@ -4501,7 +4519,7 @@ function buildLauncher(): void {
    * The flag loses nothing by going second. Everything it protects is a tab with work in it, and
    * a tab with work in it has a workspace in its URL.
    */
-  if (!new URL(location.href).searchParams.get('workspace')) {
+  if (!new URL(location.href).searchParams.get('workspace') && !inSidePanel) {
     root.classList.add('panel-open');
     launcher.renderPlaceholder();
   }
@@ -8214,6 +8232,9 @@ declare global {
       /** The Copy output button, and what each pane's finished commands would copy. */
       outputCopy: () => { shown: boolean; text: string; copied: boolean; label: string };
       outputBlocks: (paneId: string) => CopiedOutput[];
+      /** Whether this page is in the side panel, and which panes have a chooser over them. */
+      inSidePanel: () => boolean;
+      choosersShown: () => string[];
       /** Where on the page a row on screen containing `needle` is, to point at it. */
       rowPoint: (paneId: string, needle: string) => { x: number; y: number } | null;
       /** Panes glowing because they finished. See `PaneGlow`. */
@@ -8633,6 +8654,8 @@ function installTestHook(): void {
       })),
     linkCopy: () => linkCopy.state,
     outputCopy: () => outputCopy.state,
+    inSidePanel: () => inSidePanel,
+    choosersShown: () => [...paneChoosers.keys()],
     rowPoint: (paneId: string, needle: string) => {
       const term = panesHost?.get(paneId)?.controller.term;
       const box = term?.element?.querySelector('.xterm-screen')?.getBoundingClientRect();
