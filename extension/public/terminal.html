@@ -1866,6 +1866,11 @@
     background: var(--hover);
     border-color: var(--accent);
   }
+  /* A button that cannot be pressed now looks it, rather than like the one to press. */
+  .cmd-button:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
 
   /* The minimized form. Small enough to forget about, obvious enough to find. */
   .cmd-puck {

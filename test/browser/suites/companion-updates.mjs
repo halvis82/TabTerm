@@ -16,7 +16,10 @@ r.ok(
 );
 r.ok(
   'a current daemon answers with update controls',
-  await waitFor(a.client, `${section}?.querySelectorAll('button').length === 2`),
+  await waitFor(
+    a.client,
+    `[...(${section}?.querySelectorAll('button') ?? [])].some((b) => b.textContent === 'Check for updates')`,
+  ),
 );
 r.ok(
   'automatic checks and installs are on by default',
@@ -48,10 +51,17 @@ r.ok(
   ),
 );
 r.ok(
-  'install cannot run before a compatible release check',
+  'Update companion is not offered until a newer compatible release is found',
   await evaluate(
     a.client,
-    `[...${section}.querySelectorAll('button')].find(b=>b.textContent==='Update companion').disabled`,
+    `![...${section}.querySelectorAll('button')].some((b) => b.textContent === 'Update companion')`,
+  ),
+);
+r.ok(
+  'and a button that cannot be pressed looks it',
+  await evaluate(
+    a.client,
+    `(() => { const b = document.createElement('button'); b.className = 'cmd-button primary'; b.disabled = true; ${section}.append(b); const o = getComputedStyle(b).opacity; b.remove(); return Number(o) < 1; })()`,
   ),
 );
 r.ok(

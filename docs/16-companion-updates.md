@@ -11,8 +11,9 @@ companion versions. **Check for updates** asks
 the companion to read the latest stable GitHub Release and its `companion-release.json` asset.
 A branch push alone is not a companion release. Checks do not download or execute source.
 
-**Update companion** downloads and verifies that release, builds in an isolated staging directory,
-then installs it. It does not pull into or modify a development checkout. The extension stays under
+**Update companion** appears only once a check finds a release newer than the installed companion
+and compatible with it. It downloads and verifies that release, builds in an isolated staging
+directory, then installs it. It does not pull into or modify a development checkout. The extension stays under
 Chrome's update control. No remote JavaScript is loaded into the extension.
 
 Both automatic options are on unless turned off. A preference saved as off is respected, so an

@@ -593,9 +593,16 @@ function buildUpdates(options: SettingsOptions): HTMLElement {
     const busy = ['checking', 'preparing', 'installing'].includes(state.phase);
     const buttons = document.createElement('div');
     buttons.className = 'cmd-buttons';
+    /*
+     * Update companion is offered only when there is something to install: a release on GitHub
+     * newer than the companion installed here, and compatible with it. Shown otherwise, it looked
+     * like an update waiting even while the companion was up to date.
+     */
     for (const [label, action, disabled, primary] of [
       ['Check for updates', options.onCheckUpdate, busy, false],
-      ['Update companion', options.onInstallUpdate, busy || !state.canInstall, true],
+      ...(state.canInstall
+        ? ([['Update companion', options.onInstallUpdate, busy, true]] as const)
+        : []),
     ] as const) {
       const button = document.createElement('button');
       button.type = 'button';
