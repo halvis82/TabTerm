@@ -216,6 +216,11 @@ if { [ "${TABTERM_COMPANION_UPDATE:-0}" = 1 ] || TABTERM_NODE="$NODE" "$NODE" "$
    [ -x "$REPO/dist/TabTerm.app/Contents/MacOS/node" ]; then
   rm -rf "$APP"
   cp -R "$REPO/dist/TabTerm.app" "$APP"
+  # Extended attributes refuse a signature ("resource fork, Finder information, or similar
+  # detritus not allowed"). A checkout in a folder iCloud syncs puts its own on every file, so the
+  # copy is cleared of them before it is signed. Without this, signing with the certificate failed
+  # and fell back to ad hoc, and macOS forgot the Full Disk Access grant.
+  xattr -cr "$APP" 2>/dev/null || true
   # The copy loses nothing, but a signature checked by path wants re-sealing where it now lives.
   if [ "$SIGN_WITH" != "-" ] &&
      codesign --force --deep --sign "$SIGN_WITH" --identifier com.tabterm.daemon "$APP" >/dev/null 2>&1; then

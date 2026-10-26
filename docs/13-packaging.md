@@ -116,6 +116,13 @@ ad hoc with a warning rather than failing the install. Switching from ad hoc to 
 change of requirement, so the grant has to be added once more after that first install, and then
 never again.
 
+**The bundle is cleared of extended attributes before it is signed.** `codesign` refuses a bundle
+carrying them ("resource fork, Finder information, or similar detritus not allowed"), and a
+checkout in a folder iCloud syncs, such as Documents, gets iCloud's own on every file it builds. So
+signing with the certificate failed, fell back to ad hoc, and the one install signed that way
+changed the requirement, which cost the grant. `install.sh` runs `xattr -cr` on the copied bundle
+first.
+
 Without a certificate, any change to the bundle's contents costs the grant, permanently rather
 than until something arrives. That is affordable because the grant is optional: it exists only so an agent probing
 another application's data directory does not produce a prompt in TabTerm's name, and refusing that
