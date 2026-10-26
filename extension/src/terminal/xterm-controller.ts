@@ -357,6 +357,7 @@ export class XtermController {
      * page it hooks into nothing and draws nothing.
      */
     this.term.loadAddon(this.#images);
+    this.#keepCompositionInside();
 
     /*
      * What is typed passes through here on its way to the program, so this is where the line
@@ -1189,6 +1190,49 @@ export class XtermController {
     fn: (results: { resultIndex: number; resultCount: number } | undefined) => void,
   ): void {
     this.#search.onDidChangeResults(fn);
+  }
+
+  /**
+   * Unfinished input stays inside the pane: dictation's words as they are spoken, and an input
+   * method's text before it is chosen.
+   *
+   * xterm draws it at the cursor, and the style above wraps it from there to the pane's right edge.
+   * At the bottom, where an agent's input sits, wrapped lines would run below the pane, so the
+   * strip is moved up until its last line is the pane's last. xterm puts it back at the cursor
+   * whenever it redraws it, so this follows every change rather than placing it once.
+   */
+  #keepCompositionInside(): void {
+    const view = this.term.element?.querySelector<HTMLElement>('.composition-view');
+    const screen = this.term.element?.querySelector<HTMLElement>('.xterm-screen');
+    if (!view || !screen) return;
+    let placing = false;
+    const place = (): void => {
+      if (placing || !view.classList.contains('active')) return;
+      placing = true;
+      /*
+       * Its width is set here rather than in the style: xterm keeps it in a container of no width,
+       * so a width relative to that container was nothing, and it wrapped after every character.
+       * Measured from the cursor, where xterm put it, to the pane's right edge.
+       */
+      const across = screen.getBoundingClientRect().right - view.getBoundingClientRect().left;
+      view.style.width = `${String(Math.max(across, screen.clientWidth / 4))}px`;
+      const room = screen.clientHeight;
+      const top = view.offsetTop;
+      const tall = view.offsetHeight;
+      if (top + tall > room) view.style.top = `${String(Math.max(0, room - tall))}px`;
+      // Taller than the pane, as a long dictation can be: the newest words are the ones shown.
+      view.style.maxHeight = `${String(room)}px`;
+      view.style.overflowY = tall > room ? 'hidden' : '';
+      if (tall > room) view.scrollTop = view.scrollHeight;
+      placing = false;
+    };
+    new MutationObserver(() => requestAnimationFrame(place)).observe(view, {
+      attributes: true,
+      attributeFilter: ['style', 'class'],
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
   }
 
   /** Bytes the pictures in this terminal take, for a test to see one was drawn. */

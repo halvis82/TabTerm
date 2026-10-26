@@ -3121,6 +3121,18 @@
     font-size: 12px;
     color: var(--dim, #8b93a7);
   }
+  /*
+   * Unfinished input, as dictation and input methods show it, wraps inside the pane. xterm draws it
+   * in a strip that never wraps, so dictation ran along one row and off both sides of the pane.
+   * Its width, from the cursor to the pane's right edge, and its place are set in
+   * `#keepCompositionInside` in xterm-controller.ts.
+   */
+  .xterm .composition-view {
+    /* xterm sets one row's height inline, which would leave the wrapped lines spilling out of it. */
+    height: auto !important;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
   #find-input {
     width: 200px;
     padding: 4px 6px;

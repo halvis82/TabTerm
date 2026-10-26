@@ -360,6 +360,18 @@ a redraw.
 `Ctrl+C`, `Ctrl+U`, `Ctrl+D`, `Ctrl+Z`, `Ctrl+A`, `Ctrl+E`, arrows, tab completion, shell history,
 and all Vim and agent CLI controls pass through untouched.
 
+### Dictation and input methods
+
+macOS dictation shows the words as they are spoken as marked text, the same unfinished input an
+input method for Chinese or Japanese uses, and sends them when it is done. xterm draws that text at
+the cursor in a strip of its own, which never wrapped: dictation ran along one row and off both
+sides of the pane, where an agent's own input box would have wrapped it. It now wraps from the
+cursor to the pane's right edge, and at the bottom of the pane, where an agent's input sits, it
+moves up so its last line is the pane's last. Longer than the pane, the newest words are the ones
+shown. xterm keeps the strip in a container of no width, so its width is set from the pane rather
+than by the style. Nothing reaches the program until the words are finished, and then exactly once
+(`#keepCompositionInside`, `test/browser/suites/dictation-wraps.mjs`).
+
 ### Option as Meta
 
 `macOptionIsMeta` sends Meta rather than typing accented characters. Default set by the keyboard reachability spike.

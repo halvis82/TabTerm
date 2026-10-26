@@ -283,6 +283,7 @@ const COVERS = [
       'char-width',
       'escape-key',
       'pictures-in-the-terminal',
+      'dictation-wraps',
     ],
   ],
   ['extension/src/terminal/modified-keys', ['modified-keys', 'escape-key']],
