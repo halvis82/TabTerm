@@ -235,6 +235,11 @@ minutes before it answers over https.
 `npx` fetches wrangler for the moment it runs and keeps nothing in the repository. The relay can be
 redeployed the same way after an update; your devices stay paired.
 
+A Mac's room on the relay is replaced with the new code when the relay is deployed, except one
+that is in use the whole time, which Cloudflare can leave running the code it started with. The
+relay's second migration renames the room's class for that reason, which makes Cloudflare replace
+every running room once. Right after it, connecting can take a few seconds for a minute or two.
+
 ### 3. Turn it on
 
 In TabTerm, open **Settings**, then **Remote access**. Paste the relay's address and the secret,

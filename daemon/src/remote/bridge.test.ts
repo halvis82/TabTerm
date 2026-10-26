@@ -541,15 +541,18 @@ describe('remote access, end to end', () => {
   it('makes room for a new page by letting the oldest go, rather than turning it away', async () => {
     const c = connected(fakeHost().host);
     await until(() => c.state.status === 'connected');
-    // Forgotten connections, as a phone put away leaves at the relay.
-    const old = Array.from({ length: 8 }, () =>
-      browser(
+    // Forgotten connections, as a phone put away leaves at the relay. One after another, as they
+    // happen: Cloudflare runs a room's events one at a time, which the stand-in relay does not.
+    const old: ReturnType<typeof browser>[] = [];
+    for (let i = 0; i < 8; i++) {
+      const o = browser(
         relay.url,
         { room: roomOf(dir), device: 'some-device', key: toBase64Url(randomBytes(32)) },
         authenticator(),
-      ),
-    );
-    await until(() => old.every((o) => o.failedToOpen()));
+      );
+      await until(() => o.failedToOpen());
+      old.push(o);
+    }
     const { b } = await paired(c);
     expect(b.has('tabs')).toBe(true);
     expect(await until(() => old[0]?.closed() === 4003)).toBe(true);

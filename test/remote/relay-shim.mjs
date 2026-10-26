@@ -108,7 +108,7 @@ export async function startRelay({ secret, port = 0, host = '127.0.0.1' } = {}) 
       get: (name) => {
         if (!rooms.has(name)) {
           const state = new ShimState();
-          rooms.set(name, { state, room: new mod.Room(state) });
+          rooms.set(name, { state, room: new mod.RelayRoom(state) });
         }
         const { room } = rooms.get(name);
         return { fetch: async (req) => Object.assign(await room.fetch(req), { room }) };

@@ -6,11 +6,18 @@ compatibility_date = "2025-09-01"
 
 [[durable_objects.bindings]]
 name = "ROOM"
-class_name = "Room"
+class_name = "RelayRoom"
 
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Room"]
+
+# A room in use the whole time kept running old code through deploys: it never went idle, so it
+# was never started again. Renaming the class makes Cloudflare replace every running room. A room
+# keeps nothing that matters, only a counter for naming connections.
+[[migrations]]
+tag = "v2"
+renamed_classes = [{ from = "Room", to = "RelayRoom" }]
 
 [[rules]]
 type = "Text"

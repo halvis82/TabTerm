@@ -162,8 +162,14 @@ function withId(id, body) {
   return out;
 }
 
-/** One Mac and its browsers. Uses hibernation, so an idle room costs nothing. */
-export class Room {
+/**
+ * One Mac and its browsers. Uses hibernation, so an idle room costs nothing.
+ *
+ * Named RelayRoom since migration v2, which renamed it from Room. A room that never goes idle can
+ * keep running the code it started with through a deploy, and the rename is what makes Cloudflare
+ * replace every running room with the current code. See wrangler.toml.
+ */
+export class RelayRoom {
   constructor(state) {
     this.state = state;
     /*
