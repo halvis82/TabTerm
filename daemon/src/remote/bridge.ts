@@ -50,6 +50,8 @@ import { sendPush, type Fetch } from './webpush.js';
 export interface RemoteHost {
   tabs(): RemoteTab[];
   screen(sessionId: string): { cols: number; rows: number; data: string } | null;
+  /** Whether it is still running, and so can be watched. */
+  alive(sessionId: string): boolean;
   /** Whether it was written. False for a session that is gone. */
   write(sessionId: string, text: string): boolean;
   onOutput(listener: (sessionId: string, chunk: string) => void): () => void;
@@ -591,7 +593,16 @@ export class RemoteBridge {
   }
 
   #tabsChanged(): void {
-    for (const b of this.#browsers.values()) if (b.phase === 'ready') this.#sendTabs(b);
+    for (const b of this.#browsers.values()) {
+      if (b.phase !== 'ready') continue;
+      // The terminal being watched has ended, by exit or by closing it on the Mac: said at once, so
+      // the page does not sit on a screen that will never change again.
+      if (b.watching && !this.#host.alive(b.watching)) {
+        this.#send(b, packMessage({ t: 'ended', sessionId: b.watching }));
+        delete b.watching;
+      }
+      this.#sendTabs(b);
+    }
     this.#notifyNewlyNeeding();
   }
 

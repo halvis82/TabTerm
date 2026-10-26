@@ -37,6 +37,7 @@ function fakeHost() {
   const outputs = new Set<(id: string, chunk: string) => void>();
   const tabsChanged = new Set<() => void>();
   const written: { sessionId: string; text: string }[] = [];
+  const ended = new Set<string>();
   const tabs: RemoteTab[] = [
     {
       id: 'w1',
@@ -57,7 +58,10 @@ function fakeHost() {
   const host: RemoteHost = {
     tabs: () => tabs,
     screen: (id) =>
-      id === 's1' || id === 's2' ? { cols: 100, rows: 30, data: `screen of ${id}` } : null,
+      (id === 's1' || id === 's2') && !ended.has(id)
+        ? { cols: 100, rows: 30, data: `screen of ${id}` }
+        : null,
+    alive: (id) => (id === 's1' || id === 's2') && !ended.has(id),
     write: (sessionId, text) => {
       written.push({ sessionId, text });
       return true;
@@ -70,6 +74,7 @@ function fakeHost() {
     host,
     written,
     tabs,
+    ended,
     emit: (id: string, chunk: string) => {
       for (const l of outputs) l(id, chunk);
     },
@@ -287,6 +292,23 @@ describe('remote access, end to end', () => {
         (b.last('tabs')?.['tabs'] as RemoteTab[]).some((t) => t.title === 'new tab'),
       ),
     ).toBe(true);
+  });
+
+  it('tells a page watching a terminal that it ended, as soon as it does', async () => {
+    const fake = fakeHost();
+    const c = connected(fake.host);
+    await until(() => c.state.status === 'connected');
+    const { b } = await paired(c);
+    b.send({ t: 'watch', sessionId: 's1' });
+    expect(await until(() => b.has('screen'))).toBe(true);
+    expect(b.has('ended')).toBe(false);
+    fake.ended.add('s1');
+    fake.changed();
+    expect(await until(() => b.last('ended')?.['sessionId'] === 's1')).toBe(true);
+    // And its output, should any still come, goes nowhere.
+    fake.emit('s1', 'after the end\r\n');
+    await new Promise((r) => setTimeout(r, 150));
+    expect(b.bytes.some((x) => x.text.includes('after the end'))).toBe(false);
   });
 
   it('asks the same passkey again on every new connection, and refuses any other', async () => {

@@ -169,7 +169,7 @@ const FOCUS_REPORTS = new Set(['\x1b[I', '\x1b[O']);
 let termOpened = false;
 let size = { cols: 80, rows: 24 };
 let zoom = 1;
-/** Fit the whole width however small that makes the text, rather than scroll sideways. */
+/** Fit the whole terminal on the screen however small that makes the text, rather than scroll. */
 let fitAll = false;
 try {
   fitAll = localStorage.getItem('tabterm.fitAll') === '1';
@@ -177,33 +177,84 @@ try {
   // Storage refused: start readable.
 }
 
+/** A phone or tablet, as opposed to a computer with a mouse. */
+const touch = matchMedia('(pointer: coarse)').matches;
+
 /**
- * The Mac's size, with a font that fits it across the screen when that is still readable.
+ * A cell's width and height for each pixel of font size, measured from what xterm drew. Starts as
+ * a monospace font's usual shape, and is measured again once there is something on screen.
+ */
+let cell = { w: 0.6, h: 1.17 };
+function measureCell(): void {
+  const screen = $('term').querySelector<HTMLElement>('.xterm-screen');
+  const px = term.options.fontSize ?? 12;
+  if (!screen || screen.offsetWidth === 0) return;
+  cell = {
+    w: screen.offsetWidth / (size.cols * px),
+    h: screen.offsetHeight / (size.rows * px),
+  };
+}
+
+/**
+ * The Mac's size, as large as fits the screen: the whole width or the whole height, whichever
+ * runs out first, so a terminal fills the view in one direction and is never a small block in a
+ * corner.
  *
- * A terminal 120 columns wide fitted across a phone is text under 5 pixels, which nobody can read.
- * So the font never goes below a readable size, and a wider terminal scrolls sideways instead.
- * The buttons scale from there.
+ * The terminal keeps the Mac's columns and rows, since the program in it drew for those, and a
+ * phone watching never changes the size on the Mac. A terminal 120 columns wide fitted across a
+ * phone is text under 5 pixels, so on a phone the text never goes below a readable size and a wider
+ * terminal scrolls sideways instead, unless Fit is on. A- and A+ scale from the fitted size.
  */
 const READABLE_PX = 8.5;
+const LARGEST_PX = 32;
 function fitFont(): void {
-  const width = $('term-wrap').clientWidth - 8;
-  // A monospace cell is close to 0.6 of the font size wide.
-  const across = width / (size.cols * 0.6);
-  if (fitAll) {
-    term.options.fontSize = Math.max(3, Math.min(15, across));
-  } else {
-    const fit = Math.max(READABLE_PX, Math.min(15, across));
-    term.options.fontSize = Math.max(5, Math.min(24, fit * zoom));
-  }
+  const wrap = $('term-wrap');
+  const across = (wrap.clientWidth - 8) / (size.cols * cell.w);
+  const down = (wrap.clientHeight - 8) / (size.rows * cell.h);
+  const whole = Math.min(across, down);
+  const px = fitAll
+    ? Math.max(3, Math.min(LARGEST_PX, whole))
+    : Math.max(5, Math.min(LARGEST_PX, Math.max(touch ? READABLE_PX : 5, whole) * zoom));
+  const rounded = Math.floor(px * 4) / 4;
+  if (term.options.fontSize !== rounded) term.options.fontSize = rounded;
   $('fit').setAttribute('aria-pressed', String(fitAll));
   $<HTMLButtonElement>('zoom-in').disabled = fitAll;
   $<HTMLButtonElement>('zoom-out').disabled = fitAll;
 }
 
+/**
+ * Fitted, then fitted again with the cell as drawn, since a font's real shape is only known then.
+ * Rows and columns are drawn on whole pixels, so the drawn terminal can still come out a little
+ * larger than the fitted one: when the fitted size is the one in use, it steps down until it fits.
+ */
+function refit(): void {
+  fitFont();
+  if (!termOpened) return;
+  requestAnimationFrame(() => {
+    measureCell();
+    fitFont();
+    if (!fitAll && zoom !== 1) return;
+    const screen = $('term').querySelector<HTMLElement>('.xterm-screen');
+    const wrap = $('term-wrap');
+    const over = (): boolean =>
+      !!screen &&
+      screen.offsetWidth > wrap.clientWidth - 8 &&
+      screen.offsetHeight > wrap.clientHeight - 8;
+    const overOne = (): boolean =>
+      !!screen &&
+      (screen.offsetWidth > wrap.clientWidth - 8 || screen.offsetHeight > wrap.clientHeight - 8);
+    // On a phone a wide terminal scrolls sideways on purpose, so only both ways at once is too big.
+    const tooBig = touch && !fitAll ? over : overOne;
+    for (let i = 0; i < 16 && tooBig() && (term.options.fontSize ?? 0) > 3; i++) {
+      term.options.fontSize = (term.options.fontSize ?? 12) - 0.25;
+    }
+  });
+}
+
 function setSize(cols: number, rows: number): void {
   size = { cols, rows };
   term.resize(cols, rows);
-  fitFont();
+  refit();
 }
 
 // ---------------------------------------------------------------------------
@@ -358,17 +409,22 @@ async function receive(paired: Paired, bytes: Uint8Array, myNonce: Uint8Array): 
       if (m['sessionId'] !== watching) return;
       watchingStream = Number(m['stream']);
       term.reset();
-      setSize(Number(m['cols']) || 80, Number(m['rows']) || 24);
       show('terminal');
+      setSize(Number(m['cols']) || 80, Number(m['rows']) || 24);
       drawTerminalHeader();
+      // A computer has no keyboard to bring up, so it is ready to type whatever opened it.
+      if (typing && !touch) term.focus();
       return;
     case 'size':
       if (m['sessionId'] === watching) setSize(Number(m['cols']) || 80, Number(m['rows']) || 24);
       return;
     case 'ended':
       if (m['sessionId'] === watching) {
+        const title = paneOf(watching)?.title;
         watching = null;
+        term.blur();
         show('list');
+        sayEnded(title ? `Terminal ended: ${title}` : 'The terminal ended.');
       }
       return;
     case 'denied':
@@ -484,14 +540,25 @@ async function refreshNotify(): Promise<void> {
   send({ t: 'notify', subscription: sub ? flat(sub) : null });
 }
 
+let endedTimer = 0;
+/** Said on the list for a few seconds, so leaving the terminal does not look like a hiccup. */
+function sayEnded(text: string): void {
+  const note = $('ended-note');
+  note.textContent = text;
+  note.hidden = false;
+  clearTimeout(endedTimer);
+  endedTimer = window.setTimeout(() => (note.hidden = true), 6000);
+}
+
 function drawNotify(): void {
   const button = $<HTMLButtonElement>('notify');
   const hint = $('notify-hint');
-  const supported = pushSupported() && vapid !== '';
+  // On a phone or tablet only: a computer has TabTerm on it already, or is beside the Mac.
+  const supported = touch && pushSupported() && vapid !== '';
   button.hidden = !supported;
   button.textContent = notifyOn ? 'Notifications on' : 'Notify me';
   button.setAttribute('aria-pressed', String(notifyOn));
-  const iphone = /iPhone|iPad/.test(navigator.userAgent);
+  const iphone = touch && /iPhone|iPad|Macintosh/.test(navigator.userAgent);
   hint.hidden = supported || !iphone;
   hint.textContent =
     'To get a notification when an agent needs you, add this page to your Home Screen and open it from there.';
@@ -594,6 +661,14 @@ function openPane(sessionId: string): void {
       if (typing && watching) send({ t: 'input', sessionId: watching, data });
     });
   }
+  $('ended-note').hidden = true;
+  // Shown at once, empty until its screen arrives, since a hidden terminal cannot take the focus.
+  term.reset();
+  show('terminal');
+  drawTerminalHeader();
+  // Ready to type at once. Done in the tap that opened it, which is when a phone allows the
+  // keyboard to come up.
+  if (typing) term.focus();
   send({ t: 'watch', sessionId });
 }
 
@@ -645,7 +720,16 @@ function wire(paired: Paired): void {
       if (typing && watching) send({ t: 'input', sessionId: watching, data: seq });
     });
   }
-  window.addEventListener('resize', fitFont);
+  window.addEventListener('resize', refit);
+  /*
+   * Pressing a button keeps the typing where it was. A button would take the focus, which on a
+   * phone puts the keyboard away. Kept from moving instead, it stays, so Esc, the arrows and A+
+   * can be pressed between keys. On a computer, whatever is pressed, typing goes to the terminal.
+   */
+  for (const b of document.querySelectorAll<HTMLButtonElement>('#screen-terminal button')) {
+    b.addEventListener('mousedown', (e) => e.preventDefault());
+    if (!touch && b.id !== 'back') b.addEventListener('click', () => term.focus());
+  }
   /*
    * Locked again after a while out of sight. A phone in a pocket keeps a page alive, and the
    * connection it holds is as good as an unlocked one, so it is closed and the next look unlocks.

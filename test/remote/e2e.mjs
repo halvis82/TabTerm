@@ -208,6 +208,8 @@ await page('Emulation.setDeviceMetricsOverride', {
   deviceScaleFactor: 3,
   mobile: true,
 });
+// A touch screen, so the page takes it for a phone.
+await page('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
 await page('WebAuthn.enable', {});
 await page('WebAuthn.addVirtualAuthenticator', {
   options: {
@@ -379,6 +381,16 @@ ok(
   'at the Mac size',
   (await ev(`window.__remote.term.cols + 'x' + window.__remote.term.rows`)) === '120x40',
 );
+const typingReady = `document.activeElement?.classList.contains('xterm-helper-textarea')`;
+ok('opening a terminal makes it ready to type', await ev(typingReady));
+ok(
+  'a quick second tap is a tap, not a page zoom',
+  (await ev(`getComputedStyle(document.body).touchAction`)) === 'manipulation',
+);
+await tap('#zoom-in');
+await tap('#zoom-out');
+await tap('[data-key="left"]');
+ok('and pressing buttons keeps it ready to type', await ev(typingReady));
 
 // 120 columns on a phone: readable and scrolling sideways, or fitted with Fit.
 const fontPx = () => ev(`window.__remote.term.options.fontSize`);
@@ -554,11 +566,12 @@ const page2 = (method, params) => cdp(method, params, S2);
 const ev2 = async (expression) =>
   (await page2('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })).result
     ?.result?.value;
+// A computer, with a window wider than the terminal is.
 await page2('Emulation.setDeviceMetricsOverride', {
-  width: 390,
-  height: 844,
-  deviceScaleFactor: 3,
-  mobile: true,
+  width: 1600,
+  height: 1000,
+  deviceScaleFactor: 2,
+  mobile: false,
 });
 await page2('WebAuthn.enable', {});
 await page2('WebAuthn.addVirtualAuthenticator', {
@@ -587,6 +600,55 @@ await ev2(`document.getElementById('unlock').click()`);
 ok(
   'and the device gets the list',
   await until(() => ev2(`document.body.dataset.screen === 'list'`)),
+);
+ok(
+  'a computer is not offered notifications',
+  await ev2(`document.getElementById('notify').hidden`),
+);
+await ev2(`document.querySelector('.pane').click()`);
+await until(() => ev2(`document.body.dataset.screen === 'terminal'`));
+await until(() => ev2(`window.__remote.term.cols === 120`));
+await sleep(300);
+const filled = await ev2(`(() => {
+  const t = document.querySelector('#term .xterm-screen').getBoundingClientRect();
+  const w = document.getElementById('term-wrap');
+  return { w: t.width / (w.clientWidth - 8), h: t.height / (w.clientHeight - 8) };
+})()`);
+ok(
+  'on a computer the terminal fills the width or the height',
+  Math.max(filled.w, filled.h) > 0.95 && Math.max(filled.w, filled.h) <= 1.01,
+  JSON.stringify(filled),
+);
+if (process.env.SHOT_DIR) {
+  const shot = await page2('Page.captureScreenshot', { format: 'png' });
+  writeFileSync(
+    join(process.env.SHOT_DIR, '5-computer.png'),
+    Buffer.from(shot.result.data, 'base64'),
+  );
+}
+ok(
+  'and is ready to type',
+  await until(() => ev2(`document.activeElement?.classList.contains('xterm-helper-textarea')`)),
+);
+await ev2(`document.getElementById('zoom-in').click()`);
+ok(
+  'and stays ready to type after a button',
+  await ev2(`document.activeElement?.classList.contains('xterm-helper-textarea')`),
+);
+// exit in the terminal it is watching: the page says it ended rather than sit on a still screen.
+desk.ws.send(
+  encodeFrame({
+    kind: 'input',
+    streamId: created.streamId,
+    data: new TextEncoder().encode('exit\r'),
+  }),
+);
+ok(
+  'a terminal that ends while watched says so',
+  await until(() =>
+    ev2(`document.body.dataset.screen === 'list' && !document.getElementById('ended-note').hidden`),
+  ),
+  await ev2(`document.getElementById('ended-note').textContent`),
 );
 
 // A third device, pairing with Scan: the page's own camera reading the code Settings draws. The

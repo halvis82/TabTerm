@@ -43,6 +43,8 @@
           system-ui,
           sans-serif;
         -webkit-text-size-adjust: 100%;
+        /* Taps are taps: pressing A+ twice quickly must not zoom the page. Pinching still does. */
+        touch-action: manipulation;
       }
       body {
         display: flex;
@@ -296,6 +298,11 @@
       .icon-button:disabled {
         opacity: 0.4;
       }
+      #ended-note {
+        margin: 12px 16px 0;
+        color: var(--warn);
+        font-size: 14px;
+      }
       #notify-hint {
         margin: 12px 16px 0;
         color: var(--dim);
@@ -373,6 +380,7 @@
           Notify me
         </button>
       </header>
+      <p id="ended-note" role="status" hidden></p>
       <p id="notify-hint" hidden></p>
       <div id="tabs"></div>
     </main>
@@ -388,7 +396,7 @@
           class="icon-button"
           type="button"
           aria-pressed="false"
-          aria-label="Fit the whole width"
+          aria-label="Fit the whole terminal on the screen"
         >
           Fit
         </button>

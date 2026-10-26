@@ -1047,6 +1047,10 @@ async function main(): Promise<void> {
         const snap = s.vt.snapshot(REMOTE_SCROLLBACK_LINES);
         return { cols: snap.cols, rows: snap.rows, data: snap.screen };
       },
+      alive: (sessionId) => {
+        const s = sessions.get(sessionId);
+        return s !== undefined && s.state !== 'exited' && s.state !== 'reaped';
+      },
       write: (sessionId, text) => {
         const s = sessions.get(sessionId);
         if (!s || s.state === 'exited' || s.state === 'reaped') return false;

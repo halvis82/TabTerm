@@ -221,13 +221,24 @@ iPhone, then paste it in the box and press **Pair**.
 
 From then on, opening the page asks to **Unlock**, and shows your terminals.
 
-**Notifications.** On the list of terminals, press **Notify me** and allow notifications. On an
-iPhone this is offered only in the app added to the Home Screen, which is where iOS allows a web
+**Notifications.** On the list of terminals, press **Notify me** and allow notifications. It is
+offered on phones and tablets only, since a computer has TabTerm on it or sits beside the Mac. On
+an iPhone it is offered only in the app added to the Home Screen, which is where iOS allows a web
 page to notify. Tapping a notification opens that terminal, after unlocking.
 
-**A wide terminal on a phone.** The text stays readable and the terminal scrolls sideways. **Fit**
-shows the whole width instead, however small that makes the text. **A-** and **A+** change the
-size when Fit is off.
+**Size.** A terminal keeps the columns and rows it has on the Mac, since the program in it drew for
+those, and the page never changes them. The text is made as large as fits: the terminal fills the
+width or the height of the page, whichever runs out first, and follows the window as it is
+resized. On a phone a wide terminal stays readable and scrolls sideways instead. **Fit** shows the
+whole terminal however small that makes the text. **A-** and **A+** change the size when Fit is
+off. Tapping them quickly does not zoom the page.
+
+**Typing.** Opening a terminal makes it ready to type, on a phone with the keyboard up. Pressing
+Esc, the arrows, Fit or A- and A+ leaves the typing where it was, so a phone's keyboard stays up
+and a computer keeps typing into the terminal.
+
+**A terminal that ends** while it is open, by `exit` or by closing it on the Mac, goes back to the
+list, which says it ended.
 
 ### Managing devices
 
