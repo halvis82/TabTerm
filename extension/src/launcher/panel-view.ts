@@ -633,6 +633,14 @@ export class CommandPanel {
      * back, so the second press lands on a button that has forgotten it was asked.
      */
     if (this.#body.querySelector('[data-asking="yes"]')) return;
+    // Nor while something is being typed into one of its boxes, which a redraw would take away.
+    const typing = document.activeElement;
+    if (
+      (typing instanceof HTMLInputElement || typing instanceof HTMLTextAreaElement) &&
+      this.#body.contains(typing)
+    ) {
+      return;
+    }
     this.render();
   }
 

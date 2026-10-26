@@ -412,21 +412,33 @@ and wrong for a tab whose panes would then show nothing.
 
 ## 5.5 Settings
 
-The gear holds what TabTerm itself controls, and two switches that make the rest of the product
-work at all:
+The gear holds what TabTerm itself controls. It grew to some thirty controls in one column, which
+was hard to find anything in, so it is **in pages**, one at a time, with a row of tabs and a search
+above them that stay in place while a page scrolls:
 
-| Setting | Does |
+| Page | Holds |
 |---|---|
-| **Needs attention** | Only while the daemon's live checks found something: a missing Full Disk Access grant, a terminal host from before an update, an update needing recovery, each with its fix, and Check again. See `05-security.md` |
-| Theme | Dark, light, midnight |
-| Desktop notifications | The master switch, with a duration threshold |
-| Shell commands, Agent turns | Which completions are worth a notification |
-| Stay quiet while I am looking | Suppress for a pane already on screen |
-| **Agent events** | Installs the agent CLI hooks. Without them agent status does nothing |
-| **Shell integration** | Adds the line to `.zshrc`. Without it there are no exit codes |
-| Updates | Versions, a check, an update, and the two automatic switches. Last on the page, drawn with the panel's own buttons and switches. See `16-companion-updates.md` |
+| Theme | The theme, and how strong and how large a session's name is drawn over its pane |
+| Terminals | Scrollback, how long a terminal is kept after its tab closes, Copy output, programs copying, the bell, and **Tell finished from failed** (shell integration). Without it there are no exit codes |
+| Agents | What launching an agent runs, and **Let agents report what they are doing** (the agent hooks). Without them agent status does nothing |
+| Alerts | Desktop notifications: the master switch, the duration threshold, shell commands and agent turns, and quiet for a pane already on screen |
+| Remote | Remote access. See `17-remote-access.md` |
+| Keys | The shortcuts this page answers to, each rebindable |
+| About | Versions and updates (see `16-companion-updates.md`), then restoring and erasing |
 
-The last two write to files outside TabTerm, so they happen only on an explicit switch, are backed
+**Needs attention** sits above the tabs, on every page, while the daemon's live checks have found
+something: a missing Full Disk Access grant, a terminal host from before an update, an update
+needing recovery, each with its fix, and Check again. See `05-security.md`.
+
+- **The search looks through every page** and shows only the settings that match, under the name of
+  the group each is in. Escape clears it
+- **The page last used** is the one Settings opens on
+- Each group is a card. A choice from a list sits on the same line as what it is about, and a box
+  to type in sits under it, where it has the width. A page of one group is named by its tab and
+  does not repeat the name
+- Settings redraw when the daemon reports something, except while a box in them is being typed in
+
+The agent and shell switches write to files outside TabTerm, so they happen only on an explicit switch, are backed
 up before the first change, and are removable to the byte. Both used to be lines of text in the
 install output, which meant they were not run, which meant a large part of what a tab can show was
 silently inert. See `09-agent-integration.md` and `08-shell-integration.md`.

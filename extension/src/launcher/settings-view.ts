@@ -177,8 +177,159 @@ function field(labelText: string, description: string, control: HTMLElement): HT
   const note = document.createElement('span');
   note.className = 'set-desc';
   note.textContent = description;
+  /*
+   * A choice from a list sits beside what it is about, as a switch does, so a page of them is a
+   * page of rows rather than a column of label, sentence, box, label, sentence, box. A box to type
+   * in stays underneath, where it has the width to show what is typed.
+   */
+  if (control instanceof HTMLSelectElement) {
+    row.classList.add('set-field-inline');
+    const text = document.createElement('span');
+    text.className = 'set-toggle-text';
+    text.append(label, note);
+    row.append(text, control);
+    return row;
+  }
   row.append(label, note, control);
   return row;
+}
+
+/**
+ * The pages of Settings, in the order they are offered. Settings grew to some thirty controls in
+ * one column, which was hard to find anything in, so they are grouped by what they are about and
+ * shown a page at a time, with a search across all of them.
+ */
+const PAGES = [
+  ['appearance', 'Theme'],
+  ['terminals', 'Terminals'],
+  ['agents', 'Agents'],
+  ['notifications', 'Alerts'],
+  ['remote', 'Remote'],
+  ['shortcuts', 'Keys'],
+  ['about', 'About'],
+] as const;
+type Page = (typeof PAGES)[number][0];
+const PAGE_KEY = 'tabterm.settingsPage';
+
+/** The page last looked at, kept across the redraws Settings has whenever the daemon reports. */
+let currentPage: Page = (() => {
+  try {
+    const stored = localStorage.getItem(PAGE_KEY);
+    return PAGES.some(([id]) => id === stored) ? (stored as Page) : 'appearance';
+  } catch {
+    return 'appearance';
+  }
+})();
+/** What is typed in the search, kept across redraws for the same reason. */
+let searching = '';
+
+/**
+ * The tabs, the search, and the pages under them. Every page is built, and the ones not shown are
+ * hidden, so the search can look through all of them and a page switch is instant.
+ */
+function paged(pages: Map<Page, HTMLElement[]>): HTMLElement[] {
+  const nav = document.createElement('div');
+  nav.className = 'set-nav';
+  nav.setAttribute('role', 'tablist');
+  const search = document.createElement('input');
+  search.className = 'launcher-input set-search';
+  search.type = 'search';
+  search.placeholder = 'Search settings';
+  search.spellcheck = false;
+  search.setAttribute('aria-label', 'Search settings');
+  search.value = searching;
+  const holders = new Map<Page, HTMLElement>();
+  const buttons = new Map<Page, HTMLButtonElement>();
+  const empty = document.createElement('p');
+  empty.className = 'set-desc set-search-empty';
+  empty.textContent = 'No setting matches that.';
+
+  const draw = (): void => {
+    const query = searching.trim().toLowerCase();
+    for (const [id, holder] of holders) {
+      holder.hidden = query === '' && id !== currentPage;
+      // Headings name the group a match is in; on a page of one group the tab already does.
+      holder.classList.toggle('searching', query !== '');
+      buttons.get(id)?.classList.toggle('on', query === '' && id === currentPage);
+      buttons.get(id)?.setAttribute('aria-selected', String(query === '' && id === currentPage));
+    }
+    let any = false;
+    for (const holder of holders.values()) {
+      for (const sectionEl of holder.querySelectorAll<HTMLElement>('.set-section')) {
+        let shown = 0;
+        for (const row of sectionEl.children) {
+          if (!(row instanceof HTMLElement) || row.classList.contains('set-heading')) continue;
+          const match = query === '' || (row.textContent ?? '').toLowerCase().includes(query);
+          row.classList.toggle('set-filtered', !match);
+          if (match) shown++;
+        }
+        const headingMatch =
+          query !== '' &&
+          (sectionEl.querySelector('.set-heading')?.textContent ?? '')
+            .toLowerCase()
+            .includes(query);
+        if (headingMatch) {
+          for (const row of sectionEl.children) row.classList.remove('set-filtered');
+          shown = 1;
+        }
+        sectionEl.hidden = query !== '' && shown === 0;
+        if (shown > 0) any = true;
+      }
+    }
+    empty.hidden = query === '' || any;
+  };
+
+  for (const [id, title] of PAGES) {
+    const sections = pages.get(id) ?? [];
+    if (sections.length === 0) continue;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'set-nav-tab';
+    button.textContent = title;
+    button.dataset['settingsPage'] = id;
+    button.setAttribute('role', 'tab');
+    button.addEventListener('click', () => {
+      currentPage = id;
+      searching = '';
+      search.value = '';
+      try {
+        localStorage.setItem(PAGE_KEY, id);
+      } catch {
+        // Not remembered, which is fine.
+      }
+      draw();
+      holders.get(id)?.closest('.cmd-body')?.scrollTo({ top: 0 });
+    });
+    nav.append(button);
+    buttons.set(id, button);
+    const holder = document.createElement('div');
+    holder.className = 'set-page';
+    holder.dataset['settingsPageBody'] = id;
+    holder.setAttribute('role', 'tabpanel');
+    holder.append(...sections);
+    holders.set(id, holder);
+  }
+  // The page asked for may have nothing on it right now, such as Remote before the daemon answers.
+  if (!holders.has(currentPage)) currentPage = holders.keys().next().value ?? 'appearance';
+  search.addEventListener('input', () => {
+    searching = search.value;
+    draw();
+  });
+  search.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && search.value !== '') {
+      e.stopPropagation();
+      searching = '';
+      search.value = '';
+      draw();
+    }
+    // Not the terminal's, while somebody is typing in a box.
+    if (e.key !== 'Escape') e.stopPropagation();
+  });
+  const top = document.createElement('div');
+  top.className = 'set-top';
+  top.append(search, nav);
+  draw();
+  return [top, empty, ...holders.values()];
 }
 
 /** A `select` built from a table, so the options and the values cannot drift apart. */
@@ -207,6 +358,10 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
   // outranks every preference below it.
   const attention = buildAttention(options);
   if (attention) wrap.append(attention);
+  const pages = new Map<Page, HTMLElement[]>();
+  const put = (page: Page, el: HTMLElement | null): void => {
+    if (el) pages.set(page, [...(pages.get(page) ?? []), el]);
+  };
 
   const look = section('Appearance');
   const themeSelect = chooser(THEMES, 'dark', (value) => options.onChangeTheme(value));
@@ -248,7 +403,7 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
   );
   look.append(opacityWarning);
   look.append(field('Session name size', 'How large that name is drawn', scaleSelect));
-  wrap.append(look);
+  put('appearance', look);
 
   // --- Terminals ----------------------------------------------------------
   const terminals = section('Terminals');
@@ -349,14 +504,22 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
     if (bellBox) bellBox.checked = stored[BELL_KEY] !== false;
   });
   terminals.append(programCopy, bell);
-  if (hasTerminalSettings) wrap.append(terminals);
+  const shell = options.shellIntegration();
+  if (shell) {
+    terminals.append(
+      toggle(
+        'Tell finished from failed',
+        shell.installed || shell.sourcedElsewhere,
+        options.onChangeShellIntegration,
+        describeShell(shell),
+      ),
+    );
+  }
+  if (hasTerminalSettings) put('terminals', terminals);
 
-  wrap.append(buildNotifications(options));
-
-  const remote = buildRemote(options);
-  if (remote) wrap.append(remote);
-
-  wrap.append(buildDangerZone(options));
+  put('agents', buildAgents(options));
+  put('notifications', buildNotifications(options));
+  put('remote', buildRemote(options));
 
   // --- Shortcuts ----------------------------------------------------------
   const keys = section('Keyboard shortcuts');
@@ -504,10 +667,12 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
     void chrome.tabs.create({ url: 'chrome://extensions/shortcuts', active: true });
   });
   keys.append(chromeNote, openShortcuts);
-  wrap.append(keys);
+  put('shortcuts', keys);
   // Last, by request: nothing here is part of using a terminal, and it changes least often.
-  wrap.append(buildUpdates(options));
+  put('about', buildUpdates(options));
+  put('about', buildDangerZone(options));
 
+  wrap.append(...paged(pages));
   return wrap;
 }
 
@@ -1116,6 +1281,15 @@ function buildNotifications(options: SettingsOptions): HTMLElement {
     );
   }
 
+  return wrap;
+}
+
+/**
+ * Agents: what launching one runs, and whether they report what they are doing. Apart from
+ * notifications, where they used to sit, since they decide what an agent tab shows as well.
+ */
+function buildAgents(options: SettingsOptions): HTMLElement | null {
+  const wrap = section('Agents');
   /**
    * What launching an agent runs.
    *
@@ -1170,19 +1344,7 @@ function buildNotifications(options: SettingsOptions): HTMLElement {
     );
   }
 
-  const shell = options.shellIntegration();
-  if (shell) {
-    wrap.append(
-      toggle(
-        'Tell finished from failed',
-        shell.installed || shell.sourcedElsewhere,
-        options.onChangeShellIntegration,
-        describeShell(shell),
-      ),
-    );
-  }
-
-  return wrap;
+  return wrap.children.length > 1 ? wrap : null;
 }
 
 /** Indented, so it reads as belonging to the switch above it rather than standing on its own. */

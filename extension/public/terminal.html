@@ -1633,13 +1633,108 @@
   .cmd-settings {
     display: flex;
     flex-direction: column;
-    gap: 22px;
-    padding: 14px 12px 16px;
+    gap: 14px;
+    padding: 0 6px 16px;
   }
-  .set-section {
+  /* The search and the page tabs stay in reach while a long page scrolls under them. */
+  .set-top {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 0 10px;
+    background: var(--panel);
+    border-bottom: 1px solid rgba(140, 155, 190, 0.16);
+  }
+  .set-search {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 10px;
+    border-radius: 7px;
+    border: 1px solid rgba(90, 100, 130, 0.35);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+  }
+  .set-search:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .set-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+  }
+  .set-nav-tab {
+    padding: 4px 7px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--dim);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .set-nav-tab:hover {
+    color: var(--text);
+    background: rgba(140, 155, 190, 0.1);
+  }
+  .set-nav-tab.on {
+    color: var(--text);
+    background: var(--hover);
+    border-color: var(--accent);
+  }
+  .set-page {
     display: flex;
     flex-direction: column;
     gap: 14px;
+  }
+  /* A page of one group is named by its tab, so the card does not say it again. */
+  .set-page:not(.searching) > .set-section:only-child > .set-heading {
+    display: none;
+  }
+  .set-page[hidden],
+  .set-section[hidden],
+  .set-filtered {
+    display: none !important;
+  }
+  /* Each group a card, its rows divided by a hairline, so what belongs together reads as one. */
+  .set-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(140, 155, 190, 0.16);
+    /* Opaque, so text on it is measured and read against what is actually behind it. */
+    background: color-mix(in srgb, var(--panel) 95%, rgb(140, 155, 190));
+  }
+  .set-section > .set-field,
+  .set-section > .set-toggle {
+    padding-top: 12px;
+    border-top: 1px solid rgba(140, 155, 190, 0.1);
+  }
+  .set-section > .set-heading + .set-field,
+  .set-section > .set-heading + .set-toggle {
+    padding-top: 0;
+    border-top: none;
+  }
+  .set-field.set-field-inline {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+  }
+  .set-field.set-field-inline select {
+    flex: none;
+    max-width: 46%;
+    margin-top: 0;
+  }
+  .set-search-empty {
+    padding: 8px 2px;
   }
   .set-heading {
     margin: 0;

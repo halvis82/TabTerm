@@ -30,10 +30,10 @@ r.ok(
 );
 // Asked for: the update controls at the bottom of the page, drawn like the rest of it.
 r.ok(
-  'the section is the last one on the settings page',
+  'the section is on the About page of settings, first',
   await evaluate(
     a.client,
-    `document.querySelector('.cmd-settings')?.lastElementChild === ${section}`,
+    `document.querySelector('[data-settings-page-body="about"]')?.firstElementChild === ${section}`,
   ),
 );
 r.ok(

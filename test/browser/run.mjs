@@ -286,7 +286,10 @@ const COVERS = [
   ['extension/src/launcher/', ['palette', 'palette-selection', 'command-panel', 'panel-focus']],
   ['daemon/src/agent-', ['resume-and-tabs', 'timers-survive-refresh']],
   ['extension/src/launcher/panel-view', ['command-panel', 'stats-scrolling']],
-  ['extension/src/launcher/settings-view', ['settings', 'command-panel']],
+  [
+    'extension/src/launcher/settings-view',
+    ['settings', 'command-panel', 'settings-pages', 'shortcut-rows', 'light-panels'],
+  ],
   ['extension/src/launcher/session-groups', ['running-now-groups', 'sessions']],
   ['extension/src/launcher/sessions-view.ts', ['running-now-layout']],
   ['extension/src/launcher/launcher', ['template-card-goes', 'templates', 'start-screen-typing']],

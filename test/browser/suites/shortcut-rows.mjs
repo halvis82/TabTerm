@@ -13,6 +13,8 @@ await evaluate(client, `document.getElementById('cmd-button')?.click()`);
 await waitFor(client, `!document.querySelector('.cmd-panel')?.hidden`, 8000);
 await evaluate(client, `document.querySelector('.cmd-gear')?.click()`);
 await waitFor(client, `!!document.querySelector('.set-key-row')`, 8000);
+// The shortcuts have a page of their own in settings.
+await evaluate(client, `document.querySelector('[data-settings-page="shortcuts"]')?.click()`);
 await sleep(400);
 
 const rows = JSON.parse(

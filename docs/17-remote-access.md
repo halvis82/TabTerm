@@ -250,7 +250,7 @@ every running room once. Right after it, connecting can take a few seconds for a
 
 ### 3. Turn it on
 
-In TabTerm, open **Settings**, then **Remote access**. Paste the relay's address and the secret,
+In TabTerm, open **Settings**, then the **Remote** page. Paste the relay's address and the secret,
 press **Save relay**, and turn **Remote access** on. The status line says **Connected to your
 relay**. From then on the address and secret are folded away under **Relay:** and the relay's
 address, so Settings shows only the switch, the status, pairing and the devices.
@@ -364,7 +364,7 @@ list, which says it ended.
 
 ### Managing devices
 
-Settings, Remote access lists every trusted device with when it was added and last used, and
+Settings, Remote lists every trusted device with when it was added and last used, and
 whether it gets notifications.
 
 - **The name** can be changed by typing over it
