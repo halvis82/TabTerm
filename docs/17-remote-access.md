@@ -49,7 +49,9 @@ and both see the result.
 **Cost on the Mac.** Off, it reads one small file at start and does nothing else. On, it is one
 WebSocket and the frames passing through it, inside the daemon that is already running: no new
 process. Every 25 seconds the daemon sends the relay four bytes, "ping", which Cloudflare answers
-without waking the relay. A connection that stops answering is closed and made again, so a deploy
+without waking the relay. A new connection counts as connected only once its first "ping" is
+answered, within five seconds, since just after a deploy a connection can open onto the copy of
+the relay being shut down. A connection that stops answering is closed and made again, so a deploy
 of the relay or a network change never leaves the Mac holding a connection that goes nowhere while
 every device is told it is offline. A relay deployed before this answers no pings: the daemon
 notices once and stops asking it. Measured with a device paired and watching, the daemon's memory did not measurably change.

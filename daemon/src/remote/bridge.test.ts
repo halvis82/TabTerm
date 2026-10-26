@@ -427,7 +427,7 @@ function roomOf(stateDir: string): string {
 describe('a connection to the relay that has gone quiet', () => {
   /**
    * A relay that answers "ping" for a while and then not at all, with its connection still open,
-   * which is what a deploy on Cloudflare can leave behind. `answers` says how many it answers.
+   * which is what a deploy on Cloudflare can leave behind. `answers` says how many it answers on each connection.
    */
   async function quietRelay(answers: number, old = false) {
     const server = new WebSocketServer({ port: 0, host: '127.0.0.1' });
@@ -435,12 +435,14 @@ describe('a connection to the relay that has gone quiet', () => {
     const seen = { connections: 0, pings: 0 };
     server.on('connection', (ws) => {
       seen.connections++;
+      let pings = 0;
       ws.on('message', (data: Buffer, isBinary: boolean) => {
         if (isBinary || data.toString() !== 'ping') return;
         seen.pings++;
+        pings++;
         // A relay from before pings closes on any text.
         if (old) ws.close(1003, 'Binary only');
-        else if (seen.pings <= answers) ws.send('pong');
+        else if (pings <= answers) ws.send('pong');
       });
     });
     const { port } = server.address() as { port: number };
@@ -461,6 +463,18 @@ describe('a connection to the relay that has gone quiet', () => {
       expect(await until(() => c.state.status === 'connected')).toBe(true);
       expect(await until(() => quiet.seen.connections >= 2)).toBe(true);
       expect(await until(() => c.state.status === 'connected')).toBe(true);
+    } finally {
+      quiet.close();
+    }
+  });
+
+  it('counts as connected only once the relay answers, and connects again if it never does', async () => {
+    const quiet = await quietRelay(0);
+    try {
+      const c = quietControl(quiet.url);
+      expect(await until(() => quiet.seen.connections >= 3)).toBe(true);
+      expect(states.some((s) => s.status === 'connected')).toBe(false);
+      expect(c.state.status).not.toBe('connected');
     } finally {
       quiet.close();
     }

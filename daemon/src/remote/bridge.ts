@@ -82,6 +82,8 @@ const NOTIFY_GAP_MS = 30_000;
  * the Mac would wait on it forever while every device was told it was offline.
  */
 const PING_MS = 25_000;
+/** How long a new connection has to answer its first ping before it is made again. */
+const FIRST_ANSWER_MS = 5_000;
 
 type Phase = 'hello' | 'unlock' | 'ready';
 
@@ -229,23 +231,47 @@ export class RemoteBridge {
     });
     this.#socket = socket;
     socket.binaryType = 'nodebuffer';
-    // Asked, and not answered by the next time: the connection is let go and made again.
+    /*
+     * Asked, and not answered by the next time: the connection is let go and made again. The first
+     * ask is the moment it opens, and it counts as connected only once answered: just after the
+     * relay is deployed, a connection can open onto the copy being shut down and reach nothing.
+     */
     let asked = false;
     let answered = false;
-    socket.on('open', () => {
+    let firstCheck: ReturnType<typeof setTimeout> | undefined;
+    const ask = (): void => {
+      if (socket.readyState !== WebSocket.OPEN) return;
+      asked = true;
+      socket.send('ping');
+    };
+    const ready = (): void => {
       this.#retryMs = 1000;
       info('remote.relay.connected', {});
       this.#setStatus({ state: 'connected', browsers: 0 });
+    };
+    socket.on('open', () => {
       clearInterval(this.#pingTimer);
+      if (!this.#relayPings) {
+        ready();
+        return;
+      }
+      ask();
+      firstCheck = setTimeout(
+        () => {
+          if (answered) return;
+          warn('remote.relay.unreachable', {});
+          socket.terminate();
+        },
+        Math.min(FIRST_ANSWER_MS, this.#pingMs),
+      );
+      firstCheck.unref?.();
       this.#pingTimer = setInterval(() => {
         if (asked && answered) {
           warn('remote.relay.silent', {});
           socket.terminate();
           return;
         }
-        if (!this.#relayPings || socket.readyState !== WebSocket.OPEN) return;
-        asked = true;
-        socket.send('ping');
+        if (answered) ask();
       }, this.#pingMs);
       this.#pingTimer.unref?.();
     });
@@ -262,7 +288,11 @@ export class RemoteBridge {
         this.#fromRelay(new Uint8Array(data));
       } else if (data.toString() === 'pong') {
         asked = false;
-        answered = true;
+        if (!answered) {
+          answered = true;
+          clearTimeout(firstCheck);
+          ready();
+        }
       }
     });
     socket.on('error', (e) => {
@@ -274,6 +304,7 @@ export class RemoteBridge {
       if (this.#socket !== socket) return;
       info('remote.relay.closed', { code, reason: reason.toString().slice(0, 60) });
       clearInterval(this.#pingTimer);
+      clearTimeout(firstCheck);
       if (code === 1003 && !answered) this.#relayPings = false;
       for (const b of this.#browsers.values()) clearTimeout(b.timer);
       this.#browsers.clear();
