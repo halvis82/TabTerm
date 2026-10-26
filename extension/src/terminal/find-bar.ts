@@ -9,12 +9,38 @@
  *
  * It searches the focused pane. A terminal is a thing you are looking at, and searching four of
  * them at once would answer with matches in panes that are not in front of you.
+ *
+ * **All terminals**, a box beside it, searches every running terminal's history as well, in a tab
+ * or in the background, for "where did I see that". Off unless ticked, and remembered. The pane in
+ * front is still searched as before; the other terminals' matches are listed under the bar, and
+ * pressing one opens that terminal on that match.
  */
+import type { SessionMatches } from '@tabterm/shared';
+
 export interface FindTarget {
   find(term: string, opts?: { back?: boolean }): boolean;
+  /** The match `n` places back from the end, so a match listed elsewhere can be landed on. */
+  findNth?(term: string, n: number): boolean;
   clearFind(): void;
   focus(): void;
 }
+
+/** Searching every terminal. See the note at the top. */
+export interface FindAllOptions {
+  box: HTMLInputElement;
+  results: HTMLElement;
+  /** Ask for matches. The answer comes back through `showAll`. */
+  search: (query: string) => void;
+  /** Open a terminal on one of its matches. */
+  open: (session: SessionMatches, fromEnd: number, query: string) => void;
+  /** Whether the box is ticked, to keep for next time. */
+  remember: (on: boolean) => void;
+  /** Whether a terminal is the one in front, which is searched already. */
+  isHere?: (sessionId: string) => boolean;
+}
+
+/** How long typing has to pause before every terminal is searched. */
+const SEARCH_ALL_AFTER_MS = 250;
 
 export interface FindBarOptions {
   /** The pane to search, asked for at the moment of searching rather than held. */
@@ -25,6 +51,7 @@ export interface FindBarOptions {
   next: HTMLElement;
   previous: HTMLElement;
   close: HTMLElement;
+  all?: FindAllOptions;
   /**
    * Where the Escape key is caught while the bar is open.
    *
@@ -40,12 +67,25 @@ export interface FindBarOptions {
 export class FindBar {
   readonly #opts: FindBarOptions;
   #term = '';
+  #allTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(opts: FindBarOptions) {
     this.#opts = opts;
 
+    const all = opts.all;
+    if (all) {
+      all.results.hidden = !all.box.checked;
+      all.box.addEventListener('change', () => {
+        all.remember(all.box.checked);
+        all.results.hidden = !all.box.checked;
+        if (all.box.checked) this.#searchAll(true);
+        else all.results.replaceChildren();
+        opts.input.focus();
+      });
+    }
     opts.input.addEventListener('input', () => {
       this.#term = opts.input.value;
+      this.#searchAll(false);
       /*
        * Searched backwards, so the first match is the **last thing printed**.
        *
@@ -143,7 +183,91 @@ export class FindBar {
     this.#opts.input.focus();
     this.#opts.input.select();
     if (this.#term !== '') this.#run(true);
+    this.#searchAll(true);
     this.#opts.window?.addEventListener('keydown', this.#onEscape, true);
+  }
+
+  /** Ticked or not, as kept from last time. */
+  setAll(on: boolean): void {
+    const all = this.#opts.all;
+    if (!all) return;
+    all.box.checked = on;
+    all.results.hidden = !on;
+  }
+
+  /**
+   * Open on a given match, as a terminal opened from a search of all of them is: the words in the
+   * box and that match in front.
+   */
+  showAt(query: string, fromEnd: number): boolean {
+    this.#opts.input.value = query;
+    this.#term = query;
+    this.#opts.root.hidden = false;
+    this.#opts.window?.addEventListener('keydown', this.#onEscape, true);
+    this.#searchAll(true);
+    const target = this.#opts.target();
+    if (!target) return false;
+    return target.findNth ? target.findNth(query, fromEnd) : target.find(query, { back: true });
+  }
+
+  #searchAll(now: boolean): void {
+    const all = this.#opts.all;
+    clearTimeout(this.#allTimer);
+    if (!all?.box.checked) return;
+    const query = this.#term.trim();
+    if (query.length < 2) {
+      all.results.replaceChildren();
+      return;
+    }
+    this.#allTimer = setTimeout(() => all.search(query), now ? 0 : SEARCH_ALL_AFTER_MS);
+  }
+
+  /** What every terminal had, drawn under the bar. An answer to an older query is let go. */
+  showAll(query: string, sessions: readonly SessionMatches[]): void {
+    const all = this.#opts.all;
+    if (!all?.box.checked || query !== this.#term.trim()) return;
+    const doc = all.results.ownerDocument;
+    const el = <K extends keyof HTMLElementTagNameMap>(
+      tag: K,
+      cls: string,
+      text = '',
+    ): HTMLElementTagNameMap[K] => {
+      const e = doc.createElement(tag);
+      e.className = cls;
+      if (text !== '') e.textContent = text;
+      return e;
+    };
+    if (sessions.length === 0) {
+      all.results.replaceChildren(el('p', 'find-all-empty', 'No running terminal has this.'));
+      return;
+    }
+    const groups = sessions.map((session) => {
+      const group = el('div', 'find-all-group');
+      const head = el('div', 'find-all-title');
+      const folder = /^\/Users\/[^/]+\/?$/.test(session.cwd)
+        ? '~'
+        : session.cwd.replace(/\/+$/, '').split('/').pop() || session.cwd;
+      head.append(
+        el('span', 'find-all-name', session.name ?? session.process ?? 'Terminal'),
+        el('span', 'find-all-where', folder),
+        el(
+          'span',
+          'find-all-count',
+          `${all.isHere?.(session.sessionId) === true ? 'here · ' : ''}${String(session.count)}`,
+        ),
+      );
+      group.append(head);
+      for (const match of session.matches) {
+        const line = el('button', 'find-all-line');
+        line.type = 'button';
+        line.title = match.text;
+        line.append(...marked(doc, match.text, query));
+        line.addEventListener('click', () => all.open(session, match.fromEnd, query));
+        group.append(line);
+      }
+      return group;
+    });
+    all.results.replaceChildren(...groups);
   }
 
   /**
@@ -189,4 +313,21 @@ export class FindBar {
     }
     this.#opts.count.textContent = `${String(results.resultIndex + 1)} of ${String(results.resultCount)}`;
   }
+}
+
+/** A line with each place the words appear marked, as text nodes and `mark`s. */
+function marked(doc: Document, text: string, query: string): Node[] {
+  const out: Node[] = [];
+  const lower = text.toLowerCase();
+  const needle = query.toLowerCase();
+  let from = 0;
+  for (let at = lower.indexOf(needle); at !== -1; at = lower.indexOf(needle, at + needle.length)) {
+    if (at > from) out.push(doc.createTextNode(text.slice(from, at)));
+    const mark = doc.createElement('mark');
+    mark.textContent = text.slice(at, at + needle.length);
+    out.push(mark);
+    from = at + needle.length;
+  }
+  if (from < text.length) out.push(doc.createTextNode(text.slice(from)));
+  return out;
 }

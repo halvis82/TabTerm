@@ -115,6 +115,45 @@ export class VtState {
     return new Promise((resolve) => this.#term.write('', () => resolve()));
   }
 
+  /**
+   * Where `query` appears in this terminal's history, newest first, ignoring case.
+   *
+   * Read from the main screen and its scrollback, which is the history; a full-screen program's
+   * own screen is redrawn constantly and is not. A line the terminal wrapped is searched as the
+   * one line it was printed as. Each match says how many matches come after it, counting every
+   * one on a line, so the page can land on the same one by searching back from the end.
+   */
+  find(
+    query: string,
+    max: number,
+  ): { matches: { text: string; fromEnd: number }[]; count: number } {
+    const needle = query.toLowerCase();
+    const buffer = this.#term.buffer.normal;
+    const lines: string[] = [];
+    for (let y = 0; y < buffer.length; y++) {
+      const line = buffer.getLine(y);
+      if (!line) continue;
+      const text = line.translateToString(true);
+      if (line.isWrapped && lines.length > 0) lines[lines.length - 1] += text;
+      else lines.push(text);
+    }
+    const matches: { text: string; fromEnd: number }[] = [];
+    let count = 0;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const text = lines[i] ?? '';
+      const lower = text.toLowerCase();
+      let at = lower.lastIndexOf(needle);
+      if (at === -1) continue;
+      const first = count;
+      while (at !== -1) {
+        count++;
+        at = at === 0 ? -1 : lower.lastIndexOf(needle, at - 1);
+      }
+      if (matches.length < max) matches.push({ text: text.trim().slice(0, 300), fromEnd: first });
+    }
+    return { matches, count };
+  }
+
   resize(cols: number, rows: number): void {
     if (cols === this.#cols && rows === this.#rows) return;
     this.#cols = cols;

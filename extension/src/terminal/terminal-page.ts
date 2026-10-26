@@ -122,6 +122,7 @@ import type {
   RemoteAccessState,
   LiveSession,
   NotifyPolicy,
+  SessionMatches,
   ShellIntegrationStatus,
 } from '@tabterm/shared';
 import { distinctSizes, HISTORY_MS, isResizeStorm, recordChange } from './resize-storm.js';
@@ -4631,9 +4632,28 @@ function buildLauncher(): void {
     next: document.getElementById('find-next') as HTMLElement,
     previous: document.getElementById('find-prev') as HTMLElement,
     close: document.getElementById('find-close') as HTMLElement,
+    all: {
+      box: document.getElementById('find-all-box') as HTMLInputElement,
+      results: document.getElementById('find-results') as HTMLElement,
+      search: (query) => client?.send({ t: 'search-sessions', query }),
+      open: (session, fromEnd, query) => openMatch(session, fromEnd, query),
+      remember: (on) => void chrome.storage.local.set({ [FIND_ALL_KEY]: on }),
+      isHere: (sessionId) => {
+        const pane = panesHost?.forSession(sessionId);
+        return pane !== undefined && pane.paneId === splitView?.focused;
+      },
+    },
     // Escape belongs to the bar while it is open, wherever the keyboard is. See `#onEscape`.
     window,
   });
+  void chrome.storage.local.get(FIND_ALL_KEY).then((stored) => {
+    findBar?.setAll(stored[FIND_ALL_KEY] === true);
+  });
+  // A terminal opened from a search of all of them, in this tab or another. See `openMatch`.
+  chrome.storage.onChanged.addListener((changes) => {
+    if (changes[FIND_ON_OPEN_KEY]?.newValue !== undefined) landPendingFind();
+  });
+  landPendingFind();
 
   palette = new Palette({
     root: overlay,
@@ -6675,6 +6695,75 @@ function watchTheme(): void {
  * Silently does nothing when no pane here holds it. The message is sent to a tab believed to be
  * showing the workspace, and a tab that has moved on since is not a thing to complain about.
  */
+/** Whether the find bar searches every terminal as well, kept across tabs and restarts. */
+const FIND_ALL_KEY = 'tabterm.findAll';
+/** A match to land on, for whichever tab shows its terminal. See `openMatch`. */
+const FIND_ON_OPEN_KEY = 'tabterm.findOnOpen';
+/** How long a match waits for its terminal to be shown, and to have its history drawn. */
+const FIND_ON_OPEN_MS = 12_000;
+
+interface PendingFind {
+  sessionId: string;
+  query: string;
+  fromEnd: number;
+  at: number;
+}
+
+/**
+ * Open a terminal on a match from a search of all of them, wherever it is.
+ *
+ * The terminal is opened the way a card in Running now opens one, which already knows every case:
+ * in this tab, focused in another, opened in a new one, or taken in when it belongs to no tab. The
+ * match goes through extension storage, which every tab hears, and the tab that ends up showing
+ * that terminal lands on it. See `landPendingFind`.
+ */
+function openMatch(session: SessionMatches, fromEnd: number, query: string): void {
+  const pending: PendingFind = { sessionId: session.sessionId, query, fromEnd, at: Date.now() };
+  void chrome.storage.local.set({ [FIND_ON_OPEN_KEY]: pending }).then(() => {
+    const pane = panesHost?.forSession(session.sessionId);
+    if (pane) {
+      splitView?.focus(pane.paneId);
+      landPendingFind();
+      return;
+    }
+    const live: LiveSession = {
+      sessionId: session.sessionId,
+      ...(session.workspaceId ? { workspaceId: session.workspaceId } : {}),
+      cwd: session.cwd,
+      memoryBytes: 0,
+      attached: false,
+      inTab: false,
+      startedAt: 0,
+      preview: [],
+      busy: false,
+    };
+    void openLiveSession(live);
+  });
+}
+
+let landing: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * Land on the match waiting in storage, if this tab shows its terminal. Tried again for a little
+ * while, since a terminal just opened or taken in has no pane, or no history drawn, yet.
+ */
+function landPendingFind(): void {
+  clearTimeout(landing);
+  void chrome.storage.local.get(FIND_ON_OPEN_KEY).then((stored) => {
+    const pending = stored[FIND_ON_OPEN_KEY] as PendingFind | undefined;
+    if (!pending || Date.now() - pending.at > FIND_ON_OPEN_MS) return;
+    const pane = panesHost?.forSession(pending.sessionId);
+    if (pane) {
+      splitView?.focus(pane.paneId);
+      if (findBar?.showAt(pending.query, pending.fromEnd)) {
+        void chrome.storage.local.remove(FIND_ON_OPEN_KEY);
+        return;
+      }
+    }
+    landing = setTimeout(landPendingFind, 300);
+  });
+}
+
 function focusPaneForSession(sessionId: string): void {
   const pane = panesHost?.forSession(sessionId);
   if (pane) splitView?.focus(pane.paneId);
@@ -7752,6 +7841,10 @@ function onControl(msg: ServerMessage): void {
       return;
     }
 
+    case 'session-matches': {
+      findBar?.showAll(msg.query, msg.results);
+      return;
+    }
     case 'live-sessions': {
       /**
        * Everything except what this tab is already showing.

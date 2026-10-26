@@ -795,6 +795,8 @@ export type ClientMessage =
   | { t: 'get-archive-status' }
   | { t: 'set-archive-enabled'; enabled: boolean }
   | { t: 'search-output'; query?: string; command?: string; limit?: number }
+  /** The history of every running terminal, for the find bar's All terminals. */
+  | { t: 'search-sessions'; query: string }
   | { t: 'clear-output-archive' }
   | { t: 'list-sessions' };
 
@@ -1331,11 +1333,25 @@ export type ServerMessage =
       bytes: number;
     }
   | { t: 'output-results'; results: readonly ArchivedOutputSummary[] }
+  | { t: 'session-matches'; query: string; results: readonly SessionMatches[] }
   | { t: 'restorable-workspaces'; workspaces: readonly RestorableSummary[] }
   | { t: 'server-list'; servers: readonly LocalServer[]; others?: readonly OtherLocalPort[] }
   | { t: 'resumable-sessions'; sessions: readonly ResumableAgentSession[] }
   | { t: 'stats'; stats: StatsReport }
   | { t: 'error'; code: ServerErrorCode; message: string; context?: string };
+
+/** Where a search of every terminal found something, in one terminal. */
+export interface SessionMatches {
+  sessionId: string;
+  workspaceId?: string;
+  /** The name somebody gave it, or what runs in it, and where. */
+  name?: string;
+  process?: string;
+  cwd: string;
+  /** Every match in it, newest first, a line each up to a few. See `VtState.find`. */
+  matches: readonly { text: string; fromEnd: number }[];
+  count: number;
+}
 
 /** A workspace that could be brought back, as presented before anyone decides to. */
 export interface RestorableSummary {

@@ -3036,6 +3036,91 @@
     background: var(--panel, #1b1d26);
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   }
+  /* Every terminal's matches, listed under the bar when All terminals is ticked. */
+  #find {
+    flex-wrap: wrap;
+    max-width: min(520px, calc(100vw - 28px));
+  }
+  #find-all {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--dim, #8b93a7);
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+  }
+  #find-all input {
+    margin: 0;
+  }
+  #find-results {
+    flex-basis: 100%;
+    max-height: min(320px, 50vh);
+    overflow-y: auto;
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid var(--line);
+  }
+  #find-results:empty {
+    display: none;
+  }
+  .find-all-group + .find-all-group {
+    margin-top: 6px;
+  }
+  .find-all-title {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+    padding: 2px 6px;
+    font-size: 11px;
+  }
+  .find-all-name {
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .find-all-where {
+    color: var(--dim, #8b93a7);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .find-all-count {
+    color: var(--dim, #8b93a7);
+  }
+  .find-all-line {
+    display: block;
+    width: 100%;
+    padding: 3px 6px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg);
+    font:
+      12px ui-monospace,
+      'SF Mono',
+      Menlo,
+      monospace;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+  }
+  .find-all-line:hover {
+    background: rgba(140, 155, 190, 0.14);
+  }
+  .find-all-line mark {
+    background: #7a6a2f;
+    color: inherit;
+    border-radius: 2px;
+  }
+  .find-all-empty {
+    margin: 4px 6px;
+    font-size: 12px;
+    color: var(--dim, #8b93a7);
+  }
   #find-input {
     width: 200px;
     padding: 4px 6px;
@@ -4348,6 +4433,13 @@
       aria-label="Find in terminal"
     />
     <span id="find-count" aria-live="polite"></span>
+    <label
+      id="find-all"
+      title="Also search every running terminal, in any tab or in the background"
+    >
+      <input id="find-all-box" type="checkbox" />
+      All terminals
+    </label>
     <button id="find-prev" title="Further back (Return)" aria-label="Further back">&#9650;</button>
     <button
       id="find-next"
@@ -4357,6 +4449,7 @@
       &#9660;
     </button>
     <button id="find-close" title="Close (Escape)" aria-label="Close find">&times;</button>
+    <div id="find-results" hidden></div>
   </div>
   <div id="overlays"></div>
   <div id="recovery" hidden>

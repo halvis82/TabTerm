@@ -87,7 +87,13 @@ import type { RemoteControl } from './remote/index.js';
 import { DEFAULT_KEEP_BACKGROUND_SECONDS, titleFieldsOf, usedLines } from './session-manager.js';
 import { NoDurableHostError } from './session-manager.js';
 import type { Session, SessionManager } from './session-manager.js';
-import type { LayoutShape, LiveSession, ResumableAgentSession, ShapeNode } from '@tabterm/shared';
+import type {
+  LayoutShape,
+  LiveSession,
+  ResumableAgentSession,
+  SessionMatches,
+  ShapeNode,
+} from '@tabterm/shared';
 import { checkShape } from '@tabterm/shared';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -133,6 +139,8 @@ const EMPTY_TEMPLATE: ProjectTemplate = { name: '', layout: null, commands: [] }
  * one changes with it.
  */
 const PREVIEW_LINES = 10;
+/** Lines shown for each terminal a search of every terminal finds something in. */
+const SESSION_MATCH_LINES = 3;
 
 /** How long a restored tab may still be handed its merged-away session back. */
 const MERGED_AWAY_TTL_MS = 24 * 60 * 60 * 1000;
@@ -2962,6 +2970,42 @@ export class DaemonServer {
           rows: usage.rows,
           bytes: usage.bytes,
         });
+        return;
+      }
+
+      case 'search-sessions': {
+        /*
+         * Every running terminal's history, in a tab or in the background, for "where did I see
+         * that". The query is short and every terminal is searched in memory; terminals with
+         * matches come back most matches first, a few lines each.
+         */
+        const query = typeof msg.query === 'string' ? msg.query.slice(0, 200) : '';
+        if (query.trim().length < 2) {
+          send(client.socket, controlFrame({ t: 'session-matches', query, results: [] }));
+          return;
+        }
+        const results: SessionMatches[] = [];
+        for (const session of this.#sessions.all) {
+          if (session.state === 'exited' || session.state === 'reaped') continue;
+          const found = session.vt.find(query, SESSION_MATCH_LINES);
+          if (found.count === 0) continue;
+          const workspace = this.#workspaces.findBySession(session.id);
+          const process = session.titleFields.process ?? session.foregroundProcess;
+          results.push({
+            sessionId: session.id,
+            ...(workspace ? { workspaceId: workspace.id } : {}),
+            ...(workspace ? nameFromLayout(workspace.layout, session.id) : {}),
+            ...(process ? { process } : {}),
+            cwd: session.cwd,
+            matches: found.matches,
+            count: found.count,
+          });
+        }
+        results.sort((a, b) => b.count - a.count);
+        send(
+          client.socket,
+          controlFrame({ t: 'session-matches', query, results: results.slice(0, 30) }),
+        );
         return;
       }
 

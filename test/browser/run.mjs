@@ -348,6 +348,16 @@ const COVERS = [
     ['split-tab-names', 'the-tab-takes-the-name', 'progress-in-the-tab'],
   ],
   ['extension/src/terminal/progress', ['progress-in-the-tab']],
+  [
+    'extension/src/terminal/find-bar',
+    [
+      'find-in-terminal',
+      'find-in-every-terminal',
+      'find-leaves-chrome-alone',
+      'find-on-the-start-screen',
+    ],
+  ],
+  ['daemon/src/vt-state', ['find-in-every-terminal']],
   ['extension/src/terminal/wake-redraw', ['steady-size']],
   ['extension/src/terminal/resize-storm', ['steady-size']],
   ['extension/src/terminal/screen-content', ['start-screen-refresh', 'straight-to-view']],

@@ -1162,6 +1162,22 @@ export class XtermController {
       : this.#search.findNext(term, options);
   }
 
+  /**
+   * The match `n` places back from the last one, as a search of every terminal counted it. Found
+   * by searching back from the end, so it lands where that search said, or as near as this
+   * terminal's own history reaches.
+   */
+  findNth(term: string, n: number): boolean {
+    this.clearFind();
+    let found = false;
+    for (let i = 0; i <= n; i++) {
+      const next = this.find(term, { back: true });
+      if (!next) break;
+      found = true;
+    }
+    return found;
+  }
+
   /** Put the terminal back the way it looked before anybody searched it. */
   clearFind(): void {
     this.#search.clearDecorations();

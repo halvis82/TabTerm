@@ -902,6 +902,24 @@ pressing the key with something selected is how somebody asks "where else is thi
 A press on the bar's own buttons keeps the keyboard in the box, or the press would move focus, the
 rule above would close the bar, and the button would be gone before its click arrived.
 
+**All terminals.** A box on the bar, off unless ticked and remembered across tabs and restarts,
+also searches the history of every running terminal, in any tab or in the background, for "where
+did I see that". The pane in front is still searched as before. Under the bar each terminal with a
+match is listed by its name, or what runs in it, and its folder, with how many matches it has and
+its newest few lines, the words marked. Pressing a line opens that terminal wherever it is, the way
+a card in Running now does: focused if it is in this tab or another, opened in a tab of its own if
+it is in the background, and the find bar there opens on that very match.
+
+- The daemon searches its own copy of each terminal (`VtState.find`), the main screen and its
+  scrollback, ignoring case, with a line the terminal wrapped searched as the one line it was
+  printed as. A full-screen program's own screen is redrawn constantly and is not history
+- It asks once typing pauses for a quarter of a second, and only for two characters or more. Up to
+  thirty terminals, most matches first, three lines each
+- Each line says how many matches come after it, and the tab that opens it searches back that many
+  from the end, so it lands on the same match. The match travels through extension storage, which
+  every tab hears, so the tab that ends up showing the terminal is the one that lands on it,
+  whichever way it was opened
+
 **Escape closes the bar from anywhere, and the session never hears it.** The bar's own box had
 this and the terminal behind it did not, so pressing Escape after jumping to a match, or after
 clicking back into the output, sent an interrupt to whatever was running. For an agent that is the
