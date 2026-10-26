@@ -7438,14 +7438,11 @@ function onControl(msg: ServerMessage): void {
        * the state, then the running list, then the restorable workspaces, then the resumable
        * agents, each replacing the last. Naming them means one drawing, when the page is known.
        */
-      launcher?.expecting([
-        'live',
-        'resumable',
-        'restorable',
-        'servers',
-        'templates',
-        'hidden-resumes',
-      ]);
+      launcher?.expecting(
+        ['live', 'resumable', 'restorable', 'servers', 'templates', 'hidden-resumes'],
+        // Each of these is asked for below, every time, so each has an answer on its way.
+        ['live', 'resumable', 'restorable', 'servers', 'templates'],
+      );
       launcher?.setState(msg.state);
       /*
        * Kept, because a dropped folder arrives as a name and nothing else.

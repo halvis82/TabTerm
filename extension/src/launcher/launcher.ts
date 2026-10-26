@@ -264,9 +264,20 @@ export class Launcher {
    * The deadline is the whole safety of it: an answer that never arrives must not leave the
    * screen holding a skeleton, so the wait is bounded and what has arrived is drawn.
    */
-  expecting(keys: readonly string[]): void {
+  expecting(keys: readonly string[], askedAgain: readonly string[] = []): void {
     if (this.#dismissed) return;
     for (const key of keys) {
+      /*
+       * Asked again in this same batch, so another answer is certainly coming.
+       *
+       * A reconnect asks for every list again, and every one of them had been answered before it,
+       * so skipping what was ever answered left nothing to wait for: the state drew on its own and
+       * the lists redrew the screen a moment later, the very redraw this exists to prevent.
+       */
+      if (askedAgain.includes(key)) {
+        this.#awaited.add(key);
+        continue;
+      }
       /*
        * An answer already given is not something to wait for.
        *
