@@ -14,6 +14,7 @@ import {
   unpack,
   type RemoteTab,
 } from '../../shared/src/remote.js';
+import { startScan, type Scan } from './scan.js';
 
 /**
  * TabTerm in a browser away from the Mac: the page the relay serves.
@@ -638,6 +639,44 @@ function wire(paired: Paired): void {
   connect(paired);
 }
 
+/**
+ * Scan, beside the paste box: the camera in the page itself, so the code pairs this page and not
+ * Safari. Codes that are not a pairing link are passed over while the camera keeps looking.
+ */
+function wireScan(accept: (text: string) => boolean, pair: (text: string) => void): void {
+  const button = $<HTMLButtonElement>('scan');
+  const view = $('scanner');
+  const video = $<HTMLVideoElement>('scan-video');
+  let scan: Scan | null = null;
+  const close = (): void => {
+    scan?.stop();
+    scan = null;
+    view.hidden = true;
+  };
+  button.hidden = !navigator.mediaDevices?.getUserMedia;
+  button.addEventListener('click', () => {
+    view.hidden = false;
+    startScan(video, accept, (text) => {
+      scan = null;
+      view.hidden = true;
+      pair(text);
+    }).then(
+      (s) => {
+        if (view.hidden) s.stop();
+        else scan = s;
+      },
+      () => {
+        view.hidden = true;
+        say('The camera is not available. Allow it for this page, or paste the link.', 'warn');
+      },
+    );
+  });
+  $('scan-cancel').addEventListener('click', close);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) close();
+  });
+}
+
 async function start(): Promise<void> {
   show('lock');
   // Opened from a notification: that terminal, once unlocked.
@@ -659,24 +698,33 @@ async function start(): Promise<void> {
   const paired = await loadPairing();
   if (!paired) {
     /*
-     * Pasting is the other way in, and on an iPhone the necessary one: an app added to the Home
-     * Screen keeps its own storage, apart from Safari's, so a code scanned into Safari does not
-     * pair it. Copy link on the Mac and paste here, which Universal Clipboard carries across.
+     * Scanning with the camera app, or pasting, is how a page here gets paired. On an iPhone the
+     * camera app opens the link in Safari, and an app added to the Home Screen keeps its own storage
+     * apart from Safari's, so that app pairs with Scan below, or with Copy link on the Mac pasted
+     * here, which Universal Clipboard carries across.
      */
-    say('Not paired yet. Scan the code in TabTerm on your Mac, or paste its link here.');
+    say('Not paired yet. Scan the code in TabTerm Settings on your Mac, or paste its link.');
     const form = $<HTMLFormElement>('pair-form');
     form.hidden = false;
+    const hashOf = (value: string): string =>
+      value.includes('#') ? value.slice(value.indexOf('#')) : value;
+    const pairWith = (value: string): void => {
+      location.hash = hashOf(value);
+      location.reload();
+    };
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       const value = $<HTMLInputElement>('pair-input').value.trim();
-      const hash = value.includes('#') ? value.slice(value.indexOf('#')) : value;
-      if (!readPairing(hash)) {
+      if (!readPairing(hashOf(value))) {
         say('That is not a pairing link. Copy it again from Settings on your Mac.', 'warn');
         return;
       }
-      location.hash = hash;
-      location.reload();
+      pairWith(value);
     });
+    wireScan(
+      (text) => readPairing(hashOf(text.trim())) !== null,
+      (text) => pairWith(text.trim()),
+    );
     return;
   }
   wire(paired);

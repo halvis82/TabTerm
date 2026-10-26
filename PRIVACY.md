@@ -109,6 +109,10 @@ which terminal needs you. The push service sees that your Mac sent your device a
 when. Nothing else is sent to it, and nothing is sent unless you pressed **Notify me** on that
 device.
 
+**Scan code**, on a device that is not paired yet, uses that device's camera to read the pairing
+code from your Mac's screen. The picture is read on the device itself and never sent anywhere, and
+the camera turns off as soon as the code is read or you press Cancel.
+
 ---
 
 ## Optional companion updates

@@ -55,7 +55,8 @@ async function pageHeaders() {
     ].join('; '),
     'referrer-policy': 'no-referrer',
     'x-content-type-options': 'nosniff',
-    'permissions-policy': 'camera=(), microphone=(), geolocation=()',
+    // The camera, for Scan when pairing, and only for the page itself.
+    'permissions-policy': 'camera=(self), microphone=(), geolocation=()',
   };
   return headers;
 }

@@ -120,6 +120,48 @@
         color: #0d1117;
         font-weight: 600;
       }
+      #scan {
+        width: min(100%, 420px);
+        height: 46px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: var(--raised);
+        color: var(--fg);
+        font-weight: 600;
+      }
+      #scanner {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        padding: 16px;
+        background: var(--bg);
+        text-align: center;
+      }
+      #scan-video {
+        width: min(100%, 420px);
+        aspect-ratio: 1;
+        object-fit: cover;
+        border-radius: 12px;
+        background: #000;
+      }
+      #scanner p {
+        color: var(--dim);
+        margin: 0;
+        max-width: 32ch;
+      }
+      #scan-cancel {
+        min-width: 160px;
+        height: 46px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: var(--raised);
+        color: var(--fg);
+      }
       #unlock {
         min-width: 220px;
         height: 50px;
@@ -307,6 +349,13 @@
         />
         <button type="submit">Pair</button>
       </form>
+      <button id="scan" type="button" hidden>Scan code</button>
+    </main>
+
+    <main id="scanner" hidden>
+      <video id="scan-video" playsinline muted></video>
+      <p>Point the camera at the code in TabTerm Settings on your Mac.</p>
+      <button id="scan-cancel" type="button">Cancel</button>
     </main>
 
     <main id="screen-list" hidden>

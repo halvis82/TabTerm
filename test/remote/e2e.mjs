@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import WebSocket from 'ws';
+import qrcode from 'qrcode-generator';
 import { encodeFrame, decodeFrame, controlFrame, ackFrame } from '../../shared/dist/index.js';
 import { startRelay } from './relay-shim.mjs';
 
@@ -582,6 +583,104 @@ await ev2(`document.getElementById('unlock').click()`);
 ok(
   'and the device gets the list',
   await until(() => ev2(`document.body.dataset.screen === 'list'`)),
+);
+
+// A third device, pairing with Scan: the page's own camera reading the code Settings draws. The
+// camera is a canvas showing that code, light on dark as a screen might, through a real
+// MediaStream, so everything after getUserMedia is the page's own path.
+settings.send({ t: 'remote-pair' });
+const before3 = settings.inbox.filter((m) => m.t === 'remote-pairing').length;
+await until(() => settings.inbox.filter((m) => m.t === 'remote-pairing').length > before3);
+const link3 = settings.last('remote-pairing').link;
+const qr = qrcode(0, 'M');
+qr.addData(link3);
+qr.make();
+const dark = [];
+for (let y = 0; y < qr.getModuleCount(); y++)
+  for (let x = 0; x < qr.getModuleCount(); x++) if (qr.isDark(y, x)) dark.push([x, y]);
+const { result: ctx3 } = await cdp('Target.createBrowserContext', {});
+const { result: tgt3 } = await cdp('Target.createTarget', {
+  url: 'about:blank',
+  browserContextId: ctx3.browserContextId,
+});
+const { result: att3 } = await cdp('Target.attachToTarget', {
+  targetId: tgt3.targetId,
+  flatten: true,
+});
+const S3 = att3.sessionId;
+const page3 = (method, params) => cdp(method, params, S3);
+const ev3 = async (expression) =>
+  (await page3('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })).result
+    ?.result?.value;
+await page3('Emulation.setDeviceMetricsOverride', {
+  width: 390,
+  height: 844,
+  deviceScaleFactor: 3,
+  mobile: true,
+});
+await page3('WebAuthn.enable', {});
+await page3('WebAuthn.addVirtualAuthenticator', {
+  options: {
+    protocol: 'ctap2',
+    transport: 'internal',
+    hasResidentKey: true,
+    hasUserVerification: true,
+    isUserVerified: true,
+    automaticPresenceSimulation: true,
+  },
+});
+await page3('Page.navigate', { url: relay.url });
+ok(
+  'an unpaired visit offers Scan code',
+  await until(() => ev3(`!document.getElementById('scan').hidden`)),
+);
+await ev3(`(() => {
+  const n = ${qr.getModuleCount()}, s = 8, pad = 60, size = n * s + pad * 2;
+  const c = document.createElement('canvas');
+  c.width = 640; c.height = 480;
+  const g = c.getContext('2d');
+  const draw = () => {
+    g.fillStyle = '#1e1e1e'; g.fillRect(0, 0, 640, 480);
+    if (!window.__showCode) return;
+    g.fillStyle = '#f0f0f0';
+    const ox = (640 - size) / 2 + pad, oy = (480 - size) / 2 + pad;
+    for (const [x, y] of ${JSON.stringify(dark)}) g.fillRect(ox + x * s, oy + y * s, s, s);
+  };
+  draw();
+  setInterval(draw, 100);
+  window.__cameraAsked = 0;
+  navigator.mediaDevices.getUserMedia = async () => {
+    window.__cameraAsked++;
+    window.__cameraStream = c.captureStream(10);
+    return window.__cameraStream;
+  };
+})()`);
+await ev3(`document.getElementById('scan').click()`);
+ok(
+  'Scan opens the camera',
+  await until(() =>
+    ev3(`window.__cameraAsked === 1 && !document.getElementById('scanner').hidden`),
+  ),
+);
+// Cancel while only an empty desk is in view: the camera is let go, not left running.
+await ev3(`document.getElementById('scan-cancel').click()`);
+ok(
+  'Cancel closes the camera',
+  await until(() =>
+    ev3(
+      `document.getElementById('scanner').hidden && window.__cameraStream.getTracks().every((t) => t.readyState === 'ended')`,
+    ),
+  ),
+);
+await ev3(`window.__showCode = true; document.getElementById('scan').click()`);
+ok(
+  'a scanned code pairs like a link',
+  await until(() => ev3(`!document.getElementById('unlock').hidden`)),
+);
+await ev3(`document.getElementById('unlock').click()`);
+ok(
+  'and that device gets the list',
+  await until(() => ev3(`document.body.dataset.screen === 'list'`)),
 );
 
 const failed = checks.filter((c) => !c.pass);

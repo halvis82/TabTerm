@@ -162,7 +162,8 @@ Non-optional, per `05-security.md` §10.
   ends, opens or resizes anything. `test/remote/e2e.mjs` repeats the important ones in a real
   browser with a virtual authenticator, and fails if a watching phone changes a terminal's size.
   Notifications (`daemon/src/remote/webpush.test.ts`): the encryption matches RFC 8291's worked
-  example byte for byte, and no push goes to an address that is not a push service
+  example byte for byte, and no push goes to an address that is not a push service. Scan code
+  (`relay/page/scan.test.ts`) reads the pairing code Settings draws, either way round
 
 ---
 

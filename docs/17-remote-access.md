@@ -84,6 +84,12 @@ A pairing link works **once, for ten minutes**. The code is shown only in Settin
 which only somebody at the Mac can see. Anyone who has the code within those ten minutes can pair,
 so it is for showing to your own device only.
 
+**Scan code** on the page reads the code with the device's camera, inside the page. The camera is
+asked for only when Scan code is pressed, the picture is read on the device and never leaves it,
+and the camera is let go as soon as a code is read, Cancel is pressed or the page goes out of
+sight. The relay lets the page itself use the camera and nothing it might load
+(`permissions-policy: camera=(self)`), and it loads nothing anyway.
+
 ### Notifications
 
 A device can ask to be notified when an agent starts needing somebody, with **Notify me** on its
@@ -170,6 +176,8 @@ Press **Show a pairing code**.
 
 - **A phone or tablet:** point its camera at the code and open the link
 - **Another computer:** press **Copy link** and open it there
+- **A page that says it is not paired yet:** press **Scan code** and point it at the code, or
+  paste the link and press **Pair**
 
 The page asks to **Trust this device**, which makes the passkey: Face ID, Touch ID or the passcode.
 
@@ -177,9 +185,13 @@ The page asks to **Trust this device**, which makes the passkey: Face ID, Touch 
 storage, apart from Safari's, so it is paired on its own:
 
 1. Open your relay's address in Safari, then Share, **Add to Home Screen**
-2. Open TabTerm from the Home Screen. It says it is not paired yet and offers a box for a link
-3. On the Mac, press **Show a pairing code**, then **Copy link**. Universal Clipboard carries it to
-   the iPhone. Paste it in the box and press **Pair**
+2. Open TabTerm from the Home Screen. It says it is not paired yet
+3. On the Mac, press **Show a pairing code**. On the iPhone, press **Scan code**, allow the camera
+   and point it at the code
+
+The iPhone's camera app would open the code in Safari instead, which is why Scan code is in the
+page. Pasting works too: **Copy link** on the Mac, which Universal Clipboard carries to the
+iPhone, then paste it in the box and press **Pair**.
 
 From then on, opening the page asks to **Unlock**, and shows your terminals.
 
@@ -210,6 +222,8 @@ Devices stay paired.
   the real bridge and store, and a browser played by the test with a software passkey. Pairing,
   unlocking, a wrong passkey, a stranger, a spent link, watch-only devices, removal, and that no
   message a browser can send ends, opens or resizes anything
+- `relay/page/scan.test.ts`: Scan code reads the code Settings draws, dark on light, light on
+  dark, and small in the picture
 - `daemon/src/remote/webpush.test.ts`: the encryption reproduces the worked example in RFC 8291
   byte for byte, the VAPID token verifies, and nothing is sent to an address that is not a push
   service
@@ -217,5 +231,6 @@ Devices stay paired.
   Chrome's virtual authenticator for Face ID. A desktop view stays attached at 120 by 40 throughout
   and the run fails if anything the phone does changes that size. It also subscribes that Chrome
   to Google's push service and has an agent ask for approval, and checks the push service accepts
-  the notification the Mac sends. Run it with
+  the notification the Mac sends. A third device pairs with Scan code, with a camera that shows
+  the pairing code, and Cancel has to let the camera go. Run it with
   `node test/remote/e2e.mjs`
