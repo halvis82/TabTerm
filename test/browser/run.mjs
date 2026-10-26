@@ -930,6 +930,46 @@ function startTestDaemon() {
  */
 const browserPorts = [];
 
+/**
+ * Browsers a run left behind when it was killed outright, which no handler can see happen.
+ *
+ * Detached, they outlive it, and their extension keeps calling a daemon: its own is gone, so it
+ * reaches the one somebody is using on 7377 and is refused with the wrong token, every few
+ * seconds. Five such browsers from runs days old sent that daemon over nine thousand refused
+ * attempts before anyone noticed. Each browser's profile says which run started it, and one
+ * whose run is gone is ended here, before this run starts its own.
+ */
+function endBrowsersLeftBehind() {
+  let names = [];
+  try {
+    names = readdirSync('/tmp').filter((n) => /^tt-chrome-headless-\d+$/.test(n));
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    let owner = 0;
+    try {
+      owner = Number(readFileSync(`/tmp/${name}/owner.pid`, 'utf8'));
+    } catch {
+      // No owner written: from before this existed, or its run died starting it.
+    }
+    if (owner > 0) {
+      try {
+        process.kill(owner, 0);
+        continue;
+      } catch {
+        // The run that started it is gone.
+      }
+    }
+    try {
+      execFileSync('pkill', ['-f', `user-data-dir=/tmp/${name}`], { stdio: 'ignore' });
+    } catch {
+      // Nothing was running from it.
+    }
+  }
+}
+endBrowsersLeftBehind();
+
 function startBrowser(port) {
   browserPorts.push(port);
   execFileSync('bash', [join(HERE, 'launch.sh')], {
@@ -937,6 +977,12 @@ function startBrowser(port) {
     stdio: 'ignore',
     env: { ...process.env, TT_CDP_PORT: String(port) },
   });
+  // Which run this browser belongs to, so a later run can tell it from one left behind.
+  try {
+    writeFileSync(`/tmp/tt-chrome-headless-${String(port)}/owner.pid`, String(process.pid));
+  } catch {
+    // Without it the browser is treated as left behind by the next run, which only ends it.
+  }
   /**
    * Loud, because this is the step that keeps the suites off somebody's real daemon.
    *

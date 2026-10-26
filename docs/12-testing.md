@@ -109,6 +109,12 @@ splits, merge and detach, the launcher, or workspace restore, all of which have 
 no window at all. Headless also avoids taking focus from whoever is using the machine, which
 matters over a long session.
 
+**A run ends browsers left behind by runs that are gone.** The browsers are detached, so a run
+killed outright, which no handler sees, leaves them running, and their extension keeps calling the
+daemon somebody is using on 7377 with the wrong token. Five such browsers, days old, had sent it
+over nine thousand refused attempts. Each run writes its own process id into its browsers'
+profiles (`owner.pid`), and at its start ends any test browser whose run no longer exists.
+
 A real window is needed only where the window itself is the subject: WebGL context limits, true
 tab-visibility throttling, and tab discard. Those are the exception, and they should record and
 restore the frontmost application around the run.
