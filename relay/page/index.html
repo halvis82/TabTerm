@@ -129,6 +129,12 @@
         color: var(--fg);
         font-weight: 600;
       }
+      #repair {
+        border: 0;
+        background: none;
+        color: var(--accent);
+        padding: 8px;
+      }
       #scanner {
         position: fixed;
         inset: 0;
@@ -350,6 +356,7 @@
         <button type="submit">Pair</button>
       </form>
       <button id="scan" type="button" hidden>Scan code</button>
+      <button id="repair" type="button" hidden>Pair this device again</button>
     </main>
 
     <main id="scanner" hidden>

@@ -515,6 +515,10 @@ ok(
   'a removed device is cut off and told why',
   await until(() => ev(`document.getElementById('lock-status').textContent.includes('removed')`)),
 );
+ok(
+  'and can pair again right there',
+  await until(() => ev(`!document.getElementById('pair-form').hidden`)),
+);
 
 // The session is still exactly as it was.
 desk.ws.send(
@@ -681,6 +685,55 @@ await ev3(`document.getElementById('unlock').click()`);
 ok(
   'and that device gets the list',
   await until(() => ev3(`document.body.dataset.screen === 'list'`)),
+);
+
+// A device holding a pairing the Mac does not know, as one whose code ran out before it was
+// trusted: it says so, stops asking, and can let go of it and pair again.
+const stale = link3.replace(/(pair=[\w-]+\.)[\w-]+/, `$1${randomBytes(12).toString('base64url')}`);
+const { result: ctx4 } = await cdp('Target.createBrowserContext', {});
+const { result: tgt4 } = await cdp('Target.createTarget', {
+  url: 'about:blank',
+  browserContextId: ctx4.browserContextId,
+});
+const { result: att4 } = await cdp('Target.attachToTarget', {
+  targetId: tgt4.targetId,
+  flatten: true,
+});
+const ev4 = async (expression) =>
+  (
+    await cdp(
+      'Runtime.evaluate',
+      { expression, awaitPromise: true, returnByValue: true },
+      att4.sessionId,
+    )
+  ).result?.result?.value;
+// Counts the page's connections, so a page still knocking would show.
+await cdp('Page.enable', {}, att4.sessionId);
+await cdp(
+  'Page.addScriptToEvaluateOnNewDocument',
+  {
+    source: `window.__sockets = 0; const W = WebSocket; window.WebSocket = class extends W { constructor(...a) { super(...a); window.__sockets++; } };`,
+  },
+  att4.sessionId,
+);
+await cdp('Page.navigate', { url: stale }, att4.sessionId);
+ok(
+  'a pairing the Mac does not know says so and offers to pair again',
+  await until(() =>
+    ev4(
+      `document.getElementById('lock-status').textContent.includes('does not know') && !document.getElementById('repair').hidden`,
+    ),
+  ),
+);
+await sleep(4000);
+const sockets = await ev4(`window.__sockets`);
+ok('and stops asking', sockets === 1);
+await ev4(`window.confirm = () => true; document.getElementById('repair').click()`);
+ok(
+  'Pair this device again lets go of it and shows the paste box and Scan',
+  await until(() =>
+    ev4(`!document.getElementById('pair-form').hidden && !document.getElementById('scan').hidden`),
+  ),
 );
 
 const failed = checks.filter((c) => !c.pass);

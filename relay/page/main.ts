@@ -70,7 +70,12 @@ async function savePairing(p: Paired): Promise<void> {
 
 async function forgetPairing(): Promise<void> {
   const db = await idb();
-  db.transaction('pairing', 'readwrite').objectStore('pairing').delete('this');
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('pairing', 'readwrite');
+    tx.objectStore('pairing').delete('this');
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error('indexeddb'));
+  });
 }
 
 /** A name for this device in the Mac's list, so somebody can tell their phone from their iPad. */
@@ -216,6 +221,12 @@ let pendingChallenge: Record<string, unknown> | null = null;
 let retry = 1000;
 /** Set when the Mac said why it is letting go, which outranks the connection closing. */
 let removed = false;
+/**
+ * Set when what came back sealed did not open with this device's key. The Mac answers an id it
+ * does not know as it would any other, so this is how a pairing that expired before it was trusted,
+ * or one removed while this page was away, looks from here. Asking again cannot help.
+ */
+let unknown = false;
 /** The Mac's key for notifications, and whether this device has them on. */
 let vapid = '';
 let notifyOn = false;
@@ -237,6 +248,7 @@ function connect(paired: Paired): void {
   chain = Promise.resolve();
   say('Connecting to your Mac');
   $<HTMLButtonElement>('unlock').hidden = true;
+  $<HTMLButtonElement>('repair').hidden = true;
   const socket = new WebSocket(
     `${location.origin.replace(/^http/, 'ws')}/ws/browser/${paired.room}`,
   );
@@ -260,7 +272,7 @@ function connect(paired: Paired): void {
     chain = chain
       .then(() => receive(paired, bytes, myNonce))
       .catch(() => {
-        say('Something from the relay did not open. Is this device still trusted?', 'warn');
+        unknown = true;
         socket.close();
       });
   };
@@ -268,6 +280,15 @@ function connect(paired: Paired): void {
 
 function closed(paired: Paired, code: number): void {
   if (removed) return;
+  // Pairing again is always within reach, except while the Mac is simply offline.
+  $<HTMLButtonElement>('repair').hidden = code === 4002 && !unknown;
+  if (unknown) {
+    say(
+      'Your Mac does not know this device. Its code may have run out before it was trusted, or it was removed. Pair it again with a new code from TabTerm Settings on your Mac.',
+      'warn',
+    );
+    return;
+  }
   say(
     code === 4002
       ? 'Your Mac is offline, or remote access is turned off on it. Trying again.'
@@ -354,7 +375,9 @@ async function receive(paired: Paired, bytes: Uint8Array, myNonce: Uint8Array): 
       if (m['reason'] === 'removed') {
         removed = true;
         await forgetPairing();
-        say('This device was removed on your Mac. Pair it again from TabTerm Settings.', 'warn');
+        showPairing(
+          'This device was removed on your Mac. Pair it again with a new code from TabTerm Settings.',
+        );
       } else {
         say('Your Mac said no. Try unlocking again.', 'warn');
       }
@@ -678,8 +701,55 @@ function wireScan(accept: (text: string) => boolean, pair: (text: string) => voi
   });
 }
 
+/** The paste box and Scan, for a page with no pairing, or one that has just let go of its own. */
+let pairingShown = false;
+function showPairing(text: string, tone: 'plain' | 'warn' = 'warn'): void {
+  say(text, tone);
+  $<HTMLButtonElement>('repair').hidden = true;
+  if (pairingShown) return;
+  pairingShown = true;
+  const form = $<HTMLFormElement>('pair-form');
+  form.hidden = false;
+  const hashOf = (value: string): string =>
+    value.includes('#') ? value.slice(value.indexOf('#')) : value;
+  const pairWith = (value: string): void => {
+    location.hash = hashOf(value);
+    location.reload();
+  };
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const value = $<HTMLInputElement>('pair-input').value.trim();
+    if (!readPairing(hashOf(value))) {
+      say('That is not a pairing link. Copy it again from Settings on your Mac.', 'warn');
+      return;
+    }
+    pairWith(value);
+  });
+  wireScan(
+    (text) => readPairing(hashOf(text.trim())) !== null,
+    (text) => pairWith(text.trim()),
+  );
+}
+
+/**
+ * Pair this device again, for when its pairing no longer gets in. Asked first, since a phone away
+ * from the Mac cannot pair again until it is back.
+ */
+function wireRepair(): void {
+  $('repair').addEventListener('click', () => {
+    if (
+      !confirm('Forget this pairing? You will need a new code from TabTerm Settings on your Mac.')
+    )
+      return;
+    removed = true;
+    ws?.close();
+    void forgetPairing().then(() => location.reload());
+  });
+}
+
 async function start(): Promise<void> {
   show('lock');
+  wireRepair();
   // Opened from a notification: that terminal, once unlocked.
   const opening = /^#open=([\w-]{1,64})$/.exec(location.hash);
   if (opening) {
@@ -704,27 +774,9 @@ async function start(): Promise<void> {
      * apart from Safari's, so that app pairs with Scan below, or with Copy link on the Mac pasted
      * here, which Universal Clipboard carries across.
      */
-    say('Not paired yet. Scan the code in TabTerm Settings on your Mac, or paste its link.');
-    const form = $<HTMLFormElement>('pair-form');
-    form.hidden = false;
-    const hashOf = (value: string): string =>
-      value.includes('#') ? value.slice(value.indexOf('#')) : value;
-    const pairWith = (value: string): void => {
-      location.hash = hashOf(value);
-      location.reload();
-    };
-    form.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const value = $<HTMLInputElement>('pair-input').value.trim();
-      if (!readPairing(hashOf(value))) {
-        say('That is not a pairing link. Copy it again from Settings on your Mac.', 'warn');
-        return;
-      }
-      pairWith(value);
-    });
-    wireScan(
-      (text) => readPairing(hashOf(text.trim())) !== null,
-      (text) => pairWith(text.trim()),
+    showPairing(
+      'Not paired yet. Scan the code in TabTerm Settings on your Mac, or paste its link.',
+      'plain',
     );
     return;
   }

@@ -197,6 +197,15 @@ minute: the Mac finds a connection that has stopped working within about 20 seco
 one, and the page asks again every three seconds by itself.
 
 The page asks to **Trust this device**, which makes the passkey: Face ID, Touch ID or the passcode.
+A device is trusted only once that is done. A code scanned but not trusted within its ten minutes
+leaves the device holding a pairing the Mac does not know.
+
+**If the page says your Mac does not know this device**, its code ran out before it was trusted,
+or it was removed while the page was away. Asking again cannot help, so it stops. Press **Pair this
+device again**, which forgets the old pairing on the device and shows Scan code and the paste box,
+then pair with a new code. The same button is there whenever the page cannot get in, except while
+the Mac is simply offline, and it asks first, since a device away from the Mac cannot pair again
+until it is back.
 
 **On an iPhone, as an app on the Home Screen.** An app added to the Home Screen keeps its own
 storage, apart from Safari's, so it is paired on its own:
@@ -226,7 +235,8 @@ Settings, Remote access lists every trusted device with when it was added and la
 whether it gets notifications.
 
 - **Can type** off makes it watch only. Its key bar goes away at once
-- **Remove** cuts it off at once and forgets it. It can be paired again with a new code
+- **Remove** cuts it off at once and forgets it. An open page says so and shows Scan code and the
+  paste box, ready for a new code
 
 Turning **Remote access** off closes every connection and makes none until it is turned on again.
 Devices stay paired.
@@ -239,6 +249,8 @@ Devices stay paired.
   the real bridge and store, and a browser played by the test with a software passkey. Pairing,
   unlocking, a wrong passkey, a stranger, a spent link, watch-only devices, removal, and that no
   message a browser can send ends, opens or resizes anything
+- `test/remote/e2e.mjs`: the page in a real browser. A device holding a pairing the Mac does not
+  know says so, makes one connection and no more, and pairs again after **Pair this device again**
 - `relay/page/scan.test.ts`: Scan code reads the code Settings draws, dark on light, light on
   dark, and small in the picture
 - `daemon/src/remote/webpush.test.ts`: the encryption reproduces the worked example in RFC 8291
