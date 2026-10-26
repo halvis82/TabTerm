@@ -2,6 +2,7 @@ import WebSocket from 'ws';
 import {
   NONCE_BYTES,
   RELAY_GONE,
+  approvalCode,
   REMOTE_MAX_FRAME,
   Sealer,
   connectionKeys,
@@ -24,7 +25,7 @@ import {
   type TrustedDevice,
   type PendingPairing,
 } from './store.js';
-import { verifyAssertion, verifyRegistration, type Expected } from './webauthn.js';
+import { verifyAssertion, verifyRegistration, type Expected, type Passkey } from './webauthn.js';
 import { sendPush, type Fetch } from './webpush.js';
 
 /**
@@ -57,6 +58,11 @@ export interface RemoteHost {
   onOutput(listener: (sessionId: string, chunk: string) => void): () => void;
   onTabsChanged(listener: () => void): () => void;
   onResized(listener: (sessionId: string, cols: number, rows: number) => void): () => void;
+  /**
+   * Whether the person at this Mac lets a new device in, asked with Touch ID or the password. The
+   * code is the one the device shows, so the person can tell it is the device in their hand.
+   */
+  approve(device: { name: string; code: string }): Promise<boolean>;
 }
 
 export interface BridgeStatus {
@@ -67,6 +73,16 @@ export interface BridgeStatus {
 
 /** A browser that has not unlocked in this long is let go. */
 const UNLOCK_WINDOW_MS = 60_000;
+/** How long a new device may wait for the person at the Mac to approve it. */
+const APPROVE_WINDOW_MS = 120_000;
+/**
+ * An unlocked page that has said nothing for this long is let go. A page on screen asks every 15
+ * seconds whether it still reaches the Mac, and a browser tab in the background at least once a
+ * minute, so silence this long is a connection that died without closing, such as a phone's when
+ * it was put away. Without this the Mac would stream a terminal to it for as long as the relay
+ * kept its socket.
+ */
+const SILENT_MS = 90_000;
 /** Output is gathered for this long before going out, so a busy terminal is a few frames a second. */
 const BATCH_MS = 40;
 /** Past this much waiting on the relay socket, browsers are paused and resynced. */
@@ -113,7 +129,7 @@ const NO_ROUTE = new Set([
 /** How long a new connection has to answer its first ping before it is made again. */
 const FIRST_ANSWER_MS = 5_000;
 
-type Phase = 'hello' | 'unlock' | 'ready';
+type Phase = 'hello' | 'unlock' | 'approving' | 'ready';
 
 interface Browser {
   id: number;
@@ -132,6 +148,8 @@ interface Browser {
   confirmed?: boolean;
   /** Whether its page is on screen, as it last said. A page out of sight gets notifications. */
   visible: boolean;
+  /** When it last said anything. */
+  heard: number;
   /** What it sent, opened in order, since each frame's counter must follow the one before. */
   inbox: Promise<void>;
   /**
@@ -176,6 +194,9 @@ export class RemoteBridge {
   /** A relay from before it answered "ping" closes on any text. It is then not asked again. */
   #relayPings = true;
   #ipv4 = true;
+  /** A new device waiting on the person at the Mac. One at a time, so one dialog at a time. */
+  #approving: string | undefined;
+  #sweepTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(
     host: RemoteHost,
@@ -211,7 +232,16 @@ export class RemoteBridge {
     ];
     // What already needs somebody when this starts is not news.
     this.#needing = this.#needingNow();
+    this.#sweepTimer = setInterval(() => this.#sweep(), 15_000);
+    this.#sweepTimer.unref?.();
     this.#connect();
+  }
+
+  /** Pages whose connection died without closing are let go, so they cost nothing more. */
+  #sweep(now = Date.now()): void {
+    for (const b of [...this.#browsers.values()]) {
+      if (b.phase === 'ready' && now - b.heard > SILENT_MS) this.#drop(b, 'silent');
+    }
   }
 
   stop(): void {
@@ -221,6 +251,7 @@ export class RemoteBridge {
     clearTimeout(this.#retryTimer);
     clearTimeout(this.#flushTimer);
     clearInterval(this.#pingTimer);
+    clearInterval(this.#sweepTimer);
     for (const b of this.#browsers.values()) clearTimeout(b.timer);
     this.#browsers.clear();
     this.#resumes.clear();
@@ -398,6 +429,7 @@ export class RemoteBridge {
       return;
     }
     if (!b || env.body.length > REMOTE_MAX_FRAME) return;
+    b.heard = Date.now();
     // In order, since every frame's counter must be opened after the one before it.
     b.inbox = b.inbox
       .then(() => this.#receive(b, env.body))
@@ -434,6 +466,7 @@ export class RemoteBridge {
       pendingOut: new Map(),
       behind: false,
       visible: true,
+      heard: Date.now(),
       inbox: Promise.resolve(),
       outbox: Promise.resolve(),
       timer: setTimeout(() => {
@@ -476,10 +509,10 @@ export class RemoteBridge {
   }
 
   /** Tell it why, sealed when it can be, and let it go. The relay closes its socket. */
-  #drop(b: Browser, reason: string): void {
+  #drop(b: Browser, reason: string, more: object = {}): void {
     info('remote.browser.dropped', { reason });
     b.leaving = true;
-    if (b.sealer) this.#send(b, packMessage({ t: 'denied', reason }));
+    if (b.sealer) this.#send(b, packMessage({ t: 'denied', reason, ...more }));
     void b.outbox.then(() => this.#raw(b.id, new Uint8Array([RELAY_GONE])));
     this.#forget(b);
   }
@@ -496,10 +529,6 @@ export class RemoteBridge {
         throw new Error('bad-hello');
       }
       const deviceId = hello['device'];
-      const blocked = this.#failures.get(deviceId);
-      if (blocked && blocked.count >= MAX_FAILURES && Date.now() < blocked.until) {
-        throw new Error('cooling-down');
-      }
       const device = this.#store.device(deviceId);
       const pairing = device ? undefined : this.#store.pendingFor(deviceId);
       // An id nobody issued is answered like any other, and then nothing it sends will open.
@@ -513,6 +542,17 @@ export class RemoteBridge {
       if (device) b.device = device;
       if (pairing) b.pairing = pairing;
       this.#raw(b.id, packHello({ nonce: toBase64Url(daemonNonce) }));
+      /*
+       * Too many unlocks that failed: told so, sealed, with when to come back, so the page can say
+       * that rather than seem to be failing to connect. An id nobody issued learns nothing, since
+       * it cannot open what it is told.
+       */
+      const blocked = this.#failures.get(deviceId);
+      if (blocked && blocked.count >= MAX_FAILURES && Date.now() < blocked.until) {
+        b.phase = 'unlock';
+        this.#drop(b, 'wait', { seconds: Math.ceil((blocked.until - Date.now()) / 1000) });
+        return;
+      }
       b.challenge = randomBytes(32);
       b.phase = 'unlock';
       const url = new URL(this.#store.state.relayUrl);
@@ -540,9 +580,11 @@ export class RemoteBridge {
     if (b.phase === 'unlock') {
       // A page tells the Mac when it goes out of sight, which Face ID coming up can do.
       if (!UNLOCKING.has(String(m['t']))) return;
-      this.#unlock(b, m);
+      await this.#unlock(b, m);
       return;
     }
+    // Waiting on the person at the Mac: nothing it says changes that.
+    if (b.phase === 'approving') return;
 
     if (!b.confirmed) {
       // It heard the Mac's answer, new ticket and all, so the one it came back with is done.
@@ -619,7 +661,7 @@ export class RemoteBridge {
     }
   }
 
-  #unlock(b: Browser, m: Record<string, unknown>): void {
+  async #unlock(b: Browser, m: Record<string, unknown>): Promise<void> {
     const bytes = (k: string): Uint8Array => {
       const v = m[k];
       if (typeof v !== 'string') throw new Error(`missing-${k}`);
@@ -655,9 +697,8 @@ export class RemoteBridge {
           attestationObject: bytes('attestationObject'),
         });
         const name = typeof m['name'] === 'string' ? m['name'] : 'Device';
-        b.device = this.#store.trust(b.pairing, name, passkey);
-        delete b.pairing;
-        info('remote.device.paired', { device: b.device.id.slice(0, 6) });
+        await this.#approveThenTrust(b, b.pairing, name, passkey);
+        return;
       } else {
         throw new Error('unexpected-unlock');
       }
@@ -669,6 +710,67 @@ export class RemoteBridge {
       this.#failures.set(id, f);
       throw e;
     }
+    this.#ready(b, b.device);
+  }
+
+  /**
+   * A device that made its passkey with a fresh pairing code waits here until the person at the Mac
+   * approves it. Approved, it is trusted even if its connection dropped meanwhile, and comes back
+   * to unlock as any trusted device does. Refused, its code is spent, so the same code cannot ask
+   * again.
+   */
+  async #approveThenTrust(
+    b: Browser,
+    pairing: PendingPairing,
+    name: string,
+    passkey: Passkey,
+  ): Promise<void> {
+    if (this.#approving !== undefined) {
+      this.#drop(b, 'busy');
+      return;
+    }
+    this.#approving = pairing.id;
+    b.phase = 'approving';
+    clearTimeout(b.timer);
+    b.timer = setTimeout(() => {
+      if (b.phase !== 'ready') this.#drop(b, 'too-slow');
+    }, APPROVE_WINDOW_MS);
+    b.timer.unref?.();
+    const code = await approvalCode(passkey.credentialId);
+    this.#send(b, packMessage({ t: 'approve', code }));
+    this.#onStatus(this.status);
+    let approved = false;
+    try {
+      approved = await this.#host.approve({ name, code });
+    } catch {
+      approved = false;
+    } finally {
+      this.#approving = undefined;
+    }
+    if (this.#stopped) return;
+    const here = this.#browsers.get(b.id) === b;
+    if (!approved) {
+      this.#store.forget(pairing.id);
+      info('remote.device.refused', { device: pairing.id.slice(0, 6) });
+      if (here) this.#drop(b, 'not-approved');
+      this.#onStatus(this.status);
+      return;
+    }
+    let device: TrustedDevice;
+    try {
+      device = this.#store.trust(pairing, name, passkey);
+    } catch {
+      if (here) this.#drop(b, 'too-many-devices');
+      return;
+    }
+    info('remote.device.paired', { device: device.id.slice(0, 6) });
+    delete b.pairing;
+    if (here) this.#ready(b, device);
+    else this.#onStatus(this.status);
+  }
+
+  #ready(b: Browser, device: TrustedDevice): void {
+    b.device = device;
     this.#failures.delete(b.device.id);
     clearTimeout(b.timer);
     b.phase = 'ready';

@@ -53,6 +53,7 @@ import { looksLikeInterrupt } from './agent-turns.js';
 import { readUserSettings } from './user-settings.js';
 import { safeError, safeStack } from './safe-error.js';
 import { TerminalCheckpoints } from './terminal-checkpoints.js';
+import { approveOnThisMac } from './remote/approve.js';
 import { RemoteControl } from './remote/index.js';
 import { remoteTabs } from './remote/tabs.js';
 
@@ -1060,6 +1061,7 @@ async function main(): Promise<void> {
       onOutput: (l) => listen(outputListeners, l),
       onResized: (l) => listen(resizeListeners, l),
       onTabsChanged: (l) => listen(tabsListeners, l),
+      approve: ({ name, code }) => approveOnThisMac(name, code),
     },
     (state) => server.broadcastAll({ t: 'remote-state', state }),
   );

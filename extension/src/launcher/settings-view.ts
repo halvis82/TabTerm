@@ -766,8 +766,8 @@ function buildRemote(options: SettingsOptions): HTMLElement | null {
   pairNote.className = 'set-desc';
   pairNote.textContent =
     'On the phone, open your relay and press Scan code, or scan it with the camera app. On ' +
-    'another computer, open the link. It works once, for ten minutes, and the device then asks ' +
-    'for Face ID, Touch ID or its passcode.';
+    'another computer, open the link. It works once, for ten minutes. The device asks for Face ' +
+    'ID, Touch ID or its passcode, and then this Mac asks you to approve it with Touch ID.';
   const pairButton = document.createElement('button');
   pairButton.type = 'button';
   pairButton.className = 'cmd-button primary';

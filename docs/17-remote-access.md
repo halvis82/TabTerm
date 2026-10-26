@@ -116,14 +116,36 @@ that restarted would not know which it already wrote. A key is sent the moment i
 its echo comes back the moment it appears: the Mac only gathers output into batches while a
 terminal keeps printing.
 
+**Unlocked pages that go silent are let go.** A page on screen asks every 15 seconds, and a
+browser tab in the background at least once a minute. A page the Mac has heard nothing from for 90
+seconds is a connection that died without closing, and the Mac drops it rather than keep sending
+its terminal to nowhere. The page, when it is next looked at, comes back with its ticket.
+
 There is no account. The list of trusted devices is a file on the Mac,
 `~/.local/state/tabterm/remote.json`, readable by you only.
 
 ### Pairing
 
-A pairing link works **once, for ten minutes**. The code is shown only in Settings on the Mac,
-which only somebody at the Mac can see. Anyone who has the code within those ten minutes can pair,
-so it is for showing to your own device only.
+A pairing link works **once, for ten minutes**. The code is shown only in Settings on the Mac.
+
+**The Mac approves every new device.** A code on a screen can be seen from across a room or in a
+screen share, so having it is not enough. Once the new device has made its passkey, the Mac asks
+the person at it, in a dialog macOS draws and no other program can click: **Touch ID**, or the
+Mac's password where there is no sensor. Until then the device is not trusted and gets nothing.
+The dialog names the device and a four letter code, and the device shows the same code, made on
+both sides from the new passkey's id, so a second device racing the first with the same code
+cannot be approved by mistake.
+
+- **Approved:** the device is trusted and opens on its list of terminals. Approved while its
+  connection had dropped, it is trusted all the same, and unlocks with its passkey when it is back
+- **Turned down, or no answer in 90 seconds:** the code is spent, so it cannot ask again, and the
+  device says it was not approved and shows how to pair. A new code starts over
+- **One at a time:** a second device asking while the first is being decided waits its turn
+
+The question is asked by a small helper, `native-host/approve-device.swift`, which the install
+script builds with the Swift compiler that comes with the Xcode command line tools, and which uses
+macOS's LocalAuthentication. On a Mac without the compiler the daemon asks with a plain dialog
+instead, Allow or Don't Allow, which still has to be answered at the Mac.
 
 **Scan code** on the page reads the code with the device's camera, inside the page. The camera is
 asked for only when Scan code is pressed, the picture is read on the device and never leaves it,
@@ -159,7 +181,8 @@ The cost on the Mac is one https request per notification. Nothing runs between 
   to the page. Nobody needs to remember it, and devices never use it. To change it, set a new one
   on the relay and enter it in Settings
 - **Failed unlocks** are counted per device: five, and that device is refused for five minutes.
-  A page going out of sight while it unlocks, which Face ID can cause, is not a failed unlock
+  The page says how long to wait rather than seem to fail to connect. A page going out of sight
+  while it unlocks, which Face ID can cause, is not a failed unlock
 - **A device that has not unlocked within a minute** is let go. A page left on Unlock asks again
   once anybody looks at it, for a fresh Unlock
 - **A device out of sight** for two minutes closes its connection and drops its resume ticket, so
@@ -167,7 +190,10 @@ The cost on the Mac is one https request per notification. Nothing runs between 
 - **Removing a device** in Settings cuts its open connections at once
 - **A slow device cannot slow the Mac.** Output is never held back for it. A device that falls too
   far behind stops being sent output and is sent the whole screen once it catches up
-- The relay refuses frames over 1 MB and more than eight devices at once per Mac
+- The relay refuses frames over 1 MB, and keeps eight device connections at once per Mac. A ninth
+  makes room by closing the oldest rather than being turned away: a phone put away can leave its
+  connection open at the relay without a word, and refusing new ones let a few of those lock every
+  device out. Only somebody holding a pairing link knows the address of a Mac's room
 
 ### What this changes in the threat model
 
@@ -225,6 +251,13 @@ Press **Show a pairing code**.
 - **A page that says it is not paired yet:** press **Scan code** and point it at the code, or
   paste the link and press **Pair**
 
+**What the page says while it connects.** It never just tries and fails. It says
+**Connecting to your Mac** with a turning ring while it is on its way, and comes back by itself
+every few seconds. When it knows why it cannot get in, it says so: **your Mac is offline or
+asleep** (it connects by itself once the Mac is back), **this device is offline**, or **too many
+tries that did not unlock**, with how long to wait. When the Mac does not know the device it is not
+paired, and the page says so and shows how to pair.
+
 **If the page says your Mac is offline** while Settings says **Connected to your relay**, wait half a
 minute: the Mac finds a connection that has stopped working within about 20 seconds and makes a new
 one, and the page asks again every three seconds by itself.
@@ -233,15 +266,16 @@ The page asks for a name for the device, filled in with what it is (**iPhone, Ho
 **iPhone, Safari**, **Mac, Chrome**), then to **Trust this device**, which makes the passkey: Face
 ID, Touch ID or the passcode. A web page cannot learn a phone's own name, so the name is how two
 iPhones are told apart. It can be changed in Settings at any time.
-A device is trusted only once that is done. A code scanned but not trusted within its ten minutes
-leaves the device holding a pairing the Mac does not know.
 
-**If the page says your Mac does not know this device**, its code ran out before it was trusted,
-or it was removed while the page was away. Asking again cannot help, so it stops. Press **Pair this
-device again**, which forgets the old pairing on the device and shows Scan code and the paste box,
-then pair with a new code. The same button is there whenever the page cannot get in, except while
-the Mac is simply offline, and it asks first, since a device away from the Mac cannot pair again
-until it is back.
+Then the page shows a four letter code and **Approve this device on your Mac**, and the Mac asks
+for Touch ID, naming the device and the same code. Check the codes match and touch the sensor.
+A device is trusted only once that is done.
+
+**If the page says this device is not paired with your Mac anymore**, its code ran out before it
+was trusted, or it was removed while the page was away. It forgets that pairing and shows Scan code
+and the paste box, ready for a new code. When a device's passkey is turned down, the page also
+offers **Pair this device again**, which asks first, since a device away from the Mac cannot pair
+again until it is back.
 
 **On an iPhone, as an app on the Home Screen.** An app added to the Home Screen keeps its own
 storage, apart from Safari's, so it is paired on its own:
@@ -273,6 +307,26 @@ off. Tapping them quickly does not zoom the page.
 Esc, the arrows, Fit or A- and A+ leaves the typing where it was, so a phone's keyboard stays up
 and a computer keeps typing into the terminal.
 
+**Instant typing.** Over the internet a key's echo takes a tenth of a second or more to come back,
+so the page shows each key the moment it is pressed, underlined, and the Mac's real echo replaces
+it when it arrives (`relay/page/predict.ts`). Mosh does the same. It is careful about what it
+shows:
+
+- **Nothing it cannot back up.** After Return, an arrow key, Esc, Ctrl C or Tab, the next key waits
+  for its real echo. Only once the Mac has echoed a key exactly where the page put it are the keys
+  after it shown ahead of the echo. So a password prompt, which echoes nothing, never shows what is
+  typed, and in a program where keys do something other than type, the first key proves it
+- **Checked against every echo.** A guess that comes back as anything else is gone at once, and
+  guesses stop until one is confirmed again. One not echoed within two seconds is dropped
+- **The plain case only:** a printable character typed at the end of the line, and backspace over
+  what was typed since. Typing into the middle of a line would push the rest along, which waits for
+  the echo as before. Wide characters such as Chinese and emoji wait too
+- **In agents** such as Claude Code and Codex it works the same as in a shell: they put the cursor
+  where typing goes, and the page waits while an agent redraws with the cursor hidden. A full
+  screen program such as an editor starts it over
+
+The terminal itself only ever shows what the Mac sent. Guesses are drawn over it.
+
 **A terminal that ends** while it is open, by `exit` or by closing it on the Mac, goes back to the
 list, which says it ended.
 
@@ -299,9 +353,17 @@ Devices stay paired.
   message a browser can send ends, opens or resizes anything
 - `daemon/src/remote/bridge.test.ts`: a resume ticket works once, for its own device only, not
   after the device is removed, and takes over from a connection the Mac has not seen end
+- `daemon/src/remote/bridge.test.ts`: a new device is trusted only once the Mac approves it, by the
+  code it shows, and a device turned down spends its code. A device that failed too often is told
+  when to come back. A full room lets its oldest connection go to make room for a new one
+- `relay/page/predict.test.ts`: instant typing against a real terminal emulator. Nothing shown
+  until an echo confirms a guess, then keys shown at once. A password prompt shows nothing, a wrong
+  echo stops it, nothing is guessed in the middle of a line or past the prompt, and an agent's
+  redraw with the cursor hidden works
 - `test/remote/e2e.mjs`: the page in a real browser. A connection dropped under an open terminal
-  comes back without the lock screen. A device holding a pairing the Mac does not
-  know says so, makes one connection and no more, and pairs again after **Pair this device again**
+  comes back without the lock screen. A key shows before the Mac's echo and gives way to it. A
+  device holding a pairing the Mac does not know says it is not paired, makes one connection and
+  no more, shows how to pair, and has let go of the pairing when reloaded
 - `relay/page/scan.test.ts`: Scan code reads the code Settings draws, dark on light, light on
   dark, and small in the picture
 - `daemon/src/remote/webpush.test.ts`: the encryption reproduces the worked example in RFC 8291

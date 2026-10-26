@@ -801,6 +801,8 @@ function startTestDaemon() {
            * the notification itself needs them let through, and says so by setting this.
            */
           ...(process.env['TT_LET_NOTIFICATIONS'] === '1' ? {} : { TABTERM_NO_NOTIFICATIONS: '1' }),
+          // A new remote device is let in without asking: nobody is at this Mac to touch the sensor.
+          TABTERM_REMOTE_APPROVE: 'allow',
           // A host holding sessions refuses an ordinary SIGTERM, because exiting would make every
           // one of them unreachable. A test host holds nothing anybody wants and must stop when
           // its run does.

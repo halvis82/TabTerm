@@ -113,6 +113,21 @@ export const DEVICE_KEY_BYTES = 32;
 export const NONCE_BYTES = 16;
 
 /**
+ * The short code a new device shows while the Mac asks to approve it, and the Mac's dialog names.
+ * Made from the new passkey's id, which both ends hold, so it matches only for that one device.
+ * Letters and digits that cannot be mistaken for each other.
+ */
+export async function approvalCode(credentialId: string): Promise<string> {
+  const digest = new Uint8Array(
+    await crypto.subtle.digest('SHA-256', owned(new TextEncoder().encode(credentialId))),
+  );
+  const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  let code = '';
+  for (let i = 0; i < 4; i++) code += alphabet[(digest[i] ?? 0) % alphabet.length];
+  return code;
+}
+
+/**
  * The device key as WebCrypto holds it: usable for deriving and never readable again.
  *
  * A browser keeps this object rather than the bytes, so a script on the page later could use the

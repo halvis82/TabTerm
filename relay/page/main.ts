@@ -14,6 +14,7 @@ import {
   unpack,
   type RemoteTab,
 } from '../../shared/src/remote.js';
+import { Predictor } from './predict.js';
 import { startScan, type Scan } from './scan.js';
 
 /**
@@ -117,7 +118,7 @@ function show(screen: Screen): void {
   document.body.dataset['screen'] = screen;
 }
 
-function say(text: string, tone: 'plain' | 'warn' = 'plain'): void {
+function say(text: string, tone: 'plain' | 'warn' | 'busy' = 'plain'): void {
   const el = $('lock-status');
   el.textContent = text;
   el.dataset['tone'] = tone;
@@ -167,6 +168,41 @@ for (const id of [
 for (const code of [4, 10, 11, 12, 17, 19, 104]) {
   term.parser.registerOscHandler(code, (data) => data.includes('?'));
 }
+/**
+ * Instant typing: keys shown before the Mac's echo arrives, drawn over the terminal and checked
+ * against every echo. See predict.ts for when a guess is shown and when it is not.
+ */
+const guessLayer = document.createElement('div');
+guessLayer.className = 'guesses';
+guessLayer.setAttribute('aria-hidden', 'true');
+const predictor = new Predictor(term, () => drawGuesses());
+
+function drawGuesses(): void {
+  const screen = termOpened ? $('term').querySelector<HTMLElement>('.xterm-screen') : null;
+  if (!screen) return;
+  if (guessLayer.parentElement !== screen) screen.append(guessLayer);
+  const w = screen.offsetWidth / term.cols;
+  const h = screen.offsetHeight / term.rows;
+  const top = term.buffer.active.viewportY;
+  const cell = (x: number, y: number, cls: string, text: string): HTMLElement | null => {
+    if (y - top < 0 || y - top >= term.rows) return null;
+    const span = el('span', cls, text);
+    span.style.left = `${String(x * w)}px`;
+    span.style.top = `${String((y - top) * h)}px`;
+    span.style.width = `${String(w)}px`;
+    span.style.height = span.style.lineHeight = `${String(h)}px`;
+    return span;
+  };
+  const spans = predictor.shown.map((g) =>
+    cell(g.x, g.y, g.erase ? 'erased' : 'guess', g.erase ? '' : g.ch),
+  );
+  const cursor = predictor.cursor;
+  if (cursor) spans.push(cell(cursor.x, cursor.y, 'guess-cursor', ''));
+  guessLayer.style.fontFamily = term.options.fontFamily ?? 'monospace';
+  guessLayer.style.fontSize = `${String(term.options.fontSize ?? 12)}px`;
+  guessLayer.replaceChildren(...spans.filter((s): s is HTMLElement => s !== null));
+}
+
 /** Focus in and out, which a program that asked for them would read as the Mac's view moving. */
 const FOCUS_REPORTS = new Set(['\x1b[I', '\x1b[O']);
 
@@ -285,6 +321,8 @@ interface Conn {
   heard: number;
   /** Why the Mac let it go, when it said. */
   denied: string | null;
+  /** How long until it may try again, when the reason is too many failed unlocks. */
+  waitSeconds: number;
   timers: number[];
 }
 
@@ -324,6 +362,13 @@ let keyNumber = 0;
 const UNANSWERED_MAX = 16 * 1024;
 /** This page, to the Mac, for numbering its keys. New on every load. */
 const pageId = toBase64Url(randomBytes(12));
+/**
+ * The code this device shows while the Mac asks the person there to approve it. Set from the
+ * Mac's word until it lets this device in or turns it away, through any reconnect in between.
+ */
+let approvingCode: string | null = null;
+/** Connections in a row that did not reach the Mac, so one hiccup is not announced as trouble. */
+let failures = 0;
 /** The Mac's key for notifications, and whether this device has them on. */
 let vapid = '';
 let notifyOn = false;
@@ -362,7 +407,10 @@ function sendKeys(data: string): void {
   const key = { n: ++keyNumber, sessionId: watching, data };
   unanswered.push(key);
   // Only once the Mac shows this terminal on this connection, since it takes keys for that alone.
-  if (isReady() && watchingStream !== -1) sendKey(key);
+  if (isReady() && watchingStream !== -1) {
+    predictor.key(data);
+    sendKey(key);
+  } else predictor.reset();
 }
 
 function sendKey(key: { n: number; sessionId: string; data: string }): void {
@@ -399,9 +447,12 @@ function connect(paired: Paired): void {
   clearTimeout(retryTimer);
   retryTimer = 0;
   if (conn) retire(conn);
+  conn = null;
+  if (removed) return;
   pendingChallenge = null;
   unknown = false;
-  say('Connecting to your Mac');
+  // What the page says while it keeps trying stays put, rather than flicking back each time.
+  if (failures === 0 && !approvingCode) say('Connecting to your Mac', 'busy');
   $<HTMLButtonElement>('unlock').hidden = true;
   $<HTMLButtonElement>('repair').hidden = true;
   const c: Conn = {
@@ -413,6 +464,7 @@ function connect(paired: Paired): void {
     ready: false,
     heard: Date.now(),
     denied: null,
+    waitSeconds: 0,
     timers: [],
   };
   conn = c;
@@ -450,6 +502,7 @@ function lose(paired: Paired, c: Conn, code: number): void {
   conn = null;
   retire(c);
   watchingStream = -1;
+  predictor.reset();
   // With a ticket the page stays as it is while it comes back, rather than locking.
   if (ticket && !removed) {
     $('reconnecting').hidden = false;
@@ -459,7 +512,7 @@ function lose(paired: Paired, c: Conn, code: number): void {
   $<HTMLButtonElement>('unlock').hidden = true;
   $('name-field').hidden = true;
   // The reason arrives sealed, so it may still be being opened: wait for it before saying anything.
-  void c.inbox.then(() => closed(paired, code, c.denied));
+  void c.inbox.then(() => closed(paired, code, c.denied, c.waitSeconds));
 }
 
 function again(paired: Paired, ms: number): void {
@@ -470,8 +523,52 @@ function again(paired: Paired, ms: number): void {
   }, ms);
 }
 
-function closed(paired: Paired, code: number, denied: string | null): void {
+/**
+ * What the page says and does once a connection has ended. Never "trying and failing": either the
+ * page is on its way back and says so with a turning ring, or it knows why it cannot get in and
+ * says what to do, or this device is not paired and the page shows how to pair it.
+ */
+function closed(paired: Paired, code: number, denied: string | null, seconds: number): void {
   if (removed || conn) return;
+  if (unknown || denied === 'not-approved') {
+    /*
+     * The Mac does not know this device: its code ran out or was spent, it was removed while this
+     * page was away, or the person at the Mac said no. It cannot get in as it is, so it is not
+     * paired, and the page says so and shows how to pair.
+     */
+    const refused = denied === 'not-approved' || approvingCode !== null;
+    approvingCode = null;
+    $('approve-code').hidden = true;
+    unpair(
+      refused
+        ? 'Your Mac did not approve this device. To try again, scan a new code in TabTerm Settings on your Mac.'
+        : 'This device is not paired with your Mac anymore. Scan the code in TabTerm Settings on your Mac, or paste its link.',
+    );
+    return;
+  }
+  if (approvingCode) {
+    // Dropped while the person at the Mac decides: the decision stands, so it simply waits on.
+    show('lock');
+    again(paired, 2000);
+    return;
+  }
+  if (denied === 'busy') {
+    say('Your Mac is approving another device. This one is next.', 'busy');
+    again(paired, 3000);
+    return;
+  }
+  if (denied === 'wait') {
+    ticket = null;
+    $('reconnecting').hidden = true;
+    show('lock');
+    const minutes = Math.max(1, Math.ceil(seconds / 60));
+    say(
+      `Too many tries that did not unlock. Try again in ${String(minutes)} minute${minutes === 1 ? '' : 's'}.`,
+      'warn',
+    );
+    again(paired, Math.max(5, seconds) * 1000 + 500);
+    return;
+  }
   if (resumeRefused) {
     // The ticket was refused, by a Mac restarted or a ticket run out: unlocked as usual instead.
     resumeRefused = false;
@@ -481,43 +578,54 @@ function closed(paired: Paired, code: number, denied: string | null): void {
     again(paired, 300);
     return;
   }
-  if (ticket && !unknown) {
+  if (ticket) {
     $('reconnecting').textContent =
       code === 4002 ? 'Your Mac is offline. Reconnecting' : 'Reconnecting';
     again(paired, retry);
     retry = code === 4002 ? 3000 : Math.min(5000, retry * 2);
     return;
   }
-  ticket = null;
   $('reconnecting').hidden = true;
   show('lock');
-  if (unknown) {
-    $<HTMLButtonElement>('repair').hidden = false;
-    say(
-      'Your Mac does not know this device. Its code may have run out before it was trusted, or it was removed. Pair it again with a new code from TabTerm Settings on your Mac.',
-      'warn',
-    );
-    return;
-  }
-  // Pairing again is offered when getting in keeps failing, not for a Mac that is merely offline.
-  $<HTMLButtonElement>('repair').hidden = !(denied === 'refused' || (code === 4001 && !denied));
-  if (denied === 'too-slow') {
+  // Pairing again is offered only when the Mac turned this device's passkey down.
+  $<HTMLButtonElement>('repair').hidden = denied !== 'refused';
+  if (denied === 'too-slow' || denied === 'silent') {
     // Left on Unlock for a minute: a fresh connection brings a fresh Unlock, once anybody looks.
     say('Locked');
     if (!document.hidden) again(paired, 300);
     return;
   }
-  say(
-    code === 4002
-      ? 'Your Mac is offline, or remote access is turned off on it. Trying again.'
-      : denied === 'refused'
-        ? 'Not unlocked. Trying again.'
-        : 'Disconnected. Trying again.',
-    'warn',
-  );
-  // An offline Mac is asked again every few seconds, so the page is back the moment it is.
-  again(paired, code === 4002 ? 3000 : retry);
-  retry = code === 4002 ? 3000 : Math.min(30_000, retry * 2);
+  if (denied === 'refused') {
+    say('Not unlocked. Tap Unlock to try again.', 'warn');
+    again(paired, 300);
+    return;
+  }
+  failures++;
+  if (code === 4002) {
+    say(
+      'Your Mac is offline or asleep, or remote access is turned off on it. This page connects by itself once it is back.',
+    );
+    again(paired, 3000);
+    retry = 3000;
+    return;
+  }
+  // A dropped connection, or one that never got through: on the way back, every few seconds.
+  if (!navigator.onLine)
+    say('This device is offline. It connects by itself once it is back online.');
+  else say('Connecting to your Mac', 'busy');
+  again(paired, retry);
+  retry = Math.min(5000, retry * 2);
+}
+
+/** Not paired anymore: forgotten here, and the page shows how to pair. */
+function unpair(text: string): void {
+  removed = true;
+  ticket = null;
+  $('reconnecting').hidden = true;
+  $<HTMLButtonElement>('unlock').hidden = true;
+  $('name-field').hidden = true;
+  show('lock');
+  void forgetPairing().then(() => showPairing(text));
 }
 
 async function receive(
@@ -533,6 +641,7 @@ async function receive(
     c.sealer = new Sealer(
       await connectionKeys(paired.key, myNonce, fromBase64Url(hello['nonce']), 'browser'),
     );
+    failures = 0;
     return;
   }
   if (!c.sealer) return;
@@ -547,12 +656,22 @@ async function receive(
   const frame = unpack(opened);
   if (!frame) return;
   if (frame.kind === 'bytes') {
-    if (frame.stream === watchingStream) term.write(frame.data);
+    if (frame.stream === watchingStream) term.write(frame.data, () => predictor.check());
     return;
   }
   const m = frame.message;
   switch (m['t']) {
     case 'challenge':
+      if (approvingCode && m['mode'] === 'register') {
+        // Back while the Mac still asks: nothing to do but wait for the answer.
+        lose(paired, c, 1000);
+        return;
+      }
+      if (approvingCode) {
+        // Approved while this page was away. It now unlocks as any trusted device does.
+        approvingCode = null;
+        $('approve-code').hidden = true;
+      }
       if (ticket && m['mode'] === 'unlock') {
         // Kept until the Mac answers: a connection lost before then comes back with it again.
         resuming = true;
@@ -581,7 +700,22 @@ async function receive(
       }
       $<HTMLButtonElement>('unlock').hidden = false;
       return;
+    case 'approve':
+      /*
+       * The passkey is made, and now the person at the Mac decides. Touch ID or the Mac's password
+       * comes up there, naming this code, so they can tell this device from any other.
+       */
+      approvingCode = typeof m['code'] === 'string' ? m['code'] : '';
+      say(
+        'Approve this device on your Mac with Touch ID or its password. Your Mac shows this code:',
+        'busy',
+      );
+      $('approve-code').textContent = approvingCode;
+      $('approve-code').hidden = false;
+      return;
     case 'ready':
+      approvingCode = null;
+      $('approve-code').hidden = true;
       retry = 1000;
       c.ready = true;
       resuming = false;
@@ -621,6 +755,7 @@ async function receive(
       if (m['sessionId'] !== watching) return;
       watchingStream = Number(m['stream']);
       term.reset();
+      predictor.reset();
       show('terminal');
       setSize(Number(m['cols']) || 80, Number(m['rows']) || 24);
       drawTerminalHeader();
@@ -644,6 +779,7 @@ async function receive(
       return;
     case 'denied':
       c.denied = typeof m['reason'] === 'string' ? m['reason'] : 'refused';
+      c.waitSeconds = Number(m['seconds']) || 0;
       if (m['reason'] === 'removed') {
         removed = true;
         await forgetPairing();
@@ -900,10 +1036,13 @@ function openPane(sessionId: string): void {
       if (FOCUS_REPORTS.has(data)) return;
       sendKeys(data);
     });
+    // Drawn again whenever the terminal is, which covers scrolling and a new text size.
+    term.onRender(() => drawGuesses());
   }
   $('ended-note').hidden = true;
   // Shown at once, empty until its screen arrives, since a hidden terminal cannot take the focus.
   term.reset();
+  predictor.reset();
   show('terminal');
   drawTerminalHeader();
   // Ready to type at once. Done in the tap that opened it, which is when a phone allows the
@@ -984,6 +1123,7 @@ function wire(paired: Paired): void {
    * connection cut without a word, and that is found in seconds rather than by typing into it.
    */
   const look = (): void => {
+    if (removed) return;
     if (!conn) connect(paired);
     else ping(paired, conn);
   };

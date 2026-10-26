@@ -124,6 +124,21 @@ done
 # with a bare "posix_spawnp failed" that names no file.
 find "$LIBEXEC/node_modules/node-pty/prebuilds" -name spawn-helper -exec chmod 755 {} \;
 echo "  daemon staged at $LIBEXEC"
+# The Touch ID question asked before a new remote device is trusted, built here from its source
+# because it is a few lines of Swift and a compiled binary does not belong in the repository.
+# Rebuilt only when the source changed. Without a Swift compiler the daemon asks with a plain
+# dialog instead. See docs/17-remote-access.md.
+APPROVE_SRC="$REPO/native-host/approve-device.swift"
+if [ "$LIBEXEC/approve-device" -nt "$APPROVE_SRC" ]; then
+  echo "  device approval helper unchanged"
+elif command -v swiftc >/dev/null 2>&1 &&
+     swiftc -O -o "$LIBEXEC/approve-device.new" "$APPROVE_SRC" >/dev/null 2>&1; then
+  mv -f "$LIBEXEC/approve-device.new" "$LIBEXEC/approve-device"
+  echo "  device approval helper built (Touch ID)"
+else
+  rm -f "$LIBEXEC/approve-device.new"
+  echo "  WARNING: could not build the device approval helper, new devices are approved in a dialog"
+fi
 
 # The daemon is launched through an app bundle, and the reason is privacy prompts.
 #

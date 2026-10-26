@@ -176,8 +176,26 @@ export class Room {
 
   async fetch(req) {
     const side = new URL(req.url).pathname.slice(1);
-    if (side === 'browser' && this.state.getWebSockets('browser').length >= MAX_BROWSERS) {
-      return new Response('Too many connections', { status: 429 });
+    if (side === 'browser') {
+      /*
+       * A full room lets its oldest connections go to make space, rather than turning the new one
+       * away. A phone put in a pocket can lose its connection without a word, and the relay keeps
+       * that socket open, so refusing would let a few forgotten connections lock every device out.
+       * The one connecting now is the one somebody is looking at.
+       */
+      const browsers = this.state
+        .getWebSockets('browser')
+        .map((ws) => ({ ws, id: ws.deserializeAttachment()?.id ?? 0 }))
+        .sort((a, b) => a.id - b.id);
+      for (const { ws, id } of browsers.slice(0, Math.max(0, browsers.length - MAX_BROWSERS + 1))) {
+        try {
+          ws.close(4003, 'Replaced by a newer connection');
+        } catch {
+          // Already closed.
+        }
+        // A connection that is gone never answers the close, so the Mac is told here.
+        this.#toDaemon(id, new Uint8Array([GONE]));
+      }
     }
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);

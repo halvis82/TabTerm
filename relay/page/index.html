@@ -94,6 +94,64 @@
       #lock-status[data-tone='warn'] {
         color: var(--warn);
       }
+      /* Working on it: a small turning ring, so waiting reads as waiting and not as failing. */
+      #lock-status[data-tone='busy']::before,
+      #reconnecting::before {
+        content: '';
+        display: inline-block;
+        width: 0.8em;
+        height: 0.8em;
+        margin-right: 0.5em;
+        vertical-align: -0.1em;
+        border: 2px solid var(--line);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: turn 0.9s linear infinite;
+      }
+      @keyframes turn {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #lock-status[data-tone='busy']::before,
+        #reconnecting::before {
+          animation: none;
+        }
+      }
+      /* Instant typing: keys drawn ahead of the Mac's echo, each over one cell of the terminal. */
+      .guesses {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 10;
+      }
+      .guesses span {
+        position: absolute;
+        background: var(--bg);
+        color: var(--fg);
+        white-space: pre;
+        text-align: center;
+      }
+      .guesses .guess {
+        text-decoration: underline;
+        text-decoration-color: rgba(88, 166, 255, 0.55);
+        text-underline-offset: 2px;
+      }
+      .guesses .guess-cursor {
+        background: var(--fg);
+        opacity: 0.6;
+      }
+      #approve-code {
+        margin: 0;
+        font:
+          600 34px ui-monospace,
+          Menlo,
+          monospace;
+        letter-spacing: 0.3em;
+        padding-left: 0.3em;
+        color: var(--fg);
+      }
       #pair-form {
         display: flex;
         gap: 8px;
@@ -326,7 +384,7 @@
         border-radius: 999px;
         background: var(--raised);
         border: 1px solid var(--line);
-        color: var(--warn);
+        color: var(--dim);
         font-size: 13px;
       }
       #ended-note {
@@ -393,6 +451,7 @@
     <main id="screen-lock">
       <div class="mark">&gt;_</div>
       <p id="lock-status">Starting</p>
+      <p id="approve-code" aria-label="Approval code" hidden></p>
       <label id="name-field" hidden>
         <span>Name this device</span>
         <input

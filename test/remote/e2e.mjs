@@ -56,6 +56,8 @@ const daemon = spawn(process.execPath, [join(ROOT, 'daemon/dist/main.js')], {
     TABTERM_PORT: PORT,
     TABTERM_AGENT_PORT: String(Number(PORT) + 1),
     TABTERM_NO_NOTIFICATIONS: '1',
+    // A new remote device is let in without asking: nobody is at this Mac to touch the sensor.
+    TABTERM_REMOTE_APPROVE: 'allow',
     TABTERM_HOST_FORCE_STOP: '1',
   },
   detached: true,
@@ -418,6 +420,24 @@ ok(
   'and the Mac sees it too',
   (desk.output.get(created.streamId) ?? '').includes('from-the-phone-42'),
 );
+
+// Instant typing: the first key waits for the shell's echo, and once one has come back where it
+// was guessed, the keys after it show the moment they are pressed, ahead of the echo.
+const press = (text) =>
+  `window.__remote.term._core.coreService.triggerDataEvent(${JSON.stringify(text)}, true)`;
+await ev(press('e'));
+await until(() => ev(`${screenText}.includes('% e') || ${screenText}.includes('$ e')`), 3000);
+await sleep(300);
+const guessed = await ev(
+  `(${press('c')}, [...document.querySelectorAll('.guesses .guess')].map((s) => s.textContent).join(''))`,
+);
+ok('a key shows at once, before the Mac has echoed it', guessed === 'c', guessed);
+ok(
+  'and gives way to the echo when it comes',
+  await until(() => ev(`document.querySelectorAll('.guesses .guess').length === 0`), 3000),
+);
+await ev(press('\x15'));
+await sleep(300);
 
 // Output from the Mac side reaches the phone live.
 desk.ws.send(
@@ -793,7 +813,7 @@ ok(
 );
 
 // A device holding a pairing the Mac does not know, as one whose code ran out before it was
-// trusted: it says so, stops asking, and can let go of it and pair again.
+// trusted: it is not paired, so it says so, stops asking, and shows how to pair.
 const stale = link3.replace(/(pair=[\w-]+\.)[\w-]+/, `$1${randomBytes(12).toString('base64url')}`);
 const { result: ctx4 } = await cdp('Target.createBrowserContext', {});
 const { result: tgt4 } = await cdp('Target.createTarget', {
@@ -823,21 +843,28 @@ await cdp(
 );
 await cdp('Page.navigate', { url: stale }, att4.sessionId);
 ok(
-  'a pairing the Mac does not know says so and offers to pair again',
+  'a pairing the Mac does not know says the device is not paired, and shows how to pair',
   await until(() =>
     ev4(
-      `document.getElementById('lock-status').textContent.includes('does not know') && !document.getElementById('repair').hidden`,
+      `document.getElementById('lock-status').textContent.includes('not paired') && !document.getElementById('pair-form').hidden && !document.getElementById('scan').hidden`,
     ),
   ),
+  await ev4(`document.getElementById('lock-status').textContent`),
 );
 await sleep(4000);
 const sockets = await ev4(`window.__sockets`);
 ok('and stops asking', sockets === 1);
-await ev4(`window.confirm = () => true; document.getElementById('repair').click()`);
 ok(
-  'Pair this device again lets go of it and shows the paste box and Scan',
+  'and never says it is trying and failing',
+  !String(await ev4(`document.body.innerText`)).includes('Trying again'),
+);
+await cdp('Page.reload', {}, att4.sessionId);
+ok(
+  'the pairing it could not use is let go, so it opens as not paired',
   await until(() =>
-    ev4(`!document.getElementById('pair-form').hidden && !document.getElementById('scan').hidden`),
+    ev4(
+      `document.getElementById('lock-status').textContent.startsWith('Not paired yet') && !document.getElementById('pair-form').hidden`,
+    ),
   ),
 );
 

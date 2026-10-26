@@ -38,6 +38,8 @@ function fakeHost() {
   const tabsChanged = new Set<() => void>();
   const written: { sessionId: string; text: string }[] = [];
   const ended = new Set<string>();
+  const asked: { name: string; code: string }[] = [];
+  const approval = { answer: Promise.resolve(true) };
   const tabs: RemoteTab[] = [
     {
       id: 'w1',
@@ -69,12 +71,18 @@ function fakeHost() {
     onOutput: (l) => (outputs.add(l), () => outputs.delete(l)),
     onTabsChanged: (l) => (tabsChanged.add(l), () => tabsChanged.delete(l)),
     onResized: () => () => {},
+    approve: (device) => {
+      asked.push(device);
+      return approval.answer;
+    },
   };
   return {
     host,
     written,
     tabs,
     ended,
+    asked,
+    approval,
     emit: (id: string, chunk: string) => {
       for (const l of outputs) l(id, chunk);
     },
@@ -473,6 +481,79 @@ describe('remote access, end to end', () => {
     const copy = browser(relay.url, pairing, authenticator(), { register: true });
     expect(await until(() => copy.closed() !== null)).toBe(true);
     expect(c.state.devices).toHaveLength(1);
+  });
+
+  it('trusts a new device only once the person at the Mac approves it, by the code it shows', async () => {
+    const fake = fakeHost();
+    let approve = (_: boolean): void => {};
+    fake.approval.answer = new Promise((r) => (approve = r));
+    const c = connected(fake.host);
+    await until(() => c.state.status === 'connected');
+    const link = c.pair();
+    const pairing = readPairing(new URL(link?.link ?? '').hash);
+    if (!pairing) throw new Error('bad link');
+    const b = browser(relay.url, pairing, authenticator());
+    expect(await until(() => b.has('approve'))).toBe(true);
+    const code = String(b.last('approve')?.['code']);
+    expect(code).toMatch(/^[2-9A-HJ-NP-Z]{4}$/);
+    expect(fake.asked).toEqual([{ name: 'Test phone', code }]);
+    expect(b.has('ready')).toBe(false);
+    expect(c.state.devices).toEqual([]);
+    approve(true);
+    expect(await until(() => b.has('tabs'))).toBe(true);
+    expect(c.state.devices.map((d) => d.name)).toEqual(['Test phone']);
+  });
+
+  it('turns away a device the Mac does not approve, and its code with it', async () => {
+    const fake = fakeHost();
+    fake.approval.answer = Promise.resolve(false);
+    const c = connected(fake.host);
+    await until(() => c.state.status === 'connected');
+    const link = c.pair();
+    const pairing = readPairing(new URL(link?.link ?? '').hash);
+    if (!pairing) throw new Error('bad link');
+    const b = browser(relay.url, pairing, authenticator());
+    expect(await until(() => b.closed() !== null)).toBe(true);
+    expect(b.last('denied')?.['reason']).toBe('not-approved');
+    expect(c.state.devices).toEqual([]);
+    // The same code again opens nothing: it was spent on the device that was turned away.
+    const again = browser(relay.url, pairing, authenticator());
+    expect(await until(() => again.failedToOpen())).toBe(true);
+    expect(fake.asked).toHaveLength(1);
+  });
+
+  it('tells a device that failed too often when to come back, rather than just closing', async () => {
+    const c = connected(fakeHost().host);
+    await until(() => c.state.status === 'connected');
+    const { b, pairing } = await paired(c);
+    b.close();
+    for (let i = 0; i < 5; i++) {
+      const thief = browser(relay.url, pairing, authenticator());
+      await until(() => thief.closed() !== null);
+    }
+    const later = browser(relay.url, pairing, authenticator());
+    expect(await until(() => later.has('denied'))).toBe(true);
+    expect(later.last('denied')?.['reason']).toBe('wait');
+    expect(Number(later.last('denied')?.['seconds'])).toBeGreaterThan(60);
+    expect(later.has('challenge')).toBe(false);
+  });
+
+  it('makes room for a new page by letting the oldest go, rather than turning it away', async () => {
+    const c = connected(fakeHost().host);
+    await until(() => c.state.status === 'connected');
+    // Forgotten connections, as a phone put away leaves at the relay.
+    const old = Array.from({ length: 8 }, () =>
+      browser(
+        relay.url,
+        { room: roomOf(dir), device: 'some-device', key: toBase64Url(randomBytes(32)) },
+        authenticator(),
+      ),
+    );
+    await until(() => old.every((o) => o.failedToOpen()));
+    const { b } = await paired(c);
+    expect(b.has('tabs')).toBe(true);
+    expect(await until(() => old[0]?.closed() === 4003)).toBe(true);
+    expect(old.slice(1).every((o) => o.closed() === null)).toBe(true);
   });
 
   it('lets a device that may only watch, watch, and ignores what it types', async () => {
