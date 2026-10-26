@@ -3,6 +3,12 @@ import { join } from 'node:path';
 import { DEVICE_KEY_BYTES, randomBytes, toBase64Url } from '@tabterm/shared';
 import { writeFileAtomic } from '../atomic-write.js';
 import type { Passkey } from './webauthn.js';
+import {
+  makeVapidKeys,
+  pushEndpointAllowed,
+  type PushSubscription,
+  type VapidKeys,
+} from './webpush.js';
 
 /**
  * What remote access remembers: whether it is on, which relay, and the trusted devices.
@@ -22,6 +28,8 @@ export interface TrustedDevice {
   lastSeenAt?: number;
   /** Whether what is typed on it reaches the terminal. Off means it can only watch. */
   typing: boolean;
+  /** Where its notifications go, when it asked for them. */
+  push?: PushSubscription;
 }
 
 /** A link shown as a code, waiting for a device to open it and make its passkey. */
@@ -39,6 +47,8 @@ export interface RemoteState {
   room: string;
   devices: TrustedDevice[];
   pending: PendingPairing[];
+  /** This Mac's key for signing notifications, made the first time a device asks for them. */
+  vapid?: VapidKeys;
 }
 
 /** A pairing link works for this long, once. */
@@ -84,9 +94,36 @@ function sane(raw: unknown): RemoteState {
     relayUrl: str(r['relayUrl'], ''),
     relaySecret: str(r['relaySecret'], ''),
     room: /^[A-Za-z0-9_-]{16,64}$/.test(str(r['room'], '')) ? str(r['room'], '') : base.room,
-    devices: devices.map((d) => ({ ...d, name: str(d.name, 'Device'), typing: d.typing === true })),
+    devices: devices.map((d) => {
+      const { push, ...rest } = d;
+      return {
+        ...rest,
+        name: str(d.name, 'Device'),
+        typing: d.typing === true,
+        ...(saneSubscription(push) ? { push } : {}),
+      };
+    }),
     pending,
+    ...(typeof (r['vapid'] as VapidKeys | undefined)?.publicKey === 'string' &&
+    typeof (r['vapid'] as VapidKeys | undefined)?.privateJwk === 'object'
+      ? { vapid: r['vapid'] as VapidKeys }
+      : {}),
   };
+}
+
+/** A subscription as a device sends it, checked before it is kept or used. */
+export function saneSubscription(raw: unknown): raw is PushSubscription {
+  if (typeof raw !== 'object' || raw === null) return false;
+  const r = raw as Record<string, unknown>;
+  return (
+    typeof r['endpoint'] === 'string' &&
+    r['endpoint'].length < 2048 &&
+    pushEndpointAllowed(r['endpoint']) &&
+    typeof r['p256dh'] === 'string' &&
+    /^[A-Za-z0-9_-]{80,100}$/.test(r['p256dh']) &&
+    typeof r['auth'] === 'string' &&
+    /^[A-Za-z0-9_-]{16,32}$/.test(r['auth'])
+  );
 }
 
 export class RemoteStore {
@@ -168,6 +205,24 @@ export class RemoteStore {
     const device = this.device(deviceId);
     if (!device) return;
     device.typing = typing;
+    this.#save();
+  }
+
+  /** The key devices subscribe with, made once and kept. */
+  vapid(): VapidKeys {
+    if (!this.#state.vapid) {
+      this.#state.vapid = makeVapidKeys();
+      this.#save();
+    }
+    return this.#state.vapid;
+  }
+
+  /** Notifications on, to this address, or off with undefined. */
+  setPush(deviceId: string, push: PushSubscription | undefined): void {
+    const device = this.device(deviceId);
+    if (!device) return;
+    if (push) device.push = { endpoint: push.endpoint, p256dh: push.p256dh, auth: push.auth };
+    else delete device.push;
     this.#save();
   }
 

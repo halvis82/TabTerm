@@ -15,6 +15,7 @@ on, and it goes through a relay you run yourself on Cloudflare's free plan.
 | Follow its output live | Change a terminal's size |
 | Type into it, unless typing is turned off for that device | Touch a setting, a plugin or a layout |
 | See that an agent is asking for something | Read a file, or anything that is not a terminal |
+| Get a notification when an agent starts needing you | |
 
 The right-hand column is not a list of switches. The daemon has no message a browser can send that
 does any of those things, so there is nothing to turn off. See `daemon/src/remote/bridge.ts`.
@@ -82,6 +83,27 @@ There is no account. The list of trusted devices is a file on the Mac,
 A pairing link works **once, for ten minutes**. The code is shown only in Settings on the Mac,
 which only somebody at the Mac can see. Anyone who has the code within those ten minutes can pair,
 so it is for showing to your own device only.
+
+### Notifications
+
+A device can ask to be notified when an agent starts needing somebody, with **Notify me** on its
+list of terminals. The Mac then sends each notification **itself**, straight to that device's push
+service (Apple's for an iPhone, Google's for Chrome, Mozilla's for Firefox), not through the
+relay, and only to a device that is not looking at TabTerm at that moment.
+
+- **Encrypted to the device** (RFC 8291) with keys the device's browser made, so the push service
+  carries it without being able to read it. It says which terminal needs you, and nothing from the
+  screen
+- **Signed by the Mac** (VAPID, RFC 8292) with a key in `remote.json`, so nobody else can send
+  notifications to that device
+- **Only to push services.** A device names where its notifications go, so the Mac sends only to
+  the addresses of the push services that exist, over https. A device cannot make the Mac contact
+  anything else (`daemon/src/remote/webpush.ts`)
+- **One per terminal in 30 seconds**, however often an agent goes back to asking
+- When a push service says a subscription is gone, the Mac forgets it, and Settings stops showing
+  **Gets notifications** for that device. Pressing **Notifications on** on the device turns them off
+
+The cost on the Mac is one https request per notification. Nothing runs between them.
 
 ### Other limits
 
@@ -161,9 +183,18 @@ storage, apart from Safari's, so it is paired on its own:
 
 From then on, opening the page asks to **Unlock**, and shows your terminals.
 
+**Notifications.** On the list of terminals, press **Notify me** and allow notifications. On an
+iPhone this is offered only in the app added to the Home Screen, which is where iOS allows a web
+page to notify. Tapping a notification opens that terminal, after unlocking.
+
+**A wide terminal on a phone.** The text stays readable and the terminal scrolls sideways. **Fit**
+shows the whole width instead, however small that makes the text. **A-** and **A+** change the
+size when Fit is off.
+
 ### Managing devices
 
-Settings, Remote access lists every trusted device with when it was added and last used.
+Settings, Remote access lists every trusted device with when it was added and last used, and
+whether it gets notifications.
 
 - **Can type** off makes it watch only. Its key bar goes away at once
 - **Remove** cuts it off at once and forgets it. It can be paired again with a new code
@@ -179,7 +210,12 @@ Devices stay paired.
   the real bridge and store, and a browser played by the test with a software passkey. Pairing,
   unlocking, a wrong passkey, a stranger, a spent link, watch-only devices, removal, and that no
   message a browser can send ends, opens or resizes anything
+- `daemon/src/remote/webpush.test.ts`: the encryption reproduces the worked example in RFC 8291
+  byte for byte, the VAPID token verifies, and nothing is sent to an address that is not a push
+  service
 - `test/remote/e2e.mjs`: a daemon of its own, the real page in headless Chrome at phone size, and
   Chrome's virtual authenticator for Face ID. A desktop view stays attached at 120 by 40 throughout
-  and the run fails if anything the phone does changes that size. Run it with
+  and the run fails if anything the phone does changes that size. It also subscribes that Chrome
+  to Google's push service and has an agent ask for approval, and checks the push service accepts
+  the notification the Mac sends. Run it with
   `node test/remote/e2e.mjs`

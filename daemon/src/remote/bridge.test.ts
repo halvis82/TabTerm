@@ -1,3 +1,4 @@
+import { createECDH } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -199,8 +200,21 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+let pushes: { url: string; init: RequestInit }[] = [];
+let pushStatus = 201;
+
 function connected(host: RemoteHost, secret = SECRET): RemoteControl {
-  const c = new RemoteControl(dir, host, (s) => states.push(s));
+  pushes = [];
+  pushStatus = 201;
+  const c = new RemoteControl(
+    dir,
+    host,
+    (s) => states.push(s),
+    (url, init) => {
+      pushes.push({ url, init });
+      return Promise.resolve({ status: pushStatus });
+    },
+  );
   c.configure({ enabled: true, relayUrl: relay.url, relaySecret: secret });
   control = c;
   return c;
@@ -409,3 +423,101 @@ function roomOf(stateDir: string): string {
   // The room is in the store's file. Read rather than exposed, since nothing else needs it.
   return (JSON.parse(readFileSync(join(stateDir, 'remote.json'), 'utf8')) as { room: string }).room;
 }
+
+describe('notifications when an agent needs somebody', () => {
+  const ua = createECDH('prime256v1');
+  ua.generateKeys();
+  const subscription = {
+    endpoint: 'https://web.push.apple.com/QGuQyavXutnMH',
+    p256dh: ua.getPublicKey().toString('base64url'),
+    auth: Buffer.alloc(16, 3).toString('base64url'),
+  };
+  const flip = (fake: ReturnType<typeof fakeHost>, needsYou: boolean): void => {
+    const pane = fake.tabs[0]?.panes[0];
+    if (pane) pane.needsYou = needsYou;
+    fake.changed();
+  };
+  const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 150));
+
+  async function subscribed() {
+    const fake = fakeHost();
+    const c = connected(fake.host);
+    await until(() => c.state.status === 'connected');
+    const { b } = await paired(c);
+    b.send({ t: 'notify', subscription });
+    await until(() => b.last('notify')?.['on'] === true);
+    return { fake, c, b };
+  }
+
+  it('a device turns them on with its push address, and Settings shows it', async () => {
+    const fake = fakeHost();
+    const c = connected(fake.host);
+    await until(() => c.state.status === 'connected');
+    const { b } = await paired(c);
+    expect(b.last('ready')?.['vapid']).toMatch(/^[\w-]{87}$/);
+    expect(b.last('ready')?.['notify']).toBe(false);
+    b.send({ t: 'notify', subscription });
+    expect(await until(() => b.last('notify')?.['on'] === true)).toBe(true);
+    expect(c.state.devices[0]?.notify).toBe(true);
+  });
+
+  it('is not sent to a device looking at TabTerm, and is once it looks away', async () => {
+    const { fake, b } = await subscribed();
+    flip(fake, true);
+    await settle();
+    expect(pushes).toHaveLength(0);
+    // Out of sight now. s2, which was waiting before any of this, stops and starts again.
+    b.send({ t: 'visible', visible: false });
+    await settle();
+    const s2 = fake.tabs[0]?.panes[1];
+    if (s2) s2.needsYou = false;
+    fake.changed();
+    if (s2) s2.needsYou = true;
+    fake.changed();
+    expect(await until(() => pushes.length === 1)).toBe(true);
+  });
+
+  it('goes to a device with nothing open, encrypted, and only once in a while', async () => {
+    const { fake, c, b } = await subscribed();
+    b.close();
+    await until(() => c.state.browsers === 0);
+
+    flip(fake, true);
+    expect(await until(() => pushes.length === 1)).toBe(true);
+    const push = pushes[0];
+    expect(push?.url).toBe(subscription.endpoint);
+    const headers = push?.init.headers as Record<string, string>;
+    expect(headers['content-encoding']).toBe('aes128gcm');
+    expect(headers['authorization']).toMatch(/^vapid t=.+, k=/);
+    expect(Buffer.from(push?.init.body as Uint8Array).toString('latin1')).not.toContain('needs');
+
+    // Straight back to asking does not send another, and s2, waiting all along, sent none.
+    flip(fake, false);
+    flip(fake, true);
+    await settle();
+    expect(pushes).toHaveLength(1);
+  });
+
+  it('forgets a subscription the push service says is gone', async () => {
+    const { fake, c, b } = await subscribed();
+    b.close();
+    await until(() => c.state.browsers === 0);
+    pushStatus = 410;
+    flip(fake, true);
+    expect(await until(() => c.state.devices[0]?.notify === false)).toBe(true);
+  });
+
+  it('refuses an address that is not a push service, and turns off when asked', async () => {
+    const fake = fakeHost();
+    const c = connected(fake.host);
+    await until(() => c.state.status === 'connected');
+    const { b } = await paired(c);
+    b.send({ t: 'notify', subscription: { ...subscription, endpoint: 'https://127.0.0.1/x' } });
+    b.send({ t: 'notify', subscription });
+    expect(await until(() => b.last('notify')?.['on'] === true)).toBe(true);
+    expect(b.messages.filter((m) => m['t'] === 'notify')).toHaveLength(1);
+    b.send({ t: 'notify', subscription: null });
+    expect(await until(() => b.last('notify')?.['on'] === false)).toBe(true);
+    expect(c.state.devices[0]?.notify).toBe(false);
+  });
+});

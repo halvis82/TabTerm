@@ -328,8 +328,9 @@ string `relayUrl` and `relaySecret`, `remote-pair`, and `remote-device` with `de
 boolean `typing`, string `name` or `forget: true`. Each is answered with `remote-state`, which is
 also sent to every client whenever it changes. It carries whether remote access is on, the relay
 address, whether a secret is set, the connection status, how many devices are connected and the
-trusted devices. It never carries the secret or any key. `remote-pair` is also answered with
-`remote-pairing`: the link for a new device and when it expires.
+trusted devices, with whether each gets notifications. It never carries the secret or any key.
+`remote-pair` is also answered with `remote-pairing`: the link for a new device and when it
+expires.
 
 A remote browser never speaks this protocol. It reaches the daemon through the relay and speaks the
 sealed protocol in `shared/src/remote.ts`, which offers listing, watching and typing only. See

@@ -758,7 +758,8 @@ function buildRemote(options: SettingsOptions): HTMLElement | null {
       when.className = 'set-desc';
       when.textContent =
         `Added ${new Date(device.addedAt).toLocaleDateString()}` +
-        (device.lastSeenAt === undefined ? '' : ` · Last used ${ago(device.lastSeenAt)}`);
+        (device.lastSeenAt === undefined ? '' : ` · Last used ${ago(device.lastSeenAt)}`) +
+        (device.notify === true ? ' · Gets notifications' : '');
       row.append(
         name,
         when,

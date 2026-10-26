@@ -53,6 +53,7 @@ const daemon = spawn(process.execPath, [join(ROOT, 'daemon/dist/main.js')], {
     ...process.env,
     TABTERM_HOME: home,
     TABTERM_PORT: PORT,
+    TABTERM_AGENT_PORT: String(Number(PORT) + 1),
     TABTERM_NO_NOTIFICATIONS: '1',
     TABTERM_HOST_FORCE_STOP: '1',
   },
@@ -259,6 +260,91 @@ await until(() => settings.last('remote-state')?.state.devices.length === 1);
 ok('the Mac lists the device', settings.last('remote-state')?.state.devices.length === 1);
 await snap('2-list');
 
+// The Home Screen pieces: an icon, and the worker that shows notifications.
+ok(
+  'serves a Home Screen icon and the notification worker',
+  await ev(
+    `Promise.all([fetch('/icon.png'), fetch('/sw.js'), fetch('/manifest.webmanifest').then((r) => r.json())]).then(([i, w, m]) => i.headers.get('content-type') === 'image/png' && w.headers.get('content-type').startsWith('text/javascript') && m.icons[0].src === '/icon.png')`,
+  ),
+);
+// Notifications. Headless Chrome has no push service of its own to subscribe with, so this goes as
+// far as Chrome goes: the button, the permission, the worker installed. A real subscription and
+// delivery are checked by the unit tests against a stand in push service, and on a real phone.
+ok('offers notifications', await ev(`!document.getElementById('notify').hidden`));
+await cdp('Browser.grantPermissions', {
+  permissions: ['notifications'],
+  origin: new URL(relay.url).origin,
+});
+await tap('#notify');
+await until(
+  () =>
+    settings.last('remote-state')?.state.devices[0]?.notify === true ||
+    ev(`!document.getElementById('notify-hint').hidden`),
+  10000,
+);
+const pushNote = settings.last('remote-state')?.state.devices[0]?.notify
+  ? 'subscribed, and the Mac recorded it'
+  : String(await ev(`document.getElementById('notify-hint').textContent`));
+ok(
+  'installs the notification worker when asked',
+  await ev(
+    `navigator.serviceWorker.getRegistration('/').then((r) => !!r && !!(r.active || r.installing || r.waiting))`,
+  ),
+  pushNote,
+);
+
+/*
+ * A real notification, when this Chrome could subscribe: the phone puts TabTerm away, an agent in
+ * the desktop's terminal asks for approval, and the Mac sends it through Google's push service to
+ * this Chrome, whose worker shows it. Nothing of it passes through the relay.
+ */
+if (settings.last('remote-state')?.state.devices[0]?.notify === true) {
+  await page('Page.navigate', { url: 'about:blank' });
+  await until(() => settings.last('remote-state')?.state.browsers === 0, 10000);
+  const hook = (name) =>
+    fetch(`http://127.0.0.1:${Number(PORT) + 1}/agent-event`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-tabterm-token': token },
+      body: JSON.stringify({ sessionId, hook: name }),
+    });
+  await hook('UserPromptSubmit');
+  await sleep(300);
+  await hook('PermissionRequest');
+  // What the daemon said it did, for when nothing arrives.
+  const notifyLog = () => {
+    try {
+      return readFileSync(join(home, '.local/state/tabterm/logs/daemon.log'), 'utf8')
+        .split('\n')
+        .filter((l) => l.includes('remote.notify') || l.includes('remote.push'))
+        .join(' | ');
+    } catch {
+      return 'no log';
+    }
+  };
+  await page('Page.navigate', { url: new URL(relay.url).origin + '/' });
+  const shown = async () =>
+    ev(
+      `navigator.serviceWorker.ready.then((r) => r.getNotifications()).then((n) => n.map((x) => x.title + ': ' + x.body).join(' | '))`,
+    );
+  const delivered = await until(async () => /needs you/.test(String(await shown())), 30000);
+  ok(
+    'an agent asking sends a notification the push service accepts',
+    /"status":(201|404|410)\b/.test(notifyLog()),
+    notifyLog(),
+  );
+  // Delivery from there is Google's, to a headless Chrome made a minute ago, which it sometimes
+  // expires at once. Reported, not counted: a real phone is where this is decided.
+  console.error(
+    delivered
+      ? `note: the notification arrived and was shown: ${String(await shown())}`
+      : 'note: the push service took it, and this headless Chrome did not show it in 30 s',
+  );
+  await hook('Stop');
+  await until(() => ev(`!document.getElementById('unlock').hidden`));
+  await tap('#unlock');
+  await until(() => ev(`document.body.dataset.screen === 'list'`));
+}
+
 await tap('.pane');
 ok(
   'opens the terminal with what is already on it',
@@ -268,6 +354,19 @@ ok(
   'at the Mac size',
   (await ev(`window.__remote.term.cols + 'x' + window.__remote.term.rows`)) === '120x40',
 );
+
+// 120 columns on a phone: readable and scrolling sideways, or fitted with Fit.
+const fontPx = () => ev(`window.__remote.term.options.fontSize`);
+const readable = await fontPx();
+await tap('#fit');
+const fitted = await fontPx();
+const fitsAcross = await ev(
+  `document.querySelector('#term .xterm-screen').getBoundingClientRect().width <= document.getElementById('term-wrap').clientWidth`,
+);
+ok('Fit fits the whole width', fitted < readable && fitsAcross, `${readable}px, then ${fitted}px`);
+await snap('3a-fit');
+await tap('#fit');
+ok('and pressed again, back to readable', (await fontPx()) === readable);
 
 // Typing on the phone reaches the shell, and the answer comes back to both.
 await ev(

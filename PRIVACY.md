@@ -102,6 +102,13 @@ trusted devices, their public keys and the relay secret are stored on your Mac o
 off at once. Turning remote access off stops every connection. The extension itself makes no new
 connections for this, and needs no new permission.
 
+**Notifications**, if you turn them on for a device, are sent by the companion program straight to
+that device's push service: Apple's for an iPhone or iPad, Google's for Chrome, Mozilla's for
+Firefox. Each is encrypted to your device, so the push service cannot read it, and it says only
+which terminal needs you. The push service sees that your Mac sent your device a notification, and
+when. Nothing else is sent to it, and nothing is sent unless you pressed **Notify me** on that
+device.
+
 ---
 
 ## Optional companion updates

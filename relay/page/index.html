@@ -9,6 +9,8 @@
     <meta name="theme-color" content="#0d1117" />
     <meta name="referrer" content="no-referrer" />
     <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icon.png" />
+    <link rel="icon" href="/icon.png" />
     <title>TabTerm</title>
     <style>
       /*XTERM_CSS*/
@@ -239,6 +241,18 @@
         background: var(--raised);
         padding: 0 10px;
       }
+      .icon-button[aria-pressed='true'] {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      .icon-button:disabled {
+        opacity: 0.4;
+      }
+      #notify-hint {
+        margin: 12px 16px 0;
+        color: var(--dim);
+        font-size: 13px;
+      }
       #term-wrap {
         flex: 1;
         min-height: 0;
@@ -299,7 +313,11 @@
       <header>
         <h1>TabTerm</h1>
         <span id="device-name"></span>
+        <button id="notify" class="icon-button" type="button" aria-pressed="false" hidden>
+          Notify me
+        </button>
       </header>
+      <p id="notify-hint" hidden></p>
       <div id="tabs"></div>
     </main>
 
@@ -309,6 +327,15 @@
           Back
         </button>
         <h1 id="term-title"></h1>
+        <button
+          id="fit"
+          class="icon-button"
+          type="button"
+          aria-pressed="false"
+          aria-label="Fit the whole width"
+        >
+          Fit
+        </button>
         <button id="zoom-out" class="icon-button" type="button" aria-label="Smaller text">
           A-
         </button>

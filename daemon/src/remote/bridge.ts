@@ -18,8 +18,14 @@ import {
   type RemoteTab,
 } from '@tabterm/shared';
 import { info, warn } from '../log.js';
-import type { RemoteStore, TrustedDevice, PendingPairing } from './store.js';
+import {
+  saneSubscription,
+  type RemoteStore,
+  type TrustedDevice,
+  type PendingPairing,
+} from './store.js';
 import { verifyAssertion, verifyRegistration, type Expected } from './webauthn.js';
+import { sendPush, type Fetch } from './webpush.js';
 
 /**
  * The daemon's side of remote access: one outgoing connection to the relay, and every browser
@@ -68,6 +74,8 @@ const MAX_INPUT = 64 * 1024;
 /** Failed unlocks before a device is refused for a while. */
 const MAX_FAILURES = 5;
 const FAILURE_COOLDOWN_MS = 5 * 60_000;
+/** One notification per terminal in this long, however often an agent flips back to asking. */
+const NOTIFY_GAP_MS = 30_000;
 
 type Phase = 'hello' | 'unlock' | 'ready';
 
@@ -84,6 +92,8 @@ interface Browser {
   behind: boolean;
   /** Being let go: its last message, saying why, may still go out. */
   leaving?: boolean;
+  /** Whether its page is on screen, as it last said. A page out of sight gets notifications. */
+  visible: boolean;
   chain: Promise<void>;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -101,15 +111,21 @@ export class RemoteBridge {
   #stopped = true;
   #unsubscribe: (() => void)[] = [];
   #onStatus: (status: BridgeStatus) => void;
+  readonly #fetch: Fetch | undefined;
+  /** Terminals whose agent needs somebody right now, so only a change is notified. */
+  #needing = new Set<string>();
+  readonly #notifiedAt = new Map<string, number>();
 
   constructor(
     host: RemoteHost,
     store: RemoteStore,
     onStatus: (s: BridgeStatus) => void = () => {},
+    pushFetch?: Fetch,
   ) {
     this.#host = host;
     this.#store = store;
     this.#onStatus = onStatus;
+    this.#fetch = pushFetch;
   }
 
   get status(): BridgeStatus {
@@ -130,6 +146,8 @@ export class RemoteBridge {
         }
       }),
     ];
+    // What already needs somebody when this starts is not news.
+    this.#needing = this.#needingNow();
     this.#connect();
   }
 
@@ -278,6 +296,7 @@ export class RemoteBridge {
       streams: new Map(),
       pendingOut: new Map(),
       behind: false,
+      visible: true,
       chain: Promise.resolve(),
       timer: setTimeout(() => {
         if (b.phase !== 'ready') this.#drop(b, 'too-slow');
@@ -381,6 +400,22 @@ export class RemoteBridge {
       case 'ping':
         this.#send(b, packMessage({ t: 'pong' }));
         return;
+      case 'visible':
+        b.visible = m['visible'] !== false;
+        return;
+      case 'notify': {
+        // Notifications for this device, on with where to send them, or off with null.
+        const device = b.device;
+        if (!device) return;
+        const sub = m['subscription'];
+        if (sub === null) this.#store.setPush(device.id, undefined);
+        else if (saneSubscription(sub)) this.#store.setPush(device.id, sub);
+        else return;
+        b.device = this.#store.device(device.id) ?? device;
+        this.#send(b, packMessage({ t: 'notify', on: b.device.push !== undefined }));
+        this.#onStatus(this.status);
+        return;
+      }
       default:
         // Anything else is not something a browser can ask for, and is ignored.
         return;
@@ -430,7 +465,16 @@ export class RemoteBridge {
     clearTimeout(b.timer);
     b.phase = 'ready';
     info('remote.browser.ready', { device: b.device.id.slice(0, 6) });
-    this.#send(b, packMessage({ t: 'ready', name: b.device.name, typing: b.device.typing }));
+    this.#send(
+      b,
+      packMessage({
+        t: 'ready',
+        name: b.device.name,
+        typing: b.device.typing,
+        notify: b.device.push !== undefined,
+        vapid: this.#store.vapid().publicKey,
+      }),
+    );
     this.#sendTabs(b);
     this.#onStatus(this.status);
   }
@@ -456,6 +500,73 @@ export class RemoteBridge {
 
   #tabsChanged(): void {
     for (const b of this.#browsers.values()) if (b.phase === 'ready') this.#sendTabs(b);
+    this.#notifyNewlyNeeding();
+  }
+
+  // --- notifications -------------------------------------------------------------------------
+
+  #needingNow(): Set<string> {
+    const out = new Set<string>();
+    for (const tab of this.#host.tabs()) {
+      for (const p of tab.panes) if (p.needsYou) out.add(p.sessionId);
+    }
+    return out;
+  }
+
+  /**
+   * An agent just started needing somebody: every device that asked for notifications and is not
+   * looking at TabTerm right now gets one. Sent from here to the device's push service, encrypted
+   * to the device, so the relay is not involved and the push service cannot read it.
+   */
+  #notifyNewlyNeeding(): void {
+    const tabs = this.#host.tabs();
+    const now = new Set<string>();
+    const fresh: { sessionId: string; title: string; body: string }[] = [];
+    for (const tab of tabs) {
+      for (const p of tab.panes) {
+        if (!p.needsYou) continue;
+        now.add(p.sessionId);
+        if (this.#needing.has(p.sessionId)) continue;
+        const last = this.#notifiedAt.get(p.sessionId) ?? 0;
+        if (Date.now() - last < NOTIFY_GAP_MS) continue;
+        this.#notifiedAt.set(p.sessionId, Date.now());
+        fresh.push({
+          sessionId: p.sessionId,
+          title: tab.title === p.title ? 'TabTerm' : tab.title,
+          body: `${p.title} needs you`,
+        });
+      }
+    }
+    this.#needing = now;
+    if (fresh.length === 0) return;
+    const looking = new Set<string>();
+    for (const b of this.#browsers.values()) {
+      if (b.phase === 'ready' && b.visible && b.device) looking.add(b.device.id);
+    }
+    const relay = this.#store.state.relayUrl;
+    const subject = relay.startsWith('https://')
+      ? new URL(relay).origin
+      : 'mailto:tabterm@localhost';
+    for (const device of this.#store.state.devices) {
+      const sub = device.push;
+      if (!sub || looking.has(device.id)) continue;
+      for (const n of fresh) {
+        void sendPush(
+          sub,
+          { title: n.title, body: n.body, session: n.sessionId },
+          this.#store.vapid(),
+          subject,
+          this.#fetch,
+        ).then((result) => {
+          info('remote.notify', { device: device.id.slice(0, 6), result });
+          // Unsubscribed on the device, or expired: forgotten, and Settings says so.
+          if (result === 'gone' && this.#store.device(device.id)?.push?.endpoint === sub.endpoint) {
+            this.#store.setPush(device.id, undefined);
+            this.#onStatus(this.status);
+          }
+        });
+      }
+    }
   }
 
   #watch(b: Browser, sessionId: string): void {

@@ -1439,7 +1439,15 @@ export interface RemoteAccessState {
   detail?: string;
   /** Browsers unlocked and connected right now. */
   browsers: number;
-  devices: { id: string; name: string; addedAt: number; lastSeenAt?: number; typing: boolean }[];
+  devices: {
+    id: string;
+    name: string;
+    addedAt: number;
+    lastSeenAt?: number;
+    typing: boolean;
+    /** Whether it asked for notifications when an agent needs somebody. */
+    notify?: boolean;
+  }[];
 }
 
 // ---------------------------------------------------------------------------

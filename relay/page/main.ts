@@ -163,6 +163,13 @@ const FOCUS_REPORTS = new Set(['\x1b[I', '\x1b[O']);
 let termOpened = false;
 let size = { cols: 80, rows: 24 };
 let zoom = 1;
+/** Fit the whole width however small that makes the text, rather than scroll sideways. */
+let fitAll = false;
+try {
+  fitAll = localStorage.getItem('tabterm.fitAll') === '1';
+} catch {
+  // Storage refused: start readable.
+}
 
 /**
  * The Mac's size, with a font that fits it across the screen when that is still readable.
@@ -175,8 +182,16 @@ const READABLE_PX = 8.5;
 function fitFont(): void {
   const width = $('term-wrap').clientWidth - 8;
   // A monospace cell is close to 0.6 of the font size wide.
-  const fit = Math.max(READABLE_PX, Math.min(15, width / (size.cols * 0.6)));
-  term.options.fontSize = Math.max(5, Math.min(24, fit * zoom));
+  const across = width / (size.cols * 0.6);
+  if (fitAll) {
+    term.options.fontSize = Math.max(3, Math.min(15, across));
+  } else {
+    const fit = Math.max(READABLE_PX, Math.min(15, across));
+    term.options.fontSize = Math.max(5, Math.min(24, fit * zoom));
+  }
+  $('fit').setAttribute('aria-pressed', String(fitAll));
+  $<HTMLButtonElement>('zoom-in').disabled = fitAll;
+  $<HTMLButtonElement>('zoom-out').disabled = fitAll;
 }
 
 function setSize(cols: number, rows: number): void {
@@ -200,6 +215,11 @@ let pendingChallenge: Record<string, unknown> | null = null;
 let retry = 1000;
 /** Set when the Mac said why it is letting go, which outranks the connection closing. */
 let removed = false;
+/** The Mac's key for notifications, and whether this device has them on. */
+let vapid = '';
+let notifyOn = false;
+/** A terminal to open once unlocked, from a notification that was tapped. */
+let openWhenReady: string | null = null;
 
 const send = (message: object): void => {
   const s = sealer;
@@ -288,9 +308,22 @@ async function receive(paired: Paired, bytes: Uint8Array, myNonce: Uint8Array): 
     case 'ready':
       retry = 1000;
       typing = m['typing'] === true;
+      vapid = typeof m['vapid'] === 'string' ? m['vapid'] : '';
+      notifyOn = m['notify'] === true;
+      drawNotify();
+      void refreshNotify().catch(() => undefined);
+      send({ t: 'visible', visible: document.visibilityState === 'visible' });
       $('device-name').textContent = typeof m['name'] === 'string' ? m['name'] : '';
-      if (watching) send({ t: 'watch', sessionId: watching });
+      if (openWhenReady) {
+        const target = openWhenReady;
+        openWhenReady = null;
+        openPane(target);
+      } else if (watching) send({ t: 'watch', sessionId: watching });
       else show('list');
+      return;
+    case 'notify':
+      notifyOn = m['on'] === true;
+      drawNotify();
       return;
     case 'tabs':
       tabs = Array.isArray(m['tabs']) ? (m['tabs'] as RemoteTab[]) : [];
@@ -398,6 +431,81 @@ async function unlock(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+/**
+ * Notifications come from the Mac through the device's own push service, encrypted to this
+ * device, and only say which terminal needs you. On an iPhone they need the page added to the Home
+ * Screen, which is the only place iOS lets a web page have them.
+ */
+function pushSupported(): boolean {
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+}
+
+function flat(sub: PushSubscription): object {
+  const json = sub.toJSON();
+  return { endpoint: json.endpoint, p256dh: json.keys?.['p256dh'], auth: json.keys?.['auth'] };
+}
+
+/**
+ * The Mac is told this device's subscription each time it connects, since a browser may replace
+ * one on its own. And if the browser no longer has one, the Mac stops sending to the old address.
+ */
+async function refreshNotify(): Promise<void> {
+  if (!notifyOn || !pushSupported()) return;
+  const reg = await navigator.serviceWorker.getRegistration('/');
+  const sub = await reg?.pushManager.getSubscription();
+  send({ t: 'notify', subscription: sub ? flat(sub) : null });
+}
+
+function drawNotify(): void {
+  const button = $<HTMLButtonElement>('notify');
+  const hint = $('notify-hint');
+  const supported = pushSupported() && vapid !== '';
+  button.hidden = !supported;
+  button.textContent = notifyOn ? 'Notifications on' : 'Notify me';
+  button.setAttribute('aria-pressed', String(notifyOn));
+  const iphone = /iPhone|iPad/.test(navigator.userAgent);
+  hint.hidden = supported || !iphone;
+  hint.textContent =
+    'To get a notification when an agent needs you, add this page to your Home Screen and open it from there.';
+}
+
+async function toggleNotify(): Promise<void> {
+  const button = $<HTMLButtonElement>('notify');
+  button.disabled = true;
+  try {
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    await navigator.serviceWorker.ready;
+    const existing = await reg.pushManager.getSubscription();
+    if (notifyOn) {
+      await existing?.unsubscribe();
+      send({ t: 'notify', subscription: null });
+      return;
+    }
+    if ((await Notification.requestPermission()) !== 'granted') {
+      $('notify-hint').hidden = false;
+      $('notify-hint').textContent = 'Notifications are turned off for this page in your settings.';
+      return;
+    }
+    // Always a fresh one: an old one may be for another Mac, or one the push service let go.
+    await existing?.unsubscribe();
+    const key = new Uint8Array(fromBase64Url(vapid));
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: key,
+    });
+    send({ t: 'notify', subscription: flat(sub) });
+  } catch {
+    $('notify-hint').hidden = false;
+    $('notify-hint').textContent = 'This browser would not turn on notifications.';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // The list
 // ---------------------------------------------------------------------------
 
@@ -482,6 +590,20 @@ function wire(paired: Paired): void {
     zoom = Math.max(0.5, zoom / 1.25);
     fitFont();
   });
+  $('fit').addEventListener('click', () => {
+    fitAll = !fitAll;
+    try {
+      localStorage.setItem('tabterm.fitAll', fitAll ? '1' : '0');
+    } catch {
+      // Not remembered, which is fine.
+    }
+    fitFont();
+  });
+  $('notify').addEventListener('click', () => void toggleNotify());
+  // A notification tapped while this page is open already.
+  navigator.serviceWorker?.addEventListener('message', (e: MessageEvent<{ open?: unknown }>) => {
+    if (typeof e.data.open === 'string' && e.data.open) openPane(e.data.open);
+  });
   $('type').addEventListener('click', () => term.focus());
   const keys: Record<string, string> = {
     esc: '\x1b',
@@ -505,6 +627,7 @@ function wire(paired: Paired): void {
    */
   let hiddenAt = 0;
   document.addEventListener('visibilitychange', () => {
+    send({ t: 'visible', visible: document.visibilityState === 'visible' });
     if (document.visibilityState === 'hidden') {
       hiddenAt = Date.now();
       return;
@@ -517,6 +640,12 @@ function wire(paired: Paired): void {
 
 async function start(): Promise<void> {
   show('lock');
+  // Opened from a notification: that terminal, once unlocked.
+  const opening = /^#open=([\w-]{1,64})$/.exec(location.hash);
+  if (opening) {
+    openWhenReady = opening[1] ?? null;
+    history.replaceState(null, '', location.pathname);
+  }
   const fragment = readPairing(location.hash);
   if (fragment) {
     // Kept as a key nothing can read back, and taken out of the address bar and history at once.

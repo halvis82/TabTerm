@@ -2,6 +2,7 @@ import { pairingLink, type RemoteAccessState } from '@tabterm/shared';
 import { info } from '../log.js';
 import { RemoteBridge, type BridgeStatus, type RemoteHost } from './bridge.js';
 import { PAIRING_TTL_MS, RemoteStore } from './store.js';
+import type { Fetch } from './webpush.js';
 
 /**
  * Remote access, as Settings drives it.
@@ -16,11 +17,19 @@ export class RemoteControl {
   readonly #onChange: (state: RemoteAccessState) => void;
   #bridge: RemoteBridge | undefined;
   #status: BridgeStatus = { state: 'off', browsers: 0 };
+  readonly #pushFetch: Fetch | undefined;
 
-  constructor(stateDir: string, host: RemoteHost, onChange: (state: RemoteAccessState) => void) {
+  constructor(
+    stateDir: string,
+    host: RemoteHost,
+    onChange: (state: RemoteAccessState) => void,
+    /** Stands in for the push services in tests. */
+    pushFetch?: Fetch,
+  ) {
     this.#store = new RemoteStore(stateDir);
     this.#host = host;
     this.#onChange = onChange;
+    this.#pushFetch = pushFetch;
     this.#apply();
   }
 
@@ -39,6 +48,7 @@ export class RemoteControl {
         addedAt: d.addedAt,
         ...(d.lastSeenAt === undefined ? {} : { lastSeenAt: d.lastSeenAt }),
         typing: d.typing,
+        notify: d.push !== undefined,
       })),
     };
   }
@@ -54,10 +64,15 @@ export class RemoteControl {
     this.#bridge = undefined;
     this.#status = { state: 'off', browsers: 0 };
     if (this.#ready()) {
-      this.#bridge = new RemoteBridge(this.#host, this.#store, (status) => {
-        this.#status = status;
-        this.#onChange(this.state);
-      });
+      this.#bridge = new RemoteBridge(
+        this.#host,
+        this.#store,
+        (status) => {
+          this.#status = status;
+          this.#onChange(this.state);
+        },
+        this.#pushFetch,
+      );
       this.#bridge.start();
       info('remote.on', {});
     } else if (this.#store.state.enabled) {

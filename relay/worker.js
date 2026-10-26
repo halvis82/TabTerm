@@ -15,6 +15,7 @@
  * sent to them can be read.
  */
 import PAGE from './page.html';
+import ICON from './icon.png';
 
 const MAX_FRAME = 1 << 20;
 const MAX_BROWSERS = 8;
@@ -47,6 +48,7 @@ async function pageHeaders() {
       "connect-src 'self'",
       "img-src 'self' data:",
       "manifest-src 'self'",
+      "worker-src 'self'",
       "base-uri 'none'",
       "form-action 'none'",
       "frame-ancestors 'none'",
@@ -65,7 +67,41 @@ const MANIFEST = JSON.stringify({
   display: 'standalone',
   background_color: '#0d1117',
   theme_color: '#0d1117',
+  icons: [{ src: '/icon.png', sizes: '180x180', type: 'image/png' }],
 });
+
+/**
+ * Shows the notifications the Mac sends when an agent needs somebody. The Mac encrypts each one to
+ * this device, and the push service hands it here, so the relay never carries one. It does nothing
+ * else: no caching and no requests, so the page is always the one the relay serves.
+ */
+const SERVICE_WORKER = `
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch {}
+  const session = typeof d.session === 'string' ? d.session : '';
+  e.waitUntil(self.registration.showNotification(String(d.title || 'TabTerm'), {
+    body: String(d.body || 'An agent needs you'),
+    tag: session || 'tabterm',
+    icon: '/icon.png',
+    data: { session },
+  }));
+});
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const session = (e.notification.data && e.notification.data.session) || '';
+  e.waitUntil((async () => {
+    const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    if (open.length > 0) {
+      open[0].postMessage({ open: session });
+      return open[0].focus();
+    }
+    return self.clients.openWindow(session ? '/#open=' + encodeURIComponent(session) : '/');
+  })());
+});
+`;
 
 export default {
   async fetch(req, env) {
@@ -75,6 +111,20 @@ export default {
     }
     if (url.pathname === '/manifest.webmanifest') {
       return new Response(MANIFEST, { headers: { 'content-type': 'application/manifest+json' } });
+    }
+    if (url.pathname === '/sw.js') {
+      return new Response(SERVICE_WORKER, {
+        headers: {
+          'content-type': 'text/javascript; charset=utf-8',
+          'cache-control': 'no-cache',
+          'content-security-policy': "default-src 'none'; img-src 'self'",
+        },
+      });
+    }
+    if (url.pathname === '/icon.png') {
+      return new Response(ICON, {
+        headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400' },
+      });
     }
     const m = url.pathname.match(/^\/ws\/(daemon|browser)\/([A-Za-z0-9_-]{16,64})$/);
     if (!m) return new Response('Not found', { status: 404 });

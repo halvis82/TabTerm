@@ -84,11 +84,11 @@ export async function startRelay({ secret, port = 0, host = '127.0.0.1' } = {}) 
     }
   };
   const page = readFileSync(`${RELAY}page.html`, 'utf8');
-  const source = readFileSync(`${RELAY}worker.js`, 'utf8').replace(
-    "import PAGE from './page.html';",
-    'const PAGE = globalThis.__tabtermRelayPage;',
-  );
+  const source = readFileSync(`${RELAY}worker.js`, 'utf8')
+    .replace("import PAGE from './page.html';", 'const PAGE = globalThis.__tabtermRelayPage;')
+    .replace("import ICON from './icon.png';", 'const ICON = globalThis.__tabtermRelayIcon;');
   globalThis.__tabtermRelayPage = page;
+  globalThis.__tabtermRelayIcon = new Uint8Array(readFileSync(`${RELAY}icon.png`)).buffer;
   const mod = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
   const rooms = new Map();
   const env = {
