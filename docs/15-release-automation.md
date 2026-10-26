@@ -82,9 +82,12 @@ Submissions are serialized. Avoid pushing multiple release tags while review is 
 
 ## What the dashboard needs before the next submission
 
-The workflow uploads and submits the package. Some answers on the dashboard's **Privacy practices**
-tab are not part of the package and cannot be set from the API, so they are entered there by hand,
-before the workflow submits. Since 1.2.0, the last version in the store, the manifest gained:
+The workflow uploads and submits the package. Some answers on the dashboard's **Privacy** tab are
+not part of the package and cannot be set from the API, so they are entered there by hand. A box
+for a new permission's reason appears only once a package requesting it has been uploaded, so it is
+filled after the workflow's upload: if submitting stopped because it was empty, fill it and press
+**Submit for review** on the Build tab. Since 1.2.0, the last version in the store, the manifest
+gained:
 
 - **`sidePanel`**, a permission. Chrome shows no warning for it, and the store still asks why it is
   needed. Paste: *"Opens TabTerm's own terminal page in Chrome's side panel, next to the page in
@@ -97,8 +100,10 @@ before the workflow submits. Since 1.2.0, the last version in the store, the man
   code question is asked again, the answer stays **No**: every script and module is in the package
   (`05-security.md`)
 
-The single purpose, the data use answers and the other permissions' reasons are unchanged from
-1.2.0. `docs/chrome-web-store-review.md` is the reviewer's guide, and has a step for each of these.
+Two existing reasons change, and can be saved before the upload. **contextMenus** also covers the
+toolbar icon's Open a terminal beside this page. **clipboardWrite** also covers a program's own copy
+(`OSC 52`), which Settings can turn off, and never a program reading the clipboard. The single
+purpose, the data use answers and the other permissions' reasons are unchanged from 1.2.0. `docs/chrome-web-store-review.md` is the reviewer's guide, and has a step for each of these.
 
 ## Failure and retry
 
