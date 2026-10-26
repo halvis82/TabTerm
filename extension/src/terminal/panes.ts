@@ -7,6 +7,7 @@ import { loadHighlights, saveHighlights } from './highlights.js';
 import { DEFAULT_COLOR } from './color-store.js';
 import { CommandBlocks, type OutputBlock } from './command-output.js';
 import { parseOsc52 } from './osc52.js';
+import { parseProgress, type Progress } from './progress.js';
 
 /**
  * One terminal per pane.
@@ -34,6 +35,8 @@ export interface PaneHostOptions {
   onProgramCopy?: (paneId: string, text: string) => void;
   /** A program rang the bell. */
   onBell?: (paneId: string) => void;
+  /** A program said how far along it is, or that it is done (`null`). See `progress.ts`. */
+  onProgress?: (paneId: string, progress: Progress | null) => void;
   /** Pane-level entries for the right-click menu, asked for at the moment of the click. */
   menuActions?: (paneId: string) => readonly PaneMenuAction[];
   /** The color a highlight gets on a plain click, and the ones offered in the picker. */
@@ -213,6 +216,13 @@ export class PaneHost {
       if (this.#restoring.has(paneId)) return true;
       const asked = parseOsc52(data);
       if (asked.kind === 'write') this.#opts.onProgramCopy?.(paneId, asked.text);
+      return true;
+    });
+    controller.term.parser.registerOscHandler(9, (data) => {
+      const asked = parseProgress(data);
+      // Any other OSC 9, such as iTerm2's notification, is not this one's.
+      if (asked === undefined) return false;
+      if (!this.#restoring.has(paneId)) this.#opts.onProgress?.(paneId, asked);
       return true;
     });
     controller.term.onBell(() => {

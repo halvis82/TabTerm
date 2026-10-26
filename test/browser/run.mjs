@@ -343,7 +343,11 @@ const COVERS = [
   ['daemon/src/file-slice', ['resume-and-tabs']],
   ['extension/src/terminal/themes', ['light-mode', 'light-panels']],
   ['extension/src/terminal/status-machine', ['agent-favicon', 'split-tab-names']],
-  ['extension/src/terminal/titles', ['split-tab-names', 'the-tab-takes-the-name']],
+  [
+    'extension/src/terminal/titles',
+    ['split-tab-names', 'the-tab-takes-the-name', 'progress-in-the-tab'],
+  ],
+  ['extension/src/terminal/progress', ['progress-in-the-tab']],
   ['extension/src/terminal/wake-redraw', ['steady-size']],
   ['extension/src/terminal/resize-storm', ['steady-size']],
   ['extension/src/terminal/screen-content', ['start-screen-refresh', 'straight-to-view']],

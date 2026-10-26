@@ -1,4 +1,5 @@
 import type { TitleFields } from '@tabterm/shared';
+import type { Progress } from './progress.js';
 
 /**
  * Tab titles and favicons.
@@ -283,6 +284,48 @@ function drawIcon(states: readonly FaviconState[], phase: number): string {
     drawGlyph(g, state, phase, (i + 0.5) * width, size / 2, scale);
   });
 
+  const drawn = canvas.toDataURL('image/png');
+  if (drawnIcons.size > 400) drawnIcons.clear();
+  drawnIcons.set(key, drawn);
+  return drawn;
+}
+
+/**
+ * A program's own progress: the ring a running tab shows, filled as far as the program says it
+ * has got, from the top and clockwise. Red when it reports an error, amber when paused. Drawn
+ * instead of the turning ring, which says something is happening and not how far along it is.
+ */
+export function drawProgressFavicon(progress: Progress): string {
+  const percent = Math.round(progress.percent);
+  const key = `progress:${progress.kind}:${String(percent)}`;
+  const kept = drawnIcons.get(key);
+  if (kept !== undefined) return kept;
+  const size = 32;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const g = canvas.getContext('2d');
+  if (!g) return '';
+  roundRect(g, 0, 0, size, size, 7);
+  g.fillStyle = COLORS[progress.kind === 'error' ? 'failed' : 'running'].bg;
+  g.fill();
+  g.strokeStyle =
+    progress.kind === 'error'
+      ? COLORS.failed.fg
+      : progress.kind === 'paused'
+        ? '#e8c06a'
+        : COLORS.running.fg;
+  g.lineWidth = 3.5;
+  g.lineCap = 'round';
+  g.globalAlpha = 0.3;
+  g.beginPath();
+  g.arc(16, 16, 9, 0, Math.PI * 2);
+  g.stroke();
+  g.globalAlpha = 1;
+  if (percent > 0) {
+    g.beginPath();
+    g.arc(16, 16, 9, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * percent) / 100);
+    g.stroke();
+  }
   const drawn = canvas.toDataURL('image/png');
   if (drawnIcons.size > 400) drawnIcons.clear();
   drawnIcons.set(key, drawn);

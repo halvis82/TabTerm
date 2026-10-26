@@ -1,3 +1,4 @@
+import { tabProgress, type Progress } from './progress.js';
 import type { Concern, CompanionUpdateStatus } from '@tabterm/shared';
 import type { Terminal } from '@xterm/xterm';
 import { UNDO_WINDOW_MS, UndoStack, offerLabel, type UndoOffer } from './undo-offers.js';
@@ -67,6 +68,7 @@ import {
   composeTitle,
   drawFavicon,
   drawSplitFavicon,
+  drawProgressFavicon,
   RING_STEPS,
   type FaviconState,
 } from './titles.js';
@@ -1129,7 +1131,17 @@ function refreshTitle(status?: string): void {
     ...(lastCommandHere ? { lastCommand: lastCommandHere } : {}),
   };
   // With several panes the interesting thing is what needs attention, not the pane count.
-  const said = status ?? titleStatus(paneStatus, count);
+  const progress = shownProgress();
+  const said =
+    status ??
+    (titleStatus(paneStatus, count) ||
+      (progress
+        ? progress.kind === 'error'
+          ? `failed at ${String(Math.round(progress.percent))}%`
+          : progress.kind === 'paused'
+            ? `paused at ${String(Math.round(progress.percent))}%`
+            : `${String(Math.round(progress.percent))}%`
+        : ''));
   /*
    * And when nothing needs attention, something that says which tab this is.
    *
@@ -1507,7 +1519,25 @@ function showPanes(): void {
 /** What the icon shows besides its headline state: one entry, or a slice per state. */
 let faviconPicture: readonly FaviconState[] = ['disconnected'];
 
+/** How far along each pane's program says it is, when it says. See `progress.ts`. */
+const paneProgress = new Map<string, Progress>();
+
+/** The progress this tab shows, from panes that still exist. */
+function shownProgress(): Progress | null {
+  for (const id of paneProgress.keys()) if (!panesHost?.get(id)) paneProgress.delete(id);
+  return tabProgress(paneProgress.values());
+}
+
 function paintFavicon(phase: number): void {
+  /*
+   * A program's own progress, in place of the turning ring that only says something is
+   * happening. Anything that needs a person still outranks it.
+   */
+  const progress = shownProgress();
+  if (progress && !faviconPicture.some((s) => needsAttention(s))) {
+    applyFavicon(drawProgressFavicon(progress));
+    return;
+  }
   applyFavicon(
     faviconPicture.length > 1
       ? drawSplitFavicon(faviconPicture, phase)
@@ -4135,6 +4165,12 @@ function buildHosts(): void {
     onOutputLeave: () => outputCopy.hideSoon(),
     onProgramCopy: (paneId, text) => programCopy(paneId, text),
     onBell: (paneId) => ringBell(paneId),
+    onProgress: (paneId, progress) => {
+      if (progress) paneProgress.set(paneId, progress);
+      else paneProgress.delete(paneId);
+      showPanes();
+      refreshTitle();
+    },
   });
 
   splitView = new SplitView({
@@ -7946,6 +7982,8 @@ function onControl(msg: ServerMessage): void {
         agentSessions.delete(msg.sessionId);
 
         paneStatus.finished(pane.paneId, msg.exitCode);
+        // A program that ended without saying it was done is done.
+        paneProgress.delete(pane.paneId);
         showPanes();
         // Asked for on this session, so the tab says so until somebody notices.
         if (flashing.has(msg.sessionId)) {
@@ -8089,6 +8127,7 @@ function onControl(msg: ServerMessage): void {
          */
         if (endedNow) {
           paneStatus.finished(pane.paneId, msg.state === 'failed' ? 1 : 0);
+          paneProgress.delete(pane.paneId);
           showPanes();
           refreshTitle();
         }

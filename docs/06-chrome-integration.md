@@ -509,6 +509,18 @@ Canvas-generated data URLs assigned to `<link rel="icon">`, except at idle.
 | `waiting` | Amber dot | An agent is waiting for a person |
 | `approval` | Amber dot, ringed | An agent needs approval |
 | `disconnected` | Grey caret | No session |
+| progress | The ring, filled as far as a program says, still | A program reported how far along it is (`OSC 9;4`). Red on error, amber when paused |
+
+**A program that says how far along it is gets a ring filled that far.** `OSC 9 ; 4 ; state ;
+percent` is how Windows Terminal and Ghostty are told, and some build tools, package managers and
+installers send it. The ring fills from the top, clockwise, and holds still, since how far along is
+the news rather than that something is moving. Red when the program reports an error, amber when
+paused, and the title ends in `· 40%`, `· failed at 80%` or `· paused at 10%`. In a tab of several
+panes an error is shown first, then whichever is least far along. A pane that needs a person still
+outranks it. It goes when the program says so, when its command ends, or when the pane closes, so a
+program that crashed halfway does not leave a tab at 40 percent forever. Busy with no idea how far
+(`state 3`) is the ordinary turning ring. Any other `OSC 9`, such as iTerm2's notification, is
+left alone. See `extension/src/terminal/progress.ts`.
 
 **Busy looks busy.** The running mark was a caret with an underline that swept, which at 16
 pixels was the idle icon with a detail nobody could see, and "whenever a command is running or
