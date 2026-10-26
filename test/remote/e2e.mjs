@@ -635,6 +635,23 @@ ok(
   'and stays ready to type after a button',
   await ev2(`document.activeElement?.classList.contains('xterm-helper-textarea')`),
 );
+// The connection drops under an open terminal: it comes back by itself, with the ticket the Mac
+// gave it, and never shows the lock screen or asks for the passkey.
+await ev2(`(() => {
+  window.__screens = [];
+  new MutationObserver(() => window.__screens.push(document.body.dataset.screen)).observe(
+    document.body, { attributes: true, attributeFilter: ['data-screen'] });
+  window.__remote.drop();
+})()`);
+ok(
+  'a dropped connection comes back by itself, without unlocking',
+  (await until(() =>
+    ev2(
+      `window.__remote.state().ready && document.getElementById('reconnecting').hidden && document.body.dataset.screen === 'terminal'`,
+    ),
+  )) && !(await ev2(`window.__screens.includes('lock')`)),
+  await ev2(`JSON.stringify(window.__screens)`),
+);
 // exit in the terminal it is watching: the page says it ended rather than sit on a still screen.
 desk.ws.send(
   encodeFrame({

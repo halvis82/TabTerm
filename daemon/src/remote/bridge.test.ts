@@ -98,7 +98,7 @@ function browser(
   relayUrl: string,
   pairing: { room: string; device: string; key: string },
   passkey: ReturnType<typeof authenticator>,
-  opts: { register?: boolean } = {},
+  opts: { register?: boolean; resume?: string; whileUnlocking?: object } = {},
 ) {
   const socket = new WebSocket(`${relayUrl.replace('http', 'ws')}/ws/browser/${pairing.room}`);
   const nonce = randomBytes(NONCE_BYTES);
@@ -154,7 +154,10 @@ function browser(
           origin,
           rpId: String(m['rpId']),
         };
-        if (m['mode'] === 'register' || opts.register === true) {
+        if (opts.whileUnlocking) send(opts.whileUnlocking);
+        if (opts.resume !== undefined) {
+          send({ t: 'resume', ticket: opts.resume });
+        } else if (m['mode'] === 'register' || opts.register === true) {
           const r = passkey.register(e);
           send({
             t: 'register',
@@ -327,6 +330,69 @@ describe('remote access, end to end', () => {
     expect(await until(() => thief.closed() !== null)).toBe(true);
     expect(thief.has('ready')).toBe(false);
     expect(thief.has('tabs')).toBe(false);
+  });
+
+  it('lets a page whose connection dropped come back without the passkey, once', async () => {
+    const fake = fakeHost();
+    const c = connected(fake.host);
+    await until(() => c.state.status === 'connected');
+    const { b, pairing } = await paired(c);
+    const ticket = String(b.last('ready')?.['resume']);
+    expect(ticket.length).toBeGreaterThan(40);
+    b.close();
+
+    // A passkey that would be refused, so getting in can only be the ticket's doing.
+    const back = browser(relay.url, pairing, authenticator(), { resume: ticket });
+    expect(await until(() => back.has('tabs'))).toBe(true);
+    const next = String(back.last('ready')?.['resume']);
+    expect(next).not.toBe(ticket);
+    back.close();
+
+    const again = browser(relay.url, pairing, authenticator(), { resume: ticket });
+    expect(await until(() => again.closed() !== null)).toBe(true);
+    expect(again.has('ready')).toBe(false);
+  });
+
+  it('takes over from a connection the Mac has not yet seen end', async () => {
+    const fake = fakeHost();
+    const c = connected(fake.host);
+    await until(() => c.state.status === 'connected');
+    const { b, pairing } = await paired(c);
+    const ticket = String(b.last('ready')?.['resume']);
+    const back = browser(relay.url, pairing, authenticator(), { resume: ticket });
+    expect(await until(() => back.has('tabs'))).toBe(true);
+    expect(await until(() => b.last('denied')?.['reason'] === 'resumed')).toBe(true);
+  });
+
+  it('honors no ticket of a device that was removed, or from another device', async () => {
+    const fake = fakeHost();
+    const c = connected(fake.host);
+    await until(() => c.state.status === 'connected');
+    const { b, pairing } = await paired(c);
+    const ticket = String(b.last('ready')?.['resume']);
+    const other = await paired(c);
+    const theirs = browser(relay.url, other.pairing, authenticator(), { resume: ticket });
+    expect(await until(() => theirs.closed() !== null)).toBe(true);
+    expect(theirs.has('ready')).toBe(false);
+
+    b.close();
+    c.device({ deviceId: c.state.devices[0]?.id ?? '', forget: true });
+    // Removed, it is a stranger: nothing the Mac sends opens.
+    const back = browser(relay.url, pairing, authenticator(), { resume: ticket });
+    expect(await until(() => back.failedToOpen() || back.closed() !== null)).toBe(true);
+    expect(back.has('ready')).toBe(false);
+  });
+
+  it('does not count a page going out of sight while it unlocks as a failure', async () => {
+    const fake = fakeHost();
+    const c = connected(fake.host);
+    await until(() => c.state.status === 'connected');
+    const { b, pairing, passkey } = await paired(c);
+    b.close();
+    const back = browser(relay.url, pairing, passkey, {
+      whileUnlocking: { t: 'visible', visible: false },
+    });
+    expect(await until(() => back.has('tabs'))).toBe(true);
   });
 
   it('gives a stranger nothing: an id nobody issued opens nothing', async () => {

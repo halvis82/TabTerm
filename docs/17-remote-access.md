@@ -78,13 +78,26 @@ frame carries a counter that must only go up, so a frame cannot be replayed with
 
 What the relay can see: that a device connected, when, and how many bytes went each way.
 
-### Unlocked by the device's owner, every time
+### Unlocked by the device's owner
 
 A key on a phone somebody else picks up is still a key. So pairing also makes a **passkey** on the
 device, and the device will only use it after Face ID, Touch ID or its passcode. Every connection
 asks it to sign a fresh challenge, and the daemon checks the signature against the public key it
 kept at pairing (`daemon/src/remote/webauthn.ts`). The daemon requires user verification, the
 right site and origin, a fresh challenge, and a signature counter that never goes backwards.
+
+**A dropped connection comes back without the passkey.** Each unlock gets a resume ticket from
+the Mac: 32 random bytes, sent inside the encrypted connection, so the relay never sees one, and
+kept by the page in memory only. When the connection drops, by the network or by the relay
+letting go of the Mac for a moment, the page keeps showing what it was showing, says
+**Reconnecting**, and comes back with the ticket instead of Face ID. A ticket:
+
+- works once, and the Mac gives a new one each time it is used
+- belongs to one device, and is no good with any other device's key
+- runs out ten minutes after its connection ended
+- is gone when the page is closed or reloaded, when it was out of sight for two minutes, when the
+  device is removed, when remote access is turned off, and when the daemon restarts. Each of those
+  unlocks with the passkey again
 
 There is no account. The list of trusted devices is a file on the Mac,
 `~/.local/state/tabterm/remote.json`, readable by you only.
@@ -128,9 +141,11 @@ The cost on the Mac is one https request per notification. Nothing runs between 
   the relay once and entered in Settings once, stored in the same `0600` file, and never sent back
   to the page. Nobody needs to remember it, and devices never use it. To change it, set a new one
   on the relay and enter it in Settings
-- **Failed unlocks** are counted per device: five, and that device is refused for five minutes
+- **Failed unlocks** are counted per device: five, and that device is refused for five minutes.
+  A page going out of sight while it unlocks, which Face ID can cause, is not a failed unlock
 - **A device that has not unlocked within a minute** is let go
-- **A device out of sight** for two minutes closes its connection, so the next look unlocks again
+- **A device out of sight** for two minutes closes its connection and drops its resume ticket, so
+  the next look unlocks again
 - **Removing a device** in Settings cuts its open connections at once
 - **A slow device cannot slow the Mac.** Output is never held back for it. A device that falls too
   far behind stops being sent output and is sent the whole screen once it catches up
@@ -260,7 +275,10 @@ Devices stay paired.
   the real bridge and store, and a browser played by the test with a software passkey. Pairing,
   unlocking, a wrong passkey, a stranger, a spent link, watch-only devices, removal, and that no
   message a browser can send ends, opens or resizes anything
-- `test/remote/e2e.mjs`: the page in a real browser. A device holding a pairing the Mac does not
+- `daemon/src/remote/bridge.test.ts`: a resume ticket works once, for its own device only, not
+  after the device is removed, and takes over from a connection the Mac has not seen end
+- `test/remote/e2e.mjs`: the page in a real browser. A connection dropped under an open terminal
+  comes back without the lock screen. A device holding a pairing the Mac does not
   know says so, makes one connection and no more, and pairs again after **Pair this device again**
 - `relay/page/scan.test.ts`: Scan code reads the code Settings draws, dark on light, light on
   dark, and small in the picture

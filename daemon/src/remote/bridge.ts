@@ -84,6 +84,16 @@ const NOTIFY_GAP_MS = 30_000;
  * the Mac would wait on it forever while every device was told it was offline.
  */
 const PING_MS = 15_000;
+/**
+ * How long after a connection drops its page may come back without the passkey. A phone on a train,
+ * or the relay letting go of the Mac for a second, should not mean Face ID again; a page gone for
+ * longer, or one closed and opened again, unlocks as usual.
+ */
+const RESUME_MS = 10 * 60_000;
+/** Resume tickets one device may hold at once, one per open page. */
+const MAX_RESUMES = 4;
+/** What a page still unlocking may send. Anything else is ignored, never counted as a failure. */
+const UNLOCKING = new Set(['unlock', 'register', 'resume']);
 /** What a connection says when there is no way to the relay over the address family it tried. */
 const NO_ROUTE = new Set([
   'ENOTFOUND',
@@ -121,6 +131,12 @@ export class RemoteBridge {
   readonly #store: RemoteStore;
   readonly #browsers = new Map<number, Browser>();
   readonly #failures = new Map<string, { count: number; until: number }>();
+  /**
+   * Resume tickets, by ticket. Each is 32 random bytes made here, sent to one unlocked page inside
+   * its sealed connection, and kept by that page in memory only. Good once, for one device, and
+   * from the moment its page's connection ends for RESUME_MS. The relay never sees one.
+   */
+  readonly #resumes = new Map<string, { device: string; browser: number; until: number }>();
   #socket: WebSocket | undefined;
   #status: BridgeStatus = { state: 'off', browsers: 0 };
   #retryMs = 1000;
@@ -185,6 +201,7 @@ export class RemoteBridge {
     clearInterval(this.#pingTimer);
     for (const b of this.#browsers.values()) clearTimeout(b.timer);
     this.#browsers.clear();
+    this.#resumes.clear();
     this.#socket?.close(1000, 'off');
     this.#socket = undefined;
     this.#setStatus({ state: 'off', browsers: 0 });
@@ -196,6 +213,7 @@ export class RemoteBridge {
       if (b.device?.id !== deviceId) continue;
       const now = this.#store.device(deviceId);
       if (!now) {
+        for (const [t, r] of this.#resumes) if (r.device === deviceId) this.#resumes.delete(t);
         this.#drop(b, 'removed');
         continue;
       }
@@ -329,7 +347,10 @@ export class RemoteBridge {
       clearInterval(this.#pingTimer);
       clearTimeout(firstCheck);
       if (code === 1003 && !answered) this.#relayPings = false;
-      for (const b of this.#browsers.values()) clearTimeout(b.timer);
+      for (const b of this.#browsers.values()) {
+        clearTimeout(b.timer);
+        this.#released(b);
+      }
       this.#browsers.clear();
       if (this.#stopped) return;
       if (this.#status.state === 'connected') {
@@ -401,8 +422,33 @@ export class RemoteBridge {
 
   #forget(b: Browser): void {
     clearTimeout(b.timer);
+    this.#released(b);
     this.#browsers.delete(b.id);
     this.#onStatus(this.status);
+  }
+
+  /** Its page's connection ended: the page's ticket now runs out in RESUME_MS. */
+  #released(b: Browser): void {
+    for (const r of this.#resumes.values()) {
+      if (r.browser === b.id && r.until === Infinity) r.until = Date.now() + RESUME_MS;
+    }
+  }
+
+  /** A new ticket for a page that just unlocked or resumed. */
+  #ticket(b: Browser, device: string): string {
+    const now = Date.now();
+    const mine: string[] = [];
+    for (const [t, r] of this.#resumes) {
+      if (r.until <= now) this.#resumes.delete(t);
+      else if (r.device === device) mine.push(t);
+    }
+    // The oldest go first, so a device with many pages cannot fill this up.
+    for (const t of mine.slice(0, Math.max(0, mine.length - MAX_RESUMES + 1))) {
+      this.#resumes.delete(t);
+    }
+    const ticket = toBase64Url(randomBytes(32));
+    this.#resumes.set(ticket, { device, browser: b.id, until: Infinity });
+    return ticket;
   }
 
   /** Tell it why, sealed when it can be, and let it go. The relay closes its socket. */
@@ -468,6 +514,8 @@ export class RemoteBridge {
     const m = frame.message;
 
     if (b.phase === 'unlock') {
+      // A page tells the Mac when it goes out of sight, which Face ID coming up can do.
+      if (!UNLOCKING.has(String(m['t']))) return;
       this.#unlock(b, m);
       return;
     }
@@ -535,6 +583,14 @@ export class RemoteBridge {
           signature: bytes('signature'),
         });
         this.#store.seen(b.device.id, count);
+      } else if (b.device && m['t'] === 'resume') {
+        const ticket = typeof m['ticket'] === 'string' ? m['ticket'] : '';
+        const r = this.#resumes.get(ticket);
+        this.#resumes.delete(ticket);
+        if (!r || r.device !== b.device.id || r.until <= Date.now()) throw new Error('bad-resume');
+        // The connection it replaces may not have been noticed ending yet: it goes now.
+        const old = this.#browsers.get(r.browser);
+        if (old && old !== b) this.#drop(old, 'resumed');
       } else if (b.pairing && m['t'] === 'register') {
         const passkey = verifyRegistration(expected, {
           clientDataJSON: bytes('clientDataJSON'),
@@ -567,6 +623,7 @@ export class RemoteBridge {
         typing: b.device.typing,
         notify: b.device.push !== undefined,
         vapid: this.#store.vapid().publicKey,
+        resume: this.#ticket(b, b.device.id),
       }),
     );
     this.#sendTabs(b);

@@ -270,6 +270,17 @@ let watchingStream = 0;
 let typing = false;
 let pendingChallenge: Record<string, unknown> | null = null;
 let retry = 1000;
+/** Unlocked on this connection, so it may say more than how it unlocks. */
+let ready = false;
+/**
+ * The Mac's resume ticket: a dropped connection comes back with it instead of the passkey. In
+ * memory only, so closing the page, or a reload, unlocks with the passkey again. Good once, and
+ * replaced on every unlock.
+ */
+let ticket: string | null = null;
+/** Coming back with the ticket just now, so a refusal means unlocking as usual instead. */
+let resuming = false;
+let unlockAgain = false;
 /** Set when the Mac said why it is letting go, which outranks the connection closing. */
 let removed = false;
 /**
@@ -294,6 +305,7 @@ const send = (message: object): void => {
 };
 
 function connect(paired: Paired): void {
+  ready = false;
   sealer = null;
   pendingChallenge = null;
   chain = Promise.resolve();
@@ -313,12 +325,20 @@ function connect(paired: Paired): void {
     if (ws !== socket) return;
     ws = null;
     sealer = null;
-    show('lock');
+    ready = false;
+    // With a ticket the page stays as it is while it comes back, rather than locking.
+    if (ticket && !removed) {
+      $('reconnecting').hidden = false;
+    } else {
+      show('lock');
+    }
     $<HTMLButtonElement>('unlock').hidden = true;
     // The reason arrives sealed, so it may still be being opened: wait for it before saying anything.
     void chain.then(() => closed(paired, e.code));
   };
   socket.onmessage = (event) => {
+    // A connection already replaced by a newer one has nothing more to say to this page.
+    if (ws !== socket) return;
     const bytes = new Uint8Array(event.data as ArrayBuffer);
     chain = chain
       .then(() => receive(paired, bytes, myNonce))
@@ -331,6 +351,24 @@ function connect(paired: Paired): void {
 
 function closed(paired: Paired, code: number): void {
   if (removed) return;
+  if (unlockAgain) {
+    // The ticket was refused, by a Mac restarted or a ticket run out: unlocked as usual instead.
+    unlockAgain = false;
+    $('reconnecting').hidden = true;
+    show('lock');
+    setTimeout(() => connect(paired), 300);
+    return;
+  }
+  if (ticket && !unknown && code !== 4001) {
+    $('reconnecting').textContent =
+      code === 4002 ? 'Your Mac is offline. Reconnecting' : 'Reconnecting';
+    setTimeout(() => connect(paired), retry);
+    retry = code === 4002 ? 3000 : Math.min(5000, retry * 2);
+    return;
+  }
+  ticket = null;
+  $('reconnecting').hidden = true;
+  show('lock');
   // Pairing again is always within reach, except while the Mac is simply offline.
   $<HTMLButtonElement>('repair').hidden = code === 4002 && !unknown;
   if (unknown) {
@@ -373,6 +411,15 @@ async function receive(paired: Paired, bytes: Uint8Array, myNonce: Uint8Array): 
   const m = frame.message;
   switch (m['t']) {
     case 'challenge':
+      if (ticket && m['mode'] === 'unlock') {
+        const t = ticket;
+        ticket = null;
+        resuming = true;
+        send({ t: 'resume', ticket: t });
+        return;
+      }
+      $('reconnecting').hidden = true;
+      show('lock');
       pendingChallenge = m;
       say(m['mode'] === 'register' ? 'Make a passkey for this device' : 'Locked');
       $<HTMLButtonElement>('unlock').textContent =
@@ -381,6 +428,10 @@ async function receive(paired: Paired, bytes: Uint8Array, myNonce: Uint8Array): 
       return;
     case 'ready':
       retry = 1000;
+      ready = true;
+      resuming = false;
+      ticket = typeof m['resume'] === 'string' ? m['resume'] : null;
+      $('reconnecting').hidden = true;
       typing = m['typing'] === true;
       vapid = typeof m['vapid'] === 'string' ? m['vapid'] : '';
       notifyOn = m['notify'] === true;
@@ -434,7 +485,10 @@ async function receive(paired: Paired, bytes: Uint8Array, myNonce: Uint8Array): 
         showPairing(
           'This device was removed on your Mac. Pair it again with a new code from TabTerm Settings.',
         );
-      } else {
+      } else if (resuming) {
+        resuming = false;
+        unlockAgain = true;
+      } else if (m['reason'] !== 'resumed') {
         say('Your Mac said no. Try unlocking again.', 'warn');
       }
       return;
@@ -736,12 +790,16 @@ function wire(paired: Paired): void {
    */
   let hiddenAt = 0;
   document.addEventListener('visibilitychange', () => {
-    send({ t: 'visible', visible: document.visibilityState === 'visible' });
+    if (ready) send({ t: 'visible', visible: document.visibilityState === 'visible' });
     if (document.visibilityState === 'hidden') {
       hiddenAt = Date.now();
       return;
     }
-    if (hiddenAt && Date.now() - hiddenAt > 2 * 60_000) ws?.close();
+    if (hiddenAt && Date.now() - hiddenAt > 2 * 60_000) {
+      // Away long enough to count as put away: the ticket goes too, so it unlocks with the passkey.
+      ticket = null;
+      ws?.close();
+    }
     if (!ws) connect(paired);
   });
   connect(paired);
@@ -870,5 +928,7 @@ async function start(): Promise<void> {
 void start();
 (window as unknown as { __remote: object }).__remote = {
   term,
-  state: () => ({ watching, tabs, typing, screen: document.body.dataset['screen'] }),
+  state: () => ({ watching, tabs, typing, ready, screen: document.body.dataset['screen'] }),
+  /** The connection lost, as a network would lose it, for the tests. */
+  drop: () => ws?.close(),
 };

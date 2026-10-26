@@ -298,6 +298,19 @@
       .icon-button:disabled {
         opacity: 0.4;
       }
+      #reconnecting {
+        position: fixed;
+        top: max(8px, env(safe-area-inset-top));
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 5;
+        padding: 6px 14px;
+        border-radius: 999px;
+        background: var(--raised);
+        border: 1px solid var(--line);
+        color: var(--warn);
+        font-size: 13px;
+      }
       #ended-note {
         margin: 12px 16px 0;
         color: var(--warn);
@@ -345,6 +358,7 @@
     </style>
   </head>
   <body>
+    <div id="reconnecting" role="status" hidden>Reconnecting</div>
     <main id="screen-lock">
       <div class="mark">&gt;_</div>
       <p id="lock-status">Starting</p>
