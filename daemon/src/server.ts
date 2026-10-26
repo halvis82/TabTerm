@@ -338,6 +338,8 @@ export class DaemonServer {
   hostBudget?: (bytes: number) => void;
   /** Set by main. Drops every history file and returns how many went. */
   #resetHistory?: () => number;
+  /** Everything else stored, for Erase everything. See `erase.ts`. */
+  #eraseState?: () => number;
   #restart?: () => void;
   updates?: UpdateManager;
   /** The live checks, when this daemon runs them. See `attention.ts`. */
@@ -351,9 +353,10 @@ export class DaemonServer {
    */
   sessionsChanged?: () => void;
 
-  setResetHooks(hooks: { history: () => number; restart: () => void }): void {
+  setResetHooks(hooks: { history: () => number; restart: () => void; erase?: () => number }): void {
     this.#resetHistory = hooks.history;
     this.#restart = hooks.restart;
+    if (hooks.erase) this.#eraseState = hooks.erase;
   }
 
   constructor(
@@ -948,7 +951,10 @@ export class DaemonServer {
    * on purpose: everything else it does is immediate, and making it async to accommodate one
    * case would change the ordering of every other.
    */
-  async #resetEverything(client: Client, msg: { restartDaemon?: boolean }): Promise<void> {
+  async #resetEverything(
+    client: Client,
+    msg: { restartDaemon?: boolean; erase?: boolean },
+  ): Promise<void> {
     /**
      * The button for when everything has gone wrong.
      *
@@ -983,6 +989,19 @@ export class DaemonServer {
         sessionIds: unconfirmed.map((o) => o.sessionId),
       });
     }
+    /*
+     * Erase everything: the rest of what is stored goes too, and the daemon restarts, since the
+     * database is open until it does and a fresh one is made by the next. Only once every terminal
+     * has ended, for the same reason a restart waits for that.
+     */
+    const erasing = msg.erase === true && unconfirmed.length === 0;
+    if (erasing) {
+      this.remote?.stop();
+      this.updates?.preferencesChanged(true, true);
+      const erased = this.#eraseState?.() ?? 0;
+      info('reset.erased', { removed: erased });
+    }
+    const restarting = (msg.restartDaemon === true || erasing) && unconfirmed.length === 0;
     info('reset', { requested, sessionsEnded: ended, historyFilesRemoved: removed });
     send(
       client.socket,
@@ -993,10 +1012,10 @@ export class DaemonServer {
         historyFilesRemoved: removed,
         // Not restarted while anything is still running: replacing the daemon cannot end a
         // process it failed to end, and it would take away the record of it as well.
-        restarting: msg.restartDaemon === true && unconfirmed.length === 0,
+        restarting,
       }),
     );
-    if (msg.restartDaemon === true && unconfirmed.length === 0) {
+    if (restarting) {
       // Exiting non-zero is what asks launchd to replace this process, since the LaunchAgent
       // is KeepAlive{SuccessfulExit:false}. Delayed so the reply reaches the page first.
       setTimeout(() => this.#restart?.(), 400);

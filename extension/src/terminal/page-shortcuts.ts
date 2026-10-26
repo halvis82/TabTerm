@@ -354,3 +354,23 @@ export async function saveShortcuts(shortcuts: readonly PageShortcut[]): Promise
     // A binding that could not be saved is worth less than the terminal still working.
   }
 }
+
+/**
+ * The shipped shortcuts back to how they came, for Restore all settings. Keys bound to actions
+ * somebody made are theirs, like the actions, and are kept.
+ */
+export async function restoreShippedShortcuts(): Promise<void> {
+  try {
+    const stored: unknown = (await chrome.storage.local.get(KEY))[KEY];
+    const kept = Array.isArray(stored)
+      ? stored.filter(
+          (s): s is { id: string; keys: string } =>
+            typeof (s as { id?: unknown }).id === 'string' &&
+            actionIdFrom((s as { id: string }).id) !== null,
+        )
+      : [];
+    await chrome.storage.local.set({ [KEY]: kept });
+  } catch {
+    // Left as it was, which is better than half of it.
+  }
+}

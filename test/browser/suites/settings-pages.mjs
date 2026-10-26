@@ -124,5 +124,51 @@ r.ok(
   JSON.stringify(await shown()) === '["terminals"]',
   await shown(),
 );
+// Restore all settings brings back what this page keeps as well as what the daemon keeps, and
+// leaves the shortcut on an action somebody made alone.
+await evaluate(
+  client,
+  `chrome.storage.local.set({
+     'tabterm.labelOpacity': 0.45,
+     'tabterm.showBell': false,
+     'tabterm.copyOutputLines': 50,
+     'tabterm.findAll': true,
+     'tabterm.pageShortcuts': [{ id: 'close-pane', keys: 'Control+Meta+K' }, { id: 'action:mine', keys: 'Control+Meta+J' }],
+   })`,
+);
+await evaluate(client, `document.querySelector('[data-settings-page="about"]').click()`);
+await evaluate(
+  client,
+  `[...document.querySelectorAll('button')].find((b) => b.textContent === 'Restore all settings')?.click()`,
+);
+await evaluate(
+  client,
+  `[...document.querySelectorAll('button')].find((b) => b.textContent === 'Yes, restore all settings')?.click()`,
+);
+const kept = async () =>
+  JSON.parse(
+    String(
+      await evaluate(
+        client,
+        `chrome.storage.local.get(['tabterm.labelOpacity', 'tabterm.showBell', 'tabterm.copyOutputLines', 'tabterm.findAll', 'tabterm.pageShortcuts']).then((s) => JSON.stringify(s))`,
+      ),
+    ),
+  );
+await sleep(800);
+const after = await kept();
+r.ok(
+  'Restore all settings brings back the ones this page keeps',
+  after['tabterm.labelOpacity'] === undefined &&
+    after['tabterm.showBell'] === undefined &&
+    after['tabterm.copyOutputLines'] === undefined &&
+    after['tabterm.findAll'] === undefined,
+  after,
+);
+r.ok(
+  'and the shipped shortcuts, keeping the one on an action somebody made',
+  JSON.stringify(after['tabterm.pageShortcuts']) ===
+    JSON.stringify([{ id: 'action:mine', keys: 'Control+Meta+J' }]),
+  after['tabterm.pageShortcuts'],
+);
 await finish();
 r.done();

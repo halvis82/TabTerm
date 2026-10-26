@@ -54,6 +54,7 @@ import { readUserSettings } from './user-settings.js';
 import { safeError, safeStack } from './safe-error.js';
 import { TerminalCheckpoints } from './terminal-checkpoints.js';
 import { approveOnThisMac } from './remote/approve.js';
+import { eraseStoredState } from './erase.js';
 import { RemoteControl } from './remote/index.js';
 import { remoteTabs } from './remote/tabs.js';
 
@@ -913,6 +914,7 @@ async function main(): Promise<void> {
       }
       return removed;
     },
+    erase: () => eraseStoredState(paths.state),
     restart: () => {
       /**
        * Replace both processes.

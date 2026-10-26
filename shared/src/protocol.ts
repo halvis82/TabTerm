@@ -773,7 +773,15 @@ export type ClientMessage =
    * on purpose, so it is only ever sent after the user has confirmed it, and the daemon reports
    * what it did rather than assuming. See docs/04-session-lifecycle.md.
    */
-  | { t: 'reset-everything'; restartDaemon: boolean }
+  | {
+      t: 'reset-everything';
+      restartDaemon: boolean;
+      /**
+       * Settings' Erase everything: also every byte TabTerm keeps, and a restart, so it starts as
+       * if it were new. Without it, every terminal is ended and its history dropped, nothing more.
+       */
+      erase?: boolean;
+    }
   | { t: 'get-agent-hooks' }
   | { t: 'set-agent-hooks'; enabled: boolean }
   // Sourcing the shell integration, without which there are no exit codes at all.

@@ -1110,9 +1110,9 @@ function buildDangerZone(options: SettingsOptions): HTMLElement {
     confirming({
       label: 'Erase everything TabTerm has stored',
       description:
-        'Ends every terminal, and deletes history, saved commands, templates, highlights and ' +
-        'every preference. TabTerm itself stays installed and starts as if it were new. There ' +
-        'is no undo.',
+        'Ends every terminal, and deletes history, saved commands, templates, highlights, ' +
+        'every preference, and remote access with its relay and every paired device. TabTerm ' +
+        'itself stays installed and starts as if it were new. There is no undo.',
       confirm: 'Yes, erase everything',
       onConfirm: options.onEraseEverything,
       grave: true,

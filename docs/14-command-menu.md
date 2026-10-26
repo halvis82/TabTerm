@@ -438,6 +438,27 @@ needing recovery, each with its fix, and Check again. See `05-security.md`.
   does not repeat the name
 - Settings redraw when the daemon reports something, except while a box in them is being typed in
 
+**Starting over**, on About, asks before it acts, in place:
+
+- **Restore default templates**, shown only when one has been deleted or changed, adds back only
+  what is missing
+- **Restore all settings** puts every choice on every page back as it shipped: what the daemon
+  keeps (notifications, how long a terminal is kept, scrollback, the agent command, memory mode,
+  automatic updates) and what the pages keep (theme, how a pane's name looks, Copy output, programs
+  copying, the bell, the find bar's All terminals, and the shipped shortcuts). Terminals, history,
+  templates, actions and their shortcuts, and remote access are not touched
+- **Erase everything TabTerm has stored** ends every terminal, clears what the extension keeps in
+  Chrome, and has the daemon remove the database (history, saved commands, favorites, recent
+  folders, stats, saved layouts, the output archive, approved project files), every terminal's
+  saved history, the settings file, remote access with its relay and paired devices, and copies of
+  dropped files, then restart so it starts as if it were new (`daemon/src/erase.ts`). The token the
+  extension connects with, the installer's choices and backups, the updater's folder and the logs
+  stay. Only once every terminal has ended: if one would not end, nothing more is removed and the
+  page says so
+
+The **Reset TabTerm** page reached when something has gone wrong is the narrower one: it ends every
+terminal and drops their history, and keeps everything else.
+
 The agent and shell switches write to files outside TabTerm, so they happen only on an explicit switch, are backed
 up before the first change, and are removable to the byte. Both used to be lines of text in the
 install output, which meant they were not run, which meant a large part of what a tab can show was

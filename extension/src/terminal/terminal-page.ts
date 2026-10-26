@@ -105,6 +105,7 @@ import {
   actionShortcutId,
   loadShortcuts,
   prettyKeys,
+  restoreShippedShortcuts,
   saveShortcuts,
   whyNot,
   type PageShortcut,
@@ -6531,6 +6532,23 @@ function buildCommandPanel(): void {
         onRestoreSettings: () => {
           client?.send({ t: 'reset-settings' });
           void applyTheme('dark');
+          /*
+           * And the ones this page keeps rather than the daemon. Only the daemon's came back, so
+           * the look of a pane's name, Copy output, programs copying, the bell, the find bar's All
+           * terminals and the shipped shortcuts kept whatever they had been set to.
+           */
+          void chrome.storage.local
+            .remove([
+              LABEL_OPACITY_KEY,
+              LABEL_SCALE_KEY,
+              COPY_LINES_KEY,
+              PROGRAM_COPY_KEY,
+              BELL_KEY,
+              FIND_ALL_KEY,
+            ])
+            .then(() => restoreShippedShortcuts())
+            .then(() => commandPanel?.refreshSettings());
+          findBar?.setAll(false);
           setStatus('Settings restored to their defaults', 'ok');
           setTimeout(() => setStatus('', 'hidden'), 2500);
         },
@@ -6548,7 +6566,7 @@ function buildCommandPanel(): void {
             } catch {
               // Storage that will not clear is not a reason to leave the sessions running.
             }
-            client?.send({ t: 'reset-everything', restartDaemon: false });
+            client?.send({ t: 'reset-everything', restartDaemon: true, erase: true });
           })();
         },
         scrollbackBytes: () => scrollbackBytes,
