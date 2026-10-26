@@ -45,7 +45,11 @@ export interface PageShortcut {
  * list it checks against did not have Close Window in it.
  */
 export const DEFAULT_PAGE_SHORTCUTS: PageShortcut[] = [
-  { id: 'command-menu', title: 'Open the command menu', keys: 'Meta+K' },
+  {
+    id: 'command-menu',
+    title: 'Open the command menu: favorites, recent and actions',
+    keys: 'Meta+K',
+  },
   { id: 'split-right', title: 'Split right', keys: 'Shift+Meta+S' },
   { id: 'split-down', title: 'Split down', keys: 'Shift+Meta+E' },
   { id: 'close-pane', title: 'Close this pane', keys: 'Control+Meta+W' },
@@ -59,7 +63,11 @@ export const DEFAULT_PAGE_SHORTCUTS: PageShortcut[] = [
    * palette had shipped on a combination the browser answers first, so the row said it was bound
    * and pressing it printed. A binding that cannot arrive is worse than none.
    */
-  { id: 'palette', title: 'Open the command palette', keys: 'Alt+Meta+P' },
+  {
+    id: 'palette',
+    title: 'Search past and saved commands, and pane actions',
+    keys: 'Alt+Meta+P',
+  },
   /**
    * Moving between panes, which had no key at all.
    *

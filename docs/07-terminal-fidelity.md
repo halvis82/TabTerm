@@ -473,8 +473,8 @@ line, "Copied 12 lines from the program", so a copy nobody made by hand is never
 - **No clearing.** An empty payload would wipe what somebody copied, so it is ignored
 - **Not again on a reload.** A saved screen being put back is not a program asking, so neither a
   copy nor a bell is acted on while one is written
-- **Bounded** at four million characters, and turned off by Settings, Terminals, **Programs can copy
-  to the clipboard**
+- **Bounded** at four million characters, and turned off by Settings, Terminals, **Let programs
+  copy to your clipboard**
 - Chrome lets a page write the clipboard only while it has the focus. A copy from a tab in the
   background is said in the status line rather than lost silently
 
@@ -482,7 +482,7 @@ The bell (`BEL`, what `tput bel` and `printf '\a'` send) flashes the pane's edge
 bell other terminals have. When nobody is looking at the tab it flashes the tab's icon as well, the
 same way a finished command does, since a bell nobody sees is the case it exists for. One ring per
 pane in 400 milliseconds at most, because zsh rings on every completion that finds nothing. Settings,
-Terminals, **Show the bell** turns it off. The code is `osc52.ts` and `ringBell` in
+Terminals, **Flash when a program rings the bell** turns it off. The code is `osc52.ts` and `ringBell` in
 `terminal-page.ts`, and the `program-copy-bell` suite checks both, the reload included.
 
 ### Pictures
@@ -757,7 +757,7 @@ for input has no button however quiet it looks. An agent (`claude`, `codex` and 
 behind `npx` or a `VAR=value`) and anything that used the alternate screen get none: their output
 is their own interface. Nor does a command with no output.
 
-Settings, Terminals, **Copy output takes at most** chooses how many lines one press copies, from
+Settings, Terminals, **Copy output copies at most** chooses how many lines one press copies, from
 1,000 to 50,000, 10,000 by default. Longer output copies its newest lines and the button says
 how many ("Copy last 10,000 lines"), and so does output whose beginning has already left the
 scrollback. Holding Command hands the pointer to links, so the output's button steps aside. The

@@ -52,7 +52,7 @@ await evaluate(
   client,
   `(() => {
      const box = [...document.querySelectorAll('.set-toggle')]
-       .find((t) => t.textContent.includes('Tell me when something finishes'))?.querySelector('input');
+       .find((t) => t.textContent.includes('Notify me when a command or an agent finishes'))?.querySelector('input');
      if (box && !box.checked) { box.checked = true; box.dispatchEvent(new Event('change', { bubbles: true })); }
    })()`,
 );
@@ -81,13 +81,13 @@ const hookRow = await evaluate(
   client,
   `(() => {
      const row = [...document.querySelectorAll('.set-toggle')]
-       .find(t => t.textContent.includes('Let agents report'));
+       .find(t => t.textContent.includes('Show what agents are doing'));
      return row ? row.textContent : '';
    })()`,
 );
 r.ok(
   'agent events can be turned on from here',
-  String(hookRow).includes('Let agents report'),
+  String(hookRow).includes('Show what agents are doing'),
   hookRow,
 );
 
@@ -95,18 +95,20 @@ const shellRow = await evaluate(
   client,
   `(() => {
      const row = [...document.querySelectorAll('.set-toggle')]
-       .find(t => t.textContent.includes('Tell finished from failed'));
+       .find(t => t.textContent.includes('Show whether each command succeeded or failed'));
      return row ? row.textContent : '';
    })()`,
 );
 r.ok(
   'and so can shell integration, which is what exit codes depend on',
-  /exit codes|Already sourced|installer first/.test(String(shellRow)),
+  /how each command ended|not whether it failed|Already sourced|installer first/.test(
+    String(shellRow),
+  ),
   String(shellRow),
 );
 r.ok(
   'and it says what it is currently doing',
-  /need this|Installed for|No supported/.test(String(hookRow)),
+  /^.*(Off: a tab cannot show|On for |No supported|No agent CLI found)/.test(String(hookRow)),
   String(hookRow),
 );
 

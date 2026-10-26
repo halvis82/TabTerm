@@ -81,7 +81,7 @@ r.ok(
   'finished and failed is with the terminal settings now, not notifications',
   await evaluate(
     client,
-    `[...document.querySelectorAll('[data-settings-page-body="terminals"] .set-label')].some((l) => l.textContent === 'Tell finished from failed')`,
+    `[...document.querySelectorAll('[data-settings-page-body="terminals"] .set-label')].some((l) => l.textContent === 'Show whether each command succeeded or failed')`,
   ),
 );
 
@@ -97,7 +97,7 @@ const visibleLabels = () =>
   ).then((s) => JSON.parse(String(s)));
 r.ok(
   'searching finds a setting on any page, and only what matches',
-  JSON.stringify(await visibleLabels()) === '["Show the bell"]',
+  JSON.stringify(await visibleLabels()) === '["Flash when a program rings the bell"]',
   await visibleLabels(),
 );
 await shot('search');

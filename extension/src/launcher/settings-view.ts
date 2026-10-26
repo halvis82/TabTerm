@@ -368,7 +368,7 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
   void chrome.storage.local.get('tabterm.theme').then((stored) => {
     themeSelect.value = (stored['tabterm.theme'] as string | undefined) ?? 'dark';
   });
-  look.append(field('Theme', 'Colors for the terminal and this panel', themeSelect));
+  look.append(field('Color theme', 'The colors of every terminal and of this menu.', themeSelect));
 
   /*
    * How the name drawn over a pane looks.
@@ -399,10 +399,16 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
   });
 
   look.append(
-    field('Session name strength', 'How visible the name drawn over a pane is', opacitySelect),
+    field(
+      'Session name visibility',
+      'A session you named shows its name written large and faint behind its text. How strongly it shows.',
+      opacitySelect,
+    ),
   );
   look.append(opacityWarning);
-  look.append(field('Session name size', 'How large that name is drawn', scaleSelect));
+  look.append(
+    field('Session name size', 'How large that name is written behind the text.', scaleSelect),
+  );
   put('appearance', look);
 
   // --- Terminals ----------------------------------------------------------
@@ -414,8 +420,8 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
     hasTerminalSettings = true;
     terminals.append(
       field(
-        'Scrollback kept per terminal',
-        'How far back you can scroll. Kept on disk too, so it survives an update.',
+        'History kept per terminal',
+        'How much output each terminal keeps to scroll back through. Kept on disk too, so it survives an update.',
         chooser(
           SCROLLBACK_CHOICES.map(([bytes, label]) => [String(bytes), label] as const),
           String(scrollback),
@@ -476,8 +482,8 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
   });
   terminals.append(
     field(
-      'Copy output takes at most',
-      'Hover a finished command to copy its output. Longer output copies its last lines.',
+      'Copy output copies at most',
+      'Pointing at a finished command shows Copy output, which copies what that command printed. Longer output copies its last lines.',
       copySelect,
     ),
   );
@@ -486,16 +492,16 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
    * switch because a copy made for you and a flash you did not ask for are each somebody's taste.
    */
   const programCopy = toggle(
-    'Programs can copy to the clipboard',
+    'Let programs copy to your clipboard',
     true,
     (on) => void chrome.storage.local.set({ [PROGRAM_COPY_KEY]: on }),
-    'vim, tmux and programs over ssh copy this way. They can never read the clipboard.',
+    'Programs such as vim and tmux, also over ssh, can put text on your clipboard (OSC 52). They can never read it.',
   );
   const bell = toggle(
-    'Show the bell',
+    'Flash when a program rings the bell',
     true,
     (on) => void chrome.storage.local.set({ [BELL_KEY]: on }),
-    'A brief flash on the pane, and the tab flashes when it is in the background.',
+    'The terminal bell is the beep a program makes, for example when Tab finds nothing to complete. TabTerm shows it as a brief flash on the pane, and on the icon of a tab in the background. It makes no sound.',
   );
   void chrome.storage.local.get([PROGRAM_COPY_KEY, BELL_KEY]).then((stored) => {
     const copyBox = programCopy.querySelector('input');
@@ -508,7 +514,7 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
   if (shell) {
     terminals.append(
       toggle(
-        'Tell finished from failed',
+        'Show whether each command succeeded or failed',
         shell.installed || shell.sourcedElsewhere,
         options.onChangeShellIntegration,
         describeShell(shell),
@@ -789,10 +795,10 @@ function buildUpdates(options: SettingsOptions): HTMLElement {
         'Asks GitHub once a day. Sends no terminal content.',
       ),
       toggle(
-        'Install compatible updates automatically',
+        'Install companion updates automatically',
         state.automaticInstall,
         (value) => options.onUpdatePreferences?.(state.automaticChecks || value, value),
-        'Downloads, builds and installs a compatible release. Terminals stay running. macOS may ask for permissions again afterwards.',
+        'When a new companion release works with this one, it is downloaded, built and installed for you. Terminals stay running. One that needs a manual step only says so.',
       ),
     );
   }
@@ -996,7 +1002,7 @@ function buildRemote(options: SettingsOptions): HTMLElement | null {
       row.append(
         name,
         when,
-        toggle('Can type', device.typing, (typing) =>
+        toggle('Can type into terminals', device.typing, (typing) =>
           options.onRemoteDevice?.({ deviceId: device.id, typing }),
         ),
         confirming({
@@ -1233,10 +1239,10 @@ function buildNotifications(options: SettingsOptions): HTMLElement {
 
   wrap.append(
     toggle(
-      'Tell me when something finishes',
+      'Notify me when a command or an agent finishes',
       policy.enabled,
       (enabled) => options.onChangeNotify({ enabled }),
-      'A desktop notification naming the command that ended',
+      'A macOS notification naming what finished.',
     ),
   );
 
@@ -1249,8 +1255,8 @@ function buildNotifications(options: SettingsOptions): HTMLElement {
    */
   if (policy.enabled) {
     const threshold = field(
-      'Only for commands that took longer than',
-      'Short commands finish before you have looked away, so telling you about them is noise.',
+      'Only when it took longer than',
+      'Quick commands finish before you have looked away, so they do not notify.',
       chooser(
         THRESHOLDS.map(([ms, label]) => [String(ms), label] as const),
         String(policy.thresholdMs),
@@ -1262,18 +1268,18 @@ function buildNotifications(options: SettingsOptions): HTMLElement {
 
     wrap.append(
       nested(
-        toggle('For shell commands', policy.commands, (commands) =>
+        toggle('Notify for commands run in a shell', policy.commands, (commands) =>
           options.onChangeNotify({ commands }),
         ),
       ),
       nested(
-        toggle('For agent turns', policy.agentTurns, (agentTurns) =>
+        toggle('Notify when an agent finishes its turn', policy.agentTurns, (agentTurns) =>
           options.onChangeNotify({ agentTurns }),
         ),
       ),
       nested(
         toggle(
-          'Not for a pane I am already looking at',
+          'Not when that pane is already on screen',
           policy.onlyWhenUnfocused,
           (onlyWhenUnfocused) => options.onChangeNotify({ onlyWhenUnfocused }),
         ),
@@ -1324,9 +1330,9 @@ function buildAgents(options: SettingsOptions): HTMLElement | null {
     });
     wrap.append(
       field(
-        'What launching an agent runs',
-        'Used by the command menu and by the browser shortcut. Arguments are allowed, and quotes ' +
-          'for a path with a space in it. Leave it empty for claude.',
+        'Command that Launch an agent runs',
+        'What Launch an agent in the command menu, and its keyboard shortcut, start in a new tab. ' +
+          'Arguments are allowed, and quotes for a path with a space in it. Empty means claude.',
         box,
       ),
     );
@@ -1336,7 +1342,7 @@ function buildAgents(options: SettingsOptions): HTMLElement | null {
   if (hooks) {
     wrap.append(
       toggle(
-        'Let agents report what they are doing',
+        'Show what agents are doing in their tabs',
         hooks.installed,
         options.onChangeAgentHooks,
         describeHooks(hooks),
@@ -1382,7 +1388,9 @@ export function describeHooks(hooks: AgentHooksStatus): string {
       ? `No supported agent CLI found${trailing}`
       : `No agent CLI found. Install one and this turns itself on: ${how}${trailing}`;
   }
-  if (!hooks.installed) return `Agent status and agent turn notifications need this${trailing}`;
+  if (!hooks.installed) {
+    return `Off: a tab cannot show that its agent is working, waiting for you or done, and agent turns cannot notify. On adds TabTerm to the agent's hooks${trailing}`;
+  }
   const names = supported.map((t) => t.name).join(', ');
   /**
    * Named where it is, because "installed" is a claim about two different places.
@@ -1397,7 +1405,7 @@ export function describeHooks(hooks: AgentHooksStatus): string {
     .join(', ');
   const seen =
     hooks.lastEventAt === undefined ? 'no events yet' : `last event ${ago(hooks.lastEventAt)}`;
-  return `Installed for ${names} in ${where}, ${seen}${trailing}`;
+  return `On for ${names}: its tabs show when it is working, waiting for you or done. Set in ${where}, ${seen}${trailing}`;
 }
 
 /** A path written the way a shell writes it, since a settings line is read, not clicked. */
@@ -1425,6 +1433,6 @@ function describeShell(shell: ShellIntegrationStatus): string {
   if (shell.sourcedElsewhere) return 'Already sourced from your shell profile';
   if (!shell.scriptStaged) return 'Run the installer first';
   return shell.installed
-    ? 'Adds exit codes, so finished can be told from failed. Open a new tab to apply'
-    : 'Without it there are no exit codes, so nothing can say a command failed';
+    ? 'On: a line in ~/.zshrc tells TabTerm how each command ended, so a tab shows a tick or a cross. Open a new tab to apply'
+    : 'Off: TabTerm sees that a command finished, not whether it failed. On adds one line to ~/.zshrc';
 }

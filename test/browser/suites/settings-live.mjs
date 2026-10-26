@@ -130,7 +130,7 @@ const thresholdShown = () =>
     a.client,
     `[...document.querySelectorAll('.set-label')].some((el) => el.textContent.includes('took longer than'))`,
   );
-const notifySwitch = `[...document.querySelectorAll('.set-toggle')].find((el) => el.textContent.includes('Tell me when something finishes'))?.querySelector('input')`;
+const notifySwitch = `[...document.querySelectorAll('.set-toggle')].find((el) => el.textContent.includes('Notify me when a command or an agent finishes'))?.querySelector('input')`;
 
 /**
  * Set and dispatched, not clicked.

@@ -296,7 +296,7 @@ something is wrong, this is the first thing to run and usually the last.
 echo '[ -f ~/.local/share/tabterm/tabterm-integration.zsh ] && source ~/.local/share/tabterm/tabterm-integration.zsh' >> ~/.zshrc
 ```
 
-Or turn on **Tell finished from failed** in Settings, Terminals, which adds the same line and can
+Or turn on **Show whether each command succeeded or failed** in Settings, Terminals, which adds the same line and can
 take it out again.
 
 **Not required.** Command history, timing, pane status, and local server detection all work
@@ -313,7 +313,7 @@ node scripts/install-agent-hooks.mjs          # install
 node scripts/install-agent-hooks.mjs --remove # reverse
 ```
 
-Or turn on **Let agents report what they are doing** in Settings, Agents. Additive and
+Or turn on **Show what agents are doing in their tabs** in Settings, Agents. Additive and
 reversible. It surfaces agent state, running, waiting for approval or finished, in the tab title and
 favicon, so a hidden tab waiting on you is visible.
 

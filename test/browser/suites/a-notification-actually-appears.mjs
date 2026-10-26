@@ -30,7 +30,7 @@ const armed = String(
     `(() => {
        const rows = [...document.querySelectorAll('.set-field')];
        const master = rows.find((row) =>
-         (row.textContent ?? '').includes('Tell me when something finishes'));
+         (row.textContent ?? '').includes('Notify me when a command or an agent finishes'));
        const box = master?.querySelector('input[type=checkbox]');
        if (box && !box.checked) box.click();
        const picker = [...document.querySelectorAll('select')].find((sel) =>
@@ -48,7 +48,7 @@ await evaluate(work.client, `document.querySelector('.cmd-close')?.click()`);
 await sleep(400);
 
 /*
- * Looked away from, because "not for a pane I am already looking at" is on by default and doing
+ * Looked away from, because "not when that pane is already on screen" is on by default and doing
  * exactly what it says. A second tab in front is what makes this the case that should notify.
  */
 const other = await openTerminal();
