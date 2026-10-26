@@ -107,6 +107,15 @@ folder, next to the page.
 This is the only use of the `sidePanel` permission. The panel opens only from that menu entry, for
 the tab in front, and it shows TabTerm's own terminal page. Nothing is read from the page beside it.
 
+## Remote access
+
+Settings has a **Remote access** section. It is off, and nothing in this review needs it. It is
+for somebody who has deployed their own relay (`docs/17-remote-access.md`) and wants to see their
+terminals from their phone. The extension's part is the settings form: it sends the relay address
+and on or off to the companion program over loopback, like every other setting. The connection to
+the relay is made by the companion program, not by the extension, and the extension makes no new
+network request and uses no new permission for it.
+
 ## Local services
 
 Run something that listens. In a TabTerm terminal:

@@ -512,6 +512,7 @@ Each has a Phase 0 spike. Nothing load-bearing may rely on an unverified assumpt
 | ~~7~~ | ~~Whether a signed app bundle yields an upgrade-surviving TCC grant~~ | **Resolved: it depends on the grant.** Measured 2026-09-08. Folder and app-data decisions are keyed by bundle identifier and survived an identity change untouched. Full Disk Access is recorded against the code signature, and an ad-hoc signature is a hash of the bundle's contents, so adding an icon voided it: the row went to `auth_value = 0`. See `13-packaging.md` |
 | ~~8~~ | ~~Round-trip fidelity of the headless emulator~~ | yes Resolved: 7/7 fixtures exact |
 | ~~9~~ | ~~Sustained throughput ceiling~~ | yes Resolved: 50 MB/s, bounded by the VT parser |
+| 10 | Remote access on a real iPhone: the passkey in an app added to the Home Screen, and a notification arriving through Apple's push service | `test/remote/e2e.mjs` runs it in Chrome at phone size with a virtual authenticator, and a notification through Google's push service. Not yet run on a device |
 
 ---
 
@@ -564,6 +565,19 @@ a one-use parsed-state handoff to preserve retained scrollback. A crash, forced 
 invalid handoff falls back to the bounded raw ring, and history it no longer contains cannot be
 recovered. Select all includes retained normal and alternate screen text, not discarded output.
 
+
+## Remote access
+
+- **Notifications on an iPhone need the page added to the Home Screen.** iOS gives a web page
+  notifications only there, not in a Safari tab, and the Home Screen app keeps its own storage, so
+  it is paired on its own (`17-remote-access.md` §4)
+- **Delivery is the push service's.** The Mac hands each notification to Apple, Google or Mozilla,
+  and when it arrives is up to them. A push service may also drop a subscription, and then the
+  device gets none until **Notify me** is pressed again on it
+- **A terminal is the Mac's size.** A phone never resizes it, so a wide one is either readable and
+  scrolled sideways, or fitted with **Fit** in small text
+- **Watching shows the recent past.** A device opening a terminal gets the screen and up to 2,000
+  lines before it, not the whole history
 
 ## Companion update boundaries
 

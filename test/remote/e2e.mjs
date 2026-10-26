@@ -345,7 +345,31 @@ if (settings.last('remote-state')?.state.devices[0]?.notify === true) {
   await until(() => ev(`document.body.dataset.screen === 'list'`));
 }
 
+// Tapping a notification opens the page at #open=<session>: locked first, then that terminal.
+// A fresh load, as the worker's openWindow makes, not a change of fragment on an open page.
+await page('Page.navigate', { url: 'about:blank' });
+await page('Page.navigate', { url: `${new URL(relay.url).origin}/#open=${sessionId}` });
+ok(
+  'a tapped notification asks for the passkey first',
+  await until(() => ev(`!document.getElementById('unlock').hidden`)),
+);
+ok('and takes the session out of the address bar', (await ev('location.hash')) === '');
+await tap('#unlock');
+ok(
+  'then opens that terminal',
+  await until(
+    () =>
+      ev(
+        `document.body.dataset.screen === 'terminal' && window.__remote.state().watching === ${JSON.stringify(sessionId)}`,
+      ),
+    15000,
+  ),
+);
+await tap('#back');
+await until(() => ev(`document.body.dataset.screen === 'list'`));
+
 await tap('.pane');
+await until(() => ev(`document.body.dataset.screen === 'terminal'`));
 ok(
   'opens the terminal with what is already on it',
   await until(() => ev(`${screenText}.includes('desk-ready')`)),
