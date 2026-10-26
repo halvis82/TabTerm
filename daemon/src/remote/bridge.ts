@@ -81,7 +81,15 @@ const NOTIFY_GAP_MS = 30_000;
  * change can leave a connection that looks open on this side and goes nowhere, and without asking,
  * the Mac would wait on it forever while every device was told it was offline.
  */
-const PING_MS = 25_000;
+const PING_MS = 15_000;
+/** What a connection says when there is no way to the relay over the address family it tried. */
+const NO_ROUTE = new Set([
+  'ENOTFOUND',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+  'EADDRNOTAVAIL',
+  'EAI_AGAIN',
+]);
 /** How long a new connection has to answer its first ping before it is made again. */
 const FIRST_ANSWER_MS = 5_000;
 
@@ -127,6 +135,7 @@ export class RemoteBridge {
   #pingTimer: ReturnType<typeof setInterval> | undefined;
   /** A relay from before it answered "ping" closes on any text. It is then not asked again. */
   #relayPings = true;
+  #ipv4 = true;
 
   constructor(
     host: RemoteHost,
@@ -228,6 +237,15 @@ export class RemoteBridge {
       headers: { authorization: `Bearer ${relaySecret}` },
       maxPayload: REMOTE_MAX_FRAME + 16,
       handshakeTimeout: 15_000,
+      // Everything sent is encrypted, which does not compress, so compression would only cost memory.
+      perMessageDeflate: false,
+      /*
+       * IPv4 where there is any. Over IPv6 from a home connection, Cloudflare was measured dropping
+       * the Mac's side of the connection, without telling the Mac, moments after a device closed
+       * its own: about one run in two over IPv6, none in twelve over IPv4. A network with no IPv4
+       * at all is tried over IPv6 next time.
+       */
+      ...(this.#ipv4 ? { family: 4 } : {}),
     });
     this.#socket = socket;
     socket.binaryType = 'nodebuffer';
@@ -295,7 +313,10 @@ export class RemoteBridge {
         }
       }
     });
-    socket.on('error', (e) => {
+    socket.on('error', (e: NodeJS.ErrnoException) => {
+      if (socket.readyState !== WebSocket.OPEN && NO_ROUTE.has(e.code ?? '')) {
+        this.#ipv4 = !this.#ipv4;
+      }
       if (this.#status.state !== 'error') {
         this.#setStatus({ state: 'error', detail: e.message, browsers: 0 });
       }

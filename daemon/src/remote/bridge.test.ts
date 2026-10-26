@@ -429,12 +429,13 @@ describe('a connection to the relay that has gone quiet', () => {
    * A relay that answers "ping" for a while and then not at all, with its connection still open,
    * which is what a deploy on Cloudflare can leave behind. `answers` says how many it answers on each connection.
    */
-  async function quietRelay(answers: number, old = false) {
-    const server = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+  async function quietRelay(answers: number, old = false, host = '127.0.0.1') {
+    const server = new WebSocketServer({ port: 0, host });
     await new Promise((r) => server.once('listening', r));
-    const seen = { connections: 0, pings: 0 };
-    server.on('connection', (ws) => {
+    const seen = { connections: 0, pings: 0, from: [] as string[] };
+    server.on('connection', (ws, req) => {
       seen.connections++;
+      seen.from.push(req.socket.remoteAddress ?? '');
       let pings = 0;
       ws.on('message', (data: Buffer, isBinary: boolean) => {
         if (isBinary || data.toString() !== 'ping') return;
@@ -475,6 +476,17 @@ describe('a connection to the relay that has gone quiet', () => {
       expect(await until(() => quiet.seen.connections >= 3)).toBe(true);
       expect(states.some((s) => s.status === 'connected')).toBe(false);
       expect(c.state.status).not.toBe('connected');
+    } finally {
+      quiet.close();
+    }
+  });
+
+  it('reaches the relay over IPv4 where both are offered', async () => {
+    const quiet = await quietRelay(Infinity, false, '::');
+    try {
+      const c = quietControl(quiet.url);
+      expect(await until(() => c.state.status === 'connected')).toBe(true);
+      expect(quiet.seen.from[0]).toMatch(/^(::ffff:)?127\.0\.0\.1$/);
     } finally {
       quiet.close();
     }

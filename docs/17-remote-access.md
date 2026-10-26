@@ -48,13 +48,18 @@ and both see the result.
 
 **Cost on the Mac.** Off, it reads one small file at start and does nothing else. On, it is one
 WebSocket and the frames passing through it, inside the daemon that is already running: no new
-process. Every 25 seconds the daemon sends the relay four bytes, "ping", which Cloudflare answers
+process. Every 15 seconds the daemon sends the relay four bytes, "ping", which Cloudflare answers
 without waking the relay. A new connection counts as connected only once its first "ping" is
 answered, within five seconds, since just after a deploy a connection can open onto the copy of
 the relay being shut down. A connection that stops answering is closed and made again, so a deploy
 of the relay or a network change never leaves the Mac holding a connection that goes nowhere while
 every device is told it is offline. A relay deployed before this answers no pings: the daemon
-notices once and stops asking it. Measured with a device paired and watching, the daemon's memory did not measurably change.
+notices once and stops asking it.
+
+The daemon reaches the relay over IPv4 when the network has it. From a home connection over IPv6,
+Cloudflare was measured dropping the Mac's side of the connection moments after a device closed
+its own, without telling the Mac, in about one run in two. Over IPv4 it did not happen in twelve
+runs. A network with no IPv4 is tried over IPv6. Measured with a device paired and watching, the daemon's memory did not measurably change.
 
 ---
 
@@ -188,7 +193,7 @@ Press **Show a pairing code**.
   paste the link and press **Pair**
 
 **If the page says your Mac is offline** while Settings says **Connected to your relay**, wait half a
-minute: the Mac finds a connection that has stopped working within about 50 seconds and makes a new
+minute: the Mac finds a connection that has stopped working within about 20 seconds and makes a new
 one, and the page asks again every three seconds by itself.
 
 The page asks to **Trust this device**, which makes the passkey: Face ID, Touch ID or the passcode.

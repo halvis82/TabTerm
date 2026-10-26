@@ -397,7 +397,7 @@ Terminals survive an update. PTYs live in a separate host process, so replacing 
 not end anything running, and a restarted daemon adopts the sessions it finds. History is kept on
 disk per session, bounded by a budget you set in megabytes.
 
-2058 unit tests and 144 browser suites. `npm run verify` gates every change.
+2059 unit tests and 144 browser suites. `npm run verify` gates every change.
 
 Read [limitations](docs/10-limitations.md) before filing anything: what Chrome and macOS will
 not permit is documented there with measurements, including the things that cannot be fixed.
