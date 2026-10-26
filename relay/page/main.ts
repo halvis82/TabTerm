@@ -379,7 +379,7 @@ let openWhenReady: string | null = null;
 const PING_EVERY_MS = 15_000;
 const PING_ANSWER_MS = 5_000;
 /** How long a new connection may take to say hello before it is given up on. */
-const HELLO_MS = 10_000;
+const HELLO_MS = 6_000;
 /** What a frame that would not open is, as opposed to anything else going wrong. */
 const NOT_OPENED = new Error('not-opened');
 
@@ -609,12 +609,48 @@ function closed(paired: Paired, code: number, denied: string | null, seconds: nu
     retry = 3000;
     return;
   }
-  // A dropped connection, or one that never got through: on the way back, every few seconds.
+  // A dropped connection, or one that never got through: on the way back, every few seconds, and
+  // the relay is asked why, so the page says what is wrong rather than spin.
   if (!navigator.onLine)
     say('This device is offline. It connects by itself once it is back online.');
-  else say('Connecting to your Mac', 'busy');
+  else void diagnose(paired);
   again(paired, retry);
   retry = Math.min(5000, retry * 2);
+}
+
+/**
+ * Why the last connection did not get through, from the relay itself: it cannot be reached, it
+ * is failing, the Mac is not connected to it, or the Mac is and this device still is not let
+ * through. A browser is never told why a connection failed, so this asks separately.
+ */
+async function diagnose(paired: Paired): Promise<void> {
+  const tried = failures;
+  let text: string;
+  let tone: 'warn' | 'plain' | 'busy' = 'warn';
+  try {
+    const stop = new AbortController();
+    const timer = window.setTimeout(() => stop.abort(), 5000);
+    const r = await fetch(`/status/${paired.room}`, { cache: 'no-store', signal: stop.signal });
+    clearTimeout(timer);
+    if (!r.ok) {
+      text = `Your relay is not working right now (error ${String(r.status)}), so this device cannot reach your Mac. Deploying the relay again may fix it.`;
+    } else if (((await r.json()) as { mac?: unknown }).mac !== true) {
+      text =
+        'Your Mac is offline or asleep, or remote access is turned off on it. This page connects by itself once it is back.';
+      tone = 'plain';
+    } else if (tried < 2) {
+      text = 'Connecting to your Mac';
+      tone = 'busy';
+    } else {
+      text =
+        'Your Mac is online, but the relay is not letting this device through to it. This page keeps at it, and it is worth checking Remote access in TabTerm Settings on your Mac.';
+    }
+  } catch {
+    text = 'This device cannot reach your relay. Check its internet connection.';
+  }
+  // Got through meanwhile, or let go: nothing to say.
+  if (conn?.sealer || removed || failures !== tried) return;
+  say(text, tone);
 }
 
 /** Not paired anymore: forgotten here, and the page shows how to pair. */

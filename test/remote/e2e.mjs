@@ -272,6 +272,15 @@ ok(
     `Promise.all([fetch('/icon.png'), fetch('/sw.js'), fetch('/manifest.webmanifest').then((r) => r.json())]).then(([i, w, m]) => i.headers.get('content-type') === 'image/png' && w.headers.get('content-type').startsWith('text/javascript') && m.icons[0].src === '/icon.png')`,
   ),
 );
+// What the page asks the relay when a connection does not get through.
+const room = new URL(link).hash.match(/pair=([\w-]+)\./)?.[1];
+ok(
+  'the relay says whether the Mac is connected, for a page that could not get through',
+  (await ev(`fetch('/status/${room}').then((r) => r.json()).then((j) => j.mac)`)) === true &&
+    (await ev(
+      `fetch('/status/a-room-nobody-is-in-0002').then((r) => r.json()).then((j) => j.mac)`,
+    )) === false,
+);
 // Notifications. Headless Chrome has no push service of its own to subscribe with, so this goes as
 // far as Chrome goes: the button, the permission, the worker installed. A real subscription and
 // delivery are checked by the unit tests against a stand in push service, and on a real phone.

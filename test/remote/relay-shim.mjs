@@ -30,14 +30,19 @@ class ShimSocket {
     this.real = null;
     this.queue = [];
     this.closed = null;
+    // As in Cloudflare: open until either side closes, and sending after that throws.
+    this.readyState = 1;
   }
   /** Taking a socket without hibernation, which the shim does not distinguish. */
   accept() {}
   send(data) {
+    if (this.readyState !== 1) throw new TypeError("Can't call WebSocket send() after close().");
     if (this.real) this.real.send(data);
     else this.queue.push(data);
   }
   close(code, reason) {
+    if (this.readyState === 3) throw new TypeError('WebSocket already closed');
+    this.readyState = 2;
     if (this.real) this.real.close(code, reason);
     else this.closed = [code, reason];
   }
@@ -79,7 +84,11 @@ class ShimState {
   }
 }
 
-export async function startRelay({ secret, port = 0, host = '127.0.0.1' } = {}) {
+/**
+ * `linger`: a socket that has closed stays in its room's list, as Cloudflare keeps one whose peer
+ * vanished without completing the close. Sending on it throws, as it does there.
+ */
+export async function startRelay({ secret, port = 0, host = '127.0.0.1', linger = false } = {}) {
   globalThis.Response = ShimResponse;
   globalThis.WebSocketRequestResponsePair = class {
     constructor(request, response) {
@@ -145,8 +154,11 @@ export async function startRelay({ secret, port = 0, host = '127.0.0.1' } = {}) 
         void room.webSocketMessage(shim, value);
       });
       real.on('close', () => {
-        for (const r of rooms.values()) r.state.sockets.delete(shim);
-        void room.webSocketClose(shim);
+        const done = shim.readyState === 2;
+        shim.readyState = 3;
+        if (!linger) for (const r of rooms.values()) r.state.sockets.delete(shim);
+        // A close the room started is already over for it, as on Cloudflare.
+        if (!done || !linger) void room.webSocketClose(shim);
       });
     });
   });

@@ -19,6 +19,7 @@ export class RemoteControl {
   #status: BridgeStatus = { state: 'off', browsers: 0 };
   readonly #pushFetch: Fetch | undefined;
   readonly #pingMs: number | undefined;
+  readonly #selfCheckMs: number | undefined;
 
   constructor(
     stateDir: string,
@@ -28,12 +29,15 @@ export class RemoteControl {
     pushFetch?: Fetch,
     /** How often the relay is asked if it is still there, shorter in tests. */
     pingMs?: number,
+    /** How often the Mac checks a device can reach it through the relay. 0 for never. */
+    selfCheckMs?: number,
   ) {
     this.#store = new RemoteStore(stateDir);
     this.#host = host;
     this.#onChange = onChange;
     this.#pushFetch = pushFetch;
     this.#pingMs = pingMs;
+    this.#selfCheckMs = selfCheckMs;
     this.#apply();
   }
 
@@ -77,6 +81,7 @@ export class RemoteControl {
         },
         this.#pushFetch,
         this.#pingMs,
+        this.#selfCheckMs,
       );
       this.#bridge.start();
       info('remote.on', {});

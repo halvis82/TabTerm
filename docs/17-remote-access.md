@@ -194,6 +194,10 @@ The cost on the Mac is one https request per notification. Nothing runs between 
   makes room by closing the oldest rather than being turned away: a phone put away can leave its
   connection open at the relay without a word, and refusing new ones let a few of those lock every
   device out. Only somebody holding a pairing link knows the address of a Mac's room
+- **A connection the relay closed can stay in its list** for as long as its other end never
+  answers, and sending on one throws. The relay only ever sends to the Mac's newest open
+  connection and to open devices, so a Mac that reconnected while its old connection lingered no
+  longer takes every device's connection down with it
 
 ### What this changes in the threat model
 
@@ -258,10 +262,24 @@ Press **Show a pairing code**.
 
 **What the page says while it connects.** It never just tries and fails. It says
 **Connecting to your Mac** with a turning ring while it is on its way, and comes back by itself
-every few seconds. When it knows why it cannot get in, it says so: **your Mac is offline or
-asleep** (it connects by itself once the Mac is back), **this device is offline**, or **too many
-tries that did not unlock**, with how long to wait. When the Mac does not know the device it is not
-paired, and the page says so and shows how to pair.
+every few seconds. A connection that does not get through is followed by asking the relay why
+(`/status/<room>`, which says only whether the Mac is connected), and the page says what it
+learned:
+
+- **This device cannot reach your relay**: no internet, or the relay cannot be reached
+- **Your relay is not working right now**, with its error code
+- **Your Mac is offline or asleep, or remote access is turned off on it**. It connects by itself
+  once the Mac is back
+- **Your Mac is online, but the relay is not letting this device through**, after a second try
+- **Too many tries that did not unlock**, with how long to wait
+
+When the Mac does not know the device it is not paired, and the page says so and shows how to pair.
+
+**The Mac checks the way in itself.** Three seconds after it connects to the relay, and every five
+minutes after, the Mac connects to its own room the way a device does and waits to arrive. A relay
+can answer the Mac's own pings and still fail every device. If the check does not arrive within
+ten seconds, Settings says **Devices cannot reach this Mac through the relay**, with why, and the
+Mac connects to the relay again, which clears whatever the relay was holding on to.
 
 **If the page says your Mac is offline** while Settings says **Connected to your relay**, wait half a
 minute: the Mac finds a connection that has stopped working within about 20 seconds and makes a new
@@ -358,6 +376,10 @@ Devices stay paired.
   message a browser can send ends, opens or resizes anything
 - `daemon/src/remote/bridge.test.ts`: a resume ticket works once, for its own device only, not
   after the device is removed, and takes over from a connection the Mac has not seen end
+- `daemon/src/remote/bridge.test.ts`: devices get in after the Mac reconnects while its old
+  connection is still listed, on a stand-in relay that keeps closed connections and throws on them
+  as Cloudflare does. The Mac's own check stays quiet while devices get through, and says so and
+  reconnects when a relay answers the Mac but fails every device
 - `daemon/src/remote/bridge.test.ts`: a new device is trusted only once the Mac approves it, by the
   code it shows, and a device turned down spends its code. A device that failed too often is told
   when to come back. A full room lets its oldest connection go to make room for a new one

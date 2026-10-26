@@ -538,6 +538,19 @@ describe('remote access, end to end', () => {
     expect(later.has('challenge')).toBe(false);
   });
 
+  it('lets devices in after the Mac reconnects, while its old connection is still listed', async () => {
+    // Cloudflare can keep a closed connection in the room's list, and sending on it throws.
+    await relay.close();
+    relay = await startRelay({ secret: SECRET, linger: true });
+    const first = connected(fakeHost().host);
+    await until(() => first.state.status === 'connected');
+    first.stop();
+    const c = connected(fakeHost().host);
+    expect(await until(() => c.state.status === 'connected')).toBe(true);
+    const { b } = await paired(c);
+    expect(b.has('tabs')).toBe(true);
+  });
+
   it('makes room for a new page by letting the oldest go, rather than turning it away', async () => {
     const c = connected(fakeHost().host);
     await until(() => c.state.status === 'connected');
@@ -653,6 +666,78 @@ function roomOf(stateDir: string): string {
   return (JSON.parse(readFileSync(join(stateDir, 'remote.json'), 'utf8')) as { room: string }).room;
 }
 
+describe('checking that a device can reach the Mac', () => {
+  it('checks now and then, and stays connected while devices get through', async () => {
+    const c = new RemoteControl(
+      dir,
+      fakeHost().host,
+      (s) => states.push(s),
+      undefined,
+      15_000,
+      150,
+    );
+    control = c;
+    c.configure({ enabled: true, relayUrl: relay.url, relaySecret: SECRET });
+    expect(await until(() => c.state.status === 'connected')).toBe(true);
+    await new Promise((r) => setTimeout(r, 1200));
+    expect(states.some((s) => s.status === 'error')).toBe(false);
+    expect(c.state.status).toBe('connected');
+  });
+
+  it('says so, and connects again, when the relay answers the Mac but fails every device', async () => {
+    // A relay that keeps the Mac's connection and turns every device away, as one did by throwing.
+    const { createServer } = await import('node:http');
+    const server = createServer((_req, res) => res.writeHead(500).end());
+    const wss = new WebSocketServer({ noServer: true });
+    let macConnections = 0;
+    server.on('upgrade', (req, socket, head) => {
+      if (!req.url?.includes('/ws/daemon/')) {
+        socket.end('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+        return;
+      }
+      macConnections++;
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        ws.on('message', (d: Buffer, binary: boolean) => {
+          if (!binary && d.toString() === 'ping') ws.send('pong');
+        });
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address() as { port: number };
+    try {
+      const c = new RemoteControl(
+        dir,
+        fakeHost().host,
+        (s) => states.push(s),
+        undefined,
+        15_000,
+        150,
+      );
+      control = c;
+      c.configure({
+        enabled: true,
+        relayUrl: `http://localhost:${String(port)}`,
+        relaySecret: SECRET,
+      });
+      expect(
+        await until(() =>
+          states.some((s) => s.detail?.startsWith('Devices cannot reach') === true),
+        ),
+      ).toBe(true);
+      expect(states.find((s) => s.detail?.startsWith('Devices cannot reach'))?.detail).toContain(
+        '500',
+      );
+      expect(await until(() => macConnections >= 2)).toBe(true);
+    } finally {
+      control?.stop();
+      control = undefined;
+      for (const ws of wss.clients) ws.terminate();
+      server.closeAllConnections();
+      server.close();
+    }
+  });
+});
+
 describe('a connection to the relay that has gone quiet', () => {
   /**
    * A relay that answers "ping" for a while and then not at all, with its connection still open,
@@ -680,7 +765,7 @@ describe('a connection to the relay that has gone quiet', () => {
   }
 
   function quietControl(url: string): RemoteControl {
-    const c = new RemoteControl(dir, fakeHost().host, (s) => states.push(s), undefined, 50);
+    const c = new RemoteControl(dir, fakeHost().host, (s) => states.push(s), undefined, 50, 0);
     c.configure({ enabled: true, relayUrl: url, relaySecret: SECRET });
     control = c;
     return c;

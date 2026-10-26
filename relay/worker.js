@@ -127,6 +127,15 @@ export default {
         headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400' },
       });
     }
+    /*
+     * Whether the Mac is connected, for a page that could not get through to say why. Only
+     * somebody with a pairing link knows a room's name, and this says nothing else about it.
+     */
+    const status = url.pathname.match(/^\/status\/([A-Za-z0-9_-]{16,64})$/);
+    if (status) {
+      const stub = env.ROOM.get(env.ROOM.idFromName(status[1]));
+      return stub.fetch(new Request('https://room/status'));
+    }
     const m = url.pathname.match(/^\/ws\/(daemon|browser)\/([A-Za-z0-9_-]{16,64})$/);
     if (!m) return new Response('Not found', { status: 404 });
     if (req.headers.get('upgrade') !== 'websocket') {
@@ -163,6 +172,42 @@ function withId(id, body) {
 }
 
 /**
+ * A socket the room can still use. One closed by either side stays in the room's list until the
+ * close completes, which for a peer that vanished may be never, and sending on it throws.
+ */
+function isOpen(ws) {
+  try {
+    return ws.readyState === undefined || ws.readyState === 1;
+  } catch {
+    return false;
+  }
+}
+
+function send(ws, data) {
+  try {
+    ws.send(data);
+  } catch {
+    // Closed meanwhile: whoever it was for is gone, and nothing else is held up by that.
+  }
+}
+
+function close(ws, code, reason) {
+  try {
+    ws.close(code, reason);
+  } catch {
+    // Already closed.
+  }
+}
+
+function attachment(ws) {
+  try {
+    return ws.deserializeAttachment();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * One Mac and its browsers. Uses hibernation, so an idle room costs nothing.
  *
  * Named RelayRoom since migration v2, which renamed it from Room. A room that never goes idle can
@@ -182,6 +227,11 @@ export class RelayRoom {
 
   async fetch(req) {
     const side = new URL(req.url).pathname.slice(1);
+    if (side === 'status') {
+      return new Response(JSON.stringify({ mac: this.#mac() !== null }), {
+        headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+      });
+    }
     if (side === 'browser') {
       /*
        * A full room lets its oldest connections go to make space, rather than turning the new one
@@ -191,14 +241,11 @@ export class RelayRoom {
        */
       const browsers = this.state
         .getWebSockets('browser')
-        .map((ws) => ({ ws, id: ws.deserializeAttachment()?.id ?? 0 }))
+        .filter(isOpen)
+        .map((ws) => ({ ws, id: attachment(ws)?.id ?? 0 }))
         .sort((a, b) => a.id - b.id);
       for (const { ws, id } of browsers.slice(0, Math.max(0, browsers.length - MAX_BROWSERS + 1))) {
-        try {
-          ws.close(4003, 'Replaced by a newer connection');
-        } catch {
-          // Already closed.
-        }
+        close(ws, 4003, 'Replaced by a newer connection');
         // A connection that is gone never answers the close, so the Mac is told here.
         this.#toDaemon(id, new Uint8Array([GONE]));
       }
@@ -207,31 +254,26 @@ export class RelayRoom {
     const [client, server] = Object.values(pair);
     if (side === 'daemon') {
       // One Mac per room. A new connection from it replaces the old, which is a reconnect.
-      for (const ws of this.state.getWebSockets('daemon')) ws.close(4000, 'replaced');
+      for (const ws of this.state.getWebSockets('daemon')) close(ws, 4000, 'replaced');
       /*
        * And its browsers go with it. The new connection knows none of them, so anything they sent
        * would go nowhere, and the old one may never be seen closing: one the Mac gave up on stays
        * open here. Closed, each page comes back on its own and introduces itself again.
        */
-      for (const ws of this.state.getWebSockets('browser')) {
-        try {
-          ws.close(4002, 'The Mac reconnected');
-        } catch {
-          // Already closed.
-        }
-      }
+      for (const ws of this.state.getWebSockets('browser')) close(ws, 4002, 'The Mac reconnected');
       this.state.acceptWebSocket(server, ['daemon']);
-    } else if (this.state.getWebSockets('daemon').length === 0) {
+      // Numbered, so the newest is the Mac's connection however long an old one takes to go.
+      server.serializeAttachment({ mac: await this.#next() });
+    } else if (!this.#mac()) {
       /*
        * Said with a close code rather than an HTTP error, whose reason a browser cannot read. Not
        * hibernated, and closed once the connection is open, since a socket closed before the
        * answer that opens it has gone out is never seen by the browser at all.
        */
       server.accept();
-      setTimeout(() => server.close(4002, 'The Mac is offline'), 0);
+      setTimeout(() => close(server, 4002, 'The Mac is offline'), 0);
     } else {
-      const id = ((await this.state.storage.get('next')) ?? 0) + 1;
-      await this.state.storage.put('next', id >= 0xfffffff0 ? 0 : id);
+      const id = await this.#next();
       this.state.acceptWebSocket(server, ['browser', `id:${id}`]);
       server.serializeAttachment({ id });
       this.#toDaemon(id, new Uint8Array(0));
@@ -239,51 +281,65 @@ export class RelayRoom {
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  async #next() {
+    const id = ((await this.state.storage.get('next')) ?? 0) + 1;
+    await this.state.storage.put('next', id >= 0xfffffff0 ? 0 : id);
+    return id;
+  }
+
+  /**
+   * The Mac's connection: the newest one still open. A connection the Mac replaced, or one that
+   * died without closing, can stay in the room's list for a long while, and sending on one that
+   * was closed throws. That once took down every device's connection after the Mac reconnected.
+   */
+  #mac() {
+    let newest = null;
+    for (const ws of this.state.getWebSockets('daemon')) {
+      if (!isOpen(ws)) continue;
+      if (!newest || (attachment(ws)?.mac ?? 0) > (attachment(newest)?.mac ?? 0)) newest = ws;
+    }
+    return newest;
+  }
+
   #toDaemon(id, body) {
-    for (const ws of this.state.getWebSockets('daemon')) ws.send(withId(id, body));
+    const mac = this.#mac();
+    if (mac) send(mac, withId(id, body));
   }
 
   async webSocketMessage(ws, message) {
-    if (typeof message === 'string') return ws.close(1003, 'Binary only');
+    if (typeof message === 'string') return close(ws, 1003, 'Binary only');
     const bytes = new Uint8Array(message);
-    if (bytes.length > MAX_FRAME + 4) return ws.close(1009, 'Too large');
+    if (bytes.length > MAX_FRAME + 4) return close(ws, 1009, 'Too large');
     if (this.state.getTags(ws).includes('daemon')) {
-      if (bytes.length < 4) return;
+      // Only the Mac's current connection speaks for it.
+      if (ws !== this.#mac() || bytes.length < 4) return;
       const id = new DataView(bytes.buffer, bytes.byteOffset).getUint32(0);
       const body = bytes.subarray(4);
       const targets =
         id === 0 ? this.state.getWebSockets('browser') : this.state.getWebSockets(`id:${id}`);
       for (const t of targets) {
-        if (body.length === 1 && body[0] === GONE) t.close(4001, 'Closed by the Mac');
-        else t.send(body);
+        if (body.length === 1 && body[0] === GONE) close(t, 4001, 'Closed by the Mac');
+        else send(t, body);
       }
       return;
     }
     // A connection told the Mac is offline has no id, and anything it sends goes nowhere.
-    const id = ws.deserializeAttachment()?.id;
+    const id = attachment(ws)?.id;
     if (id === undefined) return;
     this.#toDaemon(id, bytes);
   }
 
   async webSocketClose(ws, code) {
     // The close is answered, which completes it on this side.
-    try {
-      ws.close(code === 1005 || code === 1006 ? 1000 : code, 'Closed');
-    } catch {
-      // Already closed.
-    }
+    close(ws, code === 1005 || code === 1006 ? 1000 : code, 'Closed');
     if (!this.state.getTags(ws).includes('browser')) {
+      // A Mac connection already replaced going away changes nothing.
+      if (this.#mac()) return;
       // The Mac went away: every browser is told by its connection closing.
-      for (const b of this.state.getWebSockets('browser')) {
-        try {
-          b.close(4002, 'The Mac is offline');
-        } catch {
-          // Already closed.
-        }
-      }
+      for (const b of this.state.getWebSockets('browser')) close(b, 4002, 'The Mac is offline');
       return;
     }
-    const id = ws.deserializeAttachment()?.id;
+    const id = attachment(ws)?.id;
     if (id !== undefined) this.#toDaemon(id, new Uint8Array([GONE]));
   }
 

@@ -126,6 +126,16 @@ const NO_ROUTE = new Set([
   'EADDRNOTAVAIL',
   'EAI_AGAIN',
 ]);
+/**
+ * How often the Mac checks that a device can actually reach it: it connects to its own room the
+ * way a device does, and waits for itself to arrive. A relay can answer the Mac's pings and still
+ * fail every device, as one did when it kept a closed connection of the Mac's and threw on it.
+ */
+const SELF_CHECK_MS = 5 * 60_000;
+/** How long the check waits for itself to arrive. */
+const SELF_CHECK_WAIT_MS = 10_000;
+/** The device id a check says hello with, before its random part. Never a real device's. */
+const SELF_CHECK = 'self-check.';
 /** How long a new connection has to answer its first ping before it is made again. */
 const FIRST_ANSWER_MS = 5_000;
 
@@ -197,6 +207,10 @@ export class RemoteBridge {
   /** A new device waiting on the person at the Mac. One at a time, so one dialog at a time. */
   #approving: string | undefined;
   #sweepTimer: ReturnType<typeof setInterval> | undefined;
+  readonly #selfCheckMs: number;
+  #selfCheckTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The check in flight: its token, and what to do when it arrives. */
+  #selfCheck: { token: string; arrived: () => void } | undefined;
 
   constructor(
     host: RemoteHost,
@@ -204,12 +218,15 @@ export class RemoteBridge {
     onStatus: (s: BridgeStatus) => void = () => {},
     pushFetch?: Fetch,
     pingMs = PING_MS,
+    /** 0 turns the check off, for tests whose relay is only a stand-in for the Mac's side. */
+    selfCheckMs = SELF_CHECK_MS,
   ) {
     this.#host = host;
     this.#store = store;
     this.#onStatus = onStatus;
     this.#fetch = pushFetch;
     this.#pingMs = pingMs;
+    this.#selfCheckMs = selfCheckMs;
   }
 
   get status(): BridgeStatus {
@@ -252,6 +269,8 @@ export class RemoteBridge {
     clearTimeout(this.#flushTimer);
     clearInterval(this.#pingTimer);
     clearInterval(this.#sweepTimer);
+    clearTimeout(this.#selfCheckTimer);
+    this.#selfCheck = undefined;
     for (const b of this.#browsers.values()) clearTimeout(b.timer);
     this.#browsers.clear();
     this.#resumes.clear();
@@ -339,6 +358,7 @@ export class RemoteBridge {
       this.#retryMs = 1000;
       info('remote.relay.connected', {});
       this.#setStatus({ state: 'connected', browsers: 0 });
+      this.#checkSoon(socket, Math.min(3000, this.#selfCheckMs));
     };
     socket.on('open', () => {
       clearInterval(this.#pingTimer);
@@ -413,6 +433,76 @@ export class RemoteBridge {
       this.#retryTimer.unref?.();
       // Kept short: every device is waiting on this, asking again every few seconds itself.
       this.#retryMs = Math.min(10_000, this.#retryMs * 2);
+    });
+  }
+
+  #checkSoon(socket: WebSocket, ms: number): void {
+    clearTimeout(this.#selfCheckTimer);
+    if (this.#selfCheckMs <= 0) return;
+    this.#selfCheckTimer = setTimeout(() => this.#runSelfCheck(socket), ms);
+    this.#selfCheckTimer.unref?.();
+  }
+
+  /**
+   * Connects to this Mac's own room as a device would, and waits to arrive. Not arriving means
+   * devices cannot get in, whatever the relay says to the Mac's pings: Settings says so, and the
+   * connection to the relay is made again, which clears whatever the relay held on to.
+   */
+  #runSelfCheck(socket: WebSocket): void {
+    if (this.#stopped || this.#socket !== socket || this.#status.state === 'off') return;
+    const { relayUrl, room } = this.#store.state;
+    const url = new URL(relayUrl);
+    url.protocol = url.protocol === 'http:' ? 'ws:' : 'wss:';
+    url.pathname = `${url.pathname.replace(/\/+$/, '')}/ws/browser/${room}`;
+    const token = toBase64Url(randomBytes(12));
+    let detail = 'no answer';
+    const probe = new WebSocket(url, {
+      handshakeTimeout: SELF_CHECK_WAIT_MS,
+      perMessageDeflate: false,
+      ...(this.#ipv4 ? { family: 4 } : {}),
+    });
+    const done = (ok: boolean): void => {
+      if (this.#selfCheck?.token !== token) return;
+      this.#selfCheck = undefined;
+      clearTimeout(wait);
+      probe.removeAllListeners();
+      probe.on('error', () => {});
+      probe.terminate();
+      if (this.#stopped || this.#socket !== socket) return;
+      if (ok) {
+        if (this.#status.state === 'error') {
+          info('remote.selfcheck.ok', {});
+          this.#setStatus({ state: 'connected', browsers: 0 });
+        }
+        this.#checkSoon(socket, this.#selfCheckMs);
+        return;
+      }
+      warn('remote.selfcheck.failed', { detail });
+      this.#setStatus({
+        state: 'error',
+        detail: `Devices cannot reach this Mac through the relay (${detail}). Reconnecting.`,
+        browsers: 0,
+      });
+      socket.terminate();
+    };
+    const wait = setTimeout(() => done(false), SELF_CHECK_WAIT_MS);
+    wait.unref?.();
+    this.#selfCheck = { token, arrived: () => done(true) };
+    probe.on('open', () => {
+      probe.send(
+        packHello({ device: SELF_CHECK + token, nonce: toBase64Url(randomBytes(NONCE_BYTES)) }),
+      );
+    });
+    probe.on('unexpected-response', (_req, res) => {
+      detail = `the relay answered ${String(res.statusCode)}`;
+      done(false);
+    });
+    probe.on('close', (code: number) => {
+      detail = code === 4002 ? 'the relay says this Mac is offline' : `closed with ${String(code)}`;
+      done(false);
+    });
+    probe.on('error', (e: Error) => {
+      detail = e.message.slice(0, 80);
     });
   }
 
@@ -529,6 +619,14 @@ export class RemoteBridge {
         throw new Error('bad-hello');
       }
       const deviceId = hello['device'];
+      const check = this.#selfCheck;
+      if (check && deviceId === SELF_CHECK + check.token) {
+        // The Mac's own check arrived the way a device would: the way in works.
+        check.arrived();
+        this.#raw(b.id, new Uint8Array([RELAY_GONE]));
+        this.#forget(b);
+        return;
+      }
       const device = this.#store.device(deviceId);
       const pairing = device ? undefined : this.#store.pendingFor(deviceId);
       // An id nobody issued is answered like any other, and then nothing it sends will open.
