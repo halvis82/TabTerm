@@ -473,6 +473,24 @@ pane in 400 milliseconds at most, because zsh rings on every completion that fin
 Terminals, **Show the bell** turns it off. The code is `osc52.ts` and `ringBell` in
 `terminal-page.ts`, and the `program-copy-bell` suite checks both, the reload included.
 
+### Pictures
+
+`imgcat`, the iTerm2 inline image protocol (`OSC 1337;File=`), and Sixel draw pictures in the
+terminal, as in iTerm2, WezTerm and Ghostty, through xterm's image addon (`@xterm/addon-image`).
+Asked whether it can show Sixel, the terminal says so in its device attributes, which is how a
+program decides to send one.
+
+- **Live only.** The pictures are drawn by the page from the output as it arrives. A reload draws
+  the screen again from the daemon's copy of it, which holds text, so a picture from before it is
+  gone, and its rows are blank
+- **32 MB of pictures a terminal**, past which the oldest go first, so a run of large ones cannot
+  take a tab's memory
+- **A broken picture is skipped** and the output after it carries on
+- **The Kitty graphics protocol is not supported**: the emulator has no implementation of it
+- The decoder is WebAssembly, which the extension's pages are allowed to compile and nothing more.
+  See `05-security.md`. Without that, it failed partway through the first picture, and the terminal
+  drew nothing after it
+
 ### A gap a program drew is still a gap
 
 A full screen interface lays itself out by jumping the cursor rather than by writing spaces,
@@ -965,7 +983,7 @@ Populated by the VT fidelity spike and updated whenever one is found.
 | Gap | Impact | Status |
 |---|---|---|
 | Kitty graphics protocol | Tools targeting it do not render images | Not supported |
-| Sixel and the iTerm2 inline-image protocol | `imgcat` and similar print nothing | Not supported. xterm's image addon would add both and is not installed |
+| Pictures from before a reload | A picture printed before the tab was reloaded is gone after it | By design: a reload draws the screen from the daemon's copy, which keeps text. See Pictures, §6 |
 | iTerm2 Semantic History | Not recreated as such | Superseded by the path detection work path detection |
 | iTerm2 triggers | Not implemented | Out of scope for now |
 | iTerm2 profiles | Not implemented | Replaced by workspace templates |

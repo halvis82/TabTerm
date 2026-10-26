@@ -347,6 +347,16 @@ review failure.
 That is the whole of `permissions` in the manifest, and `manifest-permissions.test.ts` fails if this
 table and the manifest ever disagree in either direction.
 
+### What the extension's pages may run
+
+`content_security_policy.extension_pages` is `script-src 'self' 'wasm-unsafe-eval'; object-src
+'self';`. That is Chrome's default for an extension page plus one word. `'wasm-unsafe-eval'` lets a
+page compile WebAssembly, and the only WebAssembly is the picture decoder in the terminal's image
+support (`@xterm/addon-image`), bundled into the extension. It does not allow `eval`, and scripts
+still come from the extension only, so nothing from outside it can run. Without it, the decoder
+failed partway through the first picture a program printed, and the terminal drew nothing after
+it. `manifest-permissions.test.ts` holds the policy to exactly this.
+
 ### `commands` is not one of them
 
 It used to be listed above, and it is not a permission. It is a separate top-level manifest key that

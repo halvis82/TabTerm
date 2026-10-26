@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 const here = dirname(fileURLToPath(import.meta.url));
 const manifest = JSON.parse(readFileSync(join(here, '..', 'public', 'manifest.json'), 'utf8')) as {
   permissions: string[];
+  content_security_policy?: { extension_pages?: string };
 };
 const security = readFileSync(join(here, '..', '..', 'docs', '05-security.md'), 'utf8');
 
@@ -47,5 +48,22 @@ describe('what the extension asks Chrome for', () => {
       (p) => !requested.has(p) && p !== 'commands' && p !== 'key',
     );
     expect(stale, 'these are documented and not requested').toEqual([]);
+  });
+});
+
+/**
+ * The pages may compile WebAssembly that ships inside the extension, which the picture decoder in
+ * the terminal needs, and nothing more: no eval, nothing from outside the extension. Without it the
+ * decoder failed partway through a picture and the terminal drew nothing after it.
+ */
+describe('what the extension pages may run', () => {
+  it('is its own scripts and its own WebAssembly, and nothing else', () => {
+    expect(manifest.content_security_policy?.extension_pages).toBe(
+      "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';",
+    );
+  });
+
+  it('is explained where the permissions are', () => {
+    expect(security).toContain("'wasm-unsafe-eval'");
   });
 });

@@ -276,7 +276,14 @@ const COVERS = [
   ['extension/src/terminal/quote-path', ['opening-and-undo']],
   [
     'extension/src/terminal/xterm-controller',
-    ['pane-menu', 'menu-aftermath', 'selection-copy', 'char-width', 'escape-key'],
+    [
+      'pane-menu',
+      'menu-aftermath',
+      'selection-copy',
+      'char-width',
+      'escape-key',
+      'pictures-in-the-terminal',
+    ],
   ],
   ['extension/src/terminal/modified-keys', ['modified-keys', 'escape-key']],
   ['shared/src/char-width', ['char-width', 'inplace-redraw']],

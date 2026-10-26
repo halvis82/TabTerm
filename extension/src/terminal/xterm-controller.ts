@@ -3,6 +3,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { SerializeAddon } from '@xterm/addon-serialize';
 import { SearchAddon } from '@xterm/addon-search';
+import { ImageAddon } from '@xterm/addon-image';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { installCurrentWidths } from '@tabterm/shared';
 import type { ILinkProvider, IMarker } from '@xterm/xterm';
@@ -181,6 +182,7 @@ export class XtermController {
    * emulator, which is the only thing that has all of it.
    */
   readonly #search = new SearchAddon();
+  readonly #images = new ImageAddon({ storageLimit: 32, showPlaceholder: true });
   /** Landmarks in the scrollback, and the rail beside the scrollbar that finds them. */
   #markers: MarkerRail | null = null;
   /** Lines somebody pressed Return on. See `markInputHere`. */
@@ -343,6 +345,18 @@ export class XtermController {
 
     this.term.open(opts.container);
     this.#tryWebgl();
+    /*
+     * Pictures: `imgcat` and the iTerm2 inline image protocol, and Sixel, as in iTerm2, WezTerm and
+     * Ghostty. Drawn by the page from the output as it arrives, so they show live. A reload draws
+     * the screen again from the daemon's copy of it, which keeps text only, and a picture from
+     * before it is gone. Kept to 32 MB a terminal, so a run of large pictures cannot eat the tab's
+     * memory: past that, the oldest go first. The Kitty graphics protocol has no implementation in
+     * the emulator and is not supported. See docs/07-terminal-fidelity.md.
+     *
+     * After `open`, and after the renderer it draws beside: loaded before there is anything on the
+     * page it hooks into nothing and draws nothing.
+     */
+    this.term.loadAddon(this.#images);
 
     /*
      * What is typed passes through here on its way to the program, so this is where the line
@@ -1159,6 +1173,11 @@ export class XtermController {
     fn: (results: { resultIndex: number; resultCount: number } | undefined) => void,
   ): void {
     this.#search.onDidChangeResults(fn);
+  }
+
+  /** Bytes the pictures in this terminal take, for a test to see one was drawn. */
+  imagesStored(): number {
+    return this.#images.storageUsage;
   }
 
   focus(): void {

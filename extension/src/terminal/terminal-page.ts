@@ -8218,6 +8218,8 @@ declare global {
   interface Window {
     __tabterm?: {
       readScreen: (paneId?: string) => string;
+      /** Bytes the pictures in the focused pane take. */
+      imagesStored: () => number;
       /** Nudge every pane to repaint, as a tab back from a long absence does. */
       redrawAfterAway: () => void;
       /** The sizes the daemon reported applying, oldest first. */
@@ -8823,6 +8825,10 @@ function installTestHook(): void {
         lines.push(buf.getLine(y)?.translateToString(true) ?? '');
       }
       return lines.join('\n');
+    },
+    imagesStored: () => {
+      const target = splitView?.focused ?? panesHost?.all[0]?.paneId;
+      return (target ? panesHost?.get(target)?.controller.imagesStored() : 0) ?? 0;
     },
     readScreen: (paneId) => {
       const target = paneId ?? splitView?.focused ?? panesHost?.all[0]?.paneId;
