@@ -270,8 +270,9 @@ export class RemoteBridge {
         this.#setStatus({ state: 'error', detail: e.message, browsers: 0 });
       }
     });
-    socket.on('close', (code: number) => {
+    socket.on('close', (code: number, reason: Buffer) => {
       if (this.#socket !== socket) return;
+      info('remote.relay.closed', { code, reason: reason.toString().slice(0, 60) });
       clearInterval(this.#pingTimer);
       if (code === 1003 && !answered) this.#relayPings = false;
       for (const b of this.#browsers.values()) clearTimeout(b.timer);
@@ -325,6 +326,7 @@ export class RemoteBridge {
   // --- one browser ---------------------------------------------------------------------------
 
   #join(id: number): void {
+    info('remote.browser.join', {});
     const existing = this.#browsers.get(id);
     if (existing) this.#forget(existing);
     const b: Browser = {
@@ -351,6 +353,7 @@ export class RemoteBridge {
 
   /** Tell it why, sealed when it can be, and let it go. The relay closes its socket. */
   #drop(b: Browser, reason: string): void {
+    info('remote.browser.dropped', { reason });
     b.leaving = true;
     if (b.sealer) this.#send(b, packMessage({ t: 'denied', reason }));
     void b.chain.then(() => this.#raw(b.id, new Uint8Array([RELAY_GONE])));

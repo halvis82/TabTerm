@@ -187,7 +187,7 @@ Press **Show a pairing code**.
 
 **If the page says your Mac is offline** while Settings says **Connected to your relay**, wait half a
 minute: the Mac finds a connection that has stopped working within about 50 seconds and makes a new
-one, and the page tries again by itself.
+one, and the page asks again every three seconds by itself.
 
 The page asks to **Trust this device**, which makes the passkey: Face ID, Touch ID or the passcode.
 

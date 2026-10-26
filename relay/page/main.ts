@@ -278,7 +278,8 @@ function closed(paired: Paired, code: number): void {
   );
   if (code === 4001) return;
   setTimeout(() => connect(paired), retry);
-  retry = Math.min(30_000, retry * 2);
+  // An offline Mac is asked again every few seconds, so the page is back the moment it is.
+  retry = code === 4002 ? 3000 : Math.min(30_000, retry * 2);
 }
 
 async function receive(paired: Paired, bytes: Uint8Array, myNonce: Uint8Array): Promise<void> {
