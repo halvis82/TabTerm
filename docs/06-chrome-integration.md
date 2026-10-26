@@ -270,9 +270,22 @@ training run — claude — eeg-analysis
 ```
 
 It is the one part of a title that was chosen rather than derived, and a tab strip is read from the
-left, so it has to be the half that survives being cut off. Only for a tab holding one pane: with
-several there are several names, and taking the focused pane's would make the tab rename itself as
-somebody clicked between them, which is a worse title than none.
+left, so it has to be the half that survives being cut off. With several panes, taking the focused
+pane's name would make the tab rename itself as somebody clicked between them, so instead **a split
+tab is called by all of its names**, in the order the panes are drawn:
+
+```
+training · eval — eeg-analysis
+training · the evaluation job +2 — eeg-analysis
+```
+
+Each name whole, as many as fit in 48 characters, and the rest counted, so a name is never cut into
+something that reads like another. Panes nobody named are left out. A split tab with no names is
+called by its template, or by how many panes it has.
+
+**Running is the icon's to say.** A split tab's title used to end in `· 1 running`, which took the
+place of the names and said what the icon already shows: one ring for each pane at work. The title
+still says what needs a person, `needs approval` and `waiting for you`, and how a command ended.
 
 **And what a tab was last used for survives a refresh.** The page learned the last command from
 the event that says one started, which a page that has just loaded has never received, so a tab

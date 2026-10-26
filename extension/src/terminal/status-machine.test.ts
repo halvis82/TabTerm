@@ -120,12 +120,12 @@ describe('the title', () => {
     expect(titleStatus(m, 2)).toBe('needs approval');
   });
 
-  it('counts running panes only when there is more than one pane', () => {
+  it('leaves running to the icon, however many panes are running', () => {
     const m = new StatusMachine();
     m.set('a', 'running');
     expect(titleStatus(m, 1)).toBe('');
     m.set('b', 'running');
-    expect(titleStatus(m, 2)).toBe('2 running');
+    expect(titleStatus(m, 2)).toBe('');
   });
 
   it('says done for a finished command', () => {
@@ -148,10 +148,12 @@ describe('what a quiet tab of several panes says', () => {
     expect(titleStatus(m, 7)).toBe('');
   });
 
-  it('and still says what is happening when something is', () => {
+  it('and still says when something needs a person', () => {
     const m = new StatusMachine();
     m.set('a', 'running');
-    expect(titleStatus(m, 7)).toBe('1 running');
+    expect(titleStatus(m, 7)).toBe('');
+    m.set('b', 'waiting');
+    expect(titleStatus(m, 7)).toBe('waiting for you');
   });
 });
 

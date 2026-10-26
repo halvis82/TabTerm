@@ -28,6 +28,7 @@ export function shortenPath(path: string): string {
  *   an agent                  claude — eeg-analysis
  *   a template                review — eeg-analysis
  *   panes that match nothing  3 panes — eeg-analysis
+ *   panes somebody named      training · eval — eeg-analysis
  *   a session somebody named  training run — claude — eeg-analysis
  *
  * A name goes first, in front of everything the tab would have been called anyway, because it is
@@ -38,12 +39,44 @@ export function shortenPath(path: string): string {
  * panes there are several names, and the one on the focused pane would make the tab title change
  * as somebody clicked between them, which is a worse title than none.
  */
-export function composeTitle(fields: TitleFields, status?: string, label?: string): string {
+export function composeTitle(
+  fields: TitleFields,
+  status?: string,
+  label?: string,
+  /** The names given to the panes of a tab of several, in the order they are drawn. */
+  paneLabels: readonly string[] = [],
+): string {
   const where = fields.cwd ? basename(shortenPath(fields.cwd)) : (fields.repo ?? '');
-  const what = describeWhat(fields);
+  const named = (fields.paneCount ?? 1) > 1 ? joinLabels(paneLabels) : '';
+  const what = named || describeWhat(fields);
   const parts = [label?.trim(), what, where].filter(Boolean);
   const base = parts.join(' — ');
   return status ? `${base} · ${status}` : base || 'TabTerm';
+}
+
+/** How long the names of a tab's panes may run before the rest are counted instead. */
+export const LABELS_MAX = 48;
+
+/**
+ * The names given to a split tab's panes, joined: "training · eval · notes". Each name whole, as
+ * many as fit in LABELS_MAX, and the rest counted, "training · eval +2", so a name is never cut
+ * into something that reads like a different one. A tab of several panes is called by these
+ * rather than by how many panes it has, since they are the part somebody chose.
+ */
+export function joinLabels(labels: readonly string[]): string {
+  const names = labels.map((l) => l.trim()).filter((l) => l !== '');
+  if (names.length === 0) return '';
+  let out = names[0] ?? '';
+  if (out.length > LABELS_MAX) out = `${out.slice(0, LABELS_MAX - 1)}…`;
+  let shown = 1;
+  for (const name of names.slice(1)) {
+    const left = names.length - shown - 1;
+    const next = `${out} · ${name}`;
+    if (next.length + (left > 0 ? ` +${String(left)}`.length : 0) > LABELS_MAX) break;
+    out = next;
+    shown++;
+  }
+  return shown < names.length ? `${out} +${String(names.length - shown)}` : out;
 }
 
 /** Names of agent CLIs, which are worth saying instead of the command that started them. */

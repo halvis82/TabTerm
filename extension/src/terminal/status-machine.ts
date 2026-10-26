@@ -147,7 +147,7 @@ export class StatusMachine {
     return states.slice(0, 2);
   }
 
-  /** How many panes are in a given state, for a title suffix like "2 running". */
+  /** How many panes are in a given state. */
   countIn(state: FaviconState): number {
     let n = 0;
     for (const pane of this.#panes.values()) if (pane.state === state) n++;
@@ -167,8 +167,11 @@ export function titleStatus(machine: StatusMachine, paneCount: number): string {
   if (machine.countIn('failed') > 0) return 'failed';
   if (machine.countIn('success') > 0) return 'done';
   if (machine.countIn('done') > 0) return 'finished';
-  const running = machine.countIn('running');
-  if (running > 0 && paneCount > 1) return `${String(running)} running`;
+  /*
+   * Running says nothing here: the icon already shows it, two rings for two panes working, and the
+   * words "1 running" took the place of what the tab is called. Asked for in those words.
+   */
+  void paneCount;
   /*
    * Nothing is happening, and the count is already the name of the tab.
    *

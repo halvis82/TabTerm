@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { composeTitle } from './titles.js';
+import { LABELS_MAX, composeTitle, joinLabels } from './titles.js';
 
 /**
  * A tab strip is read sideways, at a glance, and cut off.
@@ -126,6 +126,27 @@ describe('what a tab is called', () => {
     it('ignores a name that is only spaces', () => {
       // The form trims before it stores, and a title is not the place to find out it did not.
       expect(composeTitle(fields, undefined, '   ')).toBe('claude — eeg');
+    });
+
+    it('calls a split tab by the names of its panes', () => {
+      const tab = { cwd: '/Users/someone/code/eeg', paneCount: 2 };
+      expect(composeTitle(tab, undefined, undefined, ['training', 'eval'])).toBe(
+        'training · eval — eeg',
+      );
+      expect(composeTitle(tab, 'needs approval', undefined, ['training'])).toBe(
+        'training — eeg · needs approval',
+      );
+    });
+
+    it('fits as many whole names as it can, and counts the rest', () => {
+      expect(joinLabels(['training run', 'evaluation', 'notes', 'server logs'])).toBe(
+        'training run · evaluation · notes · server logs',
+      );
+      expect(
+        joinLabels(['a long training run', 'the evaluation job', 'notes', 'server logs']),
+      ).toBe('a long training run · the evaluation job +2');
+      expect(joinLabels(['x'.repeat(60)])).toHaveLength(LABELS_MAX);
+      expect(joinLabels(['  ', ''])).toBe('');
     });
 
     it('is absent when the tab holds more than one pane', () => {

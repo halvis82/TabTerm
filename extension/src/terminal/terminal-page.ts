@@ -1137,7 +1137,22 @@ function refreshTitle(status?: string): void {
    * panes is the best answer, because they wrote it; failing that, the last thing run in the tab,
    * which is what the single pane title already uses for the same reason.
    */
-  document.title = composeTitle(fields, said || whichTab(count), soleLabel());
+  const labels = count > 1 && layout ? allLabels(layout) : [];
+  document.title = composeTitle(
+    fields,
+    said || (labels.length > 0 ? '' : whichTab(count)),
+    soleLabel(),
+    labels,
+  );
+}
+
+/** Every pane label in the tab, in the order the panes are drawn. */
+function allLabels(node: LayoutNode): string[] {
+  if (node.type === 'terminal') {
+    const label = node.label?.trim();
+    return label ? [label] : [];
+  }
+  return node.children.flatMap(allLabels);
 }
 
 /**
