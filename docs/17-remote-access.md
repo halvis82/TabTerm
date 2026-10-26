@@ -92,12 +92,29 @@ kept by the page in memory only. When the connection drops, by the network or by
 letting go of the Mac for a moment, the page keeps showing what it was showing, says
 **Reconnecting**, and comes back with the ticket instead of Face ID. A ticket:
 
-- works once, and the Mac gives a new one each time it is used
+- works once, and the Mac gives a new one each time it is used. The one used stays good for 30
+  seconds, until the page says anything on the new connection, so a connection lost again before
+  the Mac's answer arrived can still come back with it
 - belongs to one device, and is no good with any other device's key
 - runs out ten minutes after its connection ended
 - is gone when the page is closed or reloaded, when it was out of sight for two minutes, when the
   device is removed, when remote access is turned off, and when the daemon restarts. Each of those
   unlocks with the passkey again
+
+**A connection that dies without a word is found.** A phone can cut a page's connection while it
+is put away and never say so. Once unlocked, the page asks the Mac every 15 seconds, and at once
+when it comes back into sight or back online. With no answer in 5 seconds it makes a new
+connection. A connection that has not said hello within 10 seconds is made again too. When the
+Mac connects to the relay again, the relay closes every page's connection, since the new one
+knows none of them, and each page comes back by itself.
+
+**Keys are never lost or typed twice.** Each key a page sends is numbered, and the Mac answers
+each number. Keys not yet answered when a connection drops, or typed while it comes back, are
+sent again once it is back, and the Mac writes each number once. Unlocking afresh with the
+passkey, rather than coming back with a ticket, lets go of unanswered keys instead, since a Mac
+that restarted would not know which it already wrote. A key is sent the moment it is typed, and
+its echo comes back the moment it appears: the Mac only gathers output into batches while a
+terminal keeps printing.
 
 There is no account. The list of trusted devices is a file on the Mac,
 `~/.local/state/tabterm/remote.json`, readable by you only.
@@ -143,7 +160,8 @@ The cost on the Mac is one https request per notification. Nothing runs between 
   on the relay and enter it in Settings
 - **Failed unlocks** are counted per device: five, and that device is refused for five minutes.
   A page going out of sight while it unlocks, which Face ID can cause, is not a failed unlock
-- **A device that has not unlocked within a minute** is let go
+- **A device that has not unlocked within a minute** is let go. A page left on Unlock asks again
+  once anybody looks at it, for a fresh Unlock
 - **A device out of sight** for two minutes closes its connection and drops its resume ticket, so
   the next look unlocks again
 - **Removing a device** in Settings cuts its open connections at once
@@ -211,7 +229,10 @@ Press **Show a pairing code**.
 minute: the Mac finds a connection that has stopped working within about 20 seconds and makes a new
 one, and the page asks again every three seconds by itself.
 
-The page asks to **Trust this device**, which makes the passkey: Face ID, Touch ID or the passcode.
+The page asks for a name for the device, filled in with what it is (**iPhone, Home Screen app**,
+**iPhone, Safari**, **Mac, Chrome**), then to **Trust this device**, which makes the passkey: Face
+ID, Touch ID or the passcode. A web page cannot learn a phone's own name, so the name is how two
+iPhones are told apart. It can be changed in Settings at any time.
 A device is trusted only once that is done. A code scanned but not trusted within its ten minutes
 leaves the device holding a pairing the Mac does not know.
 
@@ -260,6 +281,7 @@ list, which says it ended.
 Settings, Remote access lists every trusted device with when it was added and last used, and
 whether it gets notifications.
 
+- **The name** can be changed by typing over it
 - **Can type** off makes it watch only. Its key bar goes away at once
 - **Remove** cuts it off at once and forgets it. An open page says so and shows Scan code and the
   paste box, ready for a new code

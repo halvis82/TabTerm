@@ -1,7 +1,7 @@
 // Remote access, as somebody sets it up in Settings: off at first, a relay entered, turned on,
 // connected, and a pairing code shown. The relay is the real relay code, run by this suite.
 import { randomBytes } from 'node:crypto';
-import { openTerminal, evaluate, sleep, finish, waitFor } from '../helpers.mjs';
+import { openTerminal, evaluate, sleep, finish, waitFor, newTab, connect } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 import { startRelay } from '../../remote/relay-shim.mjs';
 
@@ -94,9 +94,63 @@ r.ok(
   ),
 );
 
+// A phone pairs with that code and names itself, and the Mac lists it by that name. A web page
+// cannot learn a phone's own name, so this name is how two iPhones are told apart.
+const link = String(
+  await evaluate(client, `${section}?.querySelector('.set-pairing-link')?.textContent ?? ''`),
+);
+const phoneTab = await newTab('about:blank');
+const phone = connect(phoneTab.webSocketDebuggerUrl);
+await phone.ready;
+await phone.send('WebAuthn.enable', {});
+await phone.send('WebAuthn.addVirtualAuthenticator', {
+  options: {
+    protocol: 'ctap2',
+    transport: 'internal',
+    hasResidentKey: true,
+    hasUserVerification: true,
+    isUserVerified: true,
+    automaticPresenceSimulation: true,
+  },
+});
+await phone.send('Page.navigate', { url: link });
+r.ok(
+  'a device being trusted is asked for a name, with one filled in',
+  await waitFor(
+    phone,
+    `!document.getElementById('name-field').hidden && document.getElementById('name-input').value.length > 0`,
+    10000,
+  ),
+);
+await evaluate(
+  phone,
+  `document.getElementById('name-input').value = 'Test iPhone'; document.getElementById('unlock').click()`,
+);
+const nameBox = `${section}?.querySelector('[data-remote-name]')`;
+r.ok(
+  'and the Mac lists it by that name',
+  await waitFor(client, `${nameBox}?.value === 'Test iPhone'`, 10000),
+);
+await evaluate(
+  client,
+  `(() => { const b = ${nameBox}; b.value = 'Kitchen iPad'; b.dispatchEvent(new Event('blur')); })()`,
+);
+await sleep(500);
+await phone.send('Page.reload', {});
+await waitFor(phone, `!document.getElementById('unlock').hidden`, 10000);
+await evaluate(phone, `document.getElementById('unlock').click()`);
+r.ok(
+  'renamed in Settings, the device itself shows the new name',
+  await waitFor(
+    phone,
+    `document.getElementById('device-name').textContent === 'Kitchen iPad'`,
+    10000,
+  ),
+);
+
 // A picture of the section, for looking at by eye: TT_SHOT_DIR=<folder>.
 if (process.env.TT_SHOT_DIR) {
-  await evaluate(client, `${section}?.scrollIntoView({ block: 'start' })`);
+  await evaluate(client, `(${nameBox} ?? ${section})?.scrollIntoView({ block: 'center' })`);
   await sleep(300);
   const shot = await client.send('Page.captureScreenshot', { format: 'png' });
   const { writeFileSync } = await import('node:fs');

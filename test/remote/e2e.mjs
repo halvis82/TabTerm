@@ -652,6 +652,32 @@ ok(
   )) && !(await ev2(`window.__screens.includes('lock')`)),
   await ev2(`JSON.stringify(window.__screens)`),
 );
+// Keys typed while it comes back are not lost: held, and sent once it is back.
+await ev2(
+  `window.__remote.drop(); window.__remote.term._core.coreService.triggerDataEvent('echo held-$((5*5))\\r', true)`,
+);
+ok(
+  'keys typed while it reconnects arrive once it is back',
+  await until(() => (desk.output.get(created.streamId) ?? '').includes('held-25')),
+);
+// A connection that dies without a word, as a phone's can after being put away: coming back
+// online, or into sight, the page asks, hears nothing, and makes a new one.
+await until(() => ev2(`window.__remote.state().ready`));
+await ev2(
+  `window.__screens = []; window.__remote.silence(); window.dispatchEvent(new Event('online'))`,
+);
+ok(
+  'a connection that silently died is found and made again, without unlocking',
+  (await until(
+    () =>
+      ev2(
+        `window.__screens.length > 0 && window.__remote.state().ready && document.getElementById('reconnecting').hidden`,
+      ),
+    15000,
+  )) && !(await ev2(`window.__screens.includes('lock')`)),
+  await ev2(`JSON.stringify(window.__screens)`),
+);
+
 // exit in the terminal it is watching: the page says it ended rather than sit on a still screen.
 desk.ws.send(
   encodeFrame({

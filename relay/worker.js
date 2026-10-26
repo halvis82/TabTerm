@@ -184,6 +184,18 @@ export class Room {
     if (side === 'daemon') {
       // One Mac per room. A new connection from it replaces the old, which is a reconnect.
       for (const ws of this.state.getWebSockets('daemon')) ws.close(4000, 'replaced');
+      /*
+       * And its browsers go with it. The new connection knows none of them, so anything they sent
+       * would go nowhere, and the old one may never be seen closing: one the Mac gave up on stays
+       * open here. Closed, each page comes back on its own and introduces itself again.
+       */
+      for (const ws of this.state.getWebSockets('browser')) {
+        try {
+          ws.close(4002, 'The Mac reconnected');
+        } catch {
+          // Already closed.
+        }
+      }
       this.state.acceptWebSocket(server, ['daemon']);
     } else if (this.state.getWebSockets('daemon').length === 0) {
       /*

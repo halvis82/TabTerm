@@ -73,7 +73,12 @@ export interface SettingsOptions {
   remotePairing?: () => { link: string; expiresAt: number } | null;
   onRemoteSet?: (change: { enabled?: boolean; relayUrl?: string; relaySecret?: string }) => void;
   onRemotePair?: () => void;
-  onRemoteDevice?: (change: { deviceId: string; typing?: boolean; forget?: boolean }) => void;
+  onRemoteDevice?: (change: {
+    deviceId: string;
+    typing?: boolean;
+    name?: string;
+    forget?: boolean;
+  }) => void;
 }
 
 /**
@@ -784,9 +789,32 @@ function buildRemote(options: SettingsOptions): HTMLElement | null {
       const row = document.createElement('div');
       row.className = 'set-field';
       row.dataset['remoteDevice'] = device.id;
-      const name = document.createElement('span');
-      name.className = 'set-label';
-      name.textContent = device.name;
+      // Named on the device when it was trusted, and renamed here: a web page cannot learn a
+      // phone's own name, so this is how two iPhones are told apart.
+      const name = document.createElement('input');
+      name.className = 'launcher-input set-input set-remote-name';
+      name.spellcheck = false;
+      name.maxLength = 60;
+      name.value = device.name;
+      name.setAttribute('aria-label', 'Device name');
+      name.dataset['remoteName'] = device.id;
+      const rename = (): void => {
+        const typed = name.value.trim();
+        if (typed === '' || typed === device.name) {
+          name.value = device.name;
+          return;
+        }
+        options.onRemoteDevice?.({ deviceId: device.id, name: typed });
+      };
+      name.addEventListener('blur', rename);
+      name.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          name.blur();
+        }
+        // Not the terminal's, while somebody is typing in a box.
+        e.stopPropagation();
+      });
       const when = document.createElement('span');
       when.className = 'set-desc';
       when.textContent =

@@ -283,6 +283,29 @@ describe('remote access, end to end', () => {
     expect(fake.written[0]).toEqual({ sessionId: 's1', text: 'ls\r' });
   });
 
+  it('answers every numbered key, and types each number once however often it comes', async () => {
+    const fake = fakeHost();
+    const c = connected(fake.host);
+    await until(() => c.state.status === 'connected');
+    const { b, pairing } = await paired(c);
+    const ticket = String(b.last('ready')?.['resume']);
+    b.send({ t: 'watch', sessionId: 's1' });
+    await until(() => b.has('screen'));
+    b.send({ t: 'input', sessionId: 's1', data: 'a', page: 'p1', n: 1 });
+    b.send({ t: 'input', sessionId: 's1', data: 'b', page: 'p1', n: 2 });
+    expect(await until(() => b.last('got')?.['n'] === 2)).toBe(true);
+    b.close();
+    // Back on a new connection, the page sends again what it did not hear about, and more.
+    const back = browser(relay.url, pairing, authenticator(), { resume: ticket });
+    await until(() => back.has('tabs'));
+    back.send({ t: 'watch', sessionId: 's1' });
+    await until(() => back.has('screen'));
+    back.send({ t: 'input', sessionId: 's1', data: 'b', page: 'p1', n: 2 });
+    back.send({ t: 'input', sessionId: 's1', data: 'c', page: 'p1', n: 3 });
+    expect(await until(() => back.last('got')?.['n'] === 3)).toBe(true);
+    expect(fake.written.map((w) => w.text).join('')).toBe('abc');
+  });
+
   it('keeps the list current as the tabs change on the Mac', async () => {
     const fake = fakeHost();
     const c = connected(fake.host);
@@ -346,11 +369,45 @@ describe('remote access, end to end', () => {
     expect(await until(() => back.has('tabs'))).toBe(true);
     const next = String(back.last('ready')?.['resume']);
     expect(next).not.toBe(ticket);
+    // Saying anything shows it heard the answer and has its new ticket, so the old one is done.
+    back.send({ t: 'visible', visible: true });
+    await new Promise((r) => setTimeout(r, 100));
     back.close();
 
     const again = browser(relay.url, pairing, authenticator(), { resume: ticket });
     expect(await until(() => again.closed() !== null)).toBe(true);
     expect(again.has('ready')).toBe(false);
+    // The new one works.
+    const third = browser(relay.url, pairing, authenticator(), { resume: next });
+    expect(await until(() => third.has('tabs'))).toBe(true);
+  });
+
+  it('lets a ticket be used again when the connection dropped before the answer arrived', async () => {
+    const fake = fakeHost();
+    const c = connected(fake.host);
+    await until(() => c.state.status === 'connected');
+    const { b, pairing } = await paired(c);
+    const ticket = String(b.last('ready')?.['resume']);
+    b.close();
+    const lost = browser(relay.url, pairing, authenticator(), { resume: ticket });
+    await until(() => lost.has('ready'));
+    // Lost before the page said anything: as far as the page knows, the answer never came.
+    lost.close();
+    const back = browser(relay.url, pairing, authenticator(), { resume: ticket });
+    expect(await until(() => back.has('tabs'))).toBe(true);
+  });
+
+  it('closes the pages when the Mac connects to the relay again, so each comes back', async () => {
+    const fake = fakeHost();
+    const c = connected(fake.host);
+    await until(() => c.state.status === 'connected');
+    const { b } = await paired(c);
+    // A second connection from the Mac, as one made after giving up on a quiet one.
+    const again = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/daemon/${roomOf(dir)}`, {
+      headers: { authorization: `Bearer ${SECRET}` },
+    });
+    expect(await until(() => b.closed() === 4002)).toBe(true);
+    again.close();
   });
 
   it('takes over from a connection the Mac has not yet seen end', async () => {

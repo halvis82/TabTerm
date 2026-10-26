@@ -99,7 +99,11 @@ function deviceName(): string {
       : /Firefox\//.test(ua)
         ? 'Firefox'
         : 'Safari';
-  return `${what}, ${browser}`;
+  // Added to the Home Screen it is an app of its own, paired apart from Safari.
+  const app =
+    matchMedia('(display-mode: standalone)').matches ||
+    (navigator as { standalone?: boolean }).standalone === true;
+  return app ? `${what}, Home Screen app` : `${what}, ${browser}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -261,26 +265,47 @@ function setSize(cols: number, rows: number): void {
 // The connection
 // ---------------------------------------------------------------------------
 
-let ws: WebSocket | null = null;
-let sealer: Sealer | null = null;
-let chain: Promise<void> = Promise.resolve();
+/**
+ * One connection to the Mac, and everything that belongs to it alone: its keys, and what it has
+ * sent and is sending. Kept together so a connection that has been replaced can never touch the
+ * one after it, whatever it still had queued.
+ */
+interface Conn {
+  socket: WebSocket;
+  sealer: Sealer | null;
+  /** What arrived, opened in order, since each frame's counter must follow the one before. */
+  inbox: Promise<void>;
+  /** What goes out, sealed in order. Apart from the inbox, so a key never waits on output. */
+  outbox: Promise<void>;
+  /** A sealed frame has opened, so this device's key is the one the Mac used. */
+  opened: boolean;
+  /** Unlocked, so it may say more than how it unlocks. */
+  ready: boolean;
+  /** When anything last arrived, which a ping checks for. */
+  heard: number;
+  /** Why the Mac let it go, when it said. */
+  denied: string | null;
+  timers: number[];
+}
+
+let conn: Conn | null = null;
+let retryTimer = 0;
 let tabs: RemoteTab[] = [];
 let watching: string | null = null;
-let watchingStream = 0;
+/** The stream the watched terminal's output comes on. -1 for none. */
+let watchingStream = -1;
 let typing = false;
 let pendingChallenge: Record<string, unknown> | null = null;
 let retry = 1000;
-/** Unlocked on this connection, so it may say more than how it unlocks. */
-let ready = false;
 /**
  * The Mac's resume ticket: a dropped connection comes back with it instead of the passkey. In
- * memory only, so closing the page, or a reload, unlocks with the passkey again. Good once, and
- * replaced on every unlock.
+ * memory only, so closing the page, or a reload, unlocks with the passkey again. Kept until the
+ * Mac answers, and replaced on every unlock.
  */
 let ticket: string | null = null;
 /** Coming back with the ticket just now, so a refusal means unlocking as usual instead. */
 let resuming = false;
-let unlockAgain = false;
+let resumeRefused = false;
 /** Set when the Mac said why it is letting go, which outranks the connection closing. */
 let removed = false;
 /**
@@ -289,120 +314,237 @@ let removed = false;
  * or one removed while this page was away, looks from here. Asking again cannot help.
  */
 let unknown = false;
+/**
+ * Keys typed and not yet answered by the Mac, numbered. A connection that drops takes whatever it
+ * was carrying with it, so these are sent again on the next one, and the Mac writes each number
+ * once. Kept to a little: typing, not a paste into a dead connection.
+ */
+let unanswered: { n: number; sessionId: string; data: string }[] = [];
+let keyNumber = 0;
+const UNANSWERED_MAX = 16 * 1024;
+/** This page, to the Mac, for numbering its keys. New on every load. */
+const pageId = toBase64Url(randomBytes(12));
 /** The Mac's key for notifications, and whether this device has them on. */
 let vapid = '';
 let notifyOn = false;
 /** A terminal to open once unlocked, from a notification that was tapped. */
 let openWhenReady: string | null = null;
 
-const send = (message: object): void => {
-  const s = sealer;
-  const socket = ws;
-  if (!s || !socket) return;
-  chain = chain.then(async () => {
-    if (socket.readyState === WebSocket.OPEN) socket.send(await s.seal(packMessage(message)));
+/** How often an open connection is checked, and how long an answer may take. */
+const PING_EVERY_MS = 15_000;
+const PING_ANSWER_MS = 5_000;
+/** How long a new connection may take to say hello before it is given up on. */
+const HELLO_MS = 10_000;
+/** What a frame that would not open is, as opposed to anything else going wrong. */
+const NOT_OPENED = new Error('not-opened');
+
+const isReady = (): boolean => conn?.ready === true;
+
+/** Sealed and sent on the current connection. False when there is none to send on. */
+function send(message: object): boolean {
+  const c = conn;
+  const sealer = c?.sealer;
+  if (!c || !sealer) return false;
+  c.outbox = c.outbox
+    .then(async () => {
+      if (c.socket.readyState === WebSocket.OPEN)
+        c.socket.send(await sealer.seal(packMessage(message)));
+    })
+    .catch(() => undefined);
+  return true;
+}
+
+/** Typed into the watched terminal, and kept until the Mac says it has it. */
+function sendKeys(data: string): void {
+  if (!typing || !watching) return;
+  const held = unanswered.reduce((sum, k) => sum + k.data.length, 0);
+  if (held + data.length > UNANSWERED_MAX) return;
+  const key = { n: ++keyNumber, sessionId: watching, data };
+  unanswered.push(key);
+  // Only once the Mac shows this terminal on this connection, since it takes keys for that alone.
+  if (isReady() && watchingStream !== -1) sendKey(key);
+}
+
+function sendKey(key: { n: number; sessionId: string; data: string }): void {
+  send({ t: 'input', sessionId: key.sessionId, data: key.data, page: pageId, n: key.n });
+}
+
+function after(c: Conn, ms: number, run: () => void): void {
+  c.timers.push(window.setTimeout(run, ms));
+}
+
+/** Let a connection go, quietly: nothing it does from now on reaches the page. */
+function retire(c: Conn): void {
+  for (const t of c.timers) clearTimeout(t);
+  c.timers = [];
+  c.socket.onopen = c.socket.onclose = c.socket.onmessage = c.socket.onerror = null;
+  try {
+    c.socket.close();
+  } catch {
+    // Already closed.
+  }
+}
+
+/** Asked whether it still reaches the Mac: anything arriving in time says yes. */
+function ping(paired: Paired, c: Conn): void {
+  if (conn !== c || !c.ready) return;
+  const asked = Date.now();
+  send({ t: 'ping' });
+  after(c, PING_ANSWER_MS, () => {
+    if (conn === c && c.heard < asked) lose(paired, c, 1006);
   });
-};
+}
 
 function connect(paired: Paired): void {
-  ready = false;
-  sealer = null;
+  clearTimeout(retryTimer);
+  retryTimer = 0;
+  if (conn) retire(conn);
   pendingChallenge = null;
-  chain = Promise.resolve();
+  unknown = false;
   say('Connecting to your Mac');
   $<HTMLButtonElement>('unlock').hidden = true;
   $<HTMLButtonElement>('repair').hidden = true;
-  const socket = new WebSocket(
-    `${location.origin.replace(/^http/, 'ws')}/ws/browser/${paired.room}`,
-  );
-  ws = socket;
-  socket.binaryType = 'arraybuffer';
+  const c: Conn = {
+    socket: new WebSocket(`${location.origin.replace(/^http/, 'ws')}/ws/browser/${paired.room}`),
+    sealer: null,
+    inbox: Promise.resolve(),
+    outbox: Promise.resolve(),
+    opened: false,
+    ready: false,
+    heard: Date.now(),
+    denied: null,
+    timers: [],
+  };
+  conn = c;
+  c.socket.binaryType = 'arraybuffer';
   const myNonce = randomBytes(NONCE_BYTES);
-  socket.onopen = () => {
-    socket.send(packHello({ device: paired.device, nonce: toBase64Url(myNonce) }));
+  c.socket.onopen = () => {
+    c.socket.send(packHello({ device: paired.device, nonce: toBase64Url(myNonce) }));
   };
-  socket.onclose = (e) => {
-    if (ws !== socket) return;
-    ws = null;
-    sealer = null;
-    ready = false;
-    // With a ticket the page stays as it is while it comes back, rather than locking.
-    if (ticket && !removed) {
-      $('reconnecting').hidden = false;
-    } else {
-      show('lock');
-    }
-    $<HTMLButtonElement>('unlock').hidden = true;
-    // The reason arrives sealed, so it may still be being opened: wait for it before saying anything.
-    void chain.then(() => closed(paired, e.code));
-  };
-  socket.onmessage = (event) => {
-    // A connection already replaced by a newer one has nothing more to say to this page.
-    if (ws !== socket) return;
+  c.socket.onclose = (e) => lose(paired, c, e.code);
+  c.socket.onmessage = (event) => {
+    if (conn !== c) return;
+    c.heard = Date.now();
     const bytes = new Uint8Array(event.data as ArrayBuffer);
-    chain = chain
-      .then(() => receive(paired, bytes, myNonce))
-      .catch(() => {
-        unknown = true;
-        socket.close();
+    c.inbox = c.inbox
+      .then(() => receive(paired, c, bytes, myNonce))
+      .catch((e: unknown) => {
+        if (conn !== c) return;
+        if (e === NOT_OPENED) {
+          // The first sealed frame not opening means the Mac used another key: it does not know
+          // this device. A later one not opening is a broken connection, and is simply made again.
+          if (!c.opened) unknown = true;
+          lose(paired, c, 1006);
+        }
       });
   };
+  // A connection that never gets as far as hello, as on a network that swallows it, is given up.
+  after(c, HELLO_MS, () => {
+    if (conn === c && !c.sealer) lose(paired, c, 1006);
+  });
 }
 
-function closed(paired: Paired, code: number): void {
-  if (removed) return;
-  if (unlockAgain) {
+/** The connection is gone, by closing or by not answering. */
+function lose(paired: Paired, c: Conn, code: number): void {
+  if (conn !== c) return;
+  conn = null;
+  retire(c);
+  watchingStream = -1;
+  // With a ticket the page stays as it is while it comes back, rather than locking.
+  if (ticket && !removed) {
+    $('reconnecting').hidden = false;
+  } else {
+    show('lock');
+  }
+  $<HTMLButtonElement>('unlock').hidden = true;
+  $('name-field').hidden = true;
+  // The reason arrives sealed, so it may still be being opened: wait for it before saying anything.
+  void c.inbox.then(() => closed(paired, code, c.denied));
+}
+
+function again(paired: Paired, ms: number): void {
+  clearTimeout(retryTimer);
+  retryTimer = window.setTimeout(() => {
+    retryTimer = 0;
+    if (!conn) connect(paired);
+  }, ms);
+}
+
+function closed(paired: Paired, code: number, denied: string | null): void {
+  if (removed || conn) return;
+  if (resumeRefused) {
     // The ticket was refused, by a Mac restarted or a ticket run out: unlocked as usual instead.
-    unlockAgain = false;
+    resumeRefused = false;
+    ticket = null;
     $('reconnecting').hidden = true;
     show('lock');
-    setTimeout(() => connect(paired), 300);
+    again(paired, 300);
     return;
   }
-  if (ticket && !unknown && code !== 4001) {
+  if (ticket && !unknown) {
     $('reconnecting').textContent =
       code === 4002 ? 'Your Mac is offline. Reconnecting' : 'Reconnecting';
-    setTimeout(() => connect(paired), retry);
+    again(paired, retry);
     retry = code === 4002 ? 3000 : Math.min(5000, retry * 2);
     return;
   }
   ticket = null;
   $('reconnecting').hidden = true;
   show('lock');
-  // Pairing again is always within reach, except while the Mac is simply offline.
-  $<HTMLButtonElement>('repair').hidden = code === 4002 && !unknown;
   if (unknown) {
+    $<HTMLButtonElement>('repair').hidden = false;
     say(
       'Your Mac does not know this device. Its code may have run out before it was trusted, or it was removed. Pair it again with a new code from TabTerm Settings on your Mac.',
       'warn',
     );
     return;
   }
+  // Pairing again is offered when getting in keeps failing, not for a Mac that is merely offline.
+  $<HTMLButtonElement>('repair').hidden = !(denied === 'refused' || (code === 4001 && !denied));
+  if (denied === 'too-slow') {
+    // Left on Unlock for a minute: a fresh connection brings a fresh Unlock, once anybody looks.
+    say('Locked');
+    if (!document.hidden) again(paired, 300);
+    return;
+  }
   say(
     code === 4002
       ? 'Your Mac is offline, or remote access is turned off on it. Trying again.'
-      : code === 4001
-        ? 'Your Mac closed this connection.'
+      : denied === 'refused'
+        ? 'Not unlocked. Trying again.'
         : 'Disconnected. Trying again.',
     'warn',
   );
-  if (code === 4001) return;
-  setTimeout(() => connect(paired), retry);
   // An offline Mac is asked again every few seconds, so the page is back the moment it is.
+  again(paired, code === 4002 ? 3000 : retry);
   retry = code === 4002 ? 3000 : Math.min(30_000, retry * 2);
 }
 
-async function receive(paired: Paired, bytes: Uint8Array, myNonce: Uint8Array): Promise<void> {
+async function receive(
+  paired: Paired,
+  c: Conn,
+  bytes: Uint8Array,
+  myNonce: Uint8Array,
+): Promise<void> {
+  if (conn !== c) return;
   const hello = readHello(bytes);
   if (hello) {
-    if (typeof hello['nonce'] !== 'string') throw new Error('hello');
-    sealer = new Sealer(
+    if (typeof hello['nonce'] !== 'string') throw NOT_OPENED;
+    c.sealer = new Sealer(
       await connectionKeys(paired.key, myNonce, fromBase64Url(hello['nonce']), 'browser'),
     );
     return;
   }
-  if (!sealer) return;
-  const frame = unpack(await sealer.open(bytes));
+  if (!c.sealer) return;
+  let opened: Uint8Array;
+  try {
+    opened = await c.sealer.open(bytes);
+  } catch {
+    throw NOT_OPENED;
+  }
+  c.opened = true;
+  if (conn !== c) return;
+  const frame = unpack(opened);
   if (!frame) return;
   if (frame.kind === 'bytes') {
     if (frame.stream === watchingStream) term.write(frame.data);
@@ -412,24 +554,38 @@ async function receive(paired: Paired, bytes: Uint8Array, myNonce: Uint8Array): 
   switch (m['t']) {
     case 'challenge':
       if (ticket && m['mode'] === 'unlock') {
-        const t = ticket;
-        ticket = null;
+        // Kept until the Mac answers: a connection lost before then comes back with it again.
         resuming = true;
-        send({ t: 'resume', ticket: t });
+        send({ t: 'resume', ticket });
         return;
       }
       $('reconnecting').hidden = true;
       show('lock');
+      /*
+       * Unlocking afresh rather than coming back: the Mac may have restarted, and would not know
+       * which keys it already wrote. Keys not answered are let go rather than risk typing twice.
+       */
+      unanswered = [];
       pendingChallenge = m;
       say(m['mode'] === 'register' ? 'Make a passkey for this device' : 'Locked');
       $<HTMLButtonElement>('unlock').textContent =
         m['mode'] === 'register' ? 'Trust this device' : 'Unlock';
+      /*
+       * Named here, since a web page cannot learn a phone's own name, and every iPhone would
+       * otherwise be "iPhone, Safari" in the Mac's list. It can be renamed in Settings later.
+       */
+      if (m['mode'] === 'register') {
+        const input = $<HTMLInputElement>('name-input');
+        if (!input.value) input.value = deviceName();
+        $('name-field').hidden = false;
+      }
       $<HTMLButtonElement>('unlock').hidden = false;
       return;
     case 'ready':
       retry = 1000;
-      ready = true;
+      c.ready = true;
       resuming = false;
+      pingLoop(paired, c);
       ticket = typeof m['resume'] === 'string' ? m['resume'] : null;
       $('reconnecting').hidden = true;
       typing = m['typing'] === true;
@@ -446,6 +602,11 @@ async function receive(paired: Paired, bytes: Uint8Array, myNonce: Uint8Array): 
       } else if (watching) send({ t: 'watch', sessionId: watching });
       else show('list');
       return;
+    case 'got': {
+      const n = Number(m['n']);
+      unanswered = unanswered.filter((k) => k.n > n);
+      return;
+    }
     case 'notify':
       notifyOn = m['on'] === true;
       drawNotify();
@@ -463,6 +624,9 @@ async function receive(paired: Paired, bytes: Uint8Array, myNonce: Uint8Array): 
       show('terminal');
       setSize(Number(m['cols']) || 80, Number(m['rows']) || 24);
       drawTerminalHeader();
+      // Keys typed while the connection came back, or lost with the last one, now that it is.
+      unanswered = unanswered.filter((k) => k.sessionId === watching);
+      if (typing) for (const k of unanswered) sendKey(k);
       // A computer has no keyboard to bring up, so it is ready to type whatever opened it.
       if (typing && !touch) term.focus();
       return;
@@ -479,6 +643,7 @@ async function receive(paired: Paired, bytes: Uint8Array, myNonce: Uint8Array): 
       }
       return;
     case 'denied':
+      c.denied = typeof m['reason'] === 'string' ? m['reason'] : 'refused';
       if (m['reason'] === 'removed') {
         removed = true;
         await forgetPairing();
@@ -487,9 +652,7 @@ async function receive(paired: Paired, bytes: Uint8Array, myNonce: Uint8Array): 
         );
       } else if (resuming) {
         resuming = false;
-        unlockAgain = true;
-      } else if (m['reason'] !== 'resumed') {
-        say('Your Mac said no. Try unlocking again.', 'warn');
+        resumeRefused = true;
       }
       return;
     default:
@@ -497,12 +660,29 @@ async function receive(paired: Paired, bytes: Uint8Array, myNonce: Uint8Array): 
   }
 }
 
+/** Every so often while unlocked, so a connection that has quietly died is found. */
+function pingLoop(paired: Paired, c: Conn): void {
+  after(c, PING_EVERY_MS, () => {
+    ping(paired, c);
+    pingLoop(paired, c);
+  });
+}
+
+/** What the person called this device, or what it is. */
+function named(): string {
+  return $<HTMLInputElement>('name-input').value.trim().slice(0, 60) || deviceName();
+}
+
 /** Run from the button, since a passkey may only be asked for in answer to a tap. */
 async function unlock(): Promise<void> {
   const c = pendingChallenge;
   if (!c) return;
   pendingChallenge = null;
+  // The connection this challenge came on. Face ID takes a while, and if the connection was made
+  // again meanwhile, this answer is for a challenge the Mac no longer has.
+  const on = conn;
   $<HTMLButtonElement>('unlock').hidden = true;
+  $('name-field').hidden = true;
   const challenge = new Uint8Array(fromBase64Url(String(c['challenge'])));
   const rpId = String(c['rpId']);
   try {
@@ -514,7 +694,7 @@ async function unlock(): Promise<void> {
           rp: { id: rpId, name: 'TabTerm' },
           user: {
             id: new Uint8Array(new TextEncoder().encode(String(c['userId']))),
-            name: `TabTerm, ${deviceName()}`,
+            name: `TabTerm, ${named()}`,
             displayName: 'TabTerm',
           },
           pubKeyCredParams: [
@@ -527,10 +707,11 @@ async function unlock(): Promise<void> {
         },
       })) as PublicKeyCredential | null;
       if (!cred) throw new Error('cancelled');
+      if (conn !== on) return;
       const r = cred.response as AuthenticatorAttestationResponse;
       send({
         t: 'register',
-        name: deviceName(),
+        name: named(),
         clientDataJSON: toBase64Url(new Uint8Array(r.clientDataJSON)),
         attestationObject: toBase64Url(new Uint8Array(r.attestationObject)),
       });
@@ -548,6 +729,7 @@ async function unlock(): Promise<void> {
         },
       })) as PublicKeyCredential | null;
       if (!cred) throw new Error('cancelled');
+      if (conn !== on) return;
       const r = cred.response as AuthenticatorAssertionResponse;
       send({
         t: 'unlock',
@@ -559,9 +741,13 @@ async function unlock(): Promise<void> {
     }
     say('Checking with your Mac');
   } catch {
+    if (conn !== on) return;
     say('Not unlocked. Tap to try again.', 'warn');
-    // A fresh connection brings a fresh challenge, since this one has been used up.
-    ws?.close();
+    // A fresh challenge, since this one has been used up.
+    if (on) {
+      const p = await loadPairing();
+      if (p && conn === on) connect(p);
+    }
   }
 }
 
@@ -706,13 +892,13 @@ function drawTerminalHeader(): void {
 
 function openPane(sessionId: string): void {
   watching = sessionId;
-  watchingStream = 0;
+  watchingStream = -1;
   if (!termOpened) {
     term.open($('term'));
     termOpened = true;
     term.onData((data) => {
       if (FOCUS_REPORTS.has(data)) return;
-      if (typing && watching) send({ t: 'input', sessionId: watching, data });
+      sendKeys(data);
     });
   }
   $('ended-note').hidden = true;
@@ -734,6 +920,9 @@ function wire(paired: Paired): void {
   $('unlock').addEventListener('click', () => void unlock());
   $('back').addEventListener('click', () => {
     watching = null;
+    watchingStream = -1;
+    unanswered = [];
+    send({ t: 'unwatch' });
     show('list');
   });
   $('zoom-in').addEventListener('click', () => {
@@ -771,7 +960,7 @@ function wire(paired: Paired): void {
   };
   for (const [name, seq] of Object.entries(keys)) {
     document.querySelector(`[data-key="${name}"]`)?.addEventListener('click', () => {
-      if (typing && watching) send({ t: 'input', sessionId: watching, data: seq });
+      sendKeys(seq);
     });
   }
   window.addEventListener('resize', refit);
@@ -789,8 +978,17 @@ function wire(paired: Paired): void {
    * connection it holds is as good as an unlocked one, so it is closed and the next look unlocks.
    */
   let hiddenAt = 0;
+  /*
+   * Back in sight, or back online: a connection is made at once if there is none, and one that
+   * is open is asked whether it still works. A phone that put the page away may have had its
+   * connection cut without a word, and that is found in seconds rather than by typing into it.
+   */
+  const look = (): void => {
+    if (!conn) connect(paired);
+    else ping(paired, conn);
+  };
   document.addEventListener('visibilitychange', () => {
-    if (ready) send({ t: 'visible', visible: document.visibilityState === 'visible' });
+    if (isReady()) send({ t: 'visible', visible: document.visibilityState === 'visible' });
     if (document.visibilityState === 'hidden') {
       hiddenAt = Date.now();
       return;
@@ -798,10 +996,18 @@ function wire(paired: Paired): void {
     if (hiddenAt && Date.now() - hiddenAt > 2 * 60_000) {
       // Away long enough to count as put away: the ticket goes too, so it unlocks with the passkey.
       ticket = null;
-      ws?.close();
+      unanswered = [];
+      if (conn) retire(conn);
+      conn = null;
+      $('reconnecting').hidden = true;
+      show('lock');
     }
-    if (!ws) connect(paired);
+    look();
   });
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted) look();
+  });
+  window.addEventListener('online', look);
   connect(paired);
 }
 
@@ -884,7 +1090,8 @@ function wireRepair(): void {
     )
       return;
     removed = true;
-    ws?.close();
+    if (conn) retire(conn);
+    conn = null;
     void forgetPairing().then(() => location.reload());
   });
 }
@@ -928,7 +1135,17 @@ async function start(): Promise<void> {
 void start();
 (window as unknown as { __remote: object }).__remote = {
   term,
-  state: () => ({ watching, tabs, typing, ready, screen: document.body.dataset['screen'] }),
+  state: () => ({
+    watching,
+    tabs,
+    typing,
+    ready: isReady(),
+    screen: document.body.dataset['screen'],
+  }),
   /** The connection lost, as a network would lose it, for the tests. */
-  drop: () => ws?.close(),
+  drop: () => conn?.socket.close(),
+  /** The connection silently dead, as a phone's can be after being put away, for the tests. */
+  silence: () => {
+    if (conn) conn.socket.onmessage = null;
+  },
 };

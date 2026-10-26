@@ -170,6 +170,24 @@
         background: var(--raised);
         color: var(--fg);
       }
+      #name-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        width: min(100%, 320px);
+        text-align: left;
+        color: var(--dim);
+        font-size: 13px;
+      }
+      #name-input {
+        height: 44px;
+        padding: 0 12px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: var(--raised);
+        color: var(--fg);
+        font-size: 16px;
+      }
       #unlock {
         min-width: 220px;
         height: 50px;
@@ -331,6 +349,19 @@
       #term {
         display: inline-block;
       }
+      /*
+       * The terminal's scroll handle: thin and faint, rather than a solid grey block beside the
+       * cursor line at the end of a long scrollback.
+       */
+      .xterm .xterm-scrollable-element > .scrollbar.vertical {
+        width: 8px !important;
+      }
+      .xterm .xterm-scrollable-element > .scrollbar > .slider {
+        width: 4px !important;
+        left: 2px !important;
+        border-radius: 2px;
+        background: rgba(139, 148, 158, 0.3) !important;
+      }
       #keys,
       #watch-only {
         display: flex;
@@ -362,6 +393,17 @@
     <main id="screen-lock">
       <div class="mark">&gt;_</div>
       <p id="lock-status">Starting</p>
+      <label id="name-field" hidden>
+        <span>Name this device</span>
+        <input
+          id="name-input"
+          type="text"
+          maxlength="60"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="My iPhone"
+        />
+      </label>
       <button id="unlock" type="button" hidden>Unlock</button>
       <form id="pair-form" hidden>
         <input

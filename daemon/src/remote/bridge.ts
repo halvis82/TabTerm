@@ -73,6 +73,8 @@ const BATCH_MS = 40;
 const BEHIND_BYTES = 4 * 1024 * 1024;
 /** What one keystroke message may carry. A paste is bigger than a key and smaller than this. */
 const MAX_INPUT = 64 * 1024;
+/** Pages whose last key is remembered, so one sent again is not typed twice. */
+const MAX_PAGES_TYPING = 64;
 /** Failed unlocks before a device is refused for a while. */
 const MAX_FAILURES = 5;
 const FAILURE_COOLDOWN_MS = 5 * 60_000;
@@ -90,6 +92,12 @@ const PING_MS = 15_000;
  * longer, or one closed and opened again, unlocks as usual.
  */
 const RESUME_MS = 10 * 60_000;
+/**
+ * A ticket just used stays good this long, until its page says something on the new connection.
+ * A connection that drops again before the page heard the Mac's answer, with its new ticket, can
+ * then still come back with the old one.
+ */
+const RESUME_GRACE_MS = 30_000;
 /** Resume tickets one device may hold at once, one per open page. */
 const MAX_RESUMES = 4;
 /** What a page still unlocking may send. Anything else is ignored, never counted as a failure. */
@@ -120,9 +128,17 @@ interface Browser {
   behind: boolean;
   /** Being let go: its last message, saying why, may still go out. */
   leaving?: boolean;
+  /** Said something since it was ready, so any ticket it came back with is used up. */
+  confirmed?: boolean;
   /** Whether its page is on screen, as it last said. A page out of sight gets notifications. */
   visible: boolean;
-  chain: Promise<void>;
+  /** What it sent, opened in order, since each frame's counter must follow the one before. */
+  inbox: Promise<void>;
+  /**
+   * What goes to it, sealed in order. Apart from the inbox, so a key typed while a screenful is
+   * being sealed is not held up behind it.
+   */
+  outbox: Promise<void>;
   timer: ReturnType<typeof setTimeout>;
 }
 
@@ -131,17 +147,23 @@ export class RemoteBridge {
   readonly #store: RemoteStore;
   readonly #browsers = new Map<number, Browser>();
   readonly #failures = new Map<string, { count: number; until: number }>();
+  /** The last key each page has had written, by the page's own id, newest last. */
+  readonly #typedUpTo = new Map<string, number>();
   /**
    * Resume tickets, by ticket. Each is 32 random bytes made here, sent to one unlocked page inside
    * its sealed connection, and kept by that page in memory only. Good once, for one device, and
    * from the moment its page's connection ends for RESUME_MS. The relay never sees one.
    */
-  readonly #resumes = new Map<string, { device: string; browser: number; until: number }>();
+  readonly #resumes = new Map<
+    string,
+    { device: string; browser: number; until: number; spent?: boolean }
+  >();
   #socket: WebSocket | undefined;
   #status: BridgeStatus = { state: 'off', browsers: 0 };
   #retryMs = 1000;
   #retryTimer: ReturnType<typeof setTimeout> | undefined;
   #flushTimer: ReturnType<typeof setTimeout> | undefined;
+  #flushedAt = 0;
   #stopped = true;
   #unsubscribe: (() => void)[] = [];
   #onStatus: (status: BridgeStatus) => void;
@@ -358,7 +380,8 @@ export class RemoteBridge {
       }
       this.#retryTimer = setTimeout(() => this.#connect(), this.#retryMs);
       this.#retryTimer.unref?.();
-      this.#retryMs = Math.min(60_000, this.#retryMs * 2);
+      // Kept short: every device is waiting on this, asking again every few seconds itself.
+      this.#retryMs = Math.min(10_000, this.#retryMs * 2);
     });
   }
 
@@ -376,7 +399,7 @@ export class RemoteBridge {
     }
     if (!b || env.body.length > REMOTE_MAX_FRAME) return;
     // In order, since every frame's counter must be opened after the one before it.
-    b.chain = b.chain
+    b.inbox = b.inbox
       .then(() => this.#receive(b, env.body))
       .catch((e: unknown) => {
         warn('remote.browser.refused', { reason: e instanceof Error ? e.message : 'unknown' });
@@ -392,7 +415,7 @@ export class RemoteBridge {
   #send(b: Browser, plain: Uint8Array): void {
     const sealer = b.sealer;
     if (!sealer) return;
-    b.chain = b.chain.then(async () => {
+    b.outbox = b.outbox.then(async () => {
       if (!this.#browsers.has(b.id) && b.leaving !== true) return;
       this.#raw(b.id, await sealer.seal(plain));
     });
@@ -411,7 +434,8 @@ export class RemoteBridge {
       pendingOut: new Map(),
       behind: false,
       visible: true,
-      chain: Promise.resolve(),
+      inbox: Promise.resolve(),
+      outbox: Promise.resolve(),
       timer: setTimeout(() => {
         if (b.phase !== 'ready') this.#drop(b, 'too-slow');
       }, UNLOCK_WINDOW_MS),
@@ -456,7 +480,7 @@ export class RemoteBridge {
     info('remote.browser.dropped', { reason });
     b.leaving = true;
     if (b.sealer) this.#send(b, packMessage({ t: 'denied', reason }));
-    void b.chain.then(() => this.#raw(b.id, new Uint8Array([RELAY_GONE])));
+    void b.outbox.then(() => this.#raw(b.id, new Uint8Array([RELAY_GONE])));
     this.#forget(b);
   }
 
@@ -520,15 +544,46 @@ export class RemoteBridge {
       return;
     }
 
+    if (!b.confirmed) {
+      // It heard the Mac's answer, new ticket and all, so the one it came back with is done.
+      b.confirmed = true;
+      for (const [t, r] of this.#resumes) {
+        if (r.spent === true && r.browser === b.id) this.#resumes.delete(t);
+      }
+    }
+
     switch (m['t']) {
       case 'watch': {
         const sessionId = typeof m['sessionId'] === 'string' ? m['sessionId'] : '';
         this.#watch(b, sessionId);
         return;
       }
+      case 'unwatch':
+        // Back on the list: its terminal's output stops coming, rather than streaming unseen.
+        delete b.watching;
+        b.pendingOut.clear();
+        return;
       case 'input': {
         const sessionId = m['sessionId'];
         const data = m['data'];
+        /*
+         * Numbered by the page that typed it, and answered, so a page whose connection dropped can
+         * send again what it never heard back about. Written once however often it arrives: a key
+         * sent twice into a shell is a command run twice.
+         */
+        const page = typeof m['page'] === 'string' ? m['page'].slice(0, 32) : '';
+        const n = typeof m['n'] === 'number' && Number.isSafeInteger(m['n']) ? m['n'] : -1;
+        if (page !== '' && n >= 0) {
+          this.#send(b, packMessage({ t: 'got', n }));
+          const last = this.#typedUpTo.get(page) ?? -1;
+          if (n <= last) return;
+          this.#typedUpTo.delete(page);
+          this.#typedUpTo.set(page, n);
+          for (const old of this.#typedUpTo.keys()) {
+            if (this.#typedUpTo.size <= MAX_PAGES_TYPING) break;
+            this.#typedUpTo.delete(old);
+          }
+        }
         // Only into the terminal it is looking at, and only from a device allowed to type.
         if (!b.device?.typing || typeof sessionId !== 'string' || sessionId !== b.watching) return;
         if (typeof data !== 'string') return;
@@ -586,11 +641,14 @@ export class RemoteBridge {
       } else if (b.device && m['t'] === 'resume') {
         const ticket = typeof m['ticket'] === 'string' ? m['ticket'] : '';
         const r = this.#resumes.get(ticket);
-        this.#resumes.delete(ticket);
-        if (!r || r.device !== b.device.id || r.until <= Date.now()) throw new Error('bad-resume');
+        if (!r || r.device !== b.device.id || r.until <= Date.now()) {
+          this.#resumes.delete(ticket);
+          throw new Error('bad-resume');
+        }
         // The connection it replaces may not have been noticed ending yet: it goes now.
         const old = this.#browsers.get(r.browser);
         if (old && old !== b) this.#drop(old, 'resumed');
+        Object.assign(r, { browser: b.id, until: Date.now() + RESUME_GRACE_MS, spent: true });
       } else if (b.pairing && m['t'] === 'register') {
         const passkey = verifyRegistration(expected, {
           clientDataJSON: bytes('clientDataJSON'),
@@ -754,13 +812,19 @@ export class RemoteBridge {
       any = true;
     }
     if (any && this.#flushTimer === undefined) {
-      this.#flushTimer = setTimeout(() => this.#flush(), BATCH_MS);
+      /*
+       * Output after a quiet spell goes at once: that is a key's echo, and waiting on it is lag
+       * the person typing feels. Output that keeps coming is gathered for BATCH_MS at a time.
+       */
+      const quiet = Date.now() - this.#flushedAt >= BATCH_MS;
+      this.#flushTimer = setTimeout(() => this.#flush(), quiet ? 0 : BATCH_MS);
       this.#flushTimer.unref?.();
     }
   }
 
   #flush(): void {
     this.#flushTimer = undefined;
+    this.#flushedAt = Date.now();
     const waiting = this.#socket?.bufferedAmount ?? 0;
     for (const b of this.#browsers.values()) {
       if (b.pendingOut.size === 0) continue;
