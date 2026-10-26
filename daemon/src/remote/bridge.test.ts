@@ -390,6 +390,33 @@ describe('remote access, end to end', () => {
     expect(await until(() => third.has('tabs'))).toBe(true);
   });
 
+  it('keeps a page unlocked through a restart of the Mac, and not once remote access is off', async () => {
+    const fake = fakeHost();
+    const first = connected(fake.host);
+    await until(() => first.state.status === 'connected');
+    const { b, pairing } = await paired(first);
+    const ticket = String(b.last('ready')?.['resume']);
+    const boot = b.last('ready')?.['boot'];
+    b.close();
+    first.stop();
+    // The file holds the ticket's hash, never the ticket.
+    expect(readFileSync(join(dir, 'remote.json'), 'utf8')).not.toContain(ticket);
+    const again = connected(fake.host);
+    await until(() => again.state.status === 'connected');
+    const back = browser(relay.url, pairing, authenticator(), { resume: ticket });
+    expect(await until(() => back.has('ready'))).toBe(true);
+    // A new run of the Mac, so the page knows its unanswered keys were not kept.
+    expect(back.last('ready')?.['boot']).not.toBe(boot);
+    const next = String(back.last('ready')?.['resume']);
+    back.close();
+    again.configure({ enabled: false });
+    again.configure({ enabled: true });
+    await until(() => again.state.status === 'connected');
+    const refused = browser(relay.url, pairing, authenticator(), { resume: next });
+    expect(await until(() => refused.closed() !== null)).toBe(true);
+    expect(refused.has('ready')).toBe(false);
+  });
+
   it('lets a ticket be used again when the connection dropped before the answer arrived', async () => {
     const fake = fakeHost();
     const c = connected(fake.host);

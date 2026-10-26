@@ -79,6 +79,39 @@ async function forgetPairing(): Promise<void> {
   });
 }
 
+/**
+ * How long this device stays unlocked while nobody uses the page: through a reload, the app closed
+ * and opened again, or a connection lost. Longer away, it asks for Face ID or Touch ID again. The
+ * Mac holds each ticket to the same time, counted from when the page was last connected.
+ */
+const AWAY_MS = 30 * 60_000;
+
+interface Resume {
+  ticket: string;
+  /** When the page was last in use, which the time away is counted from. */
+  seen: number;
+}
+
+async function loadResume(): Promise<Resume | null> {
+  const db = await idb();
+  return new Promise((resolve) => {
+    const req = db.transaction('pairing').objectStore('pairing').get('resume');
+    req.onsuccess = () => resolve((req.result as Resume | undefined) ?? null);
+    req.onerror = () => resolve(null);
+  });
+}
+
+/** Kept beside the pairing, or let go with null. Best effort: memory still has it. */
+function saveResume(r: Resume | null): void {
+  void idb()
+    .then((db) => {
+      const tx = db.transaction('pairing', 'readwrite');
+      if (r) tx.objectStore('pairing').put(r, 'resume');
+      else tx.objectStore('pairing').delete('resume');
+    })
+    .catch(() => undefined);
+}
+
 /** A name for this device in the Mac's list, so somebody can tell their phone from their iPad. */
 function deviceName(): string {
   const ua = navigator.userAgent;
@@ -336,11 +369,23 @@ let typing = false;
 let pendingChallenge: Record<string, unknown> | null = null;
 let retry = 1000;
 /**
- * The Mac's resume ticket: a dropped connection comes back with it instead of the passkey. In
- * memory only, so closing the page, or a reload, unlocks with the passkey again. Kept until the
- * Mac answers, and replaced on every unlock.
+ * The Mac's resume ticket: a dropped connection, a reload or the app opened again comes back with
+ * it instead of the passkey, within AWAY_MS of the page last being used. Kept until the Mac
+ * answers, and replaced on every unlock.
  */
 let ticket: string | null = null;
+let ticketSavedAt = 0;
+function setTicket(value: string | null): void {
+  ticket = value;
+  ticketSavedAt = Date.now();
+  saveResume(value ? { ticket: value, seen: ticketSavedAt } : null);
+}
+/** The page is in use: its time away starts again from now. */
+function stillHere(): void {
+  if (ticket && Date.now() - ticketSavedAt > 30_000) setTicket(ticket);
+}
+/** The Mac run that gave the last ticket, to tell one that restarted and forgot its keys. */
+let lastBoot: string | null = null;
 /** Coming back with the ticket just now, so a refusal means unlocking as usual instead. */
 let resuming = false;
 let resumeRefused = false;
@@ -558,7 +603,7 @@ function closed(paired: Paired, code: number, denied: string | null, seconds: nu
     return;
   }
   if (denied === 'wait') {
-    ticket = null;
+    setTicket(null);
     $('reconnecting').hidden = true;
     show('lock');
     const minutes = Math.max(1, Math.ceil(seconds / 60));
@@ -572,7 +617,7 @@ function closed(paired: Paired, code: number, denied: string | null, seconds: nu
   if (resumeRefused) {
     // The ticket was refused, by a Mac restarted or a ticket run out: unlocked as usual instead.
     resumeRefused = false;
-    ticket = null;
+    setTicket(null);
     $('reconnecting').hidden = true;
     show('lock');
     again(paired, 300);
@@ -656,7 +701,7 @@ async function diagnose(paired: Paired): Promise<void> {
 /** Not paired anymore: forgotten here, and the page shows how to pair. */
 function unpair(text: string): void {
   removed = true;
-  ticket = null;
+  setTicket(null);
   $('reconnecting').hidden = true;
   $<HTMLButtonElement>('unlock').hidden = true;
   $('name-field').hidden = true;
@@ -756,7 +801,10 @@ async function receive(
       c.ready = true;
       resuming = false;
       pingLoop(paired, c);
-      ticket = typeof m['resume'] === 'string' ? m['resume'] : null;
+      setTicket(typeof m['resume'] === 'string' ? m['resume'] : null);
+      // A Mac that restarted does not know which keys it already wrote: they are let go.
+      if (lastBoot !== null && m['boot'] !== lastBoot) unanswered = [];
+      lastBoot = typeof m['boot'] === 'string' ? m['boot'] : null;
       $('reconnecting').hidden = true;
       typing = m['typing'] === true;
       vapid = typeof m['vapid'] === 'string' ? m['vapid'] : '';
@@ -768,7 +816,8 @@ async function receive(
       if (openWhenReady) {
         const target = openWhenReady;
         openWhenReady = null;
-        openPane(target);
+        const state: unknown = history.state;
+        openPane(target, isTerminalEntry(state) && state.terminal === target);
       } else if (watching) send({ t: 'watch', sessionId: watching });
       else show('list');
       return;
@@ -810,6 +859,8 @@ async function receive(
         watching = null;
         term.blur();
         show('list');
+        // Back would only lead to a terminal that is gone.
+        if (isTerminalEntry(history.state)) history.replaceState(null, '', location.pathname);
         sayEnded(title ? `Terminal ended: ${title}` : 'The terminal ended.');
       }
       return;
@@ -835,6 +886,7 @@ async function receive(
 /** Every so often while unlocked, so a connection that has quietly died is found. */
 function pingLoop(paired: Paired, c: Conn): void {
   after(c, PING_EVERY_MS, () => {
+    if (document.visibilityState === 'visible') stillHere();
     ping(paired, c);
     pingLoop(paired, c);
   });
@@ -1062,7 +1114,19 @@ function drawTerminalHeader(): void {
   $('watch-only').hidden = typing;
 }
 
-function openPane(sessionId: string): void {
+/** A history entry for a terminal, so the browser's Back and Forward move in and out of it. */
+function isTerminalEntry(state: unknown): state is { terminal: string } {
+  return typeof (state as { terminal?: unknown } | null)?.terminal === 'string';
+}
+
+function openPane(sessionId: string, fromHistory = false): void {
+  if (!fromHistory) {
+    const entry = { terminal: sessionId };
+    const url = `${location.pathname}#t=${sessionId}`;
+    // Opening another terminal from one replaces it, so Back goes to the list, not through each.
+    if (isTerminalEntry(history.state)) history.replaceState(entry, '', url);
+    else history.pushState(entry, '', url);
+  }
   watching = sessionId;
   watchingStream = -1;
   if (!termOpened) {
@@ -1087,6 +1151,17 @@ function openPane(sessionId: string): void {
   send({ t: 'watch', sessionId });
 }
 
+/** Back on the list: the terminal's output stops coming. */
+function toList(): void {
+  watching = null;
+  watchingStream = -1;
+  unanswered = [];
+  predictor.reset();
+  term.blur();
+  send({ t: 'unwatch' });
+  show('list');
+}
+
 // ---------------------------------------------------------------------------
 // Start
 // ---------------------------------------------------------------------------
@@ -1094,11 +1169,16 @@ function openPane(sessionId: string): void {
 function wire(paired: Paired): void {
   $('unlock').addEventListener('click', () => void unlock());
   $('back').addEventListener('click', () => {
-    watching = null;
-    watchingStream = -1;
-    unanswered = [];
-    send({ t: 'unwatch' });
-    show('list');
+    // The browser's own Back when the terminal has its entry, so Forward can return to it.
+    if (isTerminalEntry(history.state)) history.back();
+    else toList();
+  });
+  window.addEventListener('popstate', (e) => {
+    const state: unknown = e.state;
+    if (isTerminalEntry(state)) {
+      if (isReady()) openPane(state.terminal, true);
+      else openWhenReady = state.terminal;
+    } else if (watching) toList();
   });
   $('zoom-in').addEventListener('click', () => {
     zoom = Math.min(3, zoom * 1.25);
@@ -1149,8 +1229,9 @@ function wire(paired: Paired): void {
     if (!touch && b.id !== 'back') b.addEventListener('click', () => term.focus());
   }
   /*
-   * Locked again after a while out of sight. A phone in a pocket keeps a page alive, and the
-   * connection it holds is as good as an unlocked one, so it is closed and the next look unlocks.
+   * Locked again after a long while out of sight. A phone in a pocket keeps a page alive, and the
+   * connection it holds is as good as an unlocked one, so past AWAY_MS it is closed and the next
+   * look unlocks.
    */
   let hiddenAt = 0;
   /*
@@ -1167,11 +1248,12 @@ function wire(paired: Paired): void {
     if (isReady()) send({ t: 'visible', visible: document.visibilityState === 'visible' });
     if (document.visibilityState === 'hidden') {
       hiddenAt = Date.now();
+      if (ticket) setTicket(ticket);
       return;
     }
-    if (hiddenAt && Date.now() - hiddenAt > 2 * 60_000) {
+    if (hiddenAt && Date.now() - hiddenAt > AWAY_MS) {
       // Away long enough to count as put away: the ticket goes too, so it unlocks with the passkey.
-      ticket = null;
+      setTicket(null);
       unanswered = [];
       if (conn) retire(conn);
       conn = null;
@@ -1182,6 +1264,9 @@ function wire(paired: Paired): void {
   });
   window.addEventListener('pageshow', (e) => {
     if (e.persisted) look();
+  });
+  window.addEventListener('pagehide', () => {
+    if (ticket) setTicket(ticket);
   });
   window.addEventListener('online', look);
   connect(paired);
@@ -1281,6 +1366,12 @@ async function start(): Promise<void> {
     openWhenReady = opening[1] ?? null;
     history.replaceState(null, '', location.pathname);
   }
+  // Reloaded in a terminal: that terminal again, keeping its history entry.
+  const inTerminal = /^#t=([\w-]{1,64})$/.exec(location.hash);
+  if (inTerminal?.[1]) {
+    openWhenReady = inTerminal[1];
+    history.replaceState(null, '', location.pathname);
+  }
   const fragment = readPairing(location.hash);
   if (fragment) {
     // Kept as a key nothing can read back, and taken out of the address bar and history at once.
@@ -1305,6 +1396,12 @@ async function start(): Promise<void> {
     );
     return;
   }
+  // Unlocked recently: comes back with the ticket instead of asking for Face ID again.
+  const resume = await loadResume().catch(() => null);
+  if (resume && Date.now() - resume.seen < AWAY_MS) {
+    ticket = resume.ticket;
+    ticketSavedAt = resume.seen;
+  } else if (resume) saveResume(null);
   wire(paired);
 }
 

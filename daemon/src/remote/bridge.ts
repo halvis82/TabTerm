@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import WebSocket from 'ws';
 import {
   NONCE_BYTES,
@@ -103,11 +104,13 @@ const NOTIFY_GAP_MS = 30_000;
  */
 const PING_MS = 15_000;
 /**
- * How long after a connection drops its page may come back without the passkey. A phone on a train,
- * or the relay letting go of the Mac for a second, should not mean Face ID again; a page gone for
- * longer, or one closed and opened again, unlocks as usual.
+ * How long after a page was last connected it may come back without the passkey: through a dropped
+ * connection, a reload, or the app opened again. Away longer than this, it unlocks with Face ID or
+ * Touch ID again.
  */
-const RESUME_MS = 10 * 60_000;
+export const RESUME_MS = 30 * 60_000;
+/** How often tickets still in use are written down, so a Mac restart keeps them. */
+const RESUME_SAVE_MS = 5 * 60_000;
 /**
  * A ticket just used stays good this long, until its page says something on the new connection.
  * A connection that drops again before the page heard the Mac's answer, with its new ticket, can
@@ -178,14 +181,18 @@ export class RemoteBridge {
   /** The last key each page has had written, by the page's own id, newest last. */
   readonly #typedUpTo = new Map<string, number>();
   /**
-   * Resume tickets, by ticket. Each is 32 random bytes made here, sent to one unlocked page inside
-   * its sealed connection, and kept by that page in memory only. Good once, for one device, and
-   * from the moment its page's connection ends for RESUME_MS. The relay never sees one.
+   * Resume tickets, by the ticket's hash. Each is 32 random bytes made here and sent to one unlocked
+   * page inside its sealed connection. Good once, for one device, and from the moment its page's
+   * connection ends for RESUME_MS. The relay never sees one. Kept in remote.json by hash only, so a
+   * restart of the Mac does not mean Face ID again, and the file never holds a usable ticket.
    */
   readonly #resumes = new Map<
     string,
     { device: string; browser: number; until: number; spent?: boolean }
   >();
+  #resumesSavedAt = 0;
+  /** Which run of the Mac this is, so a page can tell a Mac that restarted and forgot its keys. */
+  readonly #boot = toBase64Url(randomBytes(9));
   #socket: WebSocket | undefined;
   #status: BridgeStatus = { state: 'off', browsers: 0 };
   #retryMs = 1000;
@@ -249,6 +256,11 @@ export class RemoteBridge {
     ];
     // What already needs somebody when this starts is not news.
     this.#needing = this.#needingNow();
+    const now = Date.now();
+    for (const r of this.#store.state.resumes) {
+      if (r.until > now)
+        this.#resumes.set(r.hash, { device: r.device, browser: -1, until: r.until });
+    }
     this.#sweepTimer = setInterval(() => this.#sweep(), 15_000);
     this.#sweepTimer.unref?.();
     this.#connect();
@@ -259,6 +271,9 @@ export class RemoteBridge {
     for (const b of [...this.#browsers.values()]) {
       if (b.phase === 'ready' && now - b.heard > SILENT_MS) this.#drop(b, 'silent');
     }
+    // Pages connected the whole time keep their tickets current on disk, for a Mac that restarts.
+    if (now - this.#resumesSavedAt > RESUME_SAVE_MS && this.#resumes.size > 0)
+      this.#saveResumes(now);
   }
 
   stop(): void {
@@ -271,8 +286,14 @@ export class RemoteBridge {
     clearInterval(this.#sweepTimer);
     clearTimeout(this.#selfCheckTimer);
     this.#selfCheck = undefined;
-    for (const b of this.#browsers.values()) clearTimeout(b.timer);
+    for (const b of this.#browsers.values()) {
+      clearTimeout(b.timer);
+      this.#released(b);
+    }
     this.#browsers.clear();
+    // Written down rather than dropped: stopping is also how the daemon exits for a restart. Turning
+    // remote access off forgets them, in RemoteControl.
+    this.#saveResumes();
     this.#resumes.clear();
     this.#socket?.close(1000, 'off');
     this.#socket = undefined;
@@ -286,6 +307,7 @@ export class RemoteBridge {
       const now = this.#store.device(deviceId);
       if (!now) {
         for (const [t, r] of this.#resumes) if (r.device === deviceId) this.#resumes.delete(t);
+        this.#saveResumes();
         this.#drop(b, 'removed');
         continue;
       }
@@ -576,9 +598,27 @@ export class RemoteBridge {
 
   /** Its page's connection ended: the page's ticket now runs out in RESUME_MS. */
   #released(b: Browser): void {
+    let any = false;
     for (const r of this.#resumes.values()) {
-      if (r.browser === b.id && r.until === Infinity) r.until = Date.now() + RESUME_MS;
+      if (r.browser === b.id && r.until === Infinity) {
+        r.until = Date.now() + RESUME_MS;
+        any = true;
+      }
     }
+    if (any) this.#saveResumes();
+  }
+
+  /** Tickets written down by hash. One still connected counts from now, as if it ended now. */
+  #saveResumes(now = Date.now()): void {
+    this.#resumesSavedAt = now;
+    const list = [...this.#resumes]
+      .filter(([, r]) => r.until > now)
+      .map(([hash, r]) => ({
+        hash,
+        device: r.device,
+        until: r.until === Infinity ? now + RESUME_MS : r.until,
+      }));
+    this.#store.setResumes(list);
   }
 
   /** A new ticket for a page that just unlocked or resumed. */
@@ -594,7 +634,8 @@ export class RemoteBridge {
       this.#resumes.delete(t);
     }
     const ticket = toBase64Url(randomBytes(32));
-    this.#resumes.set(ticket, { device, browser: b.id, until: Infinity });
+    this.#resumes.set(hashTicket(ticket), { device, browser: b.id, until: Infinity });
+    this.#saveResumes();
     return ticket;
   }
 
@@ -779,10 +820,10 @@ export class RemoteBridge {
         });
         this.#store.seen(b.device.id, count);
       } else if (b.device && m['t'] === 'resume') {
-        const ticket = typeof m['ticket'] === 'string' ? m['ticket'] : '';
+        const ticket = hashTicket(typeof m['ticket'] === 'string' ? m['ticket'] : '');
         const r = this.#resumes.get(ticket);
         if (!r || r.device !== b.device.id || r.until <= Date.now()) {
-          this.#resumes.delete(ticket);
+          if (this.#resumes.delete(ticket)) this.#saveResumes();
           throw new Error('bad-resume');
         }
         // The connection it replaces may not have been noticed ending yet: it goes now.
@@ -882,6 +923,7 @@ export class RemoteBridge {
         notify: b.device.push !== undefined,
         vapid: this.#store.vapid().publicKey,
         resume: this.#ticket(b, b.device.id),
+        boot: this.#boot,
       }),
     );
     this.#sendTabs(b);
@@ -1059,4 +1101,9 @@ export class RemoteBridge {
     }, 250);
     check.unref?.();
   }
+}
+
+/** A ticket as it is kept: its hash, so what is stored cannot be used to come back. */
+function hashTicket(ticket: string): string {
+  return createHash('sha256').update(ticket).digest('base64url');
 }

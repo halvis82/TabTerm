@@ -325,6 +325,17 @@ if (settings.last('remote-state')?.state.devices[0]?.notify === true) {
   await sleep(300);
   await hook('PermissionRequest');
   // What the daemon said it did, for when nothing arrives.
+  const sentLog = () => {
+    try {
+      return readFileSync(join(home, '.local/state/tabterm/logs/daemon.log'), 'utf8').includes(
+        'remote.notify',
+      );
+    } catch {
+      return false;
+    }
+  };
+  // Sent before the page is back: back and unlocked from earlier, it would be looking at TabTerm.
+  await until(sentLog, 10000);
   const notifyLog = () => {
     try {
       return readFileSync(join(home, '.local/state/tabterm/logs/daemon.log'), 'utf8')
@@ -354,23 +365,16 @@ if (settings.last('remote-state')?.state.devices[0]?.notify === true) {
       : 'note: the push service took it, and this headless Chrome did not show it in 30 s',
   );
   await hook('Stop');
-  await until(() => ev(`!document.getElementById('unlock').hidden`));
-  await tap('#unlock');
   await until(() => ev(`document.body.dataset.screen === 'list'`));
 }
 
-// Tapping a notification opens the page at #open=<session>: locked first, then that terminal.
+// Tapping a notification opens the page at #open=<session>: that terminal, unlocked when it was
+// used within half an hour.
 // A fresh load, as the worker's openWindow makes, not a change of fragment on an open page.
 await page('Page.navigate', { url: 'about:blank' });
 await page('Page.navigate', { url: `${new URL(relay.url).origin}/#open=${sessionId}` });
 ok(
-  'a tapped notification asks for the passkey first',
-  await until(() => ev(`!document.getElementById('unlock').hidden`)),
-);
-ok('and takes the session out of the address bar', (await ev('location.hash')) === '');
-await tap('#unlock');
-ok(
-  'then opens that terminal',
+  'a tapped notification opens that terminal, unlocked from a moment ago',
   await until(
     () =>
       ev(
@@ -378,6 +382,10 @@ ok(
       ),
     15000,
   ),
+);
+ok(
+  'and takes the notification out of the address bar',
+  !String(await ev('location.hash')).includes('open='),
 );
 await tap('#back');
 await until(() => ev(`document.body.dataset.screen === 'list'`));
@@ -515,10 +523,54 @@ const live = await (async () => {
 })();
 ok('and never counted as a view of it', live?.attached === true);
 
-// A new visit asks for the passkey again.
+// Back and Forward in the browser move between the list and the terminal.
+await until(() => ev(`document.body.dataset.screen === 'terminal'`), 3000);
+if ((await ev(`document.body.dataset.screen`)) !== 'terminal') {
+  await tap('.pane');
+  await until(() => ev(`document.body.dataset.screen === 'terminal'`));
+}
+await ev(`history.back()`);
+ok(
+  "the browser's Back goes from a terminal to the list",
+  await until(() => ev(`document.body.dataset.screen === 'list'`)),
+);
+await ev(`history.forward()`);
+ok(
+  'and Forward goes back into it',
+  await until(() =>
+    ev(
+      `document.body.dataset.screen === 'terminal' && window.__remote.state().watching === ${JSON.stringify(sessionId)}`,
+    ),
+  ),
+);
+
+// A reload comes back unlocked, in the same terminal, without the passkey.
+await ev(`window.__unlockShown = false`);
+await page('Page.reload', {});
+await page('Runtime.evaluate', {
+  expression: `new MutationObserver(() => { if (!document.getElementById('unlock')?.hidden) window.__unlockShown = true; }).observe(document.body, { subtree: true, attributes: true })`,
+});
+ok(
+  'a reload comes back in the same terminal without asking for the passkey',
+  (await until(() =>
+    ev(
+      `window.__remote.state().ready && document.body.dataset.screen === 'terminal' && window.__remote.state().watching === ${JSON.stringify(sessionId)}`,
+    ),
+  )) && !(await ev(`window.__unlockShown === true`)),
+);
+ok(
+  'and Back from there goes to the list',
+  (await ev(`history.back(), true`)) &&
+    (await until(() => ev(`document.body.dataset.screen === 'list'`))),
+);
+
+// Away for longer than half an hour, a visit asks for the passkey again.
+await ev(
+  `new Promise((r) => { const q = indexedDB.open('tabterm', 1); q.onsuccess = () => { const tx = q.result.transaction('pairing', 'readwrite'); const st = tx.objectStore('pairing'); const g = st.get('resume'); g.onsuccess = () => { st.put({ ...g.result, seen: Date.now() - 31 * 60_000 }, 'resume'); }; tx.oncomplete = () => r(true); }; })`,
+);
 await page('Page.reload', {});
 ok(
-  'a new visit is locked',
+  'a visit after half an hour away is locked',
   await until(() =>
     ev(
       `document.getElementById('unlock').textContent === 'Unlock' && !document.getElementById('unlock').hidden`,

@@ -108,6 +108,9 @@ export class RemoteControl {
     this.#store.configure(next);
     if (restart) this.#apply();
     else this.#onChange(this.state);
+    // Turned off: every page unlocks with its passkey again next time. After the bridge stopped,
+    // since stopping writes down the tickets it held.
+    if (next.enabled === false) this.#store.setResumes([]);
   }
 
   /** A link for a new device, valid for ten minutes and once. */

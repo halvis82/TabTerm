@@ -49,6 +49,14 @@ export interface RemoteState {
   pending: PendingPairing[];
   /** This Mac's key for signing notifications, made the first time a device asks for them. */
   vapid?: VapidKeys;
+  /** Resume tickets by hash, so an unlocked page stays unlocked through a restart of the Mac. */
+  resumes: StoredResume[];
+}
+
+export interface StoredResume {
+  hash: string;
+  device: string;
+  until: number;
 }
 
 /** A pairing link works for this long, once. */
@@ -59,7 +67,15 @@ export const MAX_DEVICES = 12;
 const id = (bytes: number): string => toBase64Url(randomBytes(bytes));
 
 function fresh(): RemoteState {
-  return { enabled: false, relayUrl: '', relaySecret: '', room: id(18), devices: [], pending: [] };
+  return {
+    enabled: false,
+    relayUrl: '',
+    relaySecret: '',
+    room: id(18),
+    devices: [],
+    pending: [],
+    resumes: [],
+  };
 }
 
 /** Only what has the right shape survives a read, so a damaged file cannot reach the bridge. */
@@ -104,6 +120,16 @@ function sane(raw: unknown): RemoteState {
       };
     }),
     pending,
+    resumes: Array.isArray(r['resumes'])
+      ? r['resumes'].filter(
+          (x): x is StoredResume =>
+            typeof x === 'object' &&
+            x !== null &&
+            typeof (x as StoredResume).hash === 'string' &&
+            typeof (x as StoredResume).device === 'string' &&
+            Number.isFinite((x as StoredResume).until),
+        )
+      : [],
     ...(typeof (r['vapid'] as VapidKeys | undefined)?.publicKey === 'string' &&
     typeof (r['vapid'] as VapidKeys | undefined)?.privateJwk === 'object'
       ? { vapid: r['vapid'] as VapidKeys }
@@ -226,6 +252,11 @@ export class RemoteStore {
     this.#save();
   }
 
+  setResumes(resumes: StoredResume[]): void {
+    this.#state.resumes = resumes;
+    this.#save();
+  }
+
   rename(deviceId: string, name: string): void {
     const device = this.device(deviceId);
     if (!device) return;
@@ -234,6 +265,7 @@ export class RemoteStore {
   }
 
   forget(deviceId: string): void {
+    this.#state.resumes = this.#state.resumes.filter((r) => r.device !== deviceId);
     this.#state.devices = this.#state.devices.filter((d) => d.id !== deviceId);
     this.#state.pending = this.#state.pending.filter((p) => p.id !== deviceId);
     this.#save();

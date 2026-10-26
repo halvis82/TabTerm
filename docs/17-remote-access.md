@@ -86,20 +86,24 @@ asks it to sign a fresh challenge, and the daemon checks the signature against t
 kept at pairing (`daemon/src/remote/webauthn.ts`). The daemon requires user verification, the
 right site and origin, a fresh challenge, and a signature counter that never goes backwards.
 
-**A dropped connection comes back without the passkey.** Each unlock gets a resume ticket from
-the Mac: 32 random bytes, sent inside the encrypted connection, so the relay never sees one, and
-kept by the page in memory only. When the connection drops, by the network or by the relay
-letting go of the Mac for a moment, the page keeps showing what it was showing, says
-**Reconnecting**, and comes back with the ticket instead of Face ID. A ticket:
+**An unlocked device stays unlocked for half an hour away.** Each unlock gets a resume ticket from
+the Mac: 32 random bytes, sent inside the encrypted connection, so the relay never sees one. The
+page keeps it beside its pairing on the device. When the connection drops, the page is reloaded,
+or the app is closed and opened again, the page comes back with the ticket instead of Face ID, in
+the terminal it was showing. A dropped connection keeps showing the terminal and says
+**Reconnecting**. A ticket:
 
 - works once, and the Mac gives a new one each time it is used. The one used stays good for 30
   seconds, until the page says anything on the new connection, so a connection lost again before
   the Mac's answer arrived can still come back with it
 - belongs to one device, and is no good with any other device's key
-- runs out ten minutes after its connection ended
-- is gone when the page is closed or reloaded, when it was out of sight for two minutes, when the
-  device is removed, when remote access is turned off, and when the daemon restarts. Each of those
-  unlocks with the passkey again
+- runs out 30 minutes after the page was last in use: on screen with a connection, or put away.
+  An open page out of sight for 30 minutes closes its connection and locks
+- is kept on the Mac in `remote.json` as its hash, never the ticket, so it lasts through a restart
+  of the daemon or the Mac. The page is told when the Mac restarted, and lets go of keys it had not
+  heard back about, since that Mac would not know which it already wrote
+- is gone when the device is removed and when remote access is turned off. Each of those unlocks
+  with the passkey again
 
 **A connection that dies without a word is found.** A phone can cut a page's connection while it
 is put away and never say so. Once unlocked, the page asks the Mac every 15 seconds, and at once
@@ -185,7 +189,7 @@ The cost on the Mac is one https request per notification. Nothing runs between 
   while it unlocks, which Face ID can cause, is not a failed unlock
 - **A device that has not unlocked within a minute** is let go. A page left on Unlock asks again
   once anybody looks at it, for a fresh Unlock
-- **A device out of sight** for two minutes closes its connection and drops its resume ticket, so
+- **A device out of sight** for 30 minutes closes its connection and drops its resume ticket, so
   the next look unlocks again
 - **Removing a device** in Settings cuts its open connections at once
 - **A slow device cannot slow the Mac.** Output is never held back for it. A device that falls too
@@ -317,7 +321,8 @@ From then on, opening the page asks to **Unlock**, and shows your terminals.
 **Notifications.** On the list of terminals, press **Notify me** and allow notifications. It is
 offered on phones and tablets only, since a computer has TabTerm on it or sits beside the Mac. On
 an iPhone it is offered only in the app added to the Home Screen, which is where iOS allows a web
-page to notify. Tapping a notification opens that terminal, after unlocking.
+page to notify. Tapping a notification opens that terminal, after unlocking when the device was
+away for more than half an hour.
 
 **Size.** A terminal keeps the columns and rows it has on the Mac, since the program in it drew for
 those, and the page never changes them. The text is made as large as fits: the terminal fills the
@@ -349,6 +354,10 @@ shows:
   screen program such as an editor starts it over
 
 The terminal itself only ever shows what the Mac sent. Guesses are drawn over it.
+
+**Back and Forward.** Opening a terminal is a step in the browser's history, so the browser's Back,
+a swipe back on a phone, or the page's **Back** returns to the list, and Forward goes into the
+terminal again. A reload stays in the terminal it was showing.
 
 **A terminal that ends** while it is open, by `exit` or by closing it on the Mac, goes back to the
 list, which says it ended.
