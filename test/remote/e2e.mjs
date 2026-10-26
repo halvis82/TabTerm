@@ -164,6 +164,13 @@ const chrome = spawn(
     `--user-data-dir=${join(home, 'chrome')}`,
     '--no-first-run',
     '--no-default-browser-check',
+    /*
+     * Notifications kept inside this browser, never handed to macOS. The run subscribes it to a
+     * real push service and has an agent ask for approval, and a headless Chrome still shows what
+     * arrives in macOS Notification Center: "echo desk-ready needs you" from localhost appeared on
+     * the screen of whoever ran it. Chrome's own notifications still count for the check.
+     */
+    '--disable-features=NativeNotifications,SystemNotifications',
     'about:blank',
   ],
   { detached: true, stdio: ['ignore', 'pipe', 'pipe'] },
