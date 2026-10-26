@@ -21,7 +21,7 @@ One tab, multiple terminals. Name sessions, highlight output, and mark places wo
 
 | Session details | Settings |
 |---|---|
-| [![Session detail panel](docs/images/4-session-detail.png)](docs/images/4-session-detail.png) | [![Terminal appearance and scrollback settings](docs/images/5-settings.png)](docs/images/5-settings.png) |
+| [![Session detail panel](docs/images/4-session-detail.png)](docs/images/4-session-detail.png) | [![Settings in pages, with a search across them, on the Terminals page](docs/images/5-settings.png)](docs/images/5-settings.png) |
 
 </details>
 
@@ -35,6 +35,25 @@ move between windows, group, close, restore.
 
 Closing a tab does not kill a terminal. Reopening it restores the running process and the exact
 screen, including a pane in the middle of a `vim` edit with unsaved changes.
+
+## Remote access
+
+Off unless you set it up. Watch and type into your terminals from your phone or another computer,
+in a browser, through a relay you deploy on your own free Cloudflare account in about five minutes.
+
+- **Encrypted end to end.** The relay passes sealed bytes between your Mac and your devices and can
+  read none of it. There is no TabTerm server
+- **Every device is approved on your Mac with Touch ID** before it is trusted, and unlocks with its
+  own Face ID, Touch ID or passcode. It stays unlocked for half an hour away, through a reload or a
+  dropped connection
+- **Typing feels local.** Keys show the moment they are pressed and are checked against your Mac's
+  echo, in a shell and in agents like Claude Code and Codex. A password prompt never shows them
+- **A notification when an agent needs you**, on a phone with the page added to the Home Screen
+- From a device you can watch, type and switch between terminals. You can never end a session or
+  open anything on the Mac, because there is no message for it
+
+The page says what is going on when it cannot connect, and the Mac checks every few minutes that a
+device can actually reach it. Setup and the security model: [remote access](docs/17-remote-access.md).
 
 ## Architecture
 
@@ -268,6 +287,9 @@ something is wrong, this is the first thing to run and usually the last.
 echo '[ -f ~/.local/share/tabterm/tabterm-integration.zsh ] && source ~/.local/share/tabterm/tabterm-integration.zsh' >> ~/.zshrc
 ```
 
+Or turn on **Tell finished from failed** in Settings, Terminals, which adds the same line and can
+take it out again.
+
 **Not required.** Command history, timing, pane status, and local server detection all work
 without it, because the daemon asks the OS what a shell is running instead of asking the shell.
 
@@ -282,8 +304,9 @@ node scripts/install-agent-hooks.mjs          # install
 node scripts/install-agent-hooks.mjs --remove # reverse
 ```
 
-Additive and reversible. It surfaces agent state — running, waiting for approval, finished — in
-the tab title and favicon, so a hidden tab waiting on you is visible.
+Or turn on **Let agents report what they are doing** in Settings, Agents. Additive and
+reversible. It surfaces agent state, running, waiting for approval or finished, in the tab title and
+favicon, so a hidden tab waiting on you is visible.
 
 ### Optional: plugins
 
@@ -293,7 +316,7 @@ Drop a `.mjs` file in `~/.config/tabterm/plugins/` and restart the daemon. See
 ## Updating
 
 Chrome updates a store-installed extension after a new version passes review. For the companion,
-open TabTerm Settings, **Updates** at the bottom of the page, then **Check for updates**, and
+open TabTerm Settings, the **About** page, then **Check for updates**, and
 **Update companion** when a newer one is found. Automatic checking and compatible automatic installation are on unless you
 turn them off there.
 The updater downloads release source, builds it locally and preserves running terminal sessions.
@@ -388,16 +411,18 @@ integration, a local server dashboard, reboot restore, and a plugin API.
 
 Plus a floating command menu with favorites, history, hotstrings and session statistics, tab
 status in the favicon and title, and desktop notifications when a long command or an agent turn
-finishes. A terminal can sit beside any page in Chrome's side panel, a finished command's output
-copies in one press, and any running session can be opened in any pane from its menu. Remote
-access, off unless you set it up, shows your terminals on your phone or another computer through a
-relay you run yourself, encrypted end to end, with a notification when an agent needs you.
+finishes. A split tab is named after its panes, and a program reporting its progress fills the
+ring in the tab's icon. A terminal can sit beside any page in Chrome's side panel, a finished
+command's output copies in one press, and any running session can be opened in any pane from its
+menu. `Cmd+F` searches the pane in front, and with **All terminals** ticked every running terminal
+as well. Pictures draw in the terminal, from `imgcat`, the iTerm2 inline image protocol and Sixel.
+Remote access, off unless you set it up, is [described above](#remote-access).
 
 Terminals survive an update. PTYs live in a separate host process, so replacing the daemon does
 not end anything running, and a restarted daemon adopts the sessions it finds. History is kept on
 disk per session, bounded by a budget you set in megabytes.
 
-2087 unit tests and 146 browser suites. `npm run verify` gates every change.
+2099 unit tests and 149 browser suites. `npm run verify` gates every change.
 
 Read [limitations](docs/10-limitations.md) before filing anything: what Chrome and macOS will
 not permit is documented there with measurements, including the things that cannot be fixed.

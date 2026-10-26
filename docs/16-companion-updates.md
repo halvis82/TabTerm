@@ -6,7 +6,7 @@ supporting shell integration files. Source remains the distribution format.
 
 ## Settings
 
-The Updates section is the last one on the settings page. It shows installed extension and
+The Updates section is on the About page of Settings. It shows installed extension and
 companion versions. **Check for updates** asks
 the companion to read the latest stable GitHub Release and its `companion-release.json` asset.
 A branch push alone is not a companion release. Checks do not download or execute source.

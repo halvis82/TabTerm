@@ -80,6 +80,26 @@ repository access. Actions are pinned to commit hashes. Builds happen before aut
 the verified extension ZIP and companion assets are uploaded as artifacts. The submission job installs no npm dependencies.
 Submissions are serialized. Avoid pushing multiple release tags while review is pending.
 
+## What the dashboard needs before the next submission
+
+The workflow uploads and submits the package. Some answers on the dashboard's **Privacy practices**
+tab are not part of the package and cannot be set from the API, so they are entered there by hand,
+before the workflow submits. Since 1.2.0, the last version in the store, the manifest gained:
+
+- **`sidePanel`**, a permission. Chrome shows no warning for it, and the store still asks why it is
+  needed. Paste: *"Opens TabTerm's own terminal page in Chrome's side panel, next to the page in
+  the tab, when the user chooses Open a terminal beside this page from the toolbar icon's menu. It
+  is opened only from that menu entry, for the tab in front. Nothing is read from the page beside
+  it."*
+- **`content_security_policy.extension_pages`**: `script-src 'self' 'wasm-unsafe-eval';
+  object-src 'self';`. Not a permission and not remote code: it lets the extension's pages compile
+  the WebAssembly bundled inside the package, the picture decoder in the terminal. If the remote
+  code question is asked again, the answer stays **No**: every script and module is in the package
+  (`05-security.md`)
+
+The single purpose, the data use answers and the other permissions' reasons are unchanged from
+1.2.0. `docs/chrome-web-store-review.md` is the reviewer's guide, and has a step for each of these.
+
 ## Failure and retry
 
 An active or staged submission stops the workflow before upload. Resolve that state in the

@@ -109,12 +109,25 @@ the tab in front, and it shows TabTerm's own terminal page. Nothing is read from
 
 ## Remote access
 
-Settings has a **Remote access** section. It is off, and nothing in this review needs it. It is
+Settings has a **Remote** page. It is off, and nothing in this review needs it. It is
 for somebody who has deployed their own relay (`docs/17-remote-access.md`) and wants to see their
 terminals from their phone. The extension's part is the settings form: it sends the relay address
 and on or off to the companion program over loopback, like every other setting. The connection to
 the relay is made by the companion program, not by the extension, and the extension makes no new
 network request and uses no new permission for it.
+
+## Pictures in a terminal
+
+Programs can draw pictures in the terminal, as in iTerm2 and other terminals. To see one, in a
+TabTerm terminal:
+
+```
+printf '\033]1337;File=inline=1;size=104:iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAYAAAD/Rn+7AAAAL0lEQVR4nO3OMQ0AAAjAsPk3DSrIOHb0LwPzGXagYEE7ULCgHShY0A4ULGgHCl5biXs6G0TdvUkAAAAASUVORK5CYII=\a\n'
+```
+
+A small red rectangle appears. The decoder is WebAssembly bundled in the package, which is why the
+extension pages' policy is `script-src 'self' 'wasm-unsafe-eval'; object-src 'self';`: Chrome's
+default plus permission to compile that WebAssembly, and nothing from outside the package.
 
 ## Local services
 

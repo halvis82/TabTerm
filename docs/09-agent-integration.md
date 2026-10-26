@@ -151,7 +151,7 @@ the same code, so they cannot disagree about which events are wired or what an e
 
 | Route | For |
 |---|---|
-| Settings, Agent events | Somebody who installed the extension and never opened a terminal to configure it |
+| Settings, Agents, **Let agents report what they are doing** | Somebody who installed the extension and never opened a terminal to configure it |
 | `scripts/install.sh` | The prompt during install, skipped when no terminal is attached |
 | `node scripts/install-agent-hooks.mjs [--remove\|--status]` | Scripts, and anybody who prefers it |
 

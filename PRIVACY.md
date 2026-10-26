@@ -96,10 +96,14 @@ to a server, so neither your relay nor Cloudflare can read terminal content. The
 device connected, when, and how much data went each way, as for any website. Cloudflare's own
 privacy policy covers your Cloudflare account.
 
-Every device unlocks with its own passkey, behind Face ID, Touch ID or its passcode. The list of
-trusted devices, their public keys and the relay secret are stored on your Mac only, in
+A new device is trusted only after you approve it on your Mac with Touch ID or your Mac's password,
+which macOS asks for itself. Every device unlocks with its own passkey, behind Face ID, Touch ID or
+its passcode, and stays unlocked for up to half an hour away. The device keeps a ticket for that,
+and your Mac keeps only a fingerprint of it. The list of trusted devices, their public keys, those
+fingerprints and the relay secret are stored on your Mac only, in
 `~/.local/state/tabterm/remote.json`, readable by you only. Removing a device in Settings cuts it
-off at once. Turning remote access off stops every connection. The extension itself makes no new
+off at once. Turning remote access off stops every connection and ends every unlock. Erase
+everything in Settings deletes all of it. The extension itself makes no new
 connections for this, and needs no new permission.
 
 **Notifications**, if you turn them on for a device, are sent by the companion program straight to
