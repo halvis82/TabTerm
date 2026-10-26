@@ -195,6 +195,15 @@ Privacy & Security, **Local Network**. Nothing can detect this for you: macOS ke
 outside the database a process can read, so `doctor.sh` describes the symptom rather than reporting
 a state.
 
+#### Optional: let programs in TabTerm record the screen
+
+A program that takes a screenshot, such as an agent checking what a page looks like, makes macOS
+ask whether **TabTerm** may record the screen, since TabTerm is the app it runs in. To allow it for
+good: System Settings → Privacy & Security → **Screen & System Audio Recording** → **+**, press
+Shift Command G, type `~/.local/libexec/tabterm/TabTerm.app`, and switch it on. This covers every
+program in every TabTerm terminal. With TabTerm signed by a certificate (see below) the choice
+survives updates. Leaving it off only means those programs cannot see the screen.
+
 #### Optional: stop an agent asking for permission on every launch
 
 **Nothing here is required.** TabTerm works fully without it, every terminal behaves the same, and
