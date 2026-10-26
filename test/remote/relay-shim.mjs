@@ -63,6 +63,10 @@ class ShimState {
       put: async (k, v) => void this.store.set(k, v),
     };
   }
+  /** Answered here without reaching the room, as Cloudflare does. */
+  setWebSocketAutoResponse(pair) {
+    this.autoResponse = pair;
+  }
   acceptWebSocket(ws, tags) {
     ws.tags = tags;
     this.sockets.add(ws);
@@ -77,6 +81,12 @@ class ShimState {
 
 export async function startRelay({ secret, port = 0, host = '127.0.0.1' } = {}) {
   globalThis.Response = ShimResponse;
+  globalThis.WebSocketRequestResponsePair = class {
+    constructor(request, response) {
+      this.request = request;
+      this.response = response;
+    }
+  };
   globalThis.WebSocketPair = class {
     constructor() {
       this[1] = new ShimSocket();
@@ -130,6 +140,8 @@ export async function startRelay({ secret, port = 0, host = '127.0.0.1' } = {}) 
       shim.attach(real);
       real.on('message', (data, isBinary) => {
         const value = isBinary ? new Uint8Array(data).buffer : data.toString();
+        const auto = room.state.autoResponse;
+        if (auto && value === auto.request) return real.send(auto.response);
         void room.webSocketMessage(shim, value);
       });
       real.on('close', () => {

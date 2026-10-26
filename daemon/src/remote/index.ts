@@ -18,6 +18,7 @@ export class RemoteControl {
   #bridge: RemoteBridge | undefined;
   #status: BridgeStatus = { state: 'off', browsers: 0 };
   readonly #pushFetch: Fetch | undefined;
+  readonly #pingMs: number | undefined;
 
   constructor(
     stateDir: string,
@@ -25,11 +26,14 @@ export class RemoteControl {
     onChange: (state: RemoteAccessState) => void,
     /** Stands in for the push services in tests. */
     pushFetch?: Fetch,
+    /** How often the relay is asked if it is still there, shorter in tests. */
+    pingMs?: number,
   ) {
     this.#store = new RemoteStore(stateDir);
     this.#host = host;
     this.#onChange = onChange;
     this.#pushFetch = pushFetch;
+    this.#pingMs = pingMs;
     this.#apply();
   }
 
@@ -72,6 +76,7 @@ export class RemoteControl {
           this.#onChange(this.state);
         },
         this.#pushFetch,
+        this.#pingMs,
       );
       this.#bridge.start();
       info('remote.on', {});

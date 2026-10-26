@@ -76,6 +76,12 @@ const MAX_FAILURES = 5;
 const FAILURE_COOLDOWN_MS = 5 * 60_000;
 /** One notification per terminal in this long, however often an agent flips back to asking. */
 const NOTIFY_GAP_MS = 30_000;
+/**
+ * How often the relay is asked whether this connection still reaches it. A deploy or a network
+ * change can leave a connection that looks open on this side and goes nowhere, and without asking,
+ * the Mac would wait on it forever while every device was told it was offline.
+ */
+const PING_MS = 25_000;
 
 type Phase = 'hello' | 'unlock' | 'ready';
 
@@ -115,17 +121,23 @@ export class RemoteBridge {
   /** Terminals whose agent needs somebody right now, so only a change is notified. */
   #needing = new Set<string>();
   readonly #notifiedAt = new Map<string, number>();
+  readonly #pingMs: number;
+  #pingTimer: ReturnType<typeof setInterval> | undefined;
+  /** A relay from before it answered "ping" closes on any text. It is then not asked again. */
+  #relayPings = true;
 
   constructor(
     host: RemoteHost,
     store: RemoteStore,
     onStatus: (s: BridgeStatus) => void = () => {},
     pushFetch?: Fetch,
+    pingMs = PING_MS,
   ) {
     this.#host = host;
     this.#store = store;
     this.#onStatus = onStatus;
     this.#fetch = pushFetch;
+    this.#pingMs = pingMs;
   }
 
   get status(): BridgeStatus {
@@ -157,6 +169,7 @@ export class RemoteBridge {
     this.#unsubscribe = [];
     clearTimeout(this.#retryTimer);
     clearTimeout(this.#flushTimer);
+    clearInterval(this.#pingTimer);
     for (const b of this.#browsers.values()) clearTimeout(b.timer);
     this.#browsers.clear();
     this.#socket?.close(1000, 'off');
@@ -216,10 +229,25 @@ export class RemoteBridge {
     });
     this.#socket = socket;
     socket.binaryType = 'nodebuffer';
+    // Asked, and not answered by the next time: the connection is let go and made again.
+    let asked = false;
+    let answered = false;
     socket.on('open', () => {
       this.#retryMs = 1000;
       info('remote.relay.connected', {});
       this.#setStatus({ state: 'connected', browsers: 0 });
+      clearInterval(this.#pingTimer);
+      this.#pingTimer = setInterval(() => {
+        if (asked && answered) {
+          warn('remote.relay.silent', {});
+          socket.terminate();
+          return;
+        }
+        if (!this.#relayPings || socket.readyState !== WebSocket.OPEN) return;
+        asked = true;
+        socket.send('ping');
+      }, this.#pingMs);
+      this.#pingTimer.unref?.();
     });
     socket.on('unexpected-response', (_req, res) => {
       const detail =
@@ -229,14 +257,23 @@ export class RemoteBridge {
       this.#setStatus({ state: 'error', detail, browsers: 0 });
       socket.terminate();
     });
-    socket.on('message', (data: Buffer) => this.#fromRelay(new Uint8Array(data)));
+    socket.on('message', (data: Buffer, isBinary: boolean) => {
+      if (isBinary) {
+        this.#fromRelay(new Uint8Array(data));
+      } else if (data.toString() === 'pong') {
+        asked = false;
+        answered = true;
+      }
+    });
     socket.on('error', (e) => {
       if (this.#status.state !== 'error') {
         this.#setStatus({ state: 'error', detail: e.message, browsers: 0 });
       }
     });
-    socket.on('close', () => {
+    socket.on('close', (code: number) => {
       if (this.#socket !== socket) return;
+      clearInterval(this.#pingTimer);
+      if (code === 1003 && !answered) this.#relayPings = false;
       for (const b of this.#browsers.values()) clearTimeout(b.timer);
       this.#browsers.clear();
       if (this.#stopped) return;

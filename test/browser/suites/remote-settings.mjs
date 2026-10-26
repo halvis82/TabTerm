@@ -50,6 +50,15 @@ r.ok(
   ),
 );
 
+r.ok(
+  'and once saved, the relay is folded away under its address',
+  await waitFor(
+    client,
+    `(() => { const d = ${section}?.querySelector('[data-remote-relay]'); return d && !d.open && d.querySelector('summary').textContent.includes('localhost'); })()`,
+    4000,
+  ),
+);
+
 await evaluate(
   client,
   `[...${section}.querySelectorAll('.set-toggle')].find((t) => t.textContent.startsWith('Remote access'))?.querySelector('input')?.click()`,

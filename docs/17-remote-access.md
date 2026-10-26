@@ -48,7 +48,11 @@ and both see the result.
 
 **Cost on the Mac.** Off, it reads one small file at start and does nothing else. On, it is one
 WebSocket and the frames passing through it, inside the daemon that is already running: no new
-process. Measured with a device paired and watching, the daemon's memory did not measurably change.
+process. Every 25 seconds the daemon sends the relay four bytes, "ping", which Cloudflare answers
+without waking the relay. A connection that stops answering is closed and made again, so a deploy
+of the relay or a network change never leaves the Mac holding a connection that goes nowhere while
+every device is told it is offline. A relay deployed before this answers no pings: the daemon
+notices once and stops asking it. Measured with a device paired and watching, the daemon's memory did not measurably change.
 
 ---
 
@@ -115,7 +119,8 @@ The cost on the Mac is one https request per notification. Nothing runs between 
 
 - **The relay secret** makes sure only your Mac can take the Mac's place on the relay. It is set on
   the relay once and entered in Settings once, stored in the same `0600` file, and never sent back
-  to the page
+  to the page. Nobody needs to remember it, and devices never use it. To change it, set a new one
+  on the relay and enter it in Settings
 - **Failed unlocks** are counted per device: five, and that device is refused for five minutes
 - **A device that has not unlocked within a minute** is let go
 - **A device out of sight** for two minutes closes its connection, so the next look unlocks again
@@ -168,7 +173,8 @@ redeployed the same way after an update; your devices stay paired.
 
 In TabTerm, open **Settings**, then **Remote access**. Paste the relay's address and the secret,
 press **Save relay**, and turn **Remote access** on. The status line says **Connected to your
-relay**.
+relay**. From then on the address and secret are folded away under **Relay:** and the relay's
+address, so Settings shows only the switch, the status, pairing and the devices.
 
 ### 4. Add a device
 
@@ -178,6 +184,10 @@ Press **Show a pairing code**.
 - **Another computer:** press **Copy link** and open it there
 - **A page that says it is not paired yet:** press **Scan code** and point it at the code, or
   paste the link and press **Pair**
+
+**If the page says your Mac is offline** while Settings says **Connected to your relay**, wait half a
+minute: the Mac finds a connection that has stopped working within about 50 seconds and makes a new
+one, and the page tries again by itself.
 
 The page asks to **Trust this device**, which makes the passkey: Face ID, Touch ID or the passcode.
 

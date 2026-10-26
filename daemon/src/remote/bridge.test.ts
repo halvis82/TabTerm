@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import WebSocket from 'ws';
+import WebSocket, { WebSocketServer } from 'ws';
 import {
   NONCE_BYTES,
   Sealer,
@@ -423,6 +423,74 @@ function roomOf(stateDir: string): string {
   // The room is in the store's file. Read rather than exposed, since nothing else needs it.
   return (JSON.parse(readFileSync(join(stateDir, 'remote.json'), 'utf8')) as { room: string }).room;
 }
+
+describe('a connection to the relay that has gone quiet', () => {
+  /**
+   * A relay that answers "ping" for a while and then not at all, with its connection still open,
+   * which is what a deploy on Cloudflare can leave behind. `answers` says how many it answers.
+   */
+  async function quietRelay(answers: number, old = false) {
+    const server = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+    await new Promise((r) => server.once('listening', r));
+    const seen = { connections: 0, pings: 0 };
+    server.on('connection', (ws) => {
+      seen.connections++;
+      ws.on('message', (data: Buffer, isBinary: boolean) => {
+        if (isBinary || data.toString() !== 'ping') return;
+        seen.pings++;
+        // A relay from before pings closes on any text.
+        if (old) ws.close(1003, 'Binary only');
+        else if (seen.pings <= answers) ws.send('pong');
+      });
+    });
+    const { port } = server.address() as { port: number };
+    return { url: `http://localhost:${String(port)}`, seen, close: () => server.close() };
+  }
+
+  function quietControl(url: string): RemoteControl {
+    const c = new RemoteControl(dir, fakeHost().host, (s) => states.push(s), undefined, 50);
+    c.configure({ enabled: true, relayUrl: url, relaySecret: SECRET });
+    control = c;
+    return c;
+  }
+
+  it('is let go and made again when the relay stops answering', async () => {
+    const quiet = await quietRelay(2);
+    try {
+      const c = quietControl(quiet.url);
+      expect(await until(() => c.state.status === 'connected')).toBe(true);
+      expect(await until(() => quiet.seen.connections >= 2)).toBe(true);
+      expect(await until(() => c.state.status === 'connected')).toBe(true);
+    } finally {
+      quiet.close();
+    }
+  });
+
+  it('keeps a connection that answers', async () => {
+    const quiet = await quietRelay(Infinity);
+    try {
+      quietControl(quiet.url);
+      expect(await until(() => quiet.seen.pings >= 6)).toBe(true);
+      expect(quiet.seen.connections).toBe(1);
+    } finally {
+      quiet.close();
+    }
+  });
+
+  it('stops asking a relay from before pings, instead of reconnecting over and over', async () => {
+    const quiet = await quietRelay(0, true);
+    try {
+      const c = quietControl(quiet.url);
+      expect(await until(() => quiet.seen.connections === 2)).toBe(true);
+      expect(await until(() => c.state.status === 'connected')).toBe(true);
+      await new Promise((r) => setTimeout(r, 400));
+      expect(quiet.seen.pings).toBe(1);
+      expect(quiet.seen.connections).toBe(2);
+    } finally {
+      quiet.close();
+    }
+  });
+});
 
 describe('notifications when an agent needs somebody', () => {
   const ua = createECDH('prime256v1');

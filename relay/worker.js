@@ -166,6 +166,12 @@ function withId(id, body) {
 export class Room {
   constructor(state) {
     this.state = state;
+    /*
+     * The Mac asks "ping" now and then to know its connection still reaches this room, and not a
+     * connection Cloudflare has quietly let go of, after a deploy for one. Answered by Cloudflare
+     * without waking the room, so it costs nothing.
+     */
+    state.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
   }
 
   async fetch(req) {

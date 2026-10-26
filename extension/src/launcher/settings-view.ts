@@ -635,6 +635,8 @@ function buildUpdates(options: SettingsOptions): HTMLElement {
  * which is the only part of the setup that happens outside TabTerm. Pairing is a code to scan: the
  * key travels inside it, so it never passes through the relay. See docs/17-remote-access.md.
  */
+let relayOpen = false;
+
 function buildRemote(options: SettingsOptions): HTMLElement | null {
   if (!options.remote) return null;
   const wrap = section('Remote access');
@@ -647,6 +649,9 @@ function buildRemote(options: SettingsOptions): HTMLElement | null {
     wrap.append(pending);
     return wrap;
   }
+
+  // Once the relay is set up, the setup is out of the way: the switch, the status and pairing.
+  const configured = state.relayUrl !== '' && state.hasSecret;
 
   const intro = document.createElement('p');
   intro.className = 'set-desc';
@@ -662,7 +667,7 @@ function buildRemote(options: SettingsOptions): HTMLElement | null {
   guide.target = '_blank';
   guide.rel = 'noopener noreferrer';
   guide.textContent = 'How to set up your relay, about five minutes';
-  wrap.append(guide);
+  if (!configured) wrap.append(guide);
 
   wrap.append(
     toggle('Remote access', state.enabled, (on) => options.onRemoteSet?.({ enabled: on })),
@@ -710,14 +715,41 @@ function buildRemote(options: SettingsOptions): HTMLElement | null {
     secret.value = '';
     options.onRemoteSet?.(change);
   });
-  wrap.append(
-    field('Relay address', 'The address your relay was given when you deployed it.', address),
-    field('Relay secret', 'The secret you set on the relay. Stored on this Mac only.', secret),
-  );
   const saveRow = document.createElement('div');
   saveRow.className = 'cmd-buttons';
   saveRow.append(save);
-  wrap.append(saveRow);
+  const relayFields = [
+    field('Relay address', 'The address your relay was given when you deployed it.', address),
+    field(
+      'Relay secret',
+      'Lets only this Mac connect to your relay as this Mac. Set once, when the relay was ' +
+        'deployed. Nobody needs to know it after that, and devices never use it.',
+      secret,
+    ),
+    saveRow,
+  ];
+  if (configured) {
+    const relay = document.createElement('details');
+    relay.className = 'set-remote-relay';
+    relay.dataset['remoteRelay'] = 'true';
+    const summary = document.createElement('summary');
+    let host = state.relayUrl;
+    try {
+      host = new URL(state.relayUrl).host;
+    } catch {
+      // Shown as it was typed.
+    }
+    summary.textContent = `Relay: ${host}`;
+    relay.append(summary, ...relayFields);
+    // Kept open across redraws while somebody is changing it.
+    relay.open = relayOpen;
+    relay.addEventListener('toggle', () => {
+      relayOpen = relay.open;
+    });
+    wrap.append(relay);
+  } else {
+    wrap.append(...relayFields);
+  }
 
   // Adding a device.
   const pairRow = document.createElement('div');
@@ -728,8 +760,9 @@ function buildRemote(options: SettingsOptions): HTMLElement | null {
   const pairNote = document.createElement('span');
   pairNote.className = 'set-desc';
   pairNote.textContent =
-    "Scan the code with the phone's camera, or open the link on the other computer. It works " +
-    'once, for ten minutes, and the device then asks for Face ID, Touch ID or its passcode.';
+    'On the phone, open your relay and press Scan code, or scan it with the camera app. On ' +
+    'another computer, open the link. It works once, for ten minutes, and the device then asks ' +
+    'for Face ID, Touch ID or its passcode.';
   const pairButton = document.createElement('button');
   pairButton.type = 'button';
   pairButton.className = 'cmd-button primary';

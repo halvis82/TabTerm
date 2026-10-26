@@ -58,7 +58,11 @@ export default tseslint.config(
   {
     files: ['relay/worker.js'],
     languageOptions: {
-      globals: { ...globals.serviceworker, WebSocketPair: 'readonly' },
+      globals: {
+        ...globals.serviceworker,
+        WebSocketPair: 'readonly',
+        WebSocketRequestResponsePair: 'readonly',
+      },
     },
   },
 

@@ -1711,6 +1711,19 @@
     word-break: break-all;
     user-select: all;
   }
+  .set-remote-relay {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .set-remote-relay summary {
+    cursor: pointer;
+    color: var(--dim);
+    font-size: 12px;
+  }
+  .set-remote-relay[open] summary {
+    margin-bottom: 10px;
+  }
   .set-remote-devices {
     display: flex;
     flex-direction: column;
