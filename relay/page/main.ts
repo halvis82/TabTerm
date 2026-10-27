@@ -242,16 +242,26 @@ const FOCUS_REPORTS = new Set(['\x1b[I', '\x1b[O']);
 let termOpened = false;
 let size = { cols: 80, rows: 24 };
 let zoom = 1;
-/** Fit the whole terminal on the screen however small that makes the text, rather than scroll. */
-let fitAll = false;
-try {
-  fitAll = localStorage.getItem('tabterm.fitAll') === '1';
-} catch {
-  // Storage refused: start readable.
-}
-
 /** A phone or tablet, as opposed to a computer with a mouse. */
 const touch = matchMedia('(pointer: coarse)').matches;
+
+/**
+ * Which way the terminal fills the screen, switched with the button beside A- and A+.
+ *
+ * Height: the rows fill the screen from top to bottom and a wide terminal scrolls sideways, the
+ * way to read it on a phone. Width: the whole terminal is shown, as wide as the screen, with empty
+ * space above and below it. Asked for as "just the option, a quick button to choose which to view".
+ */
+type FitMode = 'height' | 'width';
+let fitMode: FitMode = touch ? 'height' : 'width';
+try {
+  const saved = localStorage.getItem('tabterm.fitMode');
+  if (saved === 'height' || saved === 'width') fitMode = saved;
+  // The Fit switch this replaced, which meant the same as width.
+  else if (localStorage.getItem('tabterm.fitAll') === '1') fitMode = 'width';
+} catch {
+  // Storage refused: start with the default.
+}
 
 /**
  * A cell's width and height for each pixel of font size, measured from what xterm drew. Starts as
@@ -269,30 +279,35 @@ function measureCell(): void {
 }
 
 /**
- * The Mac's size, as large as fits the screen: the whole width or the whole height, whichever
- * runs out first, so a terminal fills the view in one direction and is never a small block in a
- * corner.
+ * The Mac's size, made as large as the fit mode allows.
  *
  * The terminal keeps the Mac's columns and rows, since the program in it drew for those, and a
- * phone watching never changes the size on the Mac. A terminal 120 columns wide fitted across a
- * phone is text under 5 pixels, so on a phone the text never goes below a readable size and a wider
- * terminal scrolls sideways instead, unless Fit is on. A- and A+ scale from the fitted size.
+ * phone watching never changes the size on the Mac. Height fills the screen from top to bottom and
+ * scrolls sideways, and A- and A+ scale from there. Width shows all of it, as wide as the screen or
+ * as tall, whichever runs out first, centered with the space around it left empty.
  */
-const READABLE_PX = 8.5;
 const LARGEST_PX = 32;
 function fitFont(): void {
   const wrap = $('term-wrap');
   const across = (wrap.clientWidth - 8) / (size.cols * cell.w);
   const down = (wrap.clientHeight - 8) / (size.rows * cell.h);
-  const whole = Math.min(across, down);
-  const px = fitAll
-    ? Math.max(3, Math.min(LARGEST_PX, whole))
-    : Math.max(5, Math.min(LARGEST_PX, Math.max(touch ? READABLE_PX : 5, whole) * zoom));
+  const px =
+    fitMode === 'width'
+      ? Math.max(3, Math.min(LARGEST_PX, across, down))
+      : Math.max(5, Math.min(LARGEST_PX, down * zoom));
   const rounded = Math.floor(px * 4) / 4;
   if (term.options.fontSize !== rounded) term.options.fontSize = rounded;
-  $('fit').setAttribute('aria-pressed', String(fitAll));
-  $<HTMLButtonElement>('zoom-in').disabled = fitAll;
-  $<HTMLButtonElement>('zoom-out').disabled = fitAll;
+  const fit = $('fit');
+  fit.textContent = fitMode === 'width' ? 'Width' : 'Height';
+  fit.setAttribute(
+    'aria-label',
+    fitMode === 'width'
+      ? 'Showing the whole width. Tap to fill the height and scroll sideways'
+      : 'Filling the height. Tap to show the whole width',
+  );
+  wrap.dataset.fit = fitMode;
+  $<HTMLButtonElement>('zoom-in').disabled = fitMode === 'width';
+  $<HTMLButtonElement>('zoom-out').disabled = fitMode === 'width';
 }
 
 /**
@@ -306,18 +321,15 @@ function refit(): void {
   requestAnimationFrame(() => {
     measureCell();
     fitFont();
-    if (!fitAll && zoom !== 1) return;
+    if (fitMode === 'height' && zoom !== 1) return;
     const screen = $('term').querySelector<HTMLElement>('.xterm-screen');
     const wrap = $('term-wrap');
-    const over = (): boolean =>
-      !!screen &&
-      screen.offsetWidth > wrap.clientWidth - 8 &&
-      screen.offsetHeight > wrap.clientHeight - 8;
     const overOne = (): boolean =>
       !!screen &&
       (screen.offsetWidth > wrap.clientWidth - 8 || screen.offsetHeight > wrap.clientHeight - 8);
-    // On a phone a wide terminal scrolls sideways on purpose, so only both ways at once is too big.
-    const tooBig = touch && !fitAll ? over : overOne;
+    // Filling the height scrolls sideways on purpose, so there only taller than the screen is too big.
+    const tooTall = (): boolean => !!screen && screen.offsetHeight > wrap.clientHeight - 8;
+    const tooBig = fitMode === 'height' ? tooTall : overOne;
     for (let i = 0; i < 16 && tooBig() && (term.options.fontSize ?? 0) > 3; i++) {
       term.options.fontSize = (term.options.fontSize ?? 12) - 0.25;
     }
@@ -1189,13 +1201,14 @@ function wire(paired: Paired): void {
     fitFont();
   });
   $('fit').addEventListener('click', () => {
-    fitAll = !fitAll;
+    fitMode = fitMode === 'width' ? 'height' : 'width';
+    zoom = 1;
     try {
-      localStorage.setItem('tabterm.fitAll', fitAll ? '1' : '0');
+      localStorage.setItem('tabterm.fitMode', fitMode);
     } catch {
       // Not remembered, which is fine.
     }
-    fitFont();
+    refit();
   });
   $('notify').addEventListener('click', () => void toggleNotify());
   // A notification tapped while this page is open already.

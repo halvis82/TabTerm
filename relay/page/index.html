@@ -407,6 +407,13 @@
       #term {
         display: inline-block;
       }
+      /* The whole width: centered, with black above and below so the edge of the terminal shows. */
+      #term-wrap[data-fit='width'] {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #000;
+      }
       /*
        * The terminal's scroll handle: thin and faint, rather than a solid grey block beside the
        * cursor line at the end of a long scrollback.
@@ -510,10 +517,9 @@
           id="fit"
           class="icon-button"
           type="button"
-          aria-pressed="false"
-          aria-label="Fit the whole terminal on the screen"
+          aria-label="Filling the height. Tap to show the whole width"
         >
-          Fit
+          Height
         </button>
         <button id="zoom-out" class="icon-button" type="button" aria-label="Smaller text">
           A-

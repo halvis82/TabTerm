@@ -418,18 +418,49 @@ await tap('#zoom-out');
 await tap('[data-key="left"]');
 ok('and pressing buttons keeps it ready to type', await ev(typingReady));
 
-// 120 columns on a phone: readable and scrolling sideways, or fitted with Fit.
+// 120 columns on a phone: filling the height and scrolling sideways, or the whole width.
 const fontPx = () => ev(`window.__remote.term.options.fontSize`);
+const box = () =>
+  ev(`JSON.stringify((() => {
+    const s = document.querySelector('#term .xterm-screen').getBoundingClientRect();
+    const w = document.getElementById('term-wrap');
+    const b = w.getBoundingClientRect();
+    return { w: s.width, h: s.height, wrapW: w.clientWidth, wrapH: w.clientHeight, top: s.top - b.top, bottom: b.bottom - s.bottom };
+  })())`).then((v) => JSON.parse(String(v)));
+const tall = await box();
+ok(
+  'Height fills the screen from top to bottom and scrolls sideways',
+  (await ev(`document.getElementById('fit').textContent.trim()`)) === 'Height' &&
+    tall.h >= tall.wrapH * 0.85 &&
+    tall.h <= tall.wrapH &&
+    tall.w > tall.wrapW,
+  JSON.stringify(tall),
+);
 const readable = await fontPx();
 await tap('#fit');
-const fitted = await fontPx();
-const fitsAcross = await ev(
-  `document.querySelector('#term .xterm-screen').getBoundingClientRect().width <= document.getElementById('term-wrap').clientWidth`,
+await until(async () => (await fontPx()) < readable);
+const wide = await box();
+ok(
+  'Width shows the whole width, with the space above and below it empty',
+  (await ev(`document.getElementById('fit').textContent.trim()`)) === 'Width' &&
+    wide.w <= wide.wrapW &&
+    wide.w >= wide.wrapW * 0.85 &&
+    wide.top > 20 &&
+    Math.abs(wide.top - wide.bottom) < 12 &&
+    (await ev(`document.getElementById('zoom-in').disabled`)) === true,
+  JSON.stringify(wide),
 );
-ok('Fit fits the whole width', fitted < readable && fitsAcross, `${readable}px, then ${fitted}px`);
 await snap('3a-fit');
 await tap('#fit');
-ok('and pressed again, back to readable', (await fontPx()) === readable);
+// Within a quarter pixel: the cell measured at the small size rounds a little differently.
+ok(
+  'and tapped again, back to the height',
+  await until(async () => {
+    const b = await box();
+    return Math.abs((await fontPx()) - readable) <= 0.5 && b.h >= b.wrapH * 0.85 && b.w > b.wrapW;
+  }),
+  `${String(await fontPx())} after ${String(readable)}`,
+);
 
 // Typing on the phone reaches the shell, and the answer comes back to both.
 await ev(

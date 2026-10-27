@@ -325,14 +325,15 @@ page to notify. Tapping a notification opens that terminal, after unlocking when
 away for more than half an hour.
 
 **Size.** A terminal keeps the columns and rows it has on the Mac, since the program in it drew for
-those, and the page never changes them. The text is made as large as fits: the terminal fills the
-width or the height of the page, whichever runs out first, and follows the window as it is
-resized. On a phone a wide terminal stays readable and scrolls sideways instead. **Fit** shows the
-whole terminal however small that makes the text. **A-** and **A+** change the size when Fit is
-off. Tapping them quickly does not zoom the page.
+those, and the page never changes them. The button beside **A-** and **A+** switches how it fills
+the page, and the choice is kept. **Height** fills it from top to bottom and a wide terminal
+scrolls sideways, the default on a phone. **Width** shows the whole terminal, as wide as the page,
+centered with black above and below, the default on a computer. **A-** and **A+**
+change the size from Height. Both follow the window as it is resized, and tapping quickly does not
+zoom the page.
 
 **Typing.** Opening a terminal makes it ready to type, on a phone with the keyboard up. Pressing
-Esc, the arrows, Fit or A- and A+ leaves the typing where it was, so a phone's keyboard stays up
+Esc, the arrows, Height or Width, or A- and A+ leaves the typing where it was, so a phone's keyboard stays up
 and a computer keeps typing into the terminal.
 
 **Instant typing.** Over the internet a key's echo takes a tenth of a second or more to come back,
