@@ -2118,7 +2118,7 @@ function openSessionHere(paneId: string): void {
   sessionBubble = new SessionBubble({
     from: el,
     home: launcherHome,
-    title: 'Open a session here',
+    title: 'Show another running session here',
     sub: 'Click one to show it in this pane. What is here now keeps running, in Running now.',
     sessions: () => liveElsewhere,
     onTake: (session) => {
@@ -2775,7 +2775,7 @@ function resumeItems(sessionId: string): ShellItem[] {
   const command = resumeCommandFor(conversation, sessionTitles.get(sessionId)?.cwd ?? '');
   return [
     {
-      label: 'Copy resume command',
+      label: 'Copy agent resume command',
       run: () => {
         void navigator.clipboard.writeText(command).then(
           () => showNotice('Resume command copied'),
@@ -3147,7 +3147,7 @@ function sessionItems(session: LiveSession): ShellItem[] {
       ? []
       : [
           {
-            label: 'Copy resume command',
+            label: 'Copy agent resume command',
             run: () => {
               const command = resumeCommandFor(session.agentSessionId ?? '', session.cwd);
               void navigator.clipboard.writeText(command).then(
@@ -3284,7 +3284,7 @@ function thingItems(thing: LauncherThing): ShellItem[] {
           run: () => launcher?.chooseDir(thing.session.cwd),
         },
         {
-          label: 'Copy resume command',
+          label: 'Copy agent resume command',
           run: () => {
             const command = resumeCommandFor(thing.session.sessionId, thing.session.cwd);
             void navigator.clipboard.writeText(command).then(
@@ -6021,7 +6021,7 @@ function paneMenuActions(paneId: string): PaneMenuAction[] {
     },
     {
       // Any session outside this tab, shown in this pane. See `openSessionHere`.
-      label: 'Open a session here',
+      label: 'Show another running session here',
       enabled: session !== '' && workspaceId !== '',
       run: target(() => openSessionHere(paneId)),
     },
@@ -6284,7 +6284,7 @@ function paletteActions(): PaletteAction[] {
   actions.push(
     {
       id: 'focus-mode',
-      title: 'Fullscreen focus mode',
+      title: 'Full screen with only this pane',
       run: () => {
         const paneId = splitView?.focused;
         if (paneId) void splitView?.enterFocusMode(paneId);

@@ -108,7 +108,7 @@ export class SplitView {
   }
 
   /**
-   * Fullscreen focus mode, which is the only way a page can receive Command+W.
+   * Full screen with only this pane, which is the only way a page can receive Command+W.
    *
    * `navigator.keyboard.lock()` captures browser and system shortcuts, but only while the page
    * is in fullscreen. In a normal tab those keys never reach JavaScript at all, so this is the
@@ -175,6 +175,12 @@ export class SplitView {
   #build(node: LayoutNode): HTMLElement {
     if (this.#maximized) {
       const only = this.#paneWrapper(this.#maximized, this.#sessionFor(this.#maximized) ?? '');
+      /*
+       * Filling the tab, not keeping the share it had beside other panes. The wrapper is reused
+       * and kept the `flex` of half a split, so focus mode drew the one pane at half the screen
+       * beside empty black, which is what "fullscreen focus mode" was reported as.
+       */
+      only.style.flex = '1 1 0';
       const box = document.createElement('div');
       box.className = 'split-node maximized';
       box.append(only);

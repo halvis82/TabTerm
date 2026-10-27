@@ -863,8 +863,14 @@ the command palette instead. The full reachability matrix is produced by the key
 ### Keyboard lock
 
 `navigator.keyboard.lock()` captures browser and system shortcuts including `Cmd+W`, but **only in
-fullscreen**. Focus mode (focus mode) uses it. The lock is released on exit, always, including on crash
-paths.
+fullscreen**. **Full screen with only this pane**, on a pane's menu, uses it. The lock is released on
+exit, always, including on crash paths.
+
+That entry shows the one pane alone, filling the screen, and Escape puts the tab's other panes back.
+It was called Fullscreen focus mode, and drew the pane at the share it had beside the other panes,
+half the screen beside empty black: the pane is reused and kept the size of half a split. It now
+fills the screen, and its terminal takes the columns and rows that gives it. Chrome's own full
+screen (View, Enter Full Screen) shows the whole tab with every pane.
 
 ### Option character input
 
@@ -1476,7 +1482,7 @@ so the arrangement gained a pane nobody wanted and the way to fix it was gone. T
 id, so the split ratios around it are untouched, and the shell it displaced is ended. A session
 showing in another tab asks first, on the card: a second press moves it.
 
-**Open a session here, on any pane.** Every pane's right-click menu has **Open a session here**,
+**Show another running session here, on any pane.** Every pane's right-click menu has **Show another running session here**,
 which floats out the same bubble from the pane, titled for what it does, with the same list: every
 live session outside this tab. Choosing one shows it in that pane in the same way. The difference
 is the pane being replaced, which here may be somebody's work. So the session that was in it is

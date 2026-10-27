@@ -151,7 +151,7 @@ up as one surface quietly doing something slightly different from the other.
 
 **The built-in actions are listed by kind.** They used to be in the order they were written, so
 Split down sat three rows below Split right with naming a session between them. The order is now:
-Split right, Split down, Close this pane, Fullscreen focus mode, Pull a terminal in from another
+Split right, Split down, Close this pane, Full screen with only this pane, Pull a terminal in from another
 tab, New terminal tab, Launch an agent in a new tab, Launch an agent beside this pane, Rename
 session, Add a marker here, Clear command history. Then the actions you made, then the ways to make
 and change them.

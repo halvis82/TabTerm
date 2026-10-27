@@ -373,7 +373,7 @@ const pressEntry = async (label) => {
   const before = await boxes();
   if (before.length >= 2) {
     await menuOnPane(0);
-    const entered = await pressEntry('Fullscreen focus mode');
+    const entered = await pressEntry('Full screen with only this pane');
     await closeMenu();
     if (String(entered) === 'yes') {
       await sleep(1200);
@@ -385,6 +385,17 @@ const pressEntry = async (label) => {
        * maximizes one pane and can put the rest back, which it records itself.
        */
       const maximized = String(await evaluate(client, `window.__tabterm.maximizedPane() ?? ''`));
+      const filled = JSON.parse(
+        await evaluate(
+          client,
+          `JSON.stringify((() => { const p = [...document.querySelectorAll('.pane')].find((x) => x.getBoundingClientRect().width > 4); return { pane: p?.getBoundingClientRect().width ?? 0, tab: document.querySelector('.split-node.maximized')?.getBoundingClientRect().width ?? 1 }; })())`,
+        ),
+      );
+      r.ok(
+        'and the pane fills the screen, not the share it had beside the others',
+        filled.pane >= filled.tab - 2,
+        JSON.stringify(filled),
+      );
       r.ok(
         'focus mode maximizes one pane',
         maximized !== '',

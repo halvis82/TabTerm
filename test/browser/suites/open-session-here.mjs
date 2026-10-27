@@ -1,4 +1,4 @@
-// "Open a session here" on any pane's menu: the Running now bubble, minus this tab's sessions,
+// "Show another running session here" on any pane's menu: the Running now bubble, minus this tab's sessions,
 // and the session that was in the pane kept running rather than ended.
 import {
   openTerminal,
@@ -34,12 +34,12 @@ const mine = String(await evaluate(client, 'window.__tabterm.paneSessions()[0].s
 
 await openPaneMenu(client, 80, 90);
 await sleep(250);
-await realClick(client, '.term-menu-item', 'Open a session here');
+await realClick(client, '.term-menu-item', 'Show another running session here');
 r.ok(
   'the pane menu opens the bubble',
   await waitFor(
     client,
-    "document.querySelector('.take-bubble-title')?.textContent === 'Open a session here'",
+    "document.querySelector('.take-bubble-title')?.textContent === 'Show another running session here'",
     5000,
   ),
 );
