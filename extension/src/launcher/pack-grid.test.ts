@@ -106,3 +106,58 @@ describe('a tab with a short last row', () => {
     expect(rowsUsed([solid, card, card], 3)).toBe(4);
   });
 });
+
+/**
+ * Chronological as far as the fewest rows allows, from two photographs of the start screen.
+ *
+ * "it's supposed to be chronological to the extent it can be while also absolutely minimizing the
+ * number of rows ... if i zoom out and get stuff like this, it's very weird". Newest first: a card,
+ * a two pane tab, a five pane tab (three across, two down), two cards, a two pane tab, a card, and
+ * a three pane tab.
+ */
+describe('the order of what is running', () => {
+  const five: Tile = { columns: 3, rows: 2, lastRow: 2 };
+  const three: Tile = { columns: 3, rows: 1 };
+  const running: Tile[] = [card, pair, five, card, card, pair, card, three];
+  const reading = (places: readonly { row: number; column: number }[]): number[] =>
+    places.map((p) => (p.row - 1) * 100 + p.column);
+
+  it('zoomed out, nine across: two rows, read exactly in order', () => {
+    const places = packTiles(running, 9);
+    expect(rowsUsed(running, 9)).toBe(2);
+    const order = reading(places);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it('five across: as few rows as any layout, the top rows full, and no hole inside a row', () => {
+    const places = packTiles(running, 5);
+    expect(rowsUsed(running, 5)).toBe(4);
+    const used = new Map<number, number>();
+    places.forEach((p, at) => {
+      const tile = running[at] as Tile;
+      for (let r = 0; r < tile.rows; r += 1) {
+        const across = r === tile.rows - 1 ? (tile.lastRow ?? tile.columns) : tile.columns;
+        used.set(p.row + r, (used.get(p.row + r) ?? 0) + across);
+      }
+    });
+    expect([1, 2].map((r) => used.get(r))).toEqual([5, 5]);
+    // Each row filled from the left, any empty places at its end.
+    for (let row = 1; row <= 4; row += 1) {
+      const taken = new Array<boolean>(5).fill(false);
+      places.forEach((p, at) => {
+        const tile = running[at] as Tile;
+        if (row < p.row || row >= p.row + tile.rows) return;
+        const across =
+          row === p.row + tile.rows - 1 ? (tile.lastRow ?? tile.columns) : tile.columns;
+        for (let c = 0; c < across; c += 1) taken[p.column - 1 + c] = true;
+      });
+      const end = taken.lastIndexOf(true);
+      expect(taken.slice(0, end + 1).every(Boolean), `row ${String(row)}`).toBe(true);
+    }
+  });
+
+  it('and a tile is only ever moved ahead to save a row or fill a gap above', () => {
+    // Four cards in four columns: nothing to gain, so nothing moves.
+    expect(reading(packTiles([card, card, pair, card, card], 4))).toEqual([1, 2, 3, 101, 102]);
+  });
+});

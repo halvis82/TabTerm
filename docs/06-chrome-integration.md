@@ -1163,9 +1163,17 @@ measured rather than assumed: it depends on the window and on whatever the brows
 the side, and it changes without this list being rebuilt. A tab is a rectangle as many columns wide
 as it has panes, up to three, and one row tall per wrapped row of cards inside it.
 
-Order is kept wherever keeping it costs nothing. The packer tries the order the list is already in
-first and only prefers another if it is genuinely shorter, so nothing moves unless moving it saves
-a row. See `pack-grid.ts`.
+**The fewest rows, and then the order, newest first, as far as that allows.** The packer makes the
+layout three ways: strictly in order, left to right and top to bottom; in order but letting a later
+tile into a hole an earlier one left; and a few reorderings, biggest first, for shapes the first two
+cannot fit as tightly. The in-order layouts are used whenever they are as short as anything, and a
+reordering only when it saves a row. Between layouts of the same height, the one with no hole in the
+middle of a row wins, then the one whose empty places are lowest down, then the one most nearly in
+order. See `pack-grid.ts`.
+
+It used to fill the lowest gap with the first tile that fitted, every time, whether or not that
+saved anything. So tiles jumped ahead of older ones for nothing, and a tab landed under another
+with a hole beside it: reported as weird patterns, with a picture of a zoomed out list.
 
 ### The badge follows the tab, live
 

@@ -10,10 +10,8 @@
  * Asked for as tetris, which is exactly what it is: rectangles of known size into a strip of known
  * width, shortest total height.
  *
- * Order is kept wherever keeping it costs nothing. The scan below always takes the **first**
- * remaining tile that fits the gap in front of it, so tiles stay in age order except where a later
- * one is pulled forward to fill a hole that would otherwise stay empty. That is the trade he asked
- * for: chronological, unless something can be done simply to save a row.
+ * Order is kept wherever keeping it costs nothing: the fewest rows first, and among the ways to
+ * reach them, the one that reads most nearly in age order. See `packTiles`.
  */
 export interface Tile {
   /** How many columns this tile needs. Clamped to the grid's width by the caller. */
@@ -48,35 +46,142 @@ export interface Placement {
 export function packTiles(tiles: readonly Tile[], columns: number): Placement[] {
   if (columns < 1) return tiles.map(() => ({ column: 1, row: 1 }));
 
-  /**
-   * A few orderings tried, and the shortest kept.
+  /*
+   * The fewest rows first, and then the order they came in, kept as far as that allows.
    *
-   * Filling gaps as they come keeps the order but cannot reach the best answer on its own: the
-   * photographed case needs the seven pane tab considered before the cards that go beside it, and
-   * no amount of looking forward from an earlier tile finds that. There are never more than a
-   * dozen tiles here, so trying the obvious orders and measuring costs nothing.
+   * Tried from most to least chronological, and the first to reach the fewest rows any of them
+   * reaches wins:
    *
-   * The order given comes first and wins every tie, so nothing is reordered unless reordering
-   * actually saves a row. That is the trade he asked for.
+   * 1. In order, left to right and top to bottom, each tile after the one before it. Reading the
+   *    list reads them in age order. This is nearly always as short as anything else
+   * 2. In order, but a later tile may go into a hole an earlier one left, when that saves a row
+   * 3. The skyline below with a few orderings, biggest first, for the shapes the first two cannot
+   *    fit as tightly, such as a tall tab whose side has to be filled before what comes after it
+   *
+   * Only the skyline was used before, and it always filled the lowest gap with the first tile that
+   * fitted, whether or not that saved a row. So tiles jumped ahead of older ones for nothing, and a
+   * tab landed under another while the row beside it stood empty: "weird patterns", reported with
+   * a picture of a zoomed out list.
    */
-  const orders: number[][] = [
+  const inOrder: Placement[][] = [
+    placeReading(tiles, columns, true),
+    placeReading(tiles, columns, false),
+  ];
+  const reordered: Placement[][] = [
     tiles.map((_, at) => at),
     byMost(tiles, (tile) => tile.columns),
     byMost(tiles, (tile) => tile.columns * tile.rows),
     byMost(tiles, (tile) => tile.rows),
-  ];
+  ].map((order) => placeInOrder(tiles, order, columns));
+  const fewest = Math.min(...[...inOrder, ...reordered].map((p) => heightOf(tiles, p)));
 
+  /*
+   * The ones that keep the order whenever they are as short as anything, and the reordered ones
+   * only when they save a row. Between two of equal height: first the one with fewer holes in the
+   * middle of a row, which are what make a list look scattered; then the one whose empty places
+   * are lowest down, since empty places at the top of the list read as wrong as a tile out of
+   * order; and only then the most nearly in order, which is the order they were made in.
+   */
+  const short = (set: Placement[][]): Placement[][] =>
+    set.filter((p) => heightOf(tiles, p) === fewest);
+  const pool = short(inOrder).length > 0 ? short(inOrder) : short(reordered);
   let best: Placement[] | null = null;
-  let bestRows = Infinity;
-  for (const order of orders) {
-    const placed = placeInOrder(tiles, order, columns);
-    const rows = heightOf(tiles, placed);
-    if (rows < bestRows) {
-      bestRows = rows;
+  let bestKey: number[] = [];
+  for (const placed of pool) {
+    const grid = occupancy(tiles, placed, columns, fewest);
+    const key = [holesWithin(grid), ...gapsByRow(grid)];
+    if (best === null || before(key, bestKey)) {
+      bestKey = key;
       best = placed;
     }
   }
   return best ?? tiles.map(() => ({ column: 1, row: 1 }));
+}
+
+/** Which places are taken, row by row. */
+function occupancy(
+  tiles: readonly Tile[],
+  places: readonly Placement[],
+  columns: number,
+  rows: number,
+): boolean[][] {
+  const grid = Array.from({ length: rows }, () => new Array<boolean>(columns).fill(false));
+  places.forEach((place, at) => {
+    const tile = tiles[at];
+    if (!tile) return;
+    const width = Math.max(1, Math.min(tile.columns, columns));
+    const tall = Math.max(1, tile.rows);
+    const last = Math.max(1, Math.min(tile.lastRow ?? width, width));
+    for (let dr = 0; dr < tall; dr += 1) {
+      const row = grid[place.row - 1 + dr];
+      if (!row) continue;
+      const across = dr === tall - 1 ? last : width;
+      for (let dc = 0; dc < across; dc += 1) row[place.column - 1 + dc] = true;
+    }
+  });
+  return grid;
+}
+
+/** Empty places with something to their right in the same row. */
+function holesWithin(grid: readonly boolean[][]): number {
+  let holes = 0;
+  for (const row of grid) {
+    const end = row.lastIndexOf(true);
+    for (let c = 0; c < end; c += 1) if (!row[c]) holes += 1;
+  }
+  return holes;
+}
+
+/** Whether `a` comes first, comparing from the front. */
+function before(a: readonly number[], b: readonly number[]): boolean {
+  for (let i = 0; i < Math.min(a.length, b.length); i += 1) {
+    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) < (b[i] ?? 0);
+  }
+  return false;
+}
+
+/** How many places each row leaves empty, from the top, the last row not counted. */
+function gapsByRow(grid: readonly boolean[][]): number[] {
+  return grid.slice(0, -1).map((row) => row.filter((taken) => !taken).length);
+}
+
+/**
+ * Each tile at the first place in reading order it fits, in the order given. `afterPrevious`
+ * keeps every tile after the one before it, so the order reads exactly as given; without it a
+ * tile may go into a hole earlier in the list.
+ */
+function placeReading(
+  tiles: readonly Tile[],
+  columns: number,
+  afterPrevious: boolean,
+): Placement[] {
+  const taken: boolean[][] = [];
+  const free = (r: number, c: number): boolean => !(taken[r]?.[c] ?? false);
+  const cells = (tile: Tile, r: number, c: number): [number, number][] => {
+    const width = Math.max(1, Math.min(tile.columns, columns));
+    const tall = Math.max(1, tile.rows);
+    const last = Math.max(1, Math.min(tile.lastRow ?? width, width));
+    const out: [number, number][] = [];
+    for (let dr = 0; dr < tall; dr += 1) {
+      const across = dr === tall - 1 ? last : width;
+      for (let dc = 0; dc < across; dc += 1) out.push([r + dr, c + dc]);
+    }
+    return out;
+  };
+  let after = -1;
+  return tiles.map((tile) => {
+    const width = Math.max(1, Math.min(tile.columns, columns));
+    for (let at = afterPrevious ? after + 1 : 0; ; at += 1) {
+      const r = Math.floor(at / columns);
+      const c = at % columns;
+      if (c + width > columns) continue;
+      const mine = cells(tile, r, c);
+      if (!mine.every(([cr, cc]) => free(cr, cc))) continue;
+      for (const [cr, cc] of mine) (taken[cr] ??= [])[cc] = true;
+      after = at;
+      return { column: c + 1, row: r + 1 };
+    }
+  });
 }
 
 /** The indexes of the tiles, biggest first by some measure, ties in the order they arrived. */
