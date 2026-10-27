@@ -425,13 +425,15 @@ ring in the tab's icon. A terminal can sit beside any page in Chrome's side pane
 command's output copies in one press, and any running session can be opened in any pane from its
 menu. `Cmd+F` searches the pane in front, and with **All terminals** ticked every running terminal
 as well. Pictures draw in the terminal, from `imgcat`, the iTerm2 inline image protocol and Sixel.
-Remote access, off unless you set it up, is [described above](#remote-access).
+Settings are in pages with a search across them, and say plainly what each one does. Dictation and
+input methods wrap their unfinished text inside the pane. Remote access, off unless you set it up,
+is [described above](#remote-access).
 
 Terminals survive an update. PTYs live in a separate host process, so replacing the daemon does
 not end anything running, and a restarted daemon adopts the sessions it finds. History is kept on
 disk per session, bounded by a budget you set in megabytes.
 
-2099 unit tests and 150 browser suites. `npm run verify` gates every change.
+2099 unit tests and 144 browser suites. `npm run verify` gates every change.
 
 Read [limitations](docs/10-limitations.md) before filing anything: what Chrome and macOS will
 not permit is documented there with measurements, including the things that cannot be fixed.
