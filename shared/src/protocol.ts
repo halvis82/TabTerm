@@ -803,6 +803,8 @@ export type ClientMessage =
   | { t: 'get-archive-status' }
   | { t: 'set-archive-enabled'; enabled: boolean }
   | { t: 'search-output'; query?: string; command?: string; limit?: number }
+  /** Command Shift G in a folder box: the macOS Choose a Folder window, opened at `from`. */
+  | { t: 'choose-folder'; from: string }
   /** The history of every running terminal, for the find bar's All terminals. */
   | { t: 'search-sessions'; query: string }
   | { t: 'clear-output-archive' }
@@ -1342,6 +1344,8 @@ export type ServerMessage =
     }
   | { t: 'output-results'; results: readonly ArchivedOutputSummary[] }
   | { t: 'session-matches'; query: string; results: readonly SessionMatches[] }
+  /** What `choose-folder` came back with: the folder, or `null` when it was cancelled. */
+  | { t: 'folder-chosen'; from: string; path: string | null }
   | { t: 'restorable-workspaces'; workspaces: readonly RestorableSummary[] }
   | { t: 'server-list'; servers: readonly LocalServer[]; others?: readonly OtherLocalPort[] }
   | { t: 'resumable-sessions'; sessions: readonly ResumableAgentSession[] }

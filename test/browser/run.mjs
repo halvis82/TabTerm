@@ -349,6 +349,8 @@ const COVERS = [
     ['split-tab-names', 'the-tab-takes-the-name', 'progress-in-the-tab'],
   ],
   ['extension/src/terminal/progress', ['progress-in-the-tab']],
+  ['extension/src/launcher/folder-picker', ['choose-a-folder', 'pane-chooser']],
+  ['extension/src/launcher/choose-folder-key', ['choose-a-folder']],
   [
     'extension/src/terminal/find-bar',
     [
@@ -829,6 +831,8 @@ function startTestDaemon() {
           ...(process.env['TT_LET_NOTIFICATIONS'] === '1' ? {} : { TABTERM_NO_NOTIFICATIONS: '1' }),
           // A new remote device is let in without asking: nobody is at this Mac to touch the sensor.
           TABTERM_REMOTE_APPROVE: 'allow',
+          // Command Shift G in a folder box answers with this, instead of a window nobody is there for.
+          TABTERM_CHOOSE_FOLDER: '/usr',
           // A host holding sessions refuses an ordinary SIGTERM, because exiting would make every
           // one of them unreachable. A test host holds nothing anybody wants and must stop when
           // its run does.

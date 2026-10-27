@@ -1,3 +1,4 @@
+import { isChooseFolderKey } from './choose-folder-key.js';
 import { resolveTypedPath, unresolveTypedPath } from './typed-path.js';
 
 /**
@@ -26,6 +27,8 @@ export interface FolderPickerOptions {
   onCompletePath: (partial: string) => void;
   /** Open this folder. */
   onOpen: (path: string) => void;
+  /** The macOS Choose a Folder window at a folder, answering with the one chosen. */
+  onChooseFolder?: (from: string) => Promise<string | null>;
 }
 
 /** Rows of folders shown before `...`. Enough to recognise where you are. */
@@ -70,6 +73,12 @@ export class FolderPicker {
       } else if (e.key === 'Enter') {
         e.preventDefault();
         this.#open();
+      } else if (isChooseFolderKey(e) && this.#opts.onChooseFolder) {
+        e.preventDefault();
+        void this.#opts.onChooseFolder(this.#currentDir()).then((path) => {
+          if (path) this.#go(withSlash(tildeForm(path, this.#opts.home)));
+          else this.focus();
+        });
       }
     });
     this.#input.addEventListener('input', () => {

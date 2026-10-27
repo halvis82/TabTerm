@@ -1,3 +1,4 @@
+import { isChooseFolderKey } from './choose-folder-key.js';
 import { buildSessions, isDraggingSession, placeSessions } from './sessions-view.js';
 import { resolveTypedPath, unresolveTypedPath } from './typed-path.js';
 import { folderList, trimToRows } from './folder-picker.js';
@@ -80,6 +81,8 @@ export interface LauncherOptions {
   onDetachSession: (session: LiveSession) => void;
   /** Ask the daemon to complete a folder path. The answer arrives via pathCompletion(). */
   onCompletePath: (partial: string) => void;
+  /** Command Shift G in the folder box. See `choose-folder-key.ts`. */
+  onChooseFolder?: (from: string) => Promise<string | null>;
   /** Ask whether a folder is there, as it is typed. The answer arrives via folderChecked(). */
   onCheckFolder: (path: string, checkId: string) => void;
   onCreateFolder: (path: string, checkId: string) => void;
@@ -786,6 +789,15 @@ export class Launcher {
    */
   #resolved(typed: string): string {
     return resolveTypedPath(typed, this.#state?.home ?? '~');
+  }
+
+  /** A path the way the box shows paths: `~/Projects` rather than the whole home directory. */
+  #tilde(path: string): string {
+    const home = this.#state?.home ?? '';
+    if (home !== '' && (path === home || path.startsWith(`${home}/`))) {
+      return `~${path.slice(home.length)}`;
+    }
+    return path;
   }
 
   /**
@@ -1813,10 +1825,11 @@ export class Launcher {
      * opens a list is a step between wanting a folder and seeing one, and this list is useful
      * often enough that it should not have to be asked for.
      *
-     * Not a native dialog either: a Chrome extension cannot learn an absolute path from one,
+     * Not a browser dialog either: a Chrome extension cannot learn an absolute path from one,
      * since `webkitdirectory` reports paths relative to whatever was chosen and the File System
      * Access API returns an opaque handle. The daemon reads the filesystem instead, through the
-     * same `complete-path` the box uses for Tab.
+     * same `complete-path` the box uses for Tab, and Command Shift G has the daemon open the
+     * macOS Choose a Folder window, which it can learn the path from.
      */
     const input = document.createElement('input');
     input.type = 'text';
@@ -1846,6 +1859,18 @@ export class Launcher {
       if (e.key === 'Tab') {
         e.preventDefault();
         this.#opts.onCompletePath(this.#resolved(input.value));
+      }
+      if (isChooseFolderKey(e) && this.#opts.onChooseFolder) {
+        e.preventDefault();
+        const typed = input.value;
+        const dir = typed.includes('/') ? typed.slice(0, typed.lastIndexOf('/') + 1) : '~/';
+        void this.#opts.onChooseFolder(this.#resolved(dir)).then((path) => {
+          if (path) {
+            input.value = `${this.#tilde(path)}/`;
+            input.dispatchEvent(new Event('input'));
+          }
+          input.focus();
+        });
       }
     });
     input.addEventListener('input', () => {

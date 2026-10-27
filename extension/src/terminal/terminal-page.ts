@@ -2070,6 +2070,7 @@ function syncPaneChoosers(): void {
           completionAskers.set(path, paneId);
           client?.send({ t: 'complete-path', partial: path });
         },
+        onChooseFolder: chooseFolder,
         // Where this pane's shell is, which is where somebody looking for a folder begins.
         startDir: () => sessionTitles.get(pane.sessionId)?.cwd ?? '',
         onTakeSession: (id, session) => {
@@ -4464,6 +4465,7 @@ function buildLauncher(): void {
       client?.send({ t: 'inspect-project', cwd: info.path.replace(/\/[^/]+$/, '') });
     },
     onCompletePath: (partial) => client?.send({ t: 'complete-path', partial }),
+    onChooseFolder: chooseFolder,
     onOpenSession: (session) => {
       void openLiveSession(session);
     },
@@ -6713,6 +6715,20 @@ function watchTheme(): void {
  * Silently does nothing when no pane here holds it. The message is sent to a tab believed to be
  * showing the workspace, and a tab that has moved on since is not a thing to complain about.
  */
+/**
+ * Command Shift G in a folder box: the macOS Choose a Folder window, opened by the daemon at the
+ * folder the box points to. One at a time, since macOS shows one such window at a time; asking
+ * again while one is open is answered with nothing rather than a second window.
+ */
+let choosingFolder: ((path: string | null) => void) | null = null;
+function chooseFolder(from: string): Promise<string | null> {
+  if (choosingFolder || !client) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    choosingFolder = resolve;
+    client?.send({ t: 'choose-folder', from });
+  });
+}
+
 /** Whether the find bar searches every terminal as well, kept across tabs and restarts. */
 const FIND_ALL_KEY = 'tabterm.findAll';
 /** A match to land on, for whichever tab shows its terminal. See `openMatch`. */
@@ -7859,6 +7875,12 @@ function onControl(msg: ServerMessage): void {
       return;
     }
 
+    case 'folder-chosen': {
+      const answer = choosingFolder;
+      choosingFolder = null;
+      answer?.(msg.path);
+      return;
+    }
     case 'session-matches': {
       findBar?.showAll(msg.query, msg.results);
       return;

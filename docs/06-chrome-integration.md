@@ -1457,6 +1457,14 @@ or Return to go. A folder is reached by clicking, typing, or Tab, in any mixture
 button that opened a separate browser with no box at all, on the reasoning that typing a path is
 what `cd` is for, and it was asked for as "the same folder picker as the homepage" instead.
 
+**Command Shift G in any folder box opens the macOS Choose a Folder window**, the same key that
+opens Go to Folder in every macOS file window, at the folder the box points to, or the nearest one
+above it that exists. The folder chosen goes into the box with its folders listed under it, ready
+for Return; Cancel leaves the box as it was. It works in the start screen's box and in an empty
+pane's, in a split or the side panel. A page cannot open such a window and learn the path chosen,
+so the daemon opens it with `choose folder` (`daemon/src/choose-folder.ts`), in front of Chrome. One
+at a time: pressing it again while the window is open does nothing.
+
 The list under the box is one function, `folderList` in `launcher/folder-picker.ts`, which the start
 screen draws its list with as well, so the two cannot drift apart. The boxes stay separate, because
 the start screen's is tied to its templates, its folder check, dropping a path in, and a screen that

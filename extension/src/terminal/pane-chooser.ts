@@ -39,6 +39,8 @@ export interface PaneChooserOptions {
   onChooseDir: (paneId: string, path: string) => void;
   /** Ask the daemon to complete a path. The answer arrives at `pathCompletion`. */
   onCompletePath: (partial: string) => void;
+  /** Command Shift G in the folder box. See `choose-folder-key.ts`. */
+  onChooseFolder?: (from: string) => Promise<string | null>;
   onTakeSession: (paneId: string, session: LiveSession) => void;
   onRefreshSessions: () => void;
   /**
@@ -76,6 +78,7 @@ export class PaneChooser {
       start: opts.startDir() || opts.home,
       onCompletePath: opts.onCompletePath,
       onOpen: (path) => opts.onChooseDir(opts.paneId, path),
+      ...(opts.onChooseFolder ? { onChooseFolder: opts.onChooseFolder } : {}),
     });
     opts.container.append(this.#el);
     this.render();

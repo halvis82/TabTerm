@@ -78,6 +78,7 @@ Rules, all enforced:
 | `clear-scrollback` | `sessionId` | Drops every stored copy, not just the screen |
 | `list-live-sessions` | | Sessions that have run something, with a preview of their screen |
 | `complete-path` | `partial` | Directory completion. The daemon reads the filesystem; a page cannot |
+| `choose-folder` | `from` | Command Shift G in a folder box: the macOS Choose a Folder window at `from`. Answered with `folder-chosen` (`from`, `path` or `null` when cancelled) |
 | `check-folder` | `path`, `checkId?` | Is that folder there? Same reason as above: only the daemon can look. `checkId` names the question |
 | `create-folder` | `path`, `checkId?` | Make it, then answer as `check-folder` would |
 | `get-scrollback-budget` / `set-scrollback-budget` | `bytes` | Clamped to 1 MB..50 MB |

@@ -1,3 +1,4 @@
+import { chooseFolder } from './choose-folder.js';
 import type { UpdateManager } from '../../scripts/updater/manager.mjs';
 import { createServer, type Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
@@ -2989,6 +2990,14 @@ export class DaemonServer {
           rows: usage.rows,
           bytes: usage.bytes,
         });
+        return;
+      }
+
+      case 'choose-folder': {
+        const from = typeof msg.from === 'string' ? msg.from.slice(0, 4096) : '';
+        void chooseFolder(from).then((path) =>
+          send(client.socket, controlFrame({ t: 'folder-chosen', from, path })),
+        );
         return;
       }
 
