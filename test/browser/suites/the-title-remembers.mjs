@@ -80,7 +80,7 @@ r.ok(
     String(await evaluate(fresh.client, 'document.title')),
   );
   const whileRunning = String(await evaluate(fresh.client, 'document.title'));
-  r.ok('and says where it is, not only what it is', whileRunning.includes('—'), whileRunning);
+  r.ok('and says where it is, not only what it is', whileRunning.includes(' · '), whileRunning);
 
   await evaluate(fresh.client, 'location.reload()');
   await sleep(1500);
@@ -90,7 +90,7 @@ r.ok(
   );
   const back = await waitUntil(async () => {
     const title = String(await evaluate(fresh.client, 'document.title'));
-    return title.startsWith('claude') && title.includes('—');
+    return title.startsWith('claude') && title.includes(' · ');
   }, 20000);
   // The facts beside the title: "claude" cannot say whether the folder was never learned or was
   // learned and not drawn, and those are different faults.

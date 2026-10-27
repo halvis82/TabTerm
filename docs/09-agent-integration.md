@@ -259,7 +259,7 @@ Action: Open agent
   → run the configured the agent command
   → open as a new native Chrome tab at currentIndex + 1
   → inherit the current tab's group
-  → title: agent — eeg-analysis
+  → title: claude · eeg-analysis
   → track state in the favicon via the hook bridge
 ```
 

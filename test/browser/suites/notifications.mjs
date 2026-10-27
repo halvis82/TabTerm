@@ -165,16 +165,20 @@ r.ok(
   'success differs from running',
 );
 
+// Said by the icon, a tick or a bar. The title no longer repeats it in words.
+const shownNow = () => evaluate(client, 'window.__tabterm.faviconNow().effective').then(String);
+const doneShown = await shownNow();
+r.ok('the tab shows the command is over', /success|done/.test(doneShown), doneShown);
 const doneTitle = String(await evaluate(client, `document.title`));
-r.ok('the title says the command is over', /done|finished/.test(doneTitle), doneTitle);
+r.ok('and its title does not repeat it in words', !/done|finished/.test(doneTitle), doneTitle);
 
 // Looking at the tab is what clears the outcome. Simulated by the same event Chrome fires.
 await evaluate(client, `document.dispatchEvent(new Event('visibilitychange'))`);
 await sleep(500);
-const afterLook = String(await evaluate(client, `document.title`));
+const afterLook = await shownNow();
 r.ok(
   'looking at the tab clears it, so the next result still means something',
-  !/done|finished/.test(afterLook),
+  !/success|done/.test(afterLook),
   afterLook,
 );
 
@@ -189,10 +193,10 @@ r.ok(
 // invisible without shell integration, which docs/08 lists as a blind spot of the fallback.
 await type(client, 'sleep 1 && false');
 await sleep(3200);
-const afterFailure = String(await evaluate(client, `document.title`));
+const afterFailure = await shownNow();
 r.ok(
-  'a failed command is reported as failed, or as finished where no exit code exists',
-  /failed|finished/.test(afterFailure),
+  'a failed command is shown as failed, or as finished where no exit code exists',
+  /failed|done/.test(afterFailure),
   afterFailure,
 );
 

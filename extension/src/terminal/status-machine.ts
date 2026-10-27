@@ -164,9 +164,11 @@ export class StatusMachine {
 export function titleStatus(machine: StatusMachine, paneCount: number): string {
   if (machine.countIn('approval') > 0) return 'needs approval';
   if (machine.countIn('waiting') > 0) return 'waiting for you';
-  if (machine.countIn('failed') > 0) return 'failed';
-  if (machine.countIn('success') > 0) return 'done';
-  if (machine.countIn('done') > 0) return 'finished';
+  /*
+   * Finished, done and failed are the icon's to say: a tick, a bar, a cross. In words as well they
+   * made titles like "sleep 3 · ~ · done", which said the same thing twice and read as part of the
+   * name. Only what asks something of a person is said in words.
+   */
   /*
    * Running says nothing here: the icon already shows it, two rings for two panes working, and the
    * words "1 running" took the place of what the tab is called. Asked for in those words.

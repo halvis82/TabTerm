@@ -20,7 +20,8 @@ describe('what a tab shows', () => {
     const m = new StatusMachine();
     m.finished('a', undefined);
     expect(m.effective()).toBe('done');
-    expect(titleStatus(m, 1)).toBe('finished');
+    // The icon's bar says it; the title does not repeat it.
+    expect(titleStatus(m, 1)).toBe('');
   });
 
   it('surfaces the pane that needs a person, whatever the others are doing', () => {
@@ -128,10 +129,12 @@ describe('the title', () => {
     expect(titleStatus(m, 2)).toBe('');
   });
 
-  it('says done for a finished command', () => {
+  it('leaves done and failed to the icon, rather than adding them to the name', () => {
     const m = new StatusMachine();
     m.finished('a', 0);
-    expect(titleStatus(m, 1)).toBe('done');
+    expect(titleStatus(m, 1)).toBe('');
+    m.finished('b', 1);
+    expect(titleStatus(m, 2)).toBe('');
   });
 });
 

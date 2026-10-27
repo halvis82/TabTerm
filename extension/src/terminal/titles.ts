@@ -25,12 +25,17 @@ export function shortenPath(path: string): string {
  * that has already been cut off.
  *
  *   the start screen          TabTerm
- *   one terminal              npm test — eeg-analysis
- *   an agent                  claude — eeg-analysis
- *   a template                review — eeg-analysis
- *   panes that match nothing  3 panes — eeg-analysis
- *   panes somebody named      training · eval — eeg-analysis
- *   a session somebody named  training run — claude — eeg-analysis
+ *   one terminal              npm test · eeg-analysis
+ *   an agent                  claude · eeg-analysis
+ *   a template                review · eeg-analysis
+ *   panes that match nothing  3 panes · eeg-analysis
+ *   panes somebody named      training · eval · eeg-analysis
+ *   a session somebody named  training run · claude · eeg-analysis
+ *   one that needs a person   claude · eeg-analysis · needs approval
+ *
+ * One separator, a dot, in one order: name, what, folder, and last what needs a person. A dash
+ * between the parts and a dot before the status read as two different rules, and "sleep 3 — ~ ·
+ * done" was reported as a weird name. Finished, failed and running are the icon's to say.
  *
  * A name goes first, in front of everything the tab would have been called anyway, because it is
  * the one part of a title that was chosen rather than derived. A tab strip is read from the left,
@@ -51,7 +56,7 @@ export function composeTitle(
   const named = (fields.paneCount ?? 1) > 1 ? joinLabels(paneLabels) : '';
   const what = named || describeWhat(fields);
   const parts = [label?.trim(), what, where].filter(Boolean);
-  const base = parts.join(' — ');
+  const base = parts.join(' · ');
   return status ? `${base} · ${status}` : base || 'TabTerm';
 }
 

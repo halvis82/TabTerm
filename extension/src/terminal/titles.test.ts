@@ -12,44 +12,44 @@ import { LABELS_MAX, composeTitle, joinLabels } from './titles.js';
  * An agent is called by its name, not by the command that started it.
  *
  * The configured command carries flags, and a tab strip read
- * `<name> — claude --dangerously-skip-permissions`, where everything past the first word is the
+ * `<name> · claude --dangerously-skip-permissions`, where everything past the first word is the
  * same on every agent tab somebody has.
  */
 describe('a tab running an agent', () => {
   it('is called by the agent, not by its flags', () => {
     expect(
       composeTitle({ lastCommand: 'claude --dangerously-skip-permissions', cwd: '/Users/me/app' }),
-    ).toBe('claude — app');
+    ).toBe('claude · app');
   });
 
   it('and by the agent when it was started through a path', () => {
     expect(composeTitle({ lastCommand: '/opt/wrap/codex --search', cwd: '/Users/me/app' })).toBe(
-      'codex — app',
+      'codex · app',
     );
   });
 
   it('while an ordinary command is still said as it was typed', () => {
     expect(composeTitle({ lastCommand: 'npm run build', cwd: '/Users/me/app' })).toBe(
-      'npm run build — app',
+      'npm run build · app',
     );
   });
 
   it('and a long one is still cut', () => {
     const long = 'npm run build --workspace daemon --verbose';
     expect(composeTitle({ lastCommand: long, cwd: '/Users/me/app' })).toBe(
-      'npm run build --workspac… — app',
+      'npm run build --workspac… · app',
     );
   });
 });
 
 describe('what a tab is called', () => {
   it('is just the product on the page you land on', () => {
-    expect(composeTitle({ startScreen: true, cwd: '/Users/someone' })).toBe('TabTerm — ~');
+    expect(composeTitle({ startScreen: true, cwd: '/Users/someone' })).toBe('TabTerm · ~');
   });
 
   it('is the last command and the folder, for one terminal', () => {
     expect(composeTitle({ cwd: '/Users/someone/code/eeg', lastCommand: 'npm test' })).toBe(
-      'npm test — eeg',
+      'npm test · eeg',
     );
   });
 
@@ -58,26 +58,26 @@ describe('what a tab is called', () => {
       cwd: '/Users/someone/code/eeg',
       lastCommand: 'npm run build --workspace daemon --silent',
     });
-    expect(title.endsWith('— eeg')).toBe(true);
+    expect(title.endsWith('· eeg')).toBe(true);
     expect(title.length).toBeLessThan(40);
   });
 
   it('names the agent rather than the command that started it', () => {
     expect(composeTitle({ cwd: '/Users/someone/code/eeg', process: 'claude' })).toBe(
-      'claude — eeg',
+      'claude · eeg',
     );
-    expect(composeTitle({ cwd: '/Users/someone/code/eeg', process: 'codex' })).toBe('codex — eeg');
+    expect(composeTitle({ cwd: '/Users/someone/code/eeg', process: 'codex' })).toBe('codex · eeg');
   });
 
   it('prefers the agent to whatever was last typed, since the agent is what is there', () => {
     expect(
       composeTitle({ cwd: '/Users/someone/code/eeg', process: 'claude', lastCommand: 'ls' }),
-    ).toBe('claude — eeg');
+    ).toBe('claude · eeg');
   });
 
   it('names a layout after its template', () => {
     expect(composeTitle({ cwd: '/Users/someone/code/eeg', template: 'review', paneCount: 3 })).toBe(
-      'review — eeg',
+      'review · eeg',
     );
   });
 
@@ -88,12 +88,12 @@ describe('what a tab is called', () => {
    * kept the name would be quietly wrong for the rest of the tab's life.
    */
   it('falls back to the count when a pane has gone', () => {
-    expect(composeTitle({ cwd: '/Users/someone/code/eeg', paneCount: 2 })).toBe('2 panes — eeg');
+    expect(composeTitle({ cwd: '/Users/someone/code/eeg', paneCount: 2 })).toBe('2 panes · eeg');
   });
 
   it('says the shell when nothing has been run yet', () => {
     // A fresh terminal has no command to name and is not the start screen. It is a shell.
-    expect(composeTitle({ cwd: '/Users/someone/code/eeg' })).toBe('zsh — eeg');
+    expect(composeTitle({ cwd: '/Users/someone/code/eeg' })).toBe('zsh · eeg');
   });
 
   it('never produces an empty title, even knowing nothing at all', () => {
@@ -110,31 +110,31 @@ describe('what a tab is called', () => {
     const fields = { cwd: '/Users/someone/code/eeg', process: 'claude' };
 
     it('puts the name first and keeps the rest', () => {
-      expect(composeTitle(fields, undefined, 'training run')).toBe('training run — claude — eeg');
+      expect(composeTitle(fields, undefined, 'training run')).toBe('training run · claude · eeg');
     });
 
     it('keeps the status on the end where it always was', () => {
       expect(composeTitle(fields, 'waiting', 'training run')).toBe(
-        'training run — claude — eeg · waiting',
+        'training run · claude · eeg · waiting',
       );
     });
 
     it('goes in front even when all the tab can say is that it is a shell', () => {
-      expect(composeTitle({}, undefined, 'scratch')).toBe('scratch — zsh');
+      expect(composeTitle({}, undefined, 'scratch')).toBe('scratch · zsh');
     });
 
     it('ignores a name that is only spaces', () => {
       // The form trims before it stores, and a title is not the place to find out it did not.
-      expect(composeTitle(fields, undefined, '   ')).toBe('claude — eeg');
+      expect(composeTitle(fields, undefined, '   ')).toBe('claude · eeg');
     });
 
     it('calls a split tab by the names of its panes', () => {
       const tab = { cwd: '/Users/someone/code/eeg', paneCount: 2 };
       expect(composeTitle(tab, undefined, undefined, ['training', 'eval'])).toBe(
-        'training · eval — eeg',
+        'training · eval · eeg',
       );
       expect(composeTitle(tab, 'needs approval', undefined, ['training'])).toBe(
-        'training — eeg · needs approval',
+        'training · eeg · needs approval',
       );
     });
 
@@ -152,7 +152,7 @@ describe('what a tab is called', () => {
     it('is absent when the tab holds more than one pane', () => {
       // Decided by the caller, which only passes a name for a tab that is one session. Asserted
       // here so the rule is written down where the composition is.
-      expect(composeTitle({ cwd: '/Users/someone/code/eeg', paneCount: 3 })).toBe('3 panes — eeg');
+      expect(composeTitle({ cwd: '/Users/someone/code/eeg', paneCount: 3 })).toBe('3 panes · eeg');
     });
   });
 });

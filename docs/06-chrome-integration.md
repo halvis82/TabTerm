@@ -252,11 +252,10 @@ The page sets `document.title`. The daemon supplies **structured fields**
 inject formatting. The frontend composes.
 
 ```
-agent — eeg-analysis
-nvim — filter.py
-zsh — ~/Projects/TabTerm
-ssh — production
-tests — failed
+claude · eeg-analysis
+nvim · filter.py
+zsh · TabTerm
+review · eeg-analysis · needs approval
 ```
 
 Updates are rate-limited. Chrome truncates long titles; the format puts the distinguishing token
@@ -266,7 +265,7 @@ first.
 the tab:
 
 ```
-training run — claude — eeg-analysis
+training run · claude · eeg-analysis
 ```
 
 It is the one part of a title that was chosen rather than derived, and a tab strip is read from the
@@ -275,17 +274,20 @@ pane's name would make the tab rename itself as somebody clicked between them, s
 tab is called by all of its names**, in the order the panes are drawn:
 
 ```
-training · eval — eeg-analysis
-training · the evaluation job +2 — eeg-analysis
+training · eval · eeg-analysis
+training · the evaluation job +2 · eeg-analysis
 ```
 
 Each name whole, as many as fit in 48 characters, and the rest counted, so a name is never cut into
 something that reads like another. Panes nobody named are left out. A split tab with no names is
 called by its template, or by how many panes it has.
 
-**Running is the icon's to say.** A split tab's title used to end in `· 1 running`, which took the
-place of the names and said what the icon already shows: one ring for each pane at work. The title
-still says what needs a person, `needs approval` and `waiting for you`, and how a command ended.
+**One separator, a dot, in one order:** the name somebody gave it, what runs there, the folder, and
+last what needs a person, `needs approval` or `waiting for you`, or a program's own progress. The
+parts used to be joined with a dash and the status added after a dot, two rules in one title, and
+`sleep 3 — ~ · done` was reported as a weird name. Running, finished, done and failed are the
+icon's to say: a ring, a tick, a bar, a cross. In words as well they repeated it and read as part
+of the name. A split tab's title used to end in `· 1 running` for the same reason.
 
 **And what a tab was last used for survives a refresh.** The page learned the last command from
 the event that says one started, which a page that has just loaded has never received, so a tab
