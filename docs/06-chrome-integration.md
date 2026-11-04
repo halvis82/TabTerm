@@ -682,6 +682,12 @@ cleared by the look rather than by a timer. This is the whole point of the indic
 that finished while you were in another tab is exactly the thing you left to find out, and a state
 that expires on a timer expires while nobody is there to read it.
 
+Looking means the same things that stop the tab's flash: the tab becoming visible, its window being
+brought to the front, or any key, press, pointer movement or scroll on the tab. Movement and
+scrolling count only after the outcome has been up for half a second, so a pointer already moving
+when a command finishes does not take the tick away before it is drawn. A tick that cleared only on
+a key or a press inside a pane stayed up on a tab somebody was plainly using.
+
 `waiting` is on that list because looking is the answer to it. An agent raises its notification
 about a minute after it finishes a turn, so the real order of events is finish, then wait, and
 nothing after that ever clears it: the next thing that happens is a person coming back to the tab,

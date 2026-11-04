@@ -9476,18 +9476,32 @@ async function start(): Promise<void> {
    *
    * An outcome was cleared only by the tab becoming visible, so one that arrived while the tab
    * was already in front stayed up through everything typed after it, which made the next one
-   * mean less. "When anything is done on the tab" it goes back to normal, as asked: a key or a
-   * press in a pane puts every outcome back to idle. Capture phase, so it runs whether or not
-   * the terminal takes the key.
+   * mean less. Then only by a key or a press inside a pane, which still left a tick sitting on a
+   * tab somebody was plainly using: moving the pointer, scrolling, or coming back to the window
+   * from another application did nothing. Reported as taking "a lot for it to go away".
+   *
+   * So it goes the way the tab's flash goes (`TabFlasher`): any key, press, movement or scroll on
+   * the tab, and the window being brought to the front. Movement waits out a short grace after the
+   * outcome arrives, or a pointer already moving would take the tick away before it was drawn.
+   * Capture phase, so it runs whether or not the terminal takes the event.
    */
-  const didSomethingInAPane = (e: Event): void => {
-    if (!(e.target instanceof Element) || e.target.closest('.pane') === null) return;
+  const OUTCOME_GRACE_MS = 500;
+  const noticedTheTab = (e: Event): void => {
+    if (document.visibilityState !== 'visible') return;
+    if (
+      (e.type === 'pointermove' || e.type === 'wheel') &&
+      Date.now() - paneStatus.lastOutcomeAt < OUTCOME_GRACE_MS
+    ) {
+      return;
+    }
     if (!paneStatus.seen()) return;
     refreshTitle();
     showPanes();
   };
-  document.addEventListener('keydown', didSomethingInAPane, true);
-  document.addEventListener('mousedown', didSomethingInAPane, true);
+  for (const name of ['keydown', 'pointerdown', 'mousedown', 'pointermove', 'wheel']) {
+    window.addEventListener(name, noticedTheTab, { capture: true, passive: true });
+  }
+  window.addEventListener('focus', noticedTheTab);
 
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {

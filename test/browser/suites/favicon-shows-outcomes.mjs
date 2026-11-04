@@ -89,6 +89,38 @@ r.ok(
   JSON.stringify(stopped.panes),
 );
 
+// Moving the pointer over the tab is noticing it, as it is for the flash. Reported as the tick
+// taking "a lot for it to go away" while the tab was already in front.
+await sleep(600);
+for (const [x, y] of [
+  [200, 200],
+  [240, 220],
+]) {
+  await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+}
+await sleep(300);
+r.ok(
+  'moving the pointer over the tab puts the icon back to normal',
+  (await icon()).showing === 'idle',
+  (await icon()).showing,
+);
+
+// And so is the window coming to the front from another application.
+await hook('UserPromptSubmit');
+await sleep(1100);
+await hook('Stop');
+r.ok('another turn shows the tick again', (await icon()).showing === 'success');
+await evaluate(client, `window.dispatchEvent(new FocusEvent('focus'))`);
+await sleep(300);
+r.ok(
+  'the window coming to the front puts it back to normal',
+  (await icon()).showing === 'idle',
+  (await icon()).showing,
+);
+await hook('UserPromptSubmit');
+await sleep(1100);
+await hook('Stop');
+
 // Navigating to the tab, which a reload is the strongest form of, shows nothing to notice.
 await evaluate(client, 'location.reload()');
 await sleep(3000);

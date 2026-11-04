@@ -60,9 +60,19 @@ export function isSticky(state: FaviconState): boolean {
 
 export class StatusMachine {
   readonly #panes = new Map<string, PaneState>();
+  #lastOutcomeAt = -Infinity;
 
   set(paneId: string, state: FaviconState): void {
     this.#panes.set(paneId, { state, ...(isSticky(state) ? { sticky: true } : {}) });
+    if (isSticky(state)) this.#lastOutcomeAt = Date.now();
+  }
+
+  /**
+   * When the newest state waiting to be seen arrived, so a pointer already moving at that moment
+   * does not take it away before it has been drawn once.
+   */
+  get lastOutcomeAt(): number {
+    return this.#lastOutcomeAt;
   }
 
   /**
