@@ -384,6 +384,12 @@ The one place a timer is legitimate, and it is tightly bounded:
 - Hidden tabs stop their timers entirely
 - Timers are destroyed on frontend unload
 - No timestamp is stored in more than one place
+- Settings, Terminals, **Show how long commands take** turns the corner label off. Off, no label
+  is drawn and nothing is computed for it
+
+The label floats over the terminal in its bottom right corner and takes no room of its own. The
+pane around the terminal's rows is painted in the terminal's color, so the part a whole number of
+rows does not fill reads as terminal rather than as a strip set aside for the label.
 
 Verified by a network trace showing zero periodic traffic in an idle session.
 

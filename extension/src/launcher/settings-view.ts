@@ -5,6 +5,7 @@ import {
   saneCopyLines,
 } from '../terminal/command-output.js';
 import { BELL_KEY, PROGRAM_COPY_KEY } from '../terminal/osc52.js';
+import { SHOW_TIMES_KEY } from '../terminal/elapsed.js';
 import { VERSION, type CompanionUpdateStatus, type Concern } from '@tabterm/shared';
 import { THEME_CHOICES } from '../terminal/themes.js';
 import {
@@ -483,7 +484,7 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
   terminals.append(
     field(
       'Copy output copies at most',
-      'Pointing at a finished command shows Copy output, which copies what that command printed. Longer output copies its last lines.',
+      'Holding Command while pointing at a finished command shows Copy output, which copies what that command printed. Longer output copies its last lines.',
       copySelect,
     ),
   );
@@ -509,7 +510,17 @@ export function buildSettings(options: SettingsOptions): HTMLElement {
     if (copyBox) copyBox.checked = stored[PROGRAM_COPY_KEY] !== false;
     if (bellBox) bellBox.checked = stored[BELL_KEY] !== false;
   });
-  terminals.append(programCopy, bell);
+  const times = toggle(
+    'Show how long commands take',
+    true,
+    (on) => void chrome.storage.local.set({ [SHOW_TIMES_KEY]: on }),
+    'A small label in the corner of each terminal says how long the last command took and when it finished, or how long the one running has been going.',
+  );
+  void chrome.storage.local.get(SHOW_TIMES_KEY).then((stored) => {
+    const timesBox = times.querySelector('input');
+    if (timesBox) timesBox.checked = stored[SHOW_TIMES_KEY] !== false;
+  });
+  terminals.append(programCopy, bell, times);
   const shell = options.shellIntegration();
   if (shell) {
     terminals.append(

@@ -7,6 +7,9 @@
  * for itself. See docs/11-performance.md §6.
  */
 
+/** Whether each pane shows its time label in the corner, on unless turned off in Settings. */
+export const SHOW_TIMES_KEY = 'tabterm.showTimes';
+
 export interface TimeState {
   sessionStartedAt?: number;
   commandStartedAt?: number;

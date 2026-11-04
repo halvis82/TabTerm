@@ -419,7 +419,7 @@ above them that stay in place while a page scrolls:
 | Page | Holds |
 |---|---|
 | Theme | The theme, and how strong and how large a session's name is drawn over its pane |
-| Terminals | Scrollback, how long a terminal is kept after its tab closes, Copy output, programs copying, the bell, and **Show whether each command succeeded or failed** (shell integration). Without it there are no exit codes |
+| Terminals | Scrollback, how long a terminal is kept after its tab closes, Copy output, programs copying, the bell, the time label in each pane's corner, and **Show whether each command succeeded or failed** (shell integration). Without it there are no exit codes |
 | Agents | The command Launch an agent runs, and **Show what agents are doing in their tabs** (the agent hooks). Without them agent status does nothing |
 | Alerts | Desktop notifications: the master switch, the duration threshold, shell commands and agent turns, and quiet for a pane already on screen |
 | Remote | Remote access. See `17-remote-access.md` |

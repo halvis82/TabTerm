@@ -99,10 +99,14 @@
   #terminal.panel-open .pane {
     border-color: #4a5573;
   }
+  /* Painted as the terminal, padding and all. A terminal is a whole number of rows and columns,
+     so whatever is left under the last row and beside the last column showed the page behind it,
+     a darker strip that read as a bar set aside for the time label. Now it is more terminal. */
   .pane-terminal {
     position: absolute;
     inset: 0;
     padding: 4px 6px;
+    background: var(--term-bg, transparent);
   }
 
   /* A pane that finished while its session had "Flash the tab" on. See PaneGlow.
@@ -178,7 +182,9 @@
       Menlo,
       monospace;
     color: #5f6579;
-    background: var(--panel);
+    /* The terminal's own color rather than a panel's, so it floats over the text without a box
+       around it. Mostly opaque, so it stays readable over a row that runs under it. */
+    background: color-mix(in srgb, var(--term-bg, var(--panel)) 88%, transparent);
     padding: 1px 6px;
     border-radius: 4px;
     pointer-events: none;

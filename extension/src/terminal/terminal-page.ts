@@ -51,7 +51,7 @@ import {
 import { TypedBuffer, backspaces } from './hotstrings.js';
 import { chooseOpenAction, describeOpen } from './open-action.js';
 import { needsAttention, StatusMachine, titleStatus } from './status-machine.js';
-import { describeTime, isLongRunning, type TimeState } from './elapsed.js';
+import { SHOW_TIMES_KEY, describeTime, isLongRunning, type TimeState } from './elapsed.js';
 import { LinkCopyButton } from './link-copy.js';
 import { BELL_KEY, PROGRAM_COPY_KEY, describeCopy } from './osc52.js';
 import {
@@ -868,9 +868,24 @@ function timeStateFor(paneId: string): TimeState {
   return state;
 }
 
+/** From Settings, Terminals. Followed live, so turning it off takes every label away at once. */
+let showTimes = true;
+void chrome.storage.local
+  .get(SHOW_TIMES_KEY)
+  .then((stored) => {
+    showTimes = stored[SHOW_TIMES_KEY] !== false;
+    renderTimeLabels();
+  })
+  .catch(() => undefined);
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !(SHOW_TIMES_KEY in changes)) return;
+  showTimes = changes[SHOW_TIMES_KEY]?.newValue !== false;
+  renderTimeLabels();
+});
+
 function renderTimeLabels(): void {
   for (const pane of panesHost?.all ?? []) {
-    const text = describeTime(timeStateFor(pane.paneId));
+    const text = showTimes ? describeTime(timeStateFor(pane.paneId)) : '';
     const wrapper = pane.element.parentElement;
     if (!wrapper) continue;
     let label = wrapper.querySelector('.pane-time');
