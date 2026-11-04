@@ -98,15 +98,30 @@ r.ok(
   JSON.stringify(await blocks()),
 );
 
-// Hovering the output offers it; clicking copies it.
+// Pointing at the output and holding Command offers it; clicking copies it. Pointing alone
+// offers nothing: the button on every hover was "really in the way".
+const command = (type) =>
+  client.send('Input.dispatchKeyEvent', {
+    type,
+    key: 'Meta',
+    code: 'MetaLeft',
+    modifiers: type === 'keyUp' ? 0 : 4,
+  });
 await type(client, 'clear');
 await sleep(500);
 await type(client, "printf 'hover-me\\n'");
 await hasBlock('hover-me');
 await sleep(300);
 r.ok('the output is on screen to point at', await pointAt('hover-me'));
+await sleep(600);
 r.ok(
-  'pointing at it offers Copy output',
+  'pointing alone offers nothing',
+  (await button()).shown === false,
+  JSON.stringify(await button()),
+);
+await command('rawKeyDown');
+r.ok(
+  'holding Command over it offers Copy output',
   await waitFor(
     client,
     "window.__tabterm.outputCopy().shown && window.__tabterm.outputCopy().label === 'Copy output'",
@@ -119,6 +134,11 @@ await realClick(client, '.output-copy');
 r.ok(
   'and a press copies it',
   await waitFor(client, 'window.__tabterm.outputCopy().copied === true', 3000),
+);
+await command('keyUp');
+r.ok(
+  'and letting go of Command takes it away',
+  await waitFor(client, '!window.__tabterm.outputCopy().shown', 3000),
 );
 
 // Longer than the limit: the newest lines, and the button says so.
@@ -137,11 +157,13 @@ r.ok(
 await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 5 });
 await sleep(800);
 await pointAt('240');
+await command('rawKeyDown');
 r.ok(
   'and the button says how many',
   await waitFor(client, "window.__tabterm.outputCopy().label === 'Copy last 100 lines'", 3000),
   JSON.stringify(await button()),
 );
+await command('keyUp');
 await evaluate(client, "chrome.storage.local.remove('tabterm.copyOutputLines')");
 
 // The glow: nothing with the setting off.

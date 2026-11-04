@@ -74,6 +74,9 @@ interface Pane {
 export class PaneHost {
   readonly #opts: PaneHostOptions;
   readonly #panes = new Map<string, Pane>();
+  /** Where the pointer last was over a pane, so pressing Command can offer what is under it. */
+  #pointer: { paneId: string; clientY: number } | null = null;
+  readonly #offerAt = new Map<string, (clientY: number) => void>();
   readonly #byStream = new Map<number, string>();
   /** Callbacks waiting for a pane to say something. See `onceOutput`. */
   readonly #awaitingOutput = new Map<string, () => void>();
@@ -199,10 +202,12 @@ export class PaneHost {
     );
 
     /*
-     * Copy output, offered while the pointer is over a finished command.
+     * Copy output, offered while the pointer is over a finished command and Command is held.
      *
-     * Not while a button is held, which is somebody selecting, and not while Command is held,
-     * which is somebody pointing at a link and being offered that link instead.
+     * It used to be offered on any hover, and it sat in the way of reading and selecting the very
+     * output it was offering to copy. Command is already how a link or a path offers its own Copy
+     * button, so holding it is how anything here asks to be copied; over a link, the link's button
+     * wins (see `offerOutput`). Not while a button is held, which is somebody selecting.
      */
     const blocks = new CommandBlocks(controller.term);
 
@@ -228,17 +233,25 @@ export class PaneHost {
     controller.term.onBell(() => {
       if (!this.#restoring.has(paneId)) this.#opts.onBell?.(paneId);
     });
-    element.addEventListener('mousemove', (e) => {
-      if (e.buttons !== 0 || this.#opts.modifierHeld()) {
+    const offerAt = (clientY: number, buttons: number): void => {
+      if (buttons !== 0 || !this.#opts.modifierHeld()) {
         this.#opts.onOutputLeave?.();
         return;
       }
-      const row = rowAt(controller.term, e.clientY);
+      const row = rowAt(controller.term, clientY);
       const block = row === null ? undefined : blocks.blockAt(row);
       if (block) this.#opts.onOutputHover?.(controller.term, blocks, block);
       else this.#opts.onOutputLeave?.();
+    };
+    element.addEventListener('mousemove', (e) => {
+      this.#pointer = { paneId, clientY: e.clientY };
+      offerAt(e.clientY, e.buttons);
     });
-    element.addEventListener('mouseleave', () => this.#opts.onOutputLeave?.());
+    element.addEventListener('mouseleave', () => {
+      if (this.#pointer?.paneId === paneId) this.#pointer = null;
+      this.#opts.onOutputLeave?.();
+    });
+    this.#offerAt.set(paneId, (clientY) => offerAt(clientY, 0));
 
     this.#panes.set(paneId, {
       paneId,
@@ -431,7 +444,17 @@ export class PaneHost {
       pane.controller.dispose();
       pane.element.remove();
       this.#panes.delete(paneId);
+      this.#offerAt.delete(paneId);
+      if (this.#pointer?.paneId === paneId) this.#pointer = null;
     }
+  }
+
+  /**
+   * Offer Copy output for whatever the pointer is resting on, for when Command goes down without
+   * the pointer moving. Waiting for a movement would make the button seem not to answer the key.
+   */
+  offerOutputUnderPointer(): void {
+    if (this.#pointer) this.#offerAt.get(this.#pointer.paneId)?.(this.#pointer.clientY);
   }
 
   disposeAll(): void {

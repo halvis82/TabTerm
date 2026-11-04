@@ -1056,6 +1056,11 @@ const copiedBlocks = new WeakMap<
 >();
 
 function offerOutput(term: Terminal, blocks: CommandBlocks, block: OutputBlock): void {
+  // A link under the pointer has its own Copy button, and two buttons at once is one too many.
+  if (linkCopy.state.shown) {
+    outputCopy.hide();
+    return;
+  }
   let held = copiedBlocks.get(block);
   if (!held || held.limit !== copyLines || held.startGone !== block.start.isDisposed) {
     held = {
@@ -2578,10 +2583,14 @@ function setCmdHeld(held: boolean): void {
   if (held === cmdHeld) return;
   cmdHeld = held;
   document.body.classList.toggle('cmd-held', held);
-  // Letting go of Command takes the offer away, the same as it takes the link away.
-  if (!held) linkCopy.hide();
-  // And holding it is about links, so the output's offer steps aside for theirs.
-  else outputCopy.hide();
+  // Letting go of Command takes both offers away. Holding it offers what is under the pointer:
+  // a link's own button over a link, Copy output over the rest of a finished command.
+  if (!held) {
+    linkCopy.hide();
+    outputCopy.hide();
+  } else {
+    panesHost?.offerOutputUnderPointer();
+  }
   /*
    * Holding Command is the moment to find out what is on screen.
    *
@@ -4185,7 +4194,10 @@ function buildHosts(): void {
       if (/^https?:\/\//i.test(url)) void chrome.tabs.create({ url });
     },
     modifierHeld: () => cmdHeld,
-    onLinkHover: (term, text, range) => linkCopy.show(term, range, text),
+    onLinkHover: (term, text, range) => {
+      outputCopy.hide();
+      linkCopy.show(term, range, text);
+    },
     onLinkLeave: () => linkCopy.hideSoon(),
     onOutputHover: (term, blocks, block) => offerOutput(term, blocks, block),
     onOutputLeave: () => outputCopy.hideSoon(),

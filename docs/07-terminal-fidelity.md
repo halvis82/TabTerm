@@ -748,8 +748,8 @@ press never reaches the terminal and never takes the keyboard from it. One butto
 It is about twice the height of a row of text, at 15 pixel type: at the size of the text beside it,
 it was reported as almost too hard to see.
 
-**A finished command offers to copy its output.** Pointing at a finished command's output, or at
-its command line, fades in the same button, reading Copy output, just after the command line's
+**A finished command offers to copy its output.** Holding Command while pointing at a finished
+command's output, or at its command line, fades in the same button, reading Copy output, just after the command line's
 text, or after the top row of the output that is on screen, kept clear of the command button in
 the pane's corner. It copies the output as text: a
 line the terminal wrapped comes back as the one line the program printed, blank lines inside the
@@ -767,7 +767,11 @@ is their own interface. Nor does a command with no output.
 Settings, Terminals, **Copy output copies at most** chooses how many lines one press copies, from
 1,000 to 50,000, 10,000 by default. Longer output copies its newest lines and the button says
 how many ("Copy last 10,000 lines"), and so does output whose beginning has already left the
-scrollback. Holding Command hands the pointer to links, so the output's button steps aside. The
+scrollback. Only while Command is held: offered on every hover it sat over the output it was
+offering to copy, in the way of reading and selecting it. Command is already how a link offers its
+own Copy button, so over a link or a path inside the output the link's button shows and the
+output's steps aside, and pressing Command with the pointer resting still offers what is under it.
+Letting go takes either away. The
 200 most recent commands per pane are remembered; a tab that reloads from a saved screen rather
 than from the stream starts remembering again from its next command.
 

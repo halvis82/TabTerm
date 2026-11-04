@@ -59,6 +59,13 @@ r.ok(
   JSON.stringify(await state()),
 );
 r.ok('for that URL', (await state()).text === URL_TEXT, (await state()).text);
+// The URL is a finished command's output too, and Command now offers Copy output as well. Over
+// the link, only the link's button shows.
+await sleep(300);
+r.ok(
+  'and Copy output steps aside for it',
+  (await evaluate(client, '!window.__tabterm.outputCopy().shown')) === true,
+);
 
 const box = JSON.parse(
   String(
