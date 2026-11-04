@@ -255,3 +255,87 @@ describe('the find bar', () => {
     expect(seen).toEqual(['a:x', 'b:x']);
   });
 });
+
+/**
+ * The other panes in the tab are searched too, the focused one first.
+ *
+ * Reported as the bar being "completely blind to the terminal sessions in the current tab that
+ * aren't the active one": words on screen in the pane beside it answered "no matches".
+ */
+describe('a tab of several panes', () => {
+  const pane = (name: string, matches: number, log: string[]): FindTarget => ({
+    find: (_term, opts) => {
+      log.push(`${name}:${opts?.back === true ? 'back' : 'forward'}`);
+      return matches > 0;
+    },
+    clearFind: () => log.push(`${name}:clear`),
+    focus: () => {},
+    countMatches: () => matches,
+  });
+  const build = (counts: Record<string, number>) => {
+    const log: string[] = [];
+    const panes = Object.fromEntries(
+      Object.entries(counts).map(([name, n]) => [name, pane(name, n, log)]),
+    );
+    const order = Object.keys(counts);
+    let focused = order[0] ?? '';
+    const input = fake();
+    const count = fake();
+    const bar = new FindBar({
+      target: () => panes[focused] ?? null,
+      others: () => {
+        const at = order.indexOf(focused);
+        return [...order.slice(at + 1), ...order.slice(0, at)].map((n) => panes[n] as FindTarget);
+      },
+      moveTo: (t) => {
+        focused = order.find((n) => panes[n] === t) ?? focused;
+      },
+      root: fake() as unknown as HTMLElement,
+      input: input as unknown as HTMLInputElement,
+      count: count as unknown as HTMLElement,
+      next: fake() as unknown as HTMLElement,
+      previous: fake() as unknown as HTMLElement,
+      close: fake() as unknown as HTMLElement,
+    });
+    const search = (term: string) => {
+      input.value = term;
+      input.fire('input');
+    };
+    return { bar, log, input, count, search, focused: () => focused };
+  };
+
+  it('goes to the pane that has it when the focused one has none', () => {
+    const t = build({ a: 0, b: 3 });
+    t.bar.show('');
+    t.search('needle');
+    expect(t.focused()).toBe('b');
+    expect(t.log).toContain('b:back');
+  });
+
+  it('stays in the focused pane while it has matches, and says how many are elsewhere', () => {
+    const t = build({ a: 2, b: 3 });
+    t.bar.show('');
+    t.search('needle');
+    expect(t.focused()).toBe('a');
+    t.bar.showResults({ resultIndex: 1, resultCount: 2 });
+    expect(t.count.textContent).toBe('2 of 2 · 3 in other panes');
+  });
+
+  it('moves on once Return has gone past the oldest match in the focused pane', () => {
+    const t = build({ a: 2, b: 3 });
+    t.bar.show('');
+    t.search('needle');
+    t.bar.showResults({ resultIndex: 0, resultCount: 2 });
+    t.input.fire('keydown', { key: 'Enter' });
+    expect(t.focused()).toBe('b');
+    expect(t.log).toContain('a:clear');
+  });
+
+  it('says so when no pane has it', () => {
+    const t = build({ a: 0, b: 0 });
+    t.bar.show('');
+    t.search('needle');
+    expect(t.focused()).toBe('a');
+    expect(t.count.textContent).toBe('no matches');
+  });
+});

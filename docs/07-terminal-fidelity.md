@@ -925,13 +925,26 @@ pressing the key with something selected is how somebody asks "where else is thi
 A press on the bar's own buttons keeps the keyboard in the box, or the press would move focus, the
 rule above would close the bar, and the button would be gone before its click arrived.
 
+**Every pane in the tab is searched, the focused one first.** Searching only the focused pane
+answered "no matches" for words plainly on screen in the pane beside it. When the focused pane has
+no match, or Return has gone past its oldest one (Shift Return past its newest), the bar moves on to
+the next pane in the tab that has one, focuses it, and keeps the keyboard in the box. The count says
+how many matches the other panes hold: "2 of 5 · 3 in other panes", or "none here · 3 in other
+panes". The other panes are counted by reading their history rather than searched, so nothing in
+them scrolls or lights up until the bar arrives. Choosing a pane while the bar is open leaves the
+keyboard in the box, and clicking into a terminal still closes the bar.
+
 **All terminals.** A box on the bar, off unless ticked and remembered across tabs and restarts,
 also searches the history of every running terminal, in any tab or in the background, for "where
-did I see that". The pane in front is still searched as before. Under the bar each terminal with a
+did I see that". The tab's own panes are still searched as above, and marked "here" in the list.
+Ticking or unticking it in one tab does the same in every open tab at once, since it is one
+setting rather than one per tab. Under the bar each terminal with a
 match is listed by its name, or what runs in it, and its folder, with how many matches it has and
 its newest few lines, the words marked. Pressing a line opens that terminal wherever it is, the way
 a card in Running now does: focused if it is in this tab or another, opened in a tab of its own if
-it is in the background, and the find bar there opens on that very match.
+it is in the background, and the find bar there opens on that very match, scrolled to and lit, in
+the pane holding it, with the same words, All terminals ticked and the same list under it, and the
+keyboard in the box so Return goes on from there.
 
 - The daemon searches its own copy of each terminal (`VtState.find`), the main screen and its
   scrollback, ignoring case, with a line the terminal wrapped searched as the one line it was

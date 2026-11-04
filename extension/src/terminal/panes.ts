@@ -52,7 +52,10 @@ export interface PaneHostOptions {
   /** Something worth saying to the person about a pane, briefly. */
   onNotice?: (text: string) => void;
   /** How many matches a pane found, so the bar can say which one is showing. */
-  onFindResults?: (results: { resultIndex: number; resultCount: number } | undefined) => void;
+  onFindResults?: (
+    paneId: string,
+    results: { resultIndex: number; resultCount: number } | undefined,
+  ) => void;
   /** Whether a pane should answer a right click. See `shouldOpenMenu` on the controller. */
   shouldOpenMenu?: () => boolean;
   /** Whether a pane's menu may offer Clear. See `canClear` on the controller. */
@@ -130,7 +133,7 @@ export class PaneHost {
       onRendererReady: () => this.#opts.onRendererReady?.(paneId),
       onFind: (selected) => this.#opts.onFind?.(selected),
       onNotice: (text) => this.#opts.onNotice?.(text),
-      onFindResults: (results) => this.#opts.onFindResults?.(results),
+      onFindResults: (results) => this.#opts.onFindResults?.(paneId, results),
       shouldOpenMenu: () => this.#opts.shouldOpenMenu?.() !== false,
       canClear: () => this.#opts.canClear?.(paneId) !== false,
     });

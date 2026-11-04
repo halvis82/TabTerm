@@ -86,6 +86,23 @@ r.ok(
   String(await evaluate(a.client, `document.getElementById('find-count')?.textContent`)),
 );
 r.ok(
+  'and with All terminals ticked there too, and its list showing, as in the tab searched from',
+  (await evaluate(
+    a.client,
+    `document.getElementById('find-all-box').checked === true && document.getElementById('find-results').hidden === false`,
+  )) === true,
+);
+r.ok(
+  'with the keyboard in the box, so Return goes on to the next match',
+  (await evaluate(a.client, `document.activeElement?.id === 'find-input'`)) === true,
+  String(
+    await evaluate(
+      a.client,
+      `(document.activeElement?.className ?? '') + ' / ' + document.activeElement?.id + ' / focus ' + document.hasFocus() + ' / ' + document.visibilityState`,
+    ),
+  ),
+);
+r.ok(
   'in the pane holding it',
   String(
     await evaluate(
@@ -104,6 +121,63 @@ r.ok(
   await evaluate(c.client, `document.getElementById('find-all-box')?.checked === true`),
 );
 await evaluate(c.client, `document.getElementById('find-all-box').click()`);
+r.ok(
+  'and unticking it in one tab unticks it in the others',
+  await waitUntil(
+    async () =>
+      (await evaluate(a.client, `document.getElementById('find-all-box').checked === false`)) ===
+      true,
+    5000,
+  ),
+);
+
+/*
+ * With All terminals off, the other panes in the tab are still searched.
+ *
+ * Reported as the bar being blind to them: a word in the pane beside the focused one answered
+ * "no matches". The pane holding it is focused and the match is shown there.
+ */
+const d = await openTerminal();
+await waitFor(d.client, "document.querySelector('.launcher-input')");
+await type(d.client, `echo ${TAG}-beside\r`);
+await waitFor(d.client, `(window.__tabterm.readScreen() ?? '').includes('${TAG}-beside')`, 15000);
+const holder = String(await evaluate(d.client, 'window.__tabterm.paneIds()[0]'));
+await evaluate(d.client, `window.__tabterm.split('vertical')`);
+await waitUntil(
+  async () => Number(await evaluate(d.client, 'window.__tabterm.paneIds().length')) === 2,
+  20000,
+);
+await sleep(1200);
+r.ok(
+  'a second pane is focused, without the words in it',
+  String(await evaluate(d.client, 'window.__tabterm.focusedPane()')) !== holder,
+);
+await evaluate(
+  d.client,
+  `document.querySelector('.pane.focused .xterm-helper-textarea, .focused .xterm-helper-textarea')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: true, bubbles: true, cancelable: true }))`,
+);
+await sleep(300);
+await evaluate(
+  d.client,
+  `(() => { const i = document.getElementById('find-input'); i.value = ${JSON.stringify(`${TAG}-beside`)}; i.dispatchEvent(new Event('input')); })()`,
+);
+r.ok(
+  'searching finds them in the other pane of the tab, and focuses it',
+  await waitUntil(
+    async () => String(await evaluate(d.client, 'window.__tabterm.focusedPane()')) === holder,
+    5000,
+  ),
+  String(await evaluate(d.client, `document.getElementById('find-count')?.textContent`)),
+);
+r.ok(
+  'with the bar still open and counting',
+  await waitFor(
+    d.client,
+    `document.getElementById('find').hidden === false && /of/.test(document.getElementById('find-count').textContent)`,
+    5000,
+  ),
+  String(await evaluate(d.client, `document.getElementById('find-count')?.textContent`)),
+);
 await sleep(300);
 await finish();
 r.done();

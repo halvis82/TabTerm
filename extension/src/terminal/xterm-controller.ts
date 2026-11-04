@@ -1186,6 +1186,38 @@ export class XtermController {
     return found;
   }
 
+  /**
+   * How many times something appears in this terminal's history, without searching it.
+   *
+   * Searching moves the selection and scrolls, which is right for the pane being searched and
+   * wrong for the panes beside it. The find bar asks this of those, to say how many matches are
+   * elsewhere in the tab and which pane to go to next. Case is ignored, as the bar's search
+   * ignores it, and a line the terminal wrapped is read as the one line it was printed as.
+   */
+  countMatches(term: string): number {
+    if (term === '') return 0;
+    const needle = term.toLowerCase();
+    const buffer = this.term.buffer.active;
+    let count = 0;
+    let line = '';
+    for (let y = 0; y < buffer.length; y++) {
+      const row = buffer.getLine(y);
+      if (!row) continue;
+      line = row.isWrapped ? line + row.translateToString(true) : row.translateToString(true);
+      const next = buffer.getLine(y + 1);
+      if (next?.isWrapped === true) continue;
+      const lower = line.toLowerCase();
+      for (
+        let at = lower.indexOf(needle);
+        at !== -1;
+        at = lower.indexOf(needle, at + needle.length)
+      ) {
+        count++;
+      }
+    }
+    return count;
+  }
+
   /** Put the terminal back the way it looked before anybody searched it. */
   clearFind(): void {
     this.#search.clearDecorations();

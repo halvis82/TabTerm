@@ -7,8 +7,12 @@
  * searching. So the search has to be asked of the emulator, which is the only thing that holds all
  * of it, and that means this bar rather than the browser's.
  *
- * It searches the focused pane. A terminal is a thing you are looking at, and searching four of
- * them at once would answer with matches in panes that are not in front of you.
+ * It searches the focused pane first, and then the other panes in the same tab. Searching only the
+ * focused one answered "no matches" for words plainly on screen in the pane beside it, which was
+ * reported as the bar being blind to them. So when the focused pane has none, or Return has gone
+ * past its oldest match, the bar moves on to the next pane in the tab that has some and focuses
+ * it, and the count says how many more are in the other panes. Those panes are counted without
+ * being searched, so nothing in them moves until the bar arrives.
  *
  * **All terminals**, a box beside it, searches every running terminal's history as well, in a tab
  * or in the background, for "where did I see that". Off unless ticked, and remembered. The pane in
@@ -23,6 +27,8 @@ export interface FindTarget {
   findNth?(term: string, n: number): boolean;
   clearFind(): void;
   focus(): void;
+  /** How many matches it holds, without moving anything. Absent where it cannot be counted. */
+  countMatches?(term: string): number;
 }
 
 /** Searching every terminal. See the note at the top. */
@@ -52,6 +58,10 @@ export interface FindBarOptions {
   previous: HTMLElement;
   close: HTMLElement;
   all?: FindAllOptions;
+  /** The other panes in this tab, in reading order after the focused one. */
+  others?: () => FindTarget[];
+  /** Make another pane the focused one, which is what the bar searches. */
+  moveTo?: (target: FindTarget) => void;
   /**
    * Where the Escape key is caught while the bar is open.
    *
@@ -68,6 +78,12 @@ export class FindBar {
   readonly #opts: FindBarOptions;
   #term = '';
   #allTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Where the focused pane's search stands, for knowing when Return has gone past its last. */
+  #last: { resultIndex: number; resultCount: number } | undefined;
+  /** Matches in the tab's other panes, said after the count. */
+  #elsewhere = 0;
+  /** Set while the bar moves to another pane, whose focus would otherwise close it. */
+  #moving = false;
 
   constructor(opts: FindBarOptions) {
     this.#opts = opts;
@@ -85,6 +101,7 @@ export class FindBar {
     }
     opts.input.addEventListener('input', () => {
       this.#term = opts.input.value;
+      this.#last = undefined;
       this.#searchAll(false);
       /*
        * Searched backwards, so the first match is the **last thing printed**.
@@ -126,7 +143,7 @@ export class FindBar {
      * somewhere else would be a second thing happening that nobody asked for.
      */
     opts.input.addEventListener('blur', () => {
-      if (this.isOpen) this.hide(false);
+      if (this.isOpen && !this.#moving) this.hide(false);
     });
 
     /*
@@ -187,12 +204,26 @@ export class FindBar {
     this.#opts.window?.addEventListener('keydown', this.#onEscape, true);
   }
 
-  /** Ticked or not, as kept from last time. */
+  /**
+   * Ticked or not, as kept from last time, or as just changed in another tab.
+   *
+   * The box is one setting for every tab. It was read when a tab loaded and not again, so a tab
+   * opened before it was ticked went on searching only itself, and a result opened in that tab
+   * arrived without the list it came from.
+   */
   setAll(on: boolean): void {
     const all = this.#opts.all;
     if (!all) return;
+    if (all.box.checked === on && all.results.hidden === !on) return;
     all.box.checked = on;
     all.results.hidden = !on;
+    if (!on) all.results.replaceChildren();
+    else if (this.isOpen) this.#searchAll(true);
+  }
+
+  /** Give the keyboard to the box, for a tab coming to the front with the bar open. */
+  focusInput(): void {
+    if (this.isOpen) this.#opts.input.focus();
   }
 
   /**
@@ -202,8 +233,11 @@ export class FindBar {
   showAt(query: string, fromEnd: number): boolean {
     this.#opts.input.value = query;
     this.#term = query;
+    this.#last = undefined;
     this.#opts.root.hidden = false;
     this.#opts.window?.addEventListener('keydown', this.#onEscape, true);
+    // The keyboard too, so Return goes on to the next match, as in the tab the search was made in.
+    this.#opts.input.focus();
     this.#searchAll(true);
     const target = this.#opts.target();
     if (!target) return false;
@@ -293,25 +327,68 @@ export class FindBar {
     if (!target) return;
     if (this.#term === '') {
       target.clearFind();
+      this.#elsewhere = 0;
       this.#opts.count.textContent = '';
       return;
     }
+    const others = this.#opts.others?.() ?? [];
+    // Return goes back through the tab in reading order, Shift and Return the other way.
+    const order = back ? others : [...others].reverse();
+    const next = order.find((o) => (o.countMatches?.(this.#term) ?? 0) > 0);
+    const here = target.countMatches?.(this.#term);
+    const last = this.#last;
+    const pastTheLast =
+      last !== undefined &&
+      last.resultCount > 0 &&
+      (back ? last.resultIndex === 0 : last.resultIndex === last.resultCount - 1);
+    if (next && (here === 0 || pastTheLast)) {
+      this.#move(target, next, back);
+      return;
+    }
+    this.#countElsewhere();
     const found = target.find(this.#term, { back });
     // Said plainly rather than left to the highlight, which is off screen when there is no match.
     if (!found) this.#opts.count.textContent = 'no matches';
   }
 
+  /** On to another pane in the tab, which takes focus and the search, with the bar kept open. */
+  #move(from: FindTarget, to: FindTarget, back: boolean): void {
+    from.clearFind();
+    this.#moving = true;
+    try {
+      this.#opts.moveTo?.(to);
+      this.#opts.input.focus();
+    } finally {
+      this.#moving = false;
+    }
+    this.#last = undefined;
+    this.#countElsewhere();
+    to.find(this.#term, { back });
+  }
+
+  #countElsewhere(): void {
+    this.#elsewhere = (this.#opts.others?.() ?? []).reduce(
+      (sum, o) => sum + (o.countMatches?.(this.#term) ?? 0),
+      0,
+    );
+  }
+
   /** What the emulator counted, once it has. Shown as "3 of 12", or nothing while it is working. */
   showResults(results: { resultIndex: number; resultCount: number } | undefined): void {
+    this.#last = results;
     if (this.#term === '') {
       this.#opts.count.textContent = '';
       return;
     }
+    const elsewhere =
+      this.#elsewhere > 0
+        ? ` · ${this.#elsewhere.toLocaleString('en-US')} in ${this.#elsewhere === 1 ? 'another pane' : 'other panes'}`
+        : '';
     if (results === undefined || results.resultCount === 0) {
-      this.#opts.count.textContent = 'no matches';
+      this.#opts.count.textContent = elsewhere === '' ? 'no matches' : `none here${elsewhere}`;
       return;
     }
-    this.#opts.count.textContent = `${String(results.resultIndex + 1)} of ${String(results.resultCount)}`;
+    this.#opts.count.textContent = `${String(results.resultIndex + 1)} of ${String(results.resultCount)}${elsewhere}`;
   }
 }
 

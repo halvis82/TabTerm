@@ -4070,7 +4070,10 @@ function buildHosts(): void {
       }
       showNotice(text);
     },
-    onFindResults: (results) => findBar?.showResults(results),
+    // Only the focused pane's, which is the one the bar is counting in.
+    onFindResults: (paneId, results) => {
+      if (paneId === splitView?.focused) findBar?.showResults(results);
+    },
     onRendererReady: (paneId) => {
       const size = panesHost?.fit(paneId);
       if (!size) return;
@@ -4232,7 +4235,16 @@ function buildHosts(): void {
     onRatioChange: (paneId, ratio) => {
       if (workspaceId) client?.send({ t: 'set-ratio', workspaceId, paneId, ratio });
     },
-    onFocusPane: (paneId) => panesHost?.focus(paneId),
+    /*
+     * Choosing a pane while the find bar is open leaves the keyboard in the bar. The bar moving to
+     * the pane holding the next match, and a tab opened on a match, both choose a pane, and taking
+     * the keyboard into the terminal there closed the bar they were showing. A click into the
+     * terminal still closes it, because xterm takes the keyboard on that press itself.
+     */
+    onFocusPane: (paneId) => {
+      if (findBar?.isOpen === true) findBar.focusInput();
+      else panesHost?.focus(paneId);
+    },
     paneTitle,
     paneKeptAlive: (paneId) => keptAlive.has(panesHost?.get(paneId)?.sessionId ?? ''),
     onClosePane: (paneId) => {
@@ -4685,16 +4697,29 @@ function buildLauncher(): void {
     next: document.getElementById('find-next') as HTMLElement,
     previous: document.getElementById('find-prev') as HTMLElement,
     close: document.getElementById('find-close') as HTMLElement,
+    /*
+     * The tab's other panes, after the focused one in reading order and round again, so Return
+     * walks the whole tab. None while the start screen is up, which is searched as a page.
+     */
+    others: () => {
+      if (launcher?.isShowing === true || !panesHost || !splitView?.focused) return [];
+      const all = panesHost.all;
+      const at = all.findIndex((p) => p.paneId === splitView?.focused);
+      if (at === -1) return [];
+      return [...all.slice(at + 1), ...all.slice(0, at)].map((p) => p.controller);
+    },
+    moveTo: (target) => {
+      const pane = panesHost?.all.find((p) => p.controller === target);
+      if (pane) splitView?.focus(pane.paneId);
+    },
     all: {
       box: document.getElementById('find-all-box') as HTMLInputElement,
       results: document.getElementById('find-results') as HTMLElement,
       search: (query) => client?.send({ t: 'search-sessions', query }),
       open: (session, fromEnd, query) => openMatch(session, fromEnd, query),
       remember: (on) => void chrome.storage.local.set({ [FIND_ALL_KEY]: on }),
-      isHere: (sessionId) => {
-        const pane = panesHost?.forSession(sessionId);
-        return pane !== undefined && pane.paneId === splitView?.focused;
-      },
+      // Every pane in this tab is searched already, not only the focused one.
+      isHere: (sessionId) => panesHost?.forSession(sessionId) !== undefined,
     },
     // Escape belongs to the bar while it is open, wherever the keyboard is. See `#onEscape`.
     window,
@@ -4705,6 +4730,8 @@ function buildLauncher(): void {
   // A terminal opened from a search of all of them, in this tab or another. See `openMatch`.
   chrome.storage.onChanged.addListener((changes) => {
     if (changes[FIND_ON_OPEN_KEY]?.newValue !== undefined) landPendingFind();
+    // Ticked or unticked in any tab is ticked or unticked in this one.
+    if (FIND_ALL_KEY in changes) findBar?.setAll(changes[FIND_ALL_KEY]?.newValue === true);
   });
   landPendingFind();
 
@@ -9485,7 +9512,10 @@ async function start(): Promise<void> {
     clearTimeout(rendererTimer);
     rendererTimer = undefined;
     panesHost?.restoreRenderers();
-    if (splitView?.focused) panesHost?.focus(splitView.focused);
+    // A tab brought forward with the find bar open, such as one a match was opened in, keeps it
+    // open: focusing the terminal would take the keyboard from the box, and that closes the bar.
+    if (findBar?.isOpen === true) findBar.focusInput();
+    else if (splitView?.focused) panesHost?.focus(splitView.focused);
     /**
      * Looking at the tab is what clears an outcome.
      *
