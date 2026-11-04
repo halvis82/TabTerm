@@ -56,6 +56,12 @@ await press(client, 'Enter', 'Enter', SHIFT, 13);
 await sleep(400);
 const shifted = String(await screen());
 r.ok('and is reported once a program asks', shifted.includes('27;2;13'), shifted.slice(-120));
+// Once per press. The key coming up was reported as well, which is two new lines in Copilot.
+r.ok(
+  'once for one press, not again as the key comes up',
+  shifted.split('27;2;13').length - 1 === 1,
+  shifted.slice(-120),
+);
 
 await press(client, 'Enter', 'Enter', OPTION, 13);
 await sleep(400);

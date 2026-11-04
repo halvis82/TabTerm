@@ -425,11 +425,18 @@ export class XtermController {
        * and is then sent `CSI 27 ; modifier ; key ~`. Ahead of the table below because that
        * table answers for Command, and a program that asked wants Command too.
        */
-      const reported = encodeModifiedKey(
-        e.key,
-        { shift: e.shiftKey, alt: e.altKey, ctrl: e.ctrlKey, meta: e.metaKey },
-        this.#modifyOtherKeys,
-      );
+      /*
+       * Only as the key goes down. This handler also sees the key coming up, and answering that
+       * too sent Shift and Return twice: two new lines in Copilot for one press.
+       */
+      const reported =
+        e.type !== 'keydown'
+          ? null
+          : encodeModifiedKey(
+              e.key,
+              { shift: e.shiftKey, alt: e.altKey, ctrl: e.ctrlKey, meta: e.metaKey },
+              this.#modifyOtherKeys,
+            );
       if (reported !== null) {
         e.preventDefault();
         this.#opts.onData(reported);

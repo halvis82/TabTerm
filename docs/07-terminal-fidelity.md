@@ -398,6 +398,10 @@ was not refused, and was then never told. TabTerm watches for the request and an
 shell wants none of this and the prompt that replaces the shell for a while wants all of it, so it
 turns on and off underneath the same pane.
 
+The reply is sent once per press, as the key goes down. The key handler also sees the key coming
+up, and answering that as well sent Shift and Return twice, which GitHub Copilot's CLI (one of the
+few programs that does ask) took as two new lines.
+
 The reply is only ever sent to a program that asked. Nothing is invented for a program that did not:
 Command and Return, for instance, has no terminal meaning and is handed back to Chrome, because
 giving it one here would only make this terminal disagree with every other.
