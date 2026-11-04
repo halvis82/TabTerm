@@ -169,7 +169,7 @@ await evaluate(client, "document.querySelector('.term-menu')?.remove()");
   r.ok(
     'the pane actions are offered on the pane itself',
     labels.some((l) => l.includes('Launch an agent beside this pane')) &&
-      labels.some((l) => l.toLowerCase().includes('focus mode')),
+      labels.some((l) => l.includes('Full screen with only this pane')),
     labels.join(' | '),
   );
   r.ok(
