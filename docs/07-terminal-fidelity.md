@@ -484,8 +484,11 @@ line, "Copied 12 lines from the program", so a copy nobody made by hand is never
 
 The bell (`BEL`, what `tput bel` and `printf '\a'` send) flashes the pane's edge once, the visual
 bell other terminals have. When nobody is looking at the tab it flashes the tab's icon as well, the
-same way a finished command does, since a bell nobody sees is the case it exists for. One ring per
-pane in 400 milliseconds at most, because zsh rings on every completion that finds nothing. Settings,
+same way a finished command does, since a bell nobody sees is the case it exists for. Every ring
+flashes: the flash lasts 160 milliseconds and a new ring starts it again from the beginning, so
+holding Backspace at an empty prompt flashes once per press however fast the presses repeat. Rings
+within one frame of each other, such as `printf '\a\a\a'`, are one flash. An earlier limit of one
+ring per 400 milliseconds made the flash look random, appearing for some presses and not others. Settings,
 Terminals, **Flash when a program rings the bell** turns it off. The code is `osc52.ts` and `ringBell` in
 `terminal-page.ts`, and the `program-copy-bell` suite checks both, the reload included.
 

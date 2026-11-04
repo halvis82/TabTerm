@@ -3,7 +3,7 @@
 // Asked for after "programs can't copy to your clipboard": vim, tmux and anything over ssh copy by
 // asking the terminal, and TabTerm ignored it. And "add support for" the bell. Neither may happen
 // again when a reload puts the saved screen back, and a program may never read the clipboard.
-import { openTerminal, evaluate, waitFor, sleep, finish, type } from '../helpers.mjs';
+import { openTerminal, evaluate, waitFor, waitUntil, sleep, finish, type } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
 
 const r = reporter();
@@ -58,16 +58,18 @@ r.ok(
 );
 await setting('tabterm.programsMayCopy', true);
 
-// The bell, once, however many rang at once.
+// The bell, once, however many rang at once. Watched for rather than polled, since a flash is
+// shorter than the gap between two looks.
+await evaluate(
+  client,
+  `(() => { window.__rings = 0; new MutationObserver((list) => { for (const m of list) if (m.target.classList?.contains('bell-ring')) window.__rings++; }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] }); })()`,
+);
 await type(client, "printf '\\a\\a\\a'");
 r.ok(
   'the bell rings on the pane',
   await waitFor(client, `window.__tabterm.bellsRung().includes(${JSON.stringify(paneId)})`, 4000),
 );
-r.ok(
-  'and the pane flashes',
-  await waitFor(client, "document.querySelector('.pane.bell-ring') !== null", 1000),
-);
+r.ok('and the pane flashes', await waitFor(client, 'window.__rings > 0', 1000));
 await sleep(600);
 r.ok('three bells at once ring once', (await bells()).length === 1, JSON.stringify(await bells()));
 r.ok(
@@ -75,11 +77,27 @@ r.ok(
   await waitFor(client, "document.querySelector('.pane.bell-ring') === null", 2000),
 );
 
+/*
+ * Every ring flashes, however fast they come.
+ *
+ * Reported from holding Backspace at an empty ssh prompt: some presses flashed and some did not,
+ * because rings closer than 400 ms were dropped. Five rings 80 ms apart are five flashes.
+ */
+const beforeBurst = (await bells()).length;
+await type(client, "for i in 1 2 3 4 5; do printf '\\a'; sleep 0.08; done");
+await waitUntil(async () => (await bells()).length >= beforeBurst + 5, 4000);
+r.ok(
+  'five rings in quick succession flash five times',
+  (await bells()).length === beforeBurst + 5,
+  `${String((await bells()).length - beforeBurst)} of 5`,
+);
+await sleep(400);
+
 await setting('tabterm.showBell', false);
 await sleep(200);
 await type(client, "printf '\\a'");
 await sleep(800);
-r.ok('with the bell turned off, nothing shows', (await bells()).length === 1);
+r.ok('with the bell turned off, nothing shows', (await bells()).length === beforeBurst + 5);
 await setting('tabterm.showBell', true);
 
 // A reload puts the screen back, and is not the program copying or ringing again.

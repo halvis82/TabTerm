@@ -991,8 +991,18 @@ function programCopy(paneId: string, text: string): void {
   );
 }
 
-/** One ring per pane in this long at most. zsh rings on every completion that finds nothing. */
-const BELL_GAP_MS = 400;
+/**
+ * When each pane's flash ends, so a ring that arrives during one restarts it rather than being cut
+ * short by the timer of the ring before.
+ */
+const bellEnds = new Map<string, ReturnType<typeof setTimeout>>();
+/** As long as the flash in terminal.html, `bell-ring`. */
+const BELL_FLASH_MS = 160;
+/**
+ * Rings closer than one frame are one ring. `printf '\a\a\a'` arrives in a single write and
+ * three flashes in the same frame would be one anyway. Key repeat is never this fast.
+ */
+const BELL_SAME_FRAME_MS = 16;
 const lastBell = new Map<string, number>();
 
 /**
@@ -1001,20 +1011,33 @@ const lastBell = new Map<string, number>();
  * A brief flash on the pane, which is all a visual bell is in any terminal. When nobody is looking
  * at this tab it flashes the icon instead, the same way a finished command does, since a bell
  * nobody sees is the case it exists for: `make; tput bel` while you read something else.
+ *
+ * **Every ring flashes.** Rings closer together than 400 ms used to be dropped, so holding
+ * Backspace at an empty prompt flashed for some presses and not others, and the timer left by one
+ * ring took the class off the next one halfway through. A flash is now short enough to show once
+ * per press however fast the presses come, and each ring starts it again from the beginning.
  */
 function ringBell(paneId: string): void {
   if (!showBell) return;
   const now = performance.now();
-  if (now - (lastBell.get(paneId) ?? -Infinity) < BELL_GAP_MS) return;
+  if (now - (lastBell.get(paneId) ?? -Infinity) < BELL_SAME_FRAME_MS) return;
   lastBell.set(paneId, now);
   bellsRung.push(paneId);
+  if (bellsRung.length > 200) bellsRung.splice(0, bellsRung.length - 200);
   const el = document.querySelector<HTMLElement>(`.pane[data-pane-id="${CSS.escape(paneId)}"]`);
   if (el) {
+    clearTimeout(bellEnds.get(paneId));
     el.classList.remove('bell-ring');
     // Read back, so a second ring restarts the flash rather than continuing it.
     void el.offsetWidth;
     el.classList.add('bell-ring');
-    setTimeout(() => el.classList.remove('bell-ring'), 500);
+    bellEnds.set(
+      paneId,
+      setTimeout(() => {
+        el.classList.remove('bell-ring');
+        bellEnds.delete(paneId);
+      }, BELL_FLASH_MS + 40),
+    );
   }
   if (document.visibilityState === 'hidden' || !document.hasFocus()) {
     if (!tabFlasher.flashing) tabFlasher.start();
