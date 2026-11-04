@@ -192,6 +192,26 @@ Chrome restores the URL. The page attaches lazily on `visibilitychange`. See
 handled by the recovery page. Chrome offers no API to remove one entry from the recently-closed
 stack (`10-limitations.md` tier 0.2).
 
+### Restore after Chrome quit unexpectedly
+
+After a crash or a force quit Chrome does not put its tabs back by itself. It offers to, and waits
+for a click. TabTerm's startup does not wait: it reopens every terminal tab that was open, so the
+terminals are never alive and invisible. Pressing Chrome's Restore afterwards used to bring every
+terminal tab back a second time, groups included, so each tab and each group was there twice.
+
+The tabs TabTerm reopened are noted in `chrome.storage.session`. When a terminal tab with no opener
+appears for a workspace one of them shows, within thirty minutes of the reopen, it is Chrome
+restoring that tab, and TabTerm's copy closes in its favor. Chrome's copy is kept because it comes
+back in its own window, position and group beside the ordinary tabs it was with. A group TabTerm
+had recreated closes with its last tab. If TabTerm's copy was the active tab, Chrome's becomes the
+active one.
+
+Closing that copy ends nothing. Before a closed tab is reported, the worker asks Chrome whether
+another tab still shows the workspace, and here one does.
+
+A tab opened with an opener is not a restore. Duplicating a tab gives the copy an opener, so a
+duplicate still mirrors the workspace in two tabs as described above.
+
 ### Reloading the extension does not end anything, and does not duplicate anything
 
 Three separate events can mean "the extension has just started": `onStartup`, `onInstalled`, and

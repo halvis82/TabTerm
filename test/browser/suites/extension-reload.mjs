@@ -290,7 +290,47 @@ if (backTab) {
     where.title === 'reload-suite' && where.color === 'purple',
     JSON.stringify(where),
   );
+  /*
+   * A duplicate is a mirror and is left alone. It has an opener, which a restored tab does not.
+   */
+  await evaluate(
+    back,
+    `chrome.tabs.getCurrent().then((me) => chrome.tabs.duplicate(me.id)).then(() => 'ok')`,
+  );
+  await sleep(1500);
+  r.ok(
+    'duplicating the reopened tab still mirrors it in two tabs',
+    (await tabsFor()) === 2,
+    `${String(await tabsFor())} tabs`,
+  );
+  const twin = (await listTargets()).find(
+    (t) => t.id !== backTab.id && t.url.includes(`workspace=${workspace}`),
+  );
+  if (twin) {
+    await fetch(
+      `http://127.0.0.1:${process.env.TT_CDP_PORT ?? '9223'}/json/close/${twin.id}`,
+    ).catch(() => null);
+  }
+  await sleep(800);
   back.close?.();
+
+  /*
+   * Chrome's Restore after a crash, on top of the tab TabTerm reopened itself.
+   *
+   * Reported as two of every terminal tab and two of every group. The restored tab has no opener,
+   * the shape of a session restore, and TabTerm's own copy gives way to it.
+   */
+  await fetch(
+    `http://127.0.0.1:${process.env.TT_CDP_PORT ?? '9223'}/json/new?${encodeURIComponent(backTab.url)}`,
+    { method: 'PUT' },
+  ).catch(() => null);
+  const single = await waitUntil(async () => (await tabsFor()) === 1, 8000);
+  const left = (await listTargets()).filter((t) => t.url.includes(`workspace=${workspace}`));
+  r.ok(
+    "Chrome restoring a tab TabTerm already reopened leaves one tab, Chrome's",
+    single && left.length === 1 && left[0]?.id !== backTab.id,
+    JSON.stringify(left.map((t) => (t.id === backTab.id ? 'ours' : 'restored'))),
+  );
 } else {
   r.ok('and it is showing a terminal, not an expiry notice', false, 'no tab came back');
 }

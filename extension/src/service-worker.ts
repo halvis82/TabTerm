@@ -705,6 +705,7 @@ async function reopenAfterReload(): Promise<void> {
         active: false,
         ...(windowId === undefined ? {} : { windowId, index: place?.index ?? -1 }),
       });
+      if (created.id !== undefined) await rememberReopened(created.id, id);
       if (place !== undefined && created.id !== undefined) {
         await regroup(created.id, place, windowId, groupsPutBack);
       }
@@ -738,13 +739,100 @@ async function reopenAfterReload(): Promise<void> {
 /** How long a workspace nobody could put a tab back for is still claimed as open. */
 const CLAIM_GRACE_MS = 120_000;
 
+/**
+ * Tabs this extension reopened itself at startup, so they can give way to Chrome's own restore.
+ *
+ * After Chrome quits unexpectedly it does not put its tabs back by itself, it offers to. TabTerm's
+ * startup puts the terminal tabs back straight away, because otherwise the terminals are alive
+ * and invisible. Pressing Restore then brought every one of them back a second time, in their
+ * groups, so each terminal tab and each group was there twice.
+ *
+ * Chrome's copy is the one kept. It comes back in its own window, position and group beside the
+ * ordinary tabs it was with, which TabTerm's copy can only approximate. TabTerm's copy is closed,
+ * and a group it had to recreate goes with its last tab. Closing it ends nothing: the workspace is
+ * still shown, by Chrome's tab, so the close is not a tab closing as far as the daemon is told.
+ *
+ * Only a tab with no opener counts as a restore. A duplicate, or a tab opened from another, has
+ * one, and showing the same workspace in two tabs on purpose is a mirror (ADR-0011), not this.
+ */
+const REOPENED_KEY = 'tabterm.reopenedTabs';
+/** How long after startup a restore is still taken for one. Chrome's offer waits for a click. */
+const RESTORE_WINDOW_MS = 30 * 60_000;
+
+type Reopened = Record<string, { workspaceId: string; at: number }>;
+
+async function readReopened(): Promise<Reopened> {
+  try {
+    const stored = (await chrome.storage.session.get(REOPENED_KEY)) as Record<string, unknown>;
+    const raw = stored[REOPENED_KEY];
+    return typeof raw === 'object' && raw !== null ? (raw as Reopened) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function rememberReopened(tabId: number, workspaceId: string): Promise<void> {
+  try {
+    const now = await readReopened();
+    now[String(tabId)] = { workspaceId, at: Date.now() };
+    await chrome.storage.session.set({ [REOPENED_KEY]: now });
+  } catch {
+    /* Without the note a restore leaves two tabs, which is what happened before. Nothing worse. */
+  }
+}
+
+async function forgetReopened(tabId: number): Promise<void> {
+  const now = await readReopened();
+  if (!(String(tabId) in now)) return;
+  delete now[String(tabId)];
+  await chrome.storage.session.set({ [REOPENED_KEY]: now }).catch(() => undefined);
+}
+
+function workspaceOf(url: string | undefined): string | null {
+  const base = chrome.runtime.getURL('terminal.html');
+  if (url === undefined || !url.startsWith(base)) return null;
+  const id = new URL(url).searchParams.get('workspace');
+  return id === null || id === '' ? null : id;
+}
+
+/** A terminal tab appeared. If it is Chrome restoring one TabTerm already reopened, give way. */
+async function giveWayToRestoredTab(tab: chrome.tabs.Tab): Promise<void> {
+  if (tab.id === undefined || tab.openerTabId !== undefined) return;
+  const workspaceId = workspaceOf(tab.pendingUrl ?? tab.url);
+  if (workspaceId === null) return;
+  const reopened = await readReopened();
+  if (String(tab.id) in reopened) return;
+  const now = Date.now();
+  const ours = Object.entries(reopened).filter(
+    ([, r]) => r.workspaceId === workspaceId && now - r.at < RESTORE_WINDOW_MS,
+  );
+  for (const [ourId] of ours) {
+    try {
+      const mine = await chrome.tabs.get(Number(ourId));
+      if (workspaceOf(mine.url ?? mine.pendingUrl) !== workspaceId) continue;
+      if (mine.active) await chrome.tabs.update(tab.id, { active: true });
+      await chrome.tabs.remove(Number(ourId));
+    } catch {
+      /* Closed already. */
+    }
+    await forgetReopened(Number(ourId));
+  }
+}
+
 chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+  void forgetReopened(tabId);
   void tabWasRemoved(tabId, removeInfo).finally(() => void reportOpenTabs());
 });
-chrome.tabs.onCreated.addListener(() => void reportOpenTabs());
-chrome.tabs.onUpdated.addListener((_id, changed) => {
+chrome.tabs.onCreated.addListener((tab) => {
+  void giveWayToRestoredTab(tab);
+  void reportOpenTabs();
+});
+chrome.tabs.onUpdated.addListener((_id, changed, tab) => {
   // Only when the URL changed: a title or a favicon says nothing about which workspaces exist.
-  if (changed.url !== undefined) void reportOpenTabs();
+  if (changed.url !== undefined) {
+    void giveWayToRestoredTab(tab);
+    void reportOpenTabs();
+  }
 });
 chrome.tabs.onReplaced.addListener(() => void reportOpenTabs());
 /**
