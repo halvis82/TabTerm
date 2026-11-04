@@ -7,6 +7,7 @@ import {
   cleanLabelColor,
   cleanPaneLabel,
   closePane,
+  lastPane,
   findPane,
   isValidLayout,
   paneCount,
@@ -94,6 +95,38 @@ describe('layout tree', () => {
     expect(isValidLayout(t)).toBe(true);
     t = setRatio(t, 'p1', 0.7);
     expect((t as { ratio: number }).ratio).toBeCloseTo(0.7);
+  });
+
+  /**
+   * ((A / B) + C), the outer divider dragged and then B closed.
+   *
+   * The outer divider was named by A and the ratio landed on the inner split, so closing B
+   * collapsed the inner split and took the only stored drag with it: the tab went back to halves.
+   */
+  it('a dragged outer divider is stored on the outer split and survives a close', () => {
+    let t = splitPane(root(), 'p1', 'horizontal', 'p3', 's3');
+    t = splitPane(t, 'p1', 'vertical', 'p2', 's2');
+    if (t.type !== 'split') throw new Error('expected a split');
+    t = setRatio(t, lastPane(t.children[0]), 0.8);
+    const outer = t as Extract<LayoutNode, { type: 'split' }>;
+    expect(outer.ratio).toBeCloseTo(0.8);
+    expect((outer.children[0] as { ratio: number }).ratio).toBeCloseTo(0.5);
+    const closed = closePane(t, 'p2') as { ratio: number };
+    expect(closed.ratio).toBeCloseTo(0.8);
+  });
+
+  it('names every split by a different pane, so any divider can be set alone', () => {
+    // ((p1 / p2) + (p3 / p4)): the outer split has no pane of its own at all.
+    let t = splitPane(root(), 'p1', 'horizontal', 'p3', 's3');
+    t = splitPane(t, 'p1', 'vertical', 'p2', 's2');
+    t = splitPane(t, 'p3', 'vertical', 'p4', 's4');
+    const ratios = (n: LayoutNode): number[] =>
+      n.type === 'terminal' ? [] : [n.ratio, ...ratios(n.children[0]), ...ratios(n.children[1])];
+    expect(ratios(setRatio(t, 'p2', 0.7))).toEqual([0.7, 0.5, 0.5]);
+    expect(ratios(setRatio(t, 'p1', 0.3))).toEqual([0.5, 0.3, 0.5]);
+    expect(ratios(setRatio(t, 'p3', 0.6))).toEqual([0.5, 0.5, 0.6]);
+    // The last pane has no divider after it, and means the split it is the second half of.
+    expect(ratios(setRatio(t, 'p4', 0.6))).toEqual([0.5, 0.5, 0.6]);
   });
 
   it('swaps two panes without changing the shape', () => {

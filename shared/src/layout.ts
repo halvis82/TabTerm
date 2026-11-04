@@ -235,21 +235,47 @@ export function insertPane(
   return splitPane(root, targetPaneId, direction, newPaneId, sessionId);
 }
 
-/** Change the ratio of the split that directly contains a pane. */
+/**
+ * Change the ratio of the split whose divider sits just after a pane.
+ *
+ * Named by the last pane on the divider's left or top side. That pane is the one thing that tells
+ * every split apart: reading the panes in order, each split owns exactly one gap between two
+ * neighbors, so no two splits share a last-pane-before-the-divider.
+ *
+ * It used to be "the split that directly contains this pane", and the page named a divider by the
+ * first pane on its left. Those agree only when that side is a single pane. In `((A / B) + C)` the
+ * outer divider was named by A, the split directly containing A is the inner one, and so dragging
+ * the outer divider resized nothing that was stored: the drag stayed on screen until the next
+ * redraw, a closed pane for instance, and the tab went back to halves.
+ *
+ * A pane that is a direct first child is still its own split's last-before-divider, so a single
+ * pane on the left, which is what every older caller sends, means the same split as before.
+ */
 export function setRatio(root: LayoutNode, paneId: string, ratio: number): LayoutNode {
   const clamped = clampRatio(ratio);
+  /*
+   * The very last pane has no divider after it. The old rule also accepted a pane that was a
+   * split's direct second child, so for that one pane the split holding it is still meant.
+   */
+  const named = (node: LayoutNode & { type: 'split' }): boolean =>
+    lastPane(node.children[0]) === paneId ||
+    (lastPane(root) === paneId &&
+      node.children[1].type === 'terminal' &&
+      node.children[1].paneId === paneId);
   const walk = (node: LayoutNode): LayoutNode => {
     if (node.type === 'terminal') return node;
-    const directlyContains =
-      (node.children[0].type === 'terminal' && node.children[0].paneId === paneId) ||
-      (node.children[1].type === 'terminal' && node.children[1].paneId === paneId);
     const next: LayoutNode = {
       ...node,
       children: [walk(node.children[0]), walk(node.children[1])],
     };
-    return directlyContains ? { ...next, ratio: clamped } : next;
+    return named(node) ? { ...next, ratio: clamped } : next;
   };
   return walk(root);
+}
+
+/** The last pane of a subtree, reading left to right and top to bottom. */
+export function lastPane(node: LayoutNode): string {
+  return node.type === 'terminal' ? node.paneId : lastPane(node.children[1]);
 }
 
 /** Swap two panes in place, keeping the tree shape. */

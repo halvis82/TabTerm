@@ -130,6 +130,18 @@ Layout invariants, enforced on every write and property-tested:
 4. `0.05 <= ratio <= 0.95`
 5. Removing a pane collapses its parent split into the sibling, never leaves a one-child split
 
+**A split is named by the last pane before its divider.** `set-ratio` carries a `paneId`, and the
+split it changes is the one whose first child ends with that pane, reading left to right and top
+to bottom. Every split owns exactly one gap between two neighboring panes, so this names any
+divider unambiguously, including an outer one in `((A / B) + (C / D))` that holds no pane directly.
+The last pane of the whole layout has no divider after it and names the split it is the second
+child of.
+
+Naming a split by "the split that directly holds this pane" was not enough: in `((A / B) + C)` a
+drag of the outer divider was stored on the inner split, so it lasted only until the next redraw
+and closing B put the two remaining panes back to halves. Removing a pane keeps every other ratio
+as it was.
+
 A workspace with a single pane is a `LayoutNode` of type `terminal` at the root. A standalone
 terminal tab is a workspace with one pane. There is no separate "single terminal" concept, which is
 what makes merge and detach symmetric operations rather than special cases.

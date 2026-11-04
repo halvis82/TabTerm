@@ -1,4 +1,4 @@
-import type { LayoutNode } from '@tabterm/shared';
+import { lastPane, type LayoutNode } from '@tabterm/shared';
 import { PANE_DRAG_TYPE } from '../terminal/drop-zone.js';
 
 /**
@@ -252,8 +252,8 @@ export class SplitView {
         divider.classList.remove('dragging');
         divider.removeEventListener('pointermove', move);
         divider.removeEventListener('pointerup', up);
-        const anchor = leftmostPane(node.children[0]);
-        if (anchor) this.#opts.onRatioChange(anchor, ratio);
+        // The last pane before the divider, which is how `setRatio` tells one split from another.
+        this.#opts.onRatioChange(lastPane(node.children[0]), ratio);
       };
       divider.addEventListener('pointermove', move);
       divider.addEventListener('pointerup', up);
@@ -457,9 +457,4 @@ export class SplitView {
 export function collectPanes(node: LayoutNode): string[] {
   if (node.type === 'terminal') return [node.paneId];
   return [...collectPanes(node.children[0]), ...collectPanes(node.children[1])];
-}
-
-function leftmostPane(node: LayoutNode): string | null {
-  if (node.type === 'terminal') return node.paneId;
-  return leftmostPane(node.children[0]);
 }

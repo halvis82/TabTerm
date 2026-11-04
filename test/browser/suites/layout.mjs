@@ -12,6 +12,7 @@ import {
   type,
   finish,
   boxOf,
+  waitFor,
   waitUntil,
 } from '../helpers.mjs';
 import { reporter } from '../cdp.mjs';
@@ -259,6 +260,88 @@ r.ok(
     'and the refreshed tab puts it back in the same place, to the pixel',
     Math.abs(settled - afterDrag) <= 1,
     `dragged to ${String(afterDrag)}, came back ${String(settled)}`,
+  );
+}
+
+/**
+ * A dragged outer divider is kept when a pane inside one side closes.
+ *
+ * Reported with ((1 / 1) + 1): the left pair dragged wide, the bottom left closed, and the two that
+ * were left went back to halves. The outer divider was saved onto the inner split, so the drag
+ * lived only on screen until the next redraw.
+ */
+{
+  const t = await openTerminal();
+  await waitFor(t.client, "document.querySelector('.launcher-input')");
+  await type(t.client, 'echo three-panes\r');
+  await waitFor(t.client, `(window.__tabterm.readScreen() ?? '').includes('three-panes')`, 15000);
+  const ids = async () =>
+    JSON.parse(String(await evaluate(t.client, 'JSON.stringify(window.__tabterm.paneIds())')));
+  const first = (await ids())[0];
+  await evaluate(t.client, `window.__tabterm.split('horizontal')`);
+  await waitUntil(async () => (await ids()).length === 2, 20000);
+  await evaluate(t.client, `window.__tabterm.focus(${JSON.stringify(first)})`);
+  await sleep(300);
+  await evaluate(t.client, `window.__tabterm.split('vertical')`);
+  await waitUntil(async () => (await ids()).length === 3, 20000);
+  await sleep(800);
+
+  const leftWidth = async () =>
+    Math.round(
+      Number(
+        await evaluate(
+          t.client,
+          `document.querySelector('.pane[data-pane-id="' + CSS.escape(${JSON.stringify(first)}) + '"]')?.getBoundingClientRect().width ?? 0`,
+        ),
+      ),
+    );
+  const bar = await boxOf(t.client, '#terminal > .split-horizontal > .divider');
+  const midY = Math.round(bar.y + bar.height / 2);
+  const startX = Math.round(bar.x + bar.width / 2);
+  await t.client.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: startX,
+    y: midY,
+    button: 'left',
+    clickCount: 1,
+  });
+  const target = startX + 180;
+  for (const x of [startX + 60, startX + 120, target]) {
+    await t.client.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x,
+      y: midY,
+      button: 'left',
+    });
+    await sleep(60);
+  }
+  await t.client.send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: target,
+    y: midY,
+    button: 'left',
+    clickCount: 1,
+  });
+  await sleep(600);
+  const dragged = await leftWidth();
+
+  // Reading order is top left, bottom left, right.
+  const closing = (await ids())[1];
+  await evaluate(t.client, `window.__tabterm.focus(${JSON.stringify(closing)})`);
+  await sleep(200);
+  await evaluate(t.client, `window.__tabterm.closePane()`);
+  await waitUntil(async () => (await ids()).length === 2, 20000);
+  let settled = 0;
+  await waitUntil(async () => {
+    const now = await leftWidth();
+    if (now > 0 && now === settled) return true;
+    settled = now;
+    return false;
+  }, 20000);
+  r.ok(
+    'closing the bottom left of ((1 / 1) + 1) keeps the outer divider where it was dragged',
+    dragged > 0 && Math.abs(settled - dragged) <= 2,
+    `dragged to ${String(dragged)}, after the close ${String(settled)}`,
   );
 }
 
