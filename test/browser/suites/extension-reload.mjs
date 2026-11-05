@@ -331,6 +331,51 @@ if (backTab) {
     single && left.length === 1 && left[0]?.id !== backTab.id,
     JSON.stringify(left.map((t) => (t.id === backTab.id ? 'ours' : 'restored'))),
   );
+
+  /*
+   * And the shapes a real Restore has that the one above does not.
+   *
+   * The check above passed and a real Chrome still came back with every tab twice. A restored tab
+   * can have an opener that is some other page, which is not a mirror. Starts from a fresh TabTerm
+   * copy, as a crash leaves it.
+   */
+  const ourCopy = async () => {
+    for (const t of (await listTargets()).filter((t) => t.url.includes(`workspace=${workspace}`))) {
+      await fetch(`http://127.0.0.1:${process.env.TT_CDP_PORT ?? '9223'}/json/close/${t.id}`).catch(
+        () => null,
+      );
+    }
+    await sleep(800);
+    // Closing them all leaves nothing remembered, so it is remembered again, as a crash leaves it.
+    await inWorker(
+      `chrome.storage.local.set({ 'tabterm.openWorkspaces': [${JSON.stringify(workspace)}] })`,
+    );
+    await inWorker(`globalThis.__tabtermReopen(true).then(() => 'done')`);
+    await waitUntil(async () => (await tabsFor()) === 1, 8000);
+  };
+  const terminalUrl = JSON.stringify(backTab.url);
+  const shapes = [
+    [
+      'a restored tab whose opener is some other page still counts as the restore',
+      `chrome.tabs.create({ url: 'about:blank', active: false }).then((page) => chrome.tabs.create({ url: ${terminalUrl}, openerTabId: page.id, active: false })).then((t) => String(t.openerTabId !== undefined))`,
+    ],
+  ];
+  for (const [name, make] of shapes) {
+    await ourCopy();
+    const oursId = (await listTargets()).find((t) => t.url.includes(`workspace=${workspace}`))?.id;
+    const made = String(await inWorker(make));
+    const one = await waitUntil(async () => (await tabsFor()) === 1, 8000);
+    const left = (await listTargets()).filter((t) => t.url.includes(`workspace=${workspace}`));
+    r.ok(
+      name,
+      oursId !== undefined && made === 'true' && one && left.length === 1 && left[0]?.id !== oursId,
+      JSON.stringify({
+        ours: oursId ?? null,
+        made,
+        left: left.map((t) => (t.id === oursId ? 'ours' : 'restored')),
+      }),
+    );
+  }
 } else {
   r.ok('and it is showing a terminal, not an expiry notice', false, 'no tab came back');
 }

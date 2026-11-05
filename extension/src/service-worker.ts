@@ -752,8 +752,8 @@ const CLAIM_GRACE_MS = 120_000;
  * and a group it had to recreate goes with its last tab. Closing it ends nothing: the workspace is
  * still shown, by Chrome's tab, so the close is not a tab closing as far as the daemon is told.
  *
- * Only a tab with no opener counts as a restore. A duplicate, or a tab opened from another, has
- * one, and showing the same workspace in two tabs on purpose is a mirror (ADR-0011), not this.
+ * A tab opened from one showing the same workspace is not a restore. That is what Duplicate makes,
+ * and showing the same workspace in two tabs on purpose is a mirror (ADR-0011), not this.
  */
 const REOPENED_KEY = 'tabterm.reopenedTabs';
 /** How long after startup a restore is still taken for one. Chrome's offer waits for a click. */
@@ -795,28 +795,108 @@ function workspaceOf(url: string | undefined): string | null {
   return id === null || id === '' ? null : id;
 }
 
-/** A terminal tab appeared. If it is Chrome restoring one TabTerm already reopened, give way. */
-async function giveWayToRestoredTab(tab: chrome.tabs.Tab): Promise<void> {
-  if (tab.id === undefined || tab.openerTabId !== undefined) return;
-  const workspaceId = workspaceOf(tab.pendingUrl ?? tab.url);
-  if (workspaceId === null) return;
+/**
+ * What the last restore checks saw, kept on disk for diagnosis.
+ *
+ * The first version of this decided from the tab in the event alone, passed every check in the
+ * test browser, and left every tab doubled in a real Chrome after a real Restore. Nothing showed
+ * why, because a real Restore cannot be driven from a test. This records what was seen, so the
+ * next time it can be read instead of guessed.
+ */
+const RESTORE_TRACE_KEY = 'tabterm.restoreTrace';
+
+async function traceRestore(entry: Record<string, unknown>): Promise<void> {
+  try {
+    const stored = (await chrome.storage.local.get(RESTORE_TRACE_KEY)) as Record<string, unknown>;
+    const raw = stored[RESTORE_TRACE_KEY];
+    const list = Array.isArray(raw) ? raw.slice(-59) : [];
+    list.push({ at: new Date().toISOString(), ...entry });
+    await chrome.storage.local.set({ [RESTORE_TRACE_KEY]: list });
+  } catch {
+    /* A trace is for reading later. Losing one changes nothing. */
+  }
+}
+
+/**
+ * Looks at every tab, not at the tab an event was about, and gives way where Chrome restored one.
+ *
+ * Every tab, because the tab an event carries is a snapshot from when it was inserted, and a
+ * restored tab's address is not reliably there yet. A TabTerm copy is closed when another tab shows
+ * its workspace and that tab is not a mirror, meaning a tab opened from one showing the same
+ * workspace, which is what Duplicate makes (ADR-0011).
+ */
+async function giveWayToRestoredTabs(): Promise<void> {
   const reopened = await readReopened();
-  if (String(tab.id) in reopened) return;
   const now = Date.now();
-  const ours = Object.entries(reopened).filter(
-    ([, r]) => r.workspaceId === workspaceId && now - r.at < RESTORE_WINDOW_MS,
-  );
-  for (const [ourId] of ours) {
+  const ours = Object.entries(reopened).filter(([, r]) => now - r.at < RESTORE_WINDOW_MS);
+  if (ours.length === 0) return;
+  const tabs = await chrome.tabs.query({});
+  const byId = new Map(tabs.map((t) => [t.id, t]));
+  const shows = (t: chrome.tabs.Tab | undefined): string | null =>
+    t === undefined ? null : workspaceOf(t.url || t.pendingUrl);
+  for (const [ourId, r] of ours) {
+    const mine = byId.get(Number(ourId));
+    if (mine?.id === undefined || shows(mine) !== r.workspaceId) {
+      await forgetReopened(Number(ourId));
+      continue;
+    }
+    const others = tabs.filter(
+      (t) => t.id !== mine.id && !(String(t.id) in reopened) && shows(t) === r.workspaceId,
+    );
+    const restored = others.find(
+      (t) => t.openerTabId === undefined || shows(byId.get(t.openerTabId)) !== r.workspaceId,
+    );
+    if (others.length > 0) {
+      await traceRestore({
+        workspace: r.workspaceId,
+        ours: mine.id,
+        others: others.map((t) => ({ id: t.id, opener: t.openerTabId ?? null })),
+        closing: restored !== undefined,
+      });
+    }
+    if (restored?.id === undefined) continue;
     try {
-      const mine = await chrome.tabs.get(Number(ourId));
-      if (workspaceOf(mine.url ?? mine.pendingUrl) !== workspaceId) continue;
-      if (mine.active) await chrome.tabs.update(tab.id, { active: true });
-      await chrome.tabs.remove(Number(ourId));
+      if (mine.active) await chrome.tabs.update(restored.id, { active: true });
+      await chrome.tabs.remove(mine.id);
     } catch {
       /* Closed already. */
     }
-    await forgetReopened(Number(ourId));
+    await forgetReopened(mine.id);
   }
+}
+
+/**
+ * Checked now and again shortly after, since a restored tab's address can arrive after the tab.
+ *
+ * Coalesced, so a restore of forty tabs is a handful of checks rather than a hundred and twenty.
+ */
+let restoreCheck: ReturnType<typeof setTimeout> | undefined;
+let restoreChecksLeft = 0;
+function checkForRestoredTabs(): void {
+  restoreChecksLeft = 4;
+  if (restoreCheck !== undefined) return;
+  const run = (): void => {
+    restoreCheck = undefined;
+    void giveWayToRestoredTabs().finally(() => {
+      restoreChecksLeft -= 1;
+      if (restoreChecksLeft > 0) restoreCheck = setTimeout(run, 1000);
+    });
+  };
+  restoreCheck = setTimeout(run, 150);
+}
+
+async function noteNewTab(tab: chrome.tabs.Tab): Promise<void> {
+  const reopened = await readReopened();
+  if (Object.keys(reopened).length === 0) return;
+  if (tab.id !== undefined && String(tab.id) in reopened) return;
+  const url = tab.url || tab.pendingUrl || '';
+  if (url !== '' && workspaceOf(url) === null) return;
+  await traceRestore({
+    created: tab.id,
+    url,
+    opener: tab.openerTabId ?? null,
+    status: tab.status ?? null,
+  });
 }
 
 chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
@@ -824,17 +904,20 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
   void tabWasRemoved(tabId, removeInfo).finally(() => void reportOpenTabs());
 });
 chrome.tabs.onCreated.addListener((tab) => {
-  void giveWayToRestoredTab(tab);
+  void noteNewTab(tab);
+  checkForRestoredTabs();
   void reportOpenTabs();
 });
-chrome.tabs.onUpdated.addListener((_id, changed, tab) => {
+chrome.tabs.onUpdated.addListener((_id, changed) => {
+  // A restored tab's address and loading both say it may now be recognizable as a restore.
+  if (changed.url !== undefined || changed.status !== undefined) checkForRestoredTabs();
   // Only when the URL changed: a title or a favicon says nothing about which workspaces exist.
-  if (changed.url !== undefined) {
-    void giveWayToRestoredTab(tab);
-    void reportOpenTabs();
-  }
+  if (changed.url !== undefined) void reportOpenTabs();
 });
-chrome.tabs.onReplaced.addListener(() => void reportOpenTabs());
+chrome.tabs.onReplaced.addListener(() => {
+  checkForRestoredTabs();
+  void reportOpenTabs();
+});
 /**
  * Moving, grouping and ungrouping a tab change where it is without changing which exist.
  *

@@ -199,18 +199,26 @@ for a click. TabTerm's startup does not wait: it reopens every terminal tab that
 terminals are never alive and invisible. Pressing Chrome's Restore afterwards used to bring every
 terminal tab back a second time, groups included, so each tab and each group was there twice.
 
-The tabs TabTerm reopened are noted in `chrome.storage.session`. When a terminal tab with no opener
-appears for a workspace one of them shows, within thirty minutes of the reopen, it is Chrome
-restoring that tab, and TabTerm's copy closes in its favor. Chrome's copy is kept because it comes
-back in its own window, position and group beside the ordinary tabs it was with. A group TabTerm
-had recreated closes with its last tab. If TabTerm's copy was the active tab, Chrome's becomes the
-active one.
+The tabs TabTerm reopened are noted in `chrome.storage.session`. For thirty minutes after the
+reopen, whenever a tab appears, changes address, finishes loading or is replaced, the worker looks at
+every tab, not just the one the event names, and does so again a few times over the next seconds.
+A restored tab's address can arrive after the tab itself, which is why the event's own snapshot is
+not enough. When another tab shows a workspace one of TabTerm's copies shows, and that tab is not a
+mirror, it is Chrome restoring the tab, and TabTerm's copy closes in its favor. Chrome's copy is
+kept because it comes back in its own window, position and group beside the ordinary tabs it was
+with. A group TabTerm had recreated closes with its last tab. If TabTerm's copy was the active tab,
+Chrome's becomes the active one.
 
 Closing that copy ends nothing. Before a closed tab is reported, the worker asks Chrome whether
 another tab still shows the workspace, and here one does.
 
-A tab opened with an opener is not a restore. Duplicating a tab gives the copy an opener, so a
-duplicate still mirrors the workspace in two tabs as described above.
+A mirror is a tab opened from one showing the same workspace, which is what Duplicate makes, so a
+duplicate still mirrors the workspace in two tabs as described above. A restored tab may have an
+opener too, but it is some other page, so it does not count as a mirror.
+
+Each of these checks that finds a second tab, and each new tab during the thirty minutes, is written
+to `tabterm.restoreTrace` in `chrome.storage.local`, the last sixty of them. A real Restore cannot be
+driven from the test browser, so this is how a failure there gets read rather than guessed.
 
 ### Reloading the extension does not end anything, and does not duplicate anything
 
