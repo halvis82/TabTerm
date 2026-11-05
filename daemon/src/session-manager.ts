@@ -987,6 +987,7 @@ export class SessionManager {
   }
 
   setPinned(session: Session, pinned: boolean): void {
+    const was = session.pinned;
     session.pinned = pinned;
     if (pinned && session.reapTimer) {
       clearTimeout(session.reapTimer);
@@ -994,6 +995,26 @@ export class SessionManager {
       delete session.reapDueAt;
       delete session.reapReason;
     }
+    if (pinned || !was) return;
+    /**
+     * Turning Keep alive off starts the timeout now, however long the tab has been gone.
+     *
+     * The clock is counted from when the workspace went to the background, and that kept running
+     * underneath the pin. So a terminal kept alive for a day, then let go, was already a day past
+     * a thirty minute timeout and ended on the next look, which is not what letting it go means.
+     * Asked for as: the timer should start then, even if it has been in the background longer.
+     *
+     * Moved forward for the workspace rather than this session alone, because that is the clock
+     * that survives a daemon restart. Another pane in the same closed tab gets the same fresh
+     * timeout, which errs toward keeping a terminal.
+     */
+    const workspaceId = this.#workspaceOf?.(session.id);
+    if (workspaceId !== undefined && this.#backgroundSince.has(workspaceId)) {
+      this.#setBackgroundSince(workspaceId, { at: Date.now(), reason: 'kept-alive-ended' });
+    }
+    delete session.reapDueAt;
+    delete session.reapReason;
+    this.#rescheduleReapIfIdle(session);
   }
 
   /**

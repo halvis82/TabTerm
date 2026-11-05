@@ -383,6 +383,12 @@ in purple. The flag is written to the database and read back when a restarted da
 session, so an update does not quietly stop keeping it. The same entry takes it back, and
 `Kill session` still ends it by hand.
 
+Taking it back on a terminal whose tab is already closed starts the background timeout at that
+moment, however long the tab has been gone. The background clock for its workspace is moved to
+now and the session is reconsidered straight away, so a terminal kept alive for a day and then let
+go gets the whole timeout, not an ending on the next look. Another pane in the same closed tab gets
+the same fresh timeout. Checked with the real timer in `keep-alive-off-restarts-timeout.test.ts`.
+
 ```
 if pinned or persistent:
     never reap
