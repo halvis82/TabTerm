@@ -270,6 +270,8 @@ export class AttentionMonitor {
   #concerns: Concern[] = [];
   #timer: ReturnType<typeof setInterval> | undefined;
   #running: Promise<void> | null = null;
+  /** Told what to believe by a test daemon, which then stops looking for itself. */
+  #pretending = false;
   readonly #opts: AttentionMonitorOptions;
 
   constructor(opts: AttentionMonitorOptions) {
@@ -295,6 +297,7 @@ export class AttentionMonitor {
   check(): Promise<void> {
     this.#running ??= (async () => {
       try {
+        if (this.#pretending) return;
         const facts = await this.#opts.gather();
         const next = judgeAttention(facts);
         if (!sameConcerns(this.#concerns, next)) {
@@ -313,6 +316,12 @@ export class AttentionMonitor {
 
   /** What a test daemon is told to believe, so the surfaces can be driven without a broken Mac. */
   pretend(concerns: Concern[]): void {
+    /*
+     * And kept: the next real look replaced it. That look comes fifteen seconds after the daemon
+     * starts and every five after, so a suite passed only when it happened to finish first, and
+     * failed in a full run whenever it started late.
+     */
+    this.#pretending = true;
     this.#concerns = concerns;
     this.#opts.changed(concerns);
   }
