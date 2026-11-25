@@ -127,8 +127,13 @@ export function createPathLinkProvider(term: Terminal, opts: PathLinkOptions): I
        * holding one, and a link it is holding is re-asked for when the rows under it are drawn.
        * So `refreshLinks()` on the way down is enough to light it up under a pointer that never
        * moved. Nothing is visible and nothing opens until Command is actually held.
+       *
+       * Read when it is used, never once for the line. The answer is kept until the pointer
+       * changes lines, so a value taken when the line was asked about went on answering for it:
+       * Command pressed with the pointer to the left of a path, then moved right onto the path,
+       * lit nothing until the pointer left the line. Reported exactly that way.
        */
-      const held = opts.modifierHeld();
+      const held = (): boolean => opts.modifierHeld();
 
       const line = readLogicalLine(term, bufferLineNumber - 1);
       if (!line) {
@@ -165,29 +170,34 @@ export function createPathLinkProvider(term: Terminal, opts: PathLinkOptions): I
         };
       };
 
-      const hoverable = (link: ILink): ILink => ({
-        ...link,
-        /*
-         * The pointer is xterm's. The underline is not.
-         *
-         * xterm draws its link underline in the cell's own color, which is not the color the link
-         * is being drawn in, so the two disagreed. Ours is drawn with the mark below, from one
-         * color, and appears only while the pointer is actually on the link. The cursor used to
-         * change for the whole screen the moment the modifier went down, which said "something
-         * here is clickable" without saying what.
-         */
-        decorations: { pointerCursor: held, underline: false },
-        hover: () => {
-          clearHighlight();
-          if (!held) return;
-          highlight = paintRange(term, link.range, colorFor(term, link.range));
-          opts.onHover?.(link.text, link.range);
-        },
-        leave: () => {
-          clearHighlight();
-          opts.onLeave?.();
-        },
-      });
+      const hoverable = (link: ILink): ILink => {
+        const made: ILink = {
+          ...link,
+          /*
+           * The pointer is xterm's. The underline is not.
+           *
+           * xterm draws its link underline in the cell's own color, which is not the color the link
+           * is being drawn in, so the two disagreed. Ours is drawn with the mark below, from one
+           * color, and appears only while the pointer is actually on the link. The cursor used to
+           * change for the whole screen the moment the modifier went down, which said "something
+           * here is clickable" without saying what.
+           */
+          decorations: { pointerCursor: held(), underline: false },
+          hover: () => {
+            clearHighlight();
+            // xterm read the cursor from the line's answer before calling this, so it is set again.
+            if (made.decorations) made.decorations.pointerCursor = held();
+            if (!held()) return;
+            highlight = paintRange(term, link.range, colorFor(term, link.range));
+            opts.onHover?.(link.text, link.range);
+          },
+          leave: () => {
+            clearHighlight();
+            opts.onLeave?.();
+          },
+        };
+        return made;
+      };
 
       for (const u of urls) {
         const range = rangeFor(u);
@@ -197,7 +207,7 @@ export function createPathLinkProvider(term: Terminal, opts: PathLinkOptions): I
             text: u.text,
             range,
             activate: (event) => {
-              if (!held || !isPrimaryClick(event)) return;
+              if (!held() || !isPrimaryClick(event)) return;
               opts.openUrl(u.text);
             },
           }),
@@ -218,7 +228,7 @@ export function createPathLinkProvider(term: Terminal, opts: PathLinkOptions): I
             activate: (event) => {
               // A link exists without the modifier so that pressing it later can light one up.
               // Clicking one without it is an ordinary click in a terminal and stays that way.
-              if (!held || !isPrimaryClick(event)) return;
+              if (!held() || !isPrimaryClick(event)) return;
               opts.activate(resolved, event);
             },
           }),

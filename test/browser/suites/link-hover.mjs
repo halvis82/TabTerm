@@ -102,5 +102,61 @@ await client.send('Input.dispatchMouseEvent', {
 await sleep(1500);
 r.ok('without Command a path is inert', !(await pointer()));
 
+/**
+ * Command pressed on the path's own line, to the left of the path, then the pointer moved right.
+ *
+ * xterm asks about a line once, when the pointer arrives on it, and keeps the answer. The provider
+ * used to fold whether Command was down into that answer, so here it answered "up" and the path
+ * stayed dark until the pointer changed lines. Reported exactly that way.
+ */
+{
+  const PREFIX = 'lead-in text before';
+  await type(client, `echo ${PREFIX} /Users/halvis82/Documents\r`);
+  const line = `${PREFIX} /Users/halvis82/Documents`;
+  await waitFor(
+    client,
+    `window.__tabterm.readScreen().split('\\n').some((l) => l.trim() === ${JSON.stringify(line)})`,
+  );
+  await sleep(1500);
+  const rows = (await evaluate(client, `window.__tabterm.readScreen()`)).split('\n');
+  const row = rows.findLastIndex((l) => l.trim() === `${PREFIX} /Users/halvis82/Documents`);
+  r.ok('the line with text before its path is on screen', row >= 0, `row ${String(row)}`);
+  const pathCol = rows[row].indexOf('/Users');
+  const at = (col, modifiers) =>
+    client.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: Math.round(geo.left + (col + 0.5) * geo.cellWidth),
+      y: Math.round(geo.top + (row + 0.5) * geo.cellHeight),
+      modifiers,
+    });
+  // Somewhere else first, then onto the start of the line with Command up.
+  await hover(60, row + 6.5);
+  await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Meta', code: 'MetaLeft' });
+  for (const col of [0, 1, 2]) {
+    await at(col, 0);
+    await sleep(120);
+  }
+  await sleep(600);
+  await client.send('Input.dispatchKeyEvent', {
+    type: 'rawKeyDown',
+    key: 'Meta',
+    code: 'MetaLeft',
+    modifiers: 4,
+    windowsVirtualKeyCode: 91,
+  });
+  await sleep(200);
+  for (let col = 3; col <= pathCol + 2; col++) {
+    await at(col, 4);
+    await sleep(40);
+  }
+  r.ok('moving right onto the path with Command already down lights it', await pointerWithin(3000));
+  await client.send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'Meta',
+    code: 'MetaLeft',
+    windowsVirtualKeyCode: 91,
+  });
+}
+
 await finish();
 r.done();
