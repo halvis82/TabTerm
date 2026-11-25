@@ -15,11 +15,17 @@ import { quotePath } from './quote-path.js';
  * `&&` rather than `;` so a directory that has since been renamed stops the command instead of
  * starting the agent in the wrong place.
  *
- * `claude` by name because this id comes from Claude's hooks and from nothing else: the hook names
- * the bridge understands are that agent's, and the id is read from the payload it hands them. See
- * `daemon/src/agent-bridge.ts` and docs/09-agent-integration.md.
+ * The agent is named by what reported the id: Claude's hooks and Codex's both hand over their
+ * session id, and Codex's say they are Codex's. See `daemon/src/agent-bridge.ts` and
+ * docs/09-agent-integration.md.
  */
-export function resumeCommandFor(agentSessionId: string, cwd: string): string {
-  const resume = `claude --resume ${agentSessionId}`;
+export function resumeCommandFor(
+  agentSessionId: string,
+  cwd: string,
+  agent: 'claude' | 'codex' = 'claude',
+): string {
+  // Codex takes the id as a subcommand's argument rather than an option's.
+  const resume =
+    agent === 'codex' ? `codex resume ${agentSessionId}` : `claude --resume ${agentSessionId}`;
   return cwd === '' ? resume : `cd ${quotePath(cwd)} && ${resume}`;
 }

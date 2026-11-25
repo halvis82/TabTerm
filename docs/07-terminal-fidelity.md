@@ -489,7 +489,9 @@ flashes: the flash lasts 160 milliseconds and a new ring starts it again from th
 holding Backspace at an empty prompt flashes once per press however fast the presses repeat. Rings
 within one frame of each other, such as `printf '\a\a\a'`, are one flash. An earlier limit of one
 ring per 400 milliseconds made the flash look random, appearing for some presses and not others. Settings,
-Terminals, **Flash when a program rings the bell** turns it off. The code is `osc52.ts` and `ringBell` in
+Terminals, **Flash when a program rings the bell** turns it off. In a pane running an agent CLI the bell shows nothing unless
+that pane's own **Flash the tab when a command finishes** is on: Codex rings it at the end of every
+turn it thinks nobody saw, which its hooks already report, and the flash belongs to that switch. The code is `osc52.ts` and `ringBell` in
 `terminal-page.ts`, and the `program-copy-bell` suite checks both, the reload included.
 
 ### Pictures

@@ -51,6 +51,33 @@ const HOOKS = [
   'SubagentStop',
 ] as const;
 
+/**
+ * Codex's, in its own `hooks.json`, which has the same shape as Claude's settings.
+ *
+ * Verified against Codex 0.171 rather than assumed: these fire with the same payload, a
+ * `session_id` among it, and the session's environment reaches the hook. Codex has no
+ * `Notification` and asks for approval with `PermissionRequest`. Its `Interrupt` is left out:
+ * Escape is already caught on the way in for every agent, and read as a turn ending it would
+ * show a finished tick for a turn somebody stopped. Codex runs no hook until
+ * the person trusts it, and asks at its next start, so installing these changes nothing until
+ * they say yes there.
+ */
+const CODEX_HOOKS = [
+  'SessionStart',
+  'UserPromptSubmit',
+  'PreToolUse',
+  'PermissionRequest',
+  'Stop',
+] as const;
+
+/** The events and the agent's name for its hook command, by target. */
+const WIRING: Record<string, { hooks: readonly string[]; agent?: string }> = {
+  'claude-code': { hooks: HOOKS },
+  codex: { hooks: CODEX_HOOKS, agent: 'codex' },
+};
+const wiringFor = (id: string): { hooks: readonly string[]; agent?: string } =>
+  WIRING[id] ?? { hooks: HOOKS };
+
 export type AgentTarget = Omit<AgentHookTarget, 'detected' | 'installed'>;
 
 /**
@@ -72,8 +99,8 @@ export const AGENT_TARGETS: readonly AgentTarget[] = [
   {
     id: 'codex',
     name: 'Codex',
-    settingsPath: join(agentHome, '.codex', 'config.toml'),
-    supported: false,
+    settingsPath: join(agentHome, '.codex', 'hooks.json'),
+    supported: true,
     command: 'codex',
     install: 'npm i -g @openai/codex',
   },
@@ -100,13 +127,18 @@ function entriesFor(settings: Settings, hook: string): unknown[] {
  * unrelated settings come out byte identical, and running it twice produces one set of hooks
  * rather than two.
  */
-export function withHooks(settings: Settings, script = HOOK_SCRIPT): Settings {
+export function withHooks(
+  settings: Settings,
+  script = HOOK_SCRIPT,
+  wiring: { hooks: readonly string[]; agent?: string } = { hooks: HOOKS },
+): Settings {
   const hooks: Record<string, unknown> = { ...((settings['hooks'] as object | undefined) ?? {}) };
-  for (const hook of HOOKS) {
+  const agent = wiring.agent === undefined ? '' : ` ${wiring.agent}`;
+  for (const hook of wiring.hooks) {
     const kept = entriesFor(settings, hook).filter((e) => !isOurs(e));
     const entry: HookEntry = {
       matcher: '',
-      hooks: [{ type: 'command', command: `${script} ${hook} # ${MARKER}` }],
+      hooks: [{ type: 'command', command: `${script} ${hook}${agent} # ${MARKER}` }],
     };
     hooks[hook] = [...kept, entry];
   }
@@ -128,8 +160,8 @@ export function withoutHooks(settings: Settings): Settings {
 }
 
 /** Whether every event we care about is wired up. A partial install is not installed. */
-export function hooksPresent(settings: Settings): boolean {
-  return HOOKS.every((hook) => entriesFor(settings, hook).some(isOurs));
+export function hooksPresent(settings: Settings, hooks: readonly string[] = HOOKS): boolean {
+  return hooks.every((hook) => entriesFor(settings, hook).some(isOurs));
 }
 
 function readSettings(path: string): Settings | null {
@@ -203,7 +235,7 @@ function detectedTargets(): AgentTargetStatus[] {
        */
       detected: commandPath !== undefined || existsSync(dirname(target.settingsPath)),
       ...(commandPath === undefined ? {} : { commandPath }),
-      installed: settings !== null && hooksPresent(settings),
+      installed: settings !== null && hooksPresent(settings, wiringFor(target.id).hooks),
     };
   });
 }
@@ -237,7 +269,10 @@ export function setAgentHooks(enabled: boolean, lastEventAt?: number): AgentHook
       continue;
     }
     try {
-      writeSettings(target.settingsPath, enabled ? withHooks(settings) : withoutHooks(settings));
+      writeSettings(
+        target.settingsPath,
+        enabled ? withHooks(settings, HOOK_SCRIPT, wiringFor(target.id)) : withoutHooks(settings),
+      );
       info('agent-hooks.changed', { target: target.id, enabled });
     } catch (e: unknown) {
       warn('agent-hooks.write-failed', { path: target.settingsPath, error: safeError(e) });

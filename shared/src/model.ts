@@ -420,6 +420,8 @@ export interface LiveSession {
    * hooks and from nowhere else: it is not on the screen and not in the environment.
    */
   agentSessionId?: string;
+  /** Which agent CLI the id belongs to, so the command that reopens it names the right one. */
+  agent?: 'claude' | 'codex';
   /**
    * Resident memory of this session's process tree, in bytes.
    *

@@ -6,6 +6,12 @@
 set -uo pipefail
 
 HOOK="${1:-unknown}"
+# Which agent CLI this is, when its hooks say: Codex hooks pass `codex`. Claude's say nothing.
+AGENT="${2:-}"
+case "$AGENT" in
+  claude | codex) ;;
+  *) AGENT="" ;;
+esac
 TOKEN_FILE="$HOME/.local/state/tabterm/token"
 # The daemon's own bridge port. Overridable so a check can point this at a stub of it.
 PORT="${TABTERM_AGENT_PORT:-7378}"
@@ -44,6 +50,7 @@ esac
 
 BODY="{\"sessionId\":\"$TABTERM_SESSION\",\"hook\":\"$HOOK\""
 [ -n "$AGENT_SESSION" ] && BODY="$BODY,\"agentSessionId\":\"$AGENT_SESSION\""
+[ -n "$AGENT" ] && BODY="$BODY,\"agent\":\"$AGENT\""
 BODY="$BODY}"
 
 curl --silent --max-time 2 --output /dev/null \

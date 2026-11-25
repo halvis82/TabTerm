@@ -923,6 +923,8 @@ export interface WorkspacePane {
    * until the agent was next spoken to.
    */
   agentSessionId?: string;
+  /** Which agent CLI the id belongs to, so the command that reopens it names the right one. */
+  agent?: 'claude' | 'codex';
   time?: {
     /** When the session began, which outlives this daemon. */
     sessionStartedAt?: number;
@@ -1128,6 +1130,8 @@ export type ServerMessage =
        * page has no other way to know it.
        */
       agentSessionId?: string;
+      /** Which agent CLI the id belongs to, so the command that reopens it names the right one. */
+      agent?: 'claude' | 'codex';
     }
   /**
    * A session was taken out of the tab it shared, on the asking of some other tab.

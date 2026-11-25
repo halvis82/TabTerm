@@ -177,7 +177,23 @@ because it looks like success.
 | Agent CLI | Settings | State |
 |---|---|---|
 | Claude Code | `~/.claude/settings.json` | Supported |
-| Codex | `~/.codex/config.toml` | Detected, format not verified |
+| Codex | `~/.codex/hooks.json` | Supported |
+
+Codex's hooks have the same shape as Claude's and hand over the same payload, `session_id`
+included, which was checked against Codex 0.171 rather than assumed. It has no `Notification`, and
+asks for approval with `PermissionRequest`, so those are the events installed for it:
+`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PermissionRequest` and `Stop`. Its `Interrupt`
+is left out, since Escape is already noticed on the way in for every agent, and a turn somebody
+stopped is not a finished one. Each command passes `codex` after the event name, so the daemon
+knows the id is a Codex conversation and the resume command says `codex resume`.
+
+**Codex runs no hook until it is trusted.** At its next start after installation it shows "Hooks
+need review", and nothing reaches TabTerm until the person chooses to trust them. That is Codex's
+own safeguard and it is left to the person: TabTerm never writes the trust for them.
+
+**Without its hooks, an agent's command is not shown as running.** The command an agent CLI runs as
+lasts as long as the agent is open, working or idle, so showing it as running spun the tab's icon
+over an agent that had finished long before. The state comes from the hooks or is not shown.
 
 ### Installed is not working
 

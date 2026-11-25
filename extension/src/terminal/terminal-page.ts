@@ -56,6 +56,7 @@ import { LinkCopyButton } from './link-copy.js';
 import { BELL_KEY, PROGRAM_COPY_KEY, describeCopy } from './osc52.js';
 import {
   AGENT_PROGRAMS,
+  isAgentCommand,
   COPY_LINES_KEY,
   DEFAULT_COPY_LINES,
   saneCopyLines,
@@ -1034,6 +1035,14 @@ const lastBell = new Map<string, number>();
  */
 function ringBell(paneId: string): void {
   if (!showBell) return;
+  /*
+   * An agent rings the bell to say its turn is over, which its hooks already said, and which this
+   * pane's own "Flash the tab when a command finishes" decides whether to show. Codex rings it
+   * whenever it thinks nobody is looking, so its tab flashed with that switch off. Reported as
+   * Codex flashing when done without it enabled in the right-click menu.
+   */
+  const sessionId = panesHost?.get(paneId)?.sessionId ?? '';
+  if (sessionId !== '' && agentRunsIn(paneId, sessionId) && !flashing.has(sessionId)) return;
   const now = performance.now();
   if (now - (lastBell.get(paneId) ?? -Infinity) < BELL_SAME_FRAME_MS) return;
   lastBell.set(paneId, now);
@@ -1438,7 +1447,7 @@ const agentSessions = new Set<string>();
  * knows it without waiting for the agent to be spoken to again. Nothing derives it: it exists
  * nowhere on screen and nowhere in the environment.
  */
-const agentSessionIds = new Map<string, string>();
+const agentSessionIds = new Map<string, { id: string; agent: 'claude' | 'codex' }>();
 
 /**
  * Whether a marker would be printed into a program rather than into scrollback.
@@ -1467,6 +1476,15 @@ function markerWouldLandInAProgram(paneId: string): boolean {
   if (agentSessions.has(sessionId)) return true;
   const running = (sessionTitles.get(sessionId)?.process ?? '').split('/').pop() ?? '';
   return AGENT_PROGRAMS.has(running);
+}
+
+/** Whether an agent CLI is what runs in this pane, by its hooks or by the command's name. */
+function agentRunsIn(paneId: string, sessionId: string): boolean {
+  if (agentSessions.has(sessionId)) return true;
+  const running = (sessionTitles.get(sessionId)?.process ?? '').split('/').pop() ?? '';
+  if (AGENT_PROGRAMS.has(running)) return true;
+  const state = timeStateFor(paneId);
+  return state.commandStartedAt !== undefined && isAgentCommand(state.lastCommand ?? '');
 }
 
 function refreshFlashing(): void {
@@ -2820,7 +2838,11 @@ function menuToggleItem(): ShellItem {
 function resumeItems(sessionId: string): ShellItem[] {
   const conversation = sessionId === '' ? undefined : agentSessionIds.get(sessionId);
   if (conversation === undefined) return [];
-  const command = resumeCommandFor(conversation, sessionTitles.get(sessionId)?.cwd ?? '');
+  const command = resumeCommandFor(
+    conversation.id,
+    sessionTitles.get(sessionId)?.cwd ?? '',
+    conversation.agent,
+  );
   return [
     {
       label: 'Copy agent resume command',
@@ -3197,7 +3219,11 @@ function sessionItems(session: LiveSession): ShellItem[] {
           {
             label: 'Copy agent resume command',
             run: () => {
-              const command = resumeCommandFor(session.agentSessionId ?? '', session.cwd);
+              const command = resumeCommandFor(
+                session.agentSessionId ?? '',
+                session.cwd,
+                session.agent,
+              );
               void navigator.clipboard.writeText(command).then(
                 () => showNotice('Resume command copied'),
                 () => {
@@ -3334,7 +3360,11 @@ function thingItems(thing: LauncherThing): ShellItem[] {
         {
           label: 'Copy agent resume command',
           run: () => {
-            const command = resumeCommandFor(thing.session.sessionId, thing.session.cwd);
+            const command = resumeCommandFor(
+              thing.session.sessionId,
+              thing.session.cwd,
+              thing.session.agent,
+            );
             void navigator.clipboard.writeText(command).then(
               () => showNotice('Resume command copied'),
               () => {
@@ -7247,7 +7277,9 @@ function onControl(msg: ServerMessage): void {
         // pane whose snapshot has not arrived. See `panesUsed`.
         if (p.hasRun === true) panesUsed.add(p.paneId);
         // And the conversation this pane is in, so the menu can offer to resume it elsewhere.
-        if (p.agentSessionId !== undefined) agentSessionIds.set(p.sessionId, p.agentSessionId);
+        if (p.agentSessionId !== undefined) {
+          agentSessionIds.set(p.sessionId, { id: p.agentSessionId, agent: p.agent ?? 'claude' });
+        }
         // And whether it is kept alive, which the bar says and the menu toggles. Replaced rather
         // than only added, since a reattach is the daemon's whole account of the session.
         if (p.keptAlive === true) keptAlive.add(p.sessionId);
@@ -7428,7 +7460,11 @@ function onControl(msg: ServerMessage): void {
          * a build spun before a refresh and sat idle after it. An agent's own state is replayed
          * straight after this and takes over, as it does when the agent starts live.
          */
-        if (p.time?.commandStartedAt !== undefined && !paneStatus.holdsOutcome(p.paneId)) {
+        if (
+          p.time?.commandStartedAt !== undefined &&
+          !paneStatus.holdsOutcome(p.paneId) &&
+          !isAgentCommand(p.title?.lastCommand ?? '')
+        ) {
           paneStatus.set(p.paneId, 'running');
         }
         const state = timeStateFor(p.paneId);
@@ -8175,7 +8211,12 @@ function onControl(msg: ServerMessage): void {
         // The title says what is running here, so it changes when that does.
         lastCommandHere = msg.command;
         refreshTitle();
-        paneStatus.set(pane.paneId, 'running');
+        /*
+         * Not for an agent CLI. Its command runs for as long as the agent is open, working or
+         * sitting at its prompt, so "running" spun over a Codex that had long finished answering.
+         * Reported as the icon saying loading when it is done. Its own hooks say when it works.
+         */
+        paneStatus.set(pane.paneId, isAgentCommand(msg.command) ? 'idle' : 'running');
         showPanes();
         startTimeTicking();
       }
@@ -8255,7 +8296,12 @@ function onControl(msg: ServerMessage): void {
        * it, because the terminal can return to a shell after the agent exits.
        */
       agentSessions.add(msg.sessionId);
-      if (msg.agentSessionId !== undefined) agentSessionIds.set(msg.sessionId, msg.agentSessionId);
+      if (msg.agentSessionId !== undefined) {
+        agentSessionIds.set(msg.sessionId, {
+          id: msg.agentSessionId,
+          agent: msg.agent ?? 'claude',
+        });
+      }
       // Structured, from the agent's own hooks. Never inferred from what is on screen.
       const pane = panesHost?.all.find((p) => p.sessionId === msg.sessionId);
       if (pane) {

@@ -35,3 +35,11 @@ describe('the command that resumes an agent session', () => {
     expect(resumeCommandFor('abc', '')).toBe('claude --resume abc');
   });
 });
+
+describe('a Codex conversation', () => {
+  it('is resumed with codex resume', () => {
+    expect(resumeCommandFor('019a-xyz', '/Users/someone/work', 'codex')).toBe(
+      'cd /Users/someone/work && codex resume 019a-xyz',
+    );
+  });
+});

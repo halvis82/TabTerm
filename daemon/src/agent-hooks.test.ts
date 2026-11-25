@@ -61,3 +61,30 @@ describe('agent hook installation', () => {
     expect(Object.keys(hooks)).toContain('Stop');
   });
 });
+
+describe('Codex hooks', () => {
+  const codex = {
+    hooks: ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Stop'],
+    agent: 'codex',
+  };
+
+  it('name the agent in the command, so the daemon knows whose id it is', () => {
+    const settings = withHooks({}, '/x/agent-hook.sh', codex);
+    const stop = JSON.stringify((settings['hooks'] as Record<string, unknown>)['Stop']);
+    expect(stop).toContain('/x/agent-hook.sh Stop codex # tabterm-agent-hook');
+  });
+
+  it('are present only when every Codex event is wired, and come out cleanly', () => {
+    const settings = withHooks({}, '/x/agent-hook.sh', codex);
+    expect(hooksPresent(settings, codex.hooks)).toBe(true);
+    expect(hooksPresent(settings)).toBe(false);
+    expect(withoutHooks(settings)).toEqual({});
+  });
+
+  it('leave Claude s commands exactly as they were', () => {
+    const stop = JSON.stringify(
+      (withHooks({}, '/x/h.sh')['hooks'] as Record<string, unknown>)['Stop'],
+    );
+    expect(stop).toContain('/x/h.sh Stop # tabterm-agent-hook');
+  });
+});

@@ -35,6 +35,8 @@ export interface AgentEvent {
    * one chance to learn it. See docs/09-agent-integration.md.
    */
   agentSessionId?: string;
+  /** The agent CLI the hook belongs to, when its hook said. Older hooks say nothing: Claude. */
+  agent?: 'claude' | 'codex';
 }
 
 export interface AgentBridgeOptions {
@@ -55,6 +57,7 @@ export function mapHookToState(hook: string): AgentState | null {
       return 'approval';
     case 'Stop':
       return 'idle';
+
     /*
      * A subagent finishing says nothing about the agent that started it.
      *
@@ -156,6 +159,7 @@ export class AgentBridge {
         hook?: unknown;
         detail?: unknown;
         agentSessionId?: unknown;
+        agent?: unknown;
       };
       const sessionId = typeof parsed.sessionId === 'string' ? parsed.sessionId : '';
       const hook = typeof parsed.hook === 'string' ? parsed.hook : '';
@@ -186,6 +190,7 @@ export class AgentBridge {
         hook,
         ...(typeof parsed.detail === 'string' ? { detail: parsed.detail.slice(0, 500) } : {}),
         ...(agentSessionId === undefined ? {} : { agentSessionId }),
+        ...(parsed.agent === 'codex' || parsed.agent === 'claude' ? { agent: parsed.agent } : {}),
       });
       res.writeHead(204);
       res.end();

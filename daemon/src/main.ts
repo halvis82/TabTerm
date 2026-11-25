@@ -436,7 +436,9 @@ async function main(): Promise<void> {
         ...(s.lastTurnMs === undefined
           ? {}
           : { lastTurnMs: s.lastTurnMs, lastTurnEndedAt: s.lastTurnEndedAt }),
-        ...(s.agentSessionId === undefined ? {} : { agentSessionId: s.agentSessionId }),
+        ...(s.agentSessionId === undefined
+          ? {}
+          : { agentSessionId: s.agentSessionId, ...(s.agentKind ? { agent: s.agentKind } : {}) }),
       });
     }
   };
@@ -583,11 +585,15 @@ async function main(): Promise<void> {
   const agentBridge = new AgentBridge({
     port: config.agentBridgePort,
     verifyToken,
-    onEvent: ({ sessionId, state, detail, hook, agentSessionId }) => {
+    onEvent: ({ sessionId, state, detail, hook, agentSessionId, agent }) => {
       const session = sessions.get(sessionId);
       if (!session) return;
       // Learned once and kept. Every hook carries it, and it does not change within a session.
-      if (agentSessionId !== undefined) session.agentSessionId = agentSessionId;
+      if (agentSessionId !== undefined) {
+        session.agentSessionId = agentSessionId;
+        // A hook that does not say is Claude's: its hooks were installed before they said.
+        session.agentKind = agent ?? 'claude';
+      }
       const previous = session.agentState;
       if (adoptedState(hook, state, previous) === null) {
         info('agent.hook', { sessionId, hook, state, from: previous ?? 'none', ignored: true });
@@ -654,7 +660,12 @@ async function main(): Promise<void> {
               lastTurnMs: session.lastTurnMs,
               lastTurnEndedAt: session.lastTurnEndedAt,
             }),
-        ...(session.agentSessionId === undefined ? {} : { agentSessionId: session.agentSessionId }),
+        ...(session.agentSessionId === undefined
+          ? {}
+          : {
+              agentSessionId: session.agentSessionId,
+              ...(session.agentKind ? { agent: session.agentKind } : {}),
+            }),
       });
 
       /**

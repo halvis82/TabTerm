@@ -98,6 +98,8 @@ export interface Session {
    * conversation later, including from a terminal that is not this one. See `agent-bridge.ts`.
    */
   agentSessionId?: string;
+  /** Which agent CLI reported it, from its hooks. Claude when a hook did not say. */
+  agentKind?: 'claude' | 'codex';
   /**
    * Somebody has typed into this session, whether or not they pressed Enter.
    *

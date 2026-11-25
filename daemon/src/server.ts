@@ -570,7 +570,10 @@ export class DaemonServer {
             // What reopens this conversation elsewhere, when it is an agent's. See `agent-bridge`.
             ...(session.agentSessionId === undefined
               ? {}
-              : { agentSessionId: session.agentSessionId }),
+              : {
+                  agentSessionId: session.agentSessionId,
+                  ...(session.agentKind ? { agent: session.agentKind } : {}),
+                }),
             ...(workspace ? { workspaceId: workspace.id } : {}),
             /*
              * And the shape of that tab, when there is more than one pane in it.
@@ -3217,7 +3220,12 @@ export class DaemonServer {
           ...(typed ? { hasInput: true } : {}),
           ...(atHome ? { atHome: true } : {}),
           ...(hasRun ? { hasRun: true } : {}),
-          ...(agentSession === undefined ? {} : { agentSessionId: agentSession }),
+          ...(agentSession === undefined
+            ? {}
+            : {
+                agentSessionId: agentSession,
+                ...(session.agentKind ? { agent: session.agentKind } : {}),
+              }),
           ...(session.pinned ? { keptAlive: true } : {}),
           title,
           time,
@@ -3234,7 +3242,12 @@ export class DaemonServer {
         ...(typed ? { hasInput: true } : {}),
         ...(atHome ? { atHome: true } : {}),
         ...(hasRun ? { hasRun: true } : {}),
-        ...(agentSession === undefined ? {} : { agentSessionId: agentSession }),
+        ...(agentSession === undefined
+          ? {}
+          : {
+              agentSessionId: agentSession,
+              ...(session.agentKind ? { agent: session.agentKind } : {}),
+            }),
         ...(session.pinned ? { keptAlive: true } : {}),
         title,
         time,

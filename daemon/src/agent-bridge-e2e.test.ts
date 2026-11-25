@@ -58,6 +58,14 @@ describe('agent hook endpoint', () => {
     expect(received[0]?.agentSessionId).toBe('a1-b2_c3');
   });
 
+  it('says which agent the hook belongs to, and only a known one', async () => {
+    received.length = 0;
+    await post({ sessionId: 's1', hook: 'Stop', agentSessionId: 'c1', agent: 'codex' });
+    await post({ sessionId: 's1', hook: 'Stop', agentSessionId: 'c1', agent: 'rm -rf' });
+    expect(received[0]?.agent).toBe('codex');
+    expect(received[1]?.agent).toBeUndefined();
+  });
+
   /*
    * And drops anything that is not one. It ends up in text somebody is invited to paste into a
    * shell, so a semicolon or a backtick in it would be a command of theirs rather than an id.
