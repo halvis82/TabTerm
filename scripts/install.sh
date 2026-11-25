@@ -285,11 +285,6 @@ if [ "${TABTERM_COMPANION_UPDATE:-0}" != 1 ]; then
   "$NODE" "$REPO/scripts/reload-extension.mjs" || true
 fi
 
-"$REPO/scripts/doctor.sh" || true
-
-# Agent CLI hooks. Asked rather than assumed, because this writes to a configuration file we
-# did not create. Skipped without a terminal, which is what a scripted install has.
-#
 # Already on for one agent means the answer was yes, and an agent this build newly supports gets
 # them too: Codex joined Claude Code, and somebody who had said yes would otherwise have hooks
 # for one and silence from the other with nothing saying why.
@@ -299,6 +294,11 @@ if [ -f "$LIBEXEC/agent-hooks.mjs" ]; then
     node "$LIBEXEC/agent-hooks.mjs" install
   fi
 fi
+
+"$REPO/scripts/doctor.sh" || true
+
+# Agent CLI hooks. Asked rather than assumed, because this writes to a configuration file we
+# did not create. Skipped without a terminal, which is what a scripted install has.
 if [ -t 0 ] && [ -f "$LIBEXEC/agent-hooks.mjs" ]; then
   if ! node "$LIBEXEC/agent-hooks.mjs" status 2>/dev/null | grep -q "hooks installed"; then
     echo
