@@ -692,6 +692,15 @@ export class SessionManager {
       },
       onPromptStart: () => {
         session.commandRunning = false;
+        /*
+         * A prompt mark is proof too, and it arrives before anything has been run. Waiting for
+         * the first command left a fresh shell looking unintegrated, and the start screen is
+         * exactly a fresh shell: a folder picked there could not set aside what was typed.
+         */
+        if (session.shellIntegration !== true) {
+          session.shellIntegration = true;
+          this.#events.onIntegrationDetected?.(session);
+        }
       },
     });
   }

@@ -2104,7 +2104,7 @@ function syncPaneChoosers(): void {
           const target = panesHost?.get(id);
           if (!target) return;
           splitView?.focus(id);
-          client?.write(target.streamId, new TextEncoder().encode(`cd ${quotePath(path)}\r`));
+          runInPane(target.sessionId, `cd ${quotePath(path)}`);
           paneChoosers.get(id)?.dismiss();
         },
         onCompletePath: (path) => {
@@ -4415,8 +4415,7 @@ function buildLauncher(): void {
     onChooseDir: (path) => {
       // Send a real `cd` rather than restarting the session: the shell you are already in is
       // the one you want, just somewhere else.
-      sendToFocusedPane(`cd ${quote(path)}\r`);
-      launcher?.dismiss();
+      runInFocusedPane(`cd ${quote(path)}`);
     },
     onReorderTemplates: (ids) => {
       /**
@@ -4752,8 +4751,8 @@ function buildLauncher(): void {
     },
     onPaste: (text) => sendToFocusedPane(text),
     // A separate callback from paste, so running is never something the paste path can do.
-    onRun: (text) => sendToFocusedPane(`${text}\r`),
-    onOpenDir: (path) => sendToFocusedPane(`cd ${quote(path)}\r`),
+    onRun: (text) => runInFocusedPane(text),
+    onOpenDir: (path) => runInFocusedPane(`cd ${quote(path)}`),
     onCopy: (text) => void navigator.clipboard.writeText(text),
     onSave: (text) => client?.send({ t: 'save-item', title: text.slice(0, 60), body: text }),
     onSaveScoped: (text, scopeToProject) => {
@@ -4938,6 +4937,25 @@ function paneForPaste(): ReturnType<PaneHost['get']> {
   if (focused) return panesHost?.get(focused);
   const all = panesHost?.all ?? [];
   return all.length === 1 ? all[0] : undefined;
+}
+
+/**
+ * Run a command TabTerm chose in the focused pane, without whatever is typed there.
+ *
+ * Typed into the stream, it landed after anything already on the line: a recent folder pressed
+ * with `git sta` in the box ran `git stacd '/the/folder'`. Reported as the cd being run with what
+ * was typed prepended. The daemon sets the line aside and brings it back. See `run-at-prompt`.
+ */
+function runInFocusedPane(command: string): void {
+  const pane = paneForPaste();
+  if (!pane) return;
+  runInPane(pane.sessionId, command);
+  // Same rule as typing: running a command takes the start screen away.
+  launcher?.dismiss();
+}
+
+function runInPane(sessionId: string, command: string): void {
+  client?.send({ t: 'run-at-prompt', sessionId, command });
 }
 
 function sendToFocusedPane(text: string): void {
@@ -6472,7 +6490,7 @@ function buildCommandPanel(): void {
     root: overlay,
     onPaste: (text) => sendToFocusedPane(text),
     // Return runs it; Command+Return copies it instead, for when it needs editing first.
-    onRun: (text) => sendToFocusedPane(`${text}\r`),
+    onRun: (text) => runInFocusedPane(text),
     onCopy: (text) => void navigator.clipboard.writeText(text),
     canScrollTo: (command) => findCommandRow(command) !== null,
     onScrollTo: (command) => {

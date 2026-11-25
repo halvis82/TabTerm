@@ -67,6 +67,19 @@ chpwd    → emit OSC 7
 Interruption is derived from the exit code (`130` for `SIGINT`), producing `interrupted: true`
 rather than a plain failure.
 
+### Commands TabTerm runs for you
+
+A folder picked on the start screen or in a new pane, and a command run from the command menu,
+are typed at a prompt that may already hold something half written. The page asks the daemon to
+run them (`run-at-prompt`) rather than typing into the stream, because the daemon knows whether
+the integration is loaded. With it, the command is preceded by Escape q, zsh's `push-line`: what
+was typed is set aside, the command runs alone, and zsh puts the line back at the next prompt,
+whether the command worked or not. The script binds Escape q in the vi keymaps too, where it
+is otherwise unbound, since zsh starts in vi mode whenever `$EDITOR` names vi (npm sets it to `vi`
+for everything it runs, so the test suites see vi mode). Without the integration the line is cleared first, with Control E and
+Control U, so what was typed is lost rather than run. Inside a running program the command is
+typed as it is, since the line belongs to that program.
+
 ---
 
 ## 4. What it cannot see

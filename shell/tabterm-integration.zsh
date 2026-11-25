@@ -51,6 +51,16 @@ __tabterm_precmd() {
   printf '\e]133;A\e\\'
 }
 
+# Escape q is push-line in zsh's emacs keymap. TabTerm sends it before a command it runs for you,
+# such as a cd to a folder picked on the start screen, so what you had typed waits for the next
+# prompt instead of being run. Bound in the vi keymaps too, only where nothing else is: zsh
+# starts in vi mode whenever $EDITOR or $VISUAL names vi.
+for __tabterm_map in viins vicmd; do
+  [[ "$(bindkey -M $__tabterm_map '^[q' 2>/dev/null)" == *undefined-key* ]] &&
+    bindkey -M $__tabterm_map '^[q' push-line
+done
+unset __tabterm_map
+
 add-zsh-hook precmd  __tabterm_precmd
 add-zsh-hook preexec __tabterm_preexec
 add-zsh-hook chpwd   __tabterm_osc7

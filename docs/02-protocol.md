@@ -85,6 +85,7 @@ Rules, all enforced:
 | `tabs-open` | `workspaceIds[]`, `reporterIncarnation?`, `generation?` | Which workspaces Chrome still has a tab for. The daemon cannot see Chrome and a dropped socket is not a closed tab. See `04-session-lifecycle.md` §4 |
 | `list-resumable` | `cwd?`, `limit?` | Agent conversations that could be picked up. Both stores, filtered to what would work |
 | `resume-agent` | `sessionId`, `cwd`, `cols`, `rows`, `agent?` | `agent` decides the argv: Claude takes a flag, Codex a subcommand. See `09-agent-integration.md` |
+| `run-at-prompt` | `sessionId`, `command` | Runs a command TabTerm chose, setting aside what is typed at the prompt. See `08-shell-integration.md` |
 | `insert-marker` | `sessionId`, `label`, `color?` | A landmark, printed as output so it survives a reload |
 | `set-pane-label` | `workspaceId`, `paneId`, `label`, `color?` | Names the session. Empty label removes it |
 | `detach-pane-to-tab` | `workspaceId`, `paneId` | The pane leaves; the answer carries the workspace it went to |

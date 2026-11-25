@@ -435,6 +435,19 @@ export type ClientMessage =
       t: 'reset-settings';
     }
   | {
+      /**
+       * Run a command TabTerm chose (a `cd` to a picked folder) at a prompt that may hold text.
+       *
+       * The page used to type it into the stream, after whatever was already on the line, so a
+       * half typed command was run with the `cd` stuck on its end. The daemon knows whether the
+       * shell has TabTerm's integration: with it, what was typed is set aside with zsh's
+       * `push-line` and comes back at the next prompt. Without it, the line is cleared first.
+       */
+      t: 'run-at-prompt';
+      sessionId: string;
+      command: string;
+    }
+  | {
       t: 'insert-marker';
       sessionId: string;
       label: string;

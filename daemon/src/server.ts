@@ -1,4 +1,5 @@
 import { chooseFolder } from './choose-folder.js';
+import { atPrompt } from './at-prompt.js';
 import type { UpdateManager } from '../../scripts/updater/manager.mjs';
 import { createServer, type Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
@@ -1344,6 +1345,21 @@ export class DaemonServer {
          */
         this.#attachWorkspace(client, msg.workspaceId, 80, 24, true);
         this.#broadcastLayout(msg.workspaceId);
+        return;
+      }
+
+      case 'run-at-prompt': {
+        const session = this.#sessions.get(msg.sessionId);
+        if (!session) return;
+        /*
+         * At a prompt only. Inside a running program, an ssh session for one, the line belongs to
+         * that program and these keys would mean something else there, so the command is typed
+         * as it always was.
+         */
+        const bytes = session.commandRunning
+          ? `${msg.command}\r`
+          : atPrompt(msg.command, session.shellIntegration === true);
+        this.#sessions.write(session, Buffer.from(bytes, 'utf8'));
         return;
       }
 
