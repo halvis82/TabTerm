@@ -361,6 +361,25 @@ export class XtermController {
     this.term.open(opts.container);
     this.#tryWebgl();
     /*
+     * A Command click on a link opens the link and is not also a click in the program.
+     *
+     * A program that asked for the mouse is told about every click, and Codex opens a link it is
+     * told was clicked. So a Command click on one of its links opened it twice: once here and once
+     * there. As in iTerm, Command over a link belongs to the terminal. Stopped at the screen, where
+     * the emulator's link handling has already seen it, and before the element the emulator reports
+     * clicks from.
+     */
+    const screen = this.term.element?.querySelector('.xterm-screen');
+    if (screen instanceof HTMLElement) {
+      const keepFromProgram = (e: MouseEvent): void => {
+        if (!e.metaKey || this.term.modes.mouseTrackingMode === 'none') return;
+        if (!screen.classList.contains('xterm-cursor-pointer')) return;
+        e.stopPropagation();
+      };
+      screen.addEventListener('mousedown', keepFromProgram);
+      screen.addEventListener('mouseup', keepFromProgram);
+    }
+    /*
      * Pictures: `imgcat` and the iTerm2 inline image protocol, and Sixel, as in iTerm2, WezTerm and
      * Ghostty. Drawn by the page from the output as it arrives, so they show live. A reload draws
      * the screen again from the daemon's copy of it, which keeps text only, and a picture from

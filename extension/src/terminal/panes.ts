@@ -203,6 +203,18 @@ export class PaneHost {
         onLeave: () => this.#opts.onLinkLeave?.(),
       }),
     );
+    /*
+     * A link a program marked as one (OSC 8) follows the same rule as any other: Command and a
+     * left click. The emulator's own handling opened it on any click, after asking in a dialog,
+     * and Codex marks every link it prints, so a plain click in Codex opened its links twice:
+     * once here and once by Codex itself.
+     */
+    controller.term.options.linkHandler = {
+      activate: (event, uri) => {
+        if (event.button !== 0 || !(this.#opts.modifierHeld() || event.metaKey)) return;
+        this.#opts.openUrl(uri);
+      },
+    };
 
     /*
      * Copy output, offered while the pointer is over a finished command and Command is held.

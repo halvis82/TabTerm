@@ -845,6 +845,14 @@ modifier and the cached answer kept the link inert.
 which button produced it, so right-clicking a URL both opened it and showed the menu: asking what
 the options were was the same gesture as choosing one. Activation now requires button 0.
 
+**A link opens once.** A link a program marks as one with OSC 8 follows the same rule as any
+other: Command and a left click, with no dialog. The emulator's own handling opened a marked link
+on any click after asking in a confirm dialog. And a Command click on a link is not reported to a
+program that asked for the mouse, as in iTerm. Codex marks every link it prints, asks for the
+mouse, and opens a link it is told was clicked, so each click opened its links twice: once here
+and once by Codex. A plain click in such a program is still the program's, and Codex opens the link
+itself. Checked by `url-click-opens-once`.
+
 **Right-click never changes the selection.** xterm's macOS default replaces it with the word
 under the pointer, and over blank space that word is empty, so right-clicking past the end of a
 line silently cleared the selection and greyed out Copy in the menu the same click had just
