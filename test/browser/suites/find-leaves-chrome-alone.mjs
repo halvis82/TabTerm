@@ -52,9 +52,16 @@ const barIsOpen = async () =>
 await press(false);
 r.ok('Command F opens the find bar', await barIsOpen());
 
-// Closed again, so the next press is judged from the same starting point.
+// A second press keeps it open: only Escape or the cross closes it.
 await press(false);
-r.ok('and a second press closes it', (await barIsOpen()) === false);
+r.ok('and a second press keeps it open', await barIsOpen());
+// Closed with Escape, so the next press is judged from the same starting point.
+await evaluate(
+  client,
+  `window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))`,
+);
+await sleep(250);
+r.ok('and Escape closes it', (await barIsOpen()) === false);
 
 /*
  * Command Shift F is Chrome's. Ours must neither open nor prevent it: preventing it is what stops

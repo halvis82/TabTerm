@@ -192,6 +192,18 @@ export class FindBar {
    * something selected is how somebody asks "where else is this".
    */
   show(selected: string): void {
+    /*
+     * Pressed again while open, it selects what is in the box and nothing else.
+     *
+     * It used to close the bar, as a toggle. Asked for instead: "i want it to only show. and then
+     * if cmd f is pressed when it's already open, it should just select all text in the search
+     * box. can only be closed with esc or pressing the x".
+     */
+    if (this.isOpen) {
+      this.#opts.input.focus();
+      this.#opts.input.select();
+      return;
+    }
     if (selected !== '' && !selected.includes('\n')) {
       this.#opts.input.value = selected;
       this.#term = selected;

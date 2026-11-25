@@ -7022,8 +7022,8 @@ function installShortcuts(): void {
        * useless, and no way back to ours without a click.
        *
        * Handled here, in the capture phase, so it is ours in every state this page can be in: a
-       * terminal, a text box, the command menu, the start screen. A second press closes the bar
-       * rather than opening anything, which is what "again" should mean for a toggle.
+       * terminal, a text box, the command menu, the start screen. A second press never closes the
+       * bar: it selects the words in the box, so the next thing typed replaces them.
        */
       /*
        * Command F and nothing else with an F in it.
@@ -7036,8 +7036,7 @@ function installShortcuts(): void {
       if (e.key.toLowerCase() === 'f' && e.metaKey && !e.shiftKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         e.stopPropagation();
-        if (findBar?.isOpen === true) findBar.hide();
-        else findBar?.show(focusedSelection());
+        findBar?.show(focusedSelection());
         return;
       }
       if (e.key === 'Escape' && splitView?.maximized) {

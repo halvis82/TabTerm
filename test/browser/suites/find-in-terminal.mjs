@@ -78,7 +78,8 @@ r.ok(
 );
 
 /**
- * A second Command F closes ours rather than handing the key to Chrome.
+ * A second Command F keeps ours open, with its words selected, rather than handing the key to
+ * Chrome.
  *
  * It used to be answered inside the terminal's own key handler, which only runs while the terminal
  * has the keyboard. Opening the bar moves the keyboard into its box, so the next press reached
@@ -112,7 +113,23 @@ r.ok(
   await sleep(250);
   r.ok('a press from inside the box is taken by us too', fromTheBox === 'true');
   r.ok(
-    'and closes it rather than opening a second one',
+    'and keeps it open with every word in the box selected',
+    (await findBar(
+      `(() => {
+         const i = document.getElementById('find-input');
+         return document.getElementById('find')?.hidden === false &&
+           document.activeElement === i && i.value !== '' &&
+           i.selectionStart === 0 && i.selectionEnd === i.value.length;
+       })()`,
+    )) === 'true',
+  );
+  await evaluate(
+    client,
+    `document.getElementById('find-input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))`,
+  );
+  await sleep(250);
+  r.ok(
+    'Escape is what closes it',
     (await findBar('document.getElementById("find")?.hidden === true')) === 'true',
   );
 }

@@ -905,7 +905,8 @@ nothing in the page to read, and drawing with elements instead would not fix it:
 rows in view and the scrollback is the part worth searching. So the search is asked of the emulator,
 which is the only thing holding all of it. The bar opens on the pane in front of you carrying the
 selection, so a word can be looked up without typing it again. Return and Shift Return step through
-the matches, Escape closes it and gives the keyboard back, and every match is lit with the current
+the matches, Escape or the cross closes it and gives the keyboard back, `Cmd+F` pressed while it
+is open selects the words in its box rather than closing it, and every match is lit with the current
 one in its own color. `extension/src/terminal/find-bar.ts` holds the part that has no renderer in
 it, so the policy is testable on its own.
 
