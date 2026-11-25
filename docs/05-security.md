@@ -496,6 +496,13 @@ signed ad hoc, so every install gives it a new signature, and the old entry stay
 applying (see `13-packaging.md`). So the notice says "not in effect" rather than "not granted",
 and its detail says why the switch can be misleading.
 
+TabTerm having the grant is not the same as its terminals having it, so that is checked too: once
+a minute the daemon has the terminal host start zsh exactly as it starts a tab's, and zsh opens the
+TCC database itself. A shell held responsible for itself rather than for TabTerm fails there while
+the daemon's own check passes, and the notice says so, with the two fixes: add `/bin/zsh` to Full
+Disk Access, or restart the host when its terminals can go. The probe is never a session, and it is
+ended once it answers. See `10-limitations.md` tier 2.15.
+
 Full Disk Access is probed by reading the user's own TCC database, which exists on every Mac,
 is Apple's rather than another app's so it cannot raise the "access data from other apps"
 prompt, and is readable only with that grant. The folders people notice, Desktop and Documents,

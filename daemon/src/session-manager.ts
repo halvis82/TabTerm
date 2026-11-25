@@ -485,7 +485,57 @@ export class SessionManager {
     }, quiet);
   }
 
+  /** Probes in flight, by the id they were spawned under. See `probeAsATab`. */
+  readonly #probes = new Map<string, (exitCode: number | null) => void>();
+
+  /**
+   * Run a program the way a tab's shell is run, and give back its exit code.
+   *
+   * Through the same PTY owner and the same spawn as a terminal, because what a terminal can do
+   * is decided by how it was started. Full Disk Access is the case: macOS grants it to whichever
+   * process it holds responsible, and the daemon and a tab's shell are not always held to the same
+   * one. A check asked from the daemon said access was in effect while every tab got "Operation
+   * not permitted". Reported as TabTerm losing access until `/bin/zsh` was added by hand.
+   *
+   * Never a session: nothing lists it, and it is ended once it answers or after five seconds.
+   */
+  probeAsATab(argv: readonly string[], cwd: string, timeoutMs = 5000): Promise<number | null> {
+    const id = `probe-${randomUUID()}`;
+    // A daemon without a terminal owner has no tab to stand in for.
+    if ((this.#pty as { unavailable?: boolean }).unavailable === true) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => finish(null), timeoutMs);
+      timer.unref();
+      const finish = (code: number | null): void => {
+        if (!this.#probes.has(id)) return;
+        this.#probes.delete(id);
+        clearTimeout(timer);
+        void this.#pty.kill(id, false).catch(() => {});
+        resolve(code);
+      };
+      this.#probes.set(id, finish);
+      try {
+        this.#pty.spawn({
+          sessionId: id,
+          shell: argv[0] ?? '/bin/sh',
+          cwd,
+          cols: 80,
+          rows: 24,
+          command: argv,
+        });
+      } catch {
+        finish(null);
+      }
+    });
+  }
+
   #ended(sessionId: string, exitCode: number, signal?: number): void {
+    const probe = this.#probes.get(sessionId);
+    if (probe) {
+      // node-pty reports a signal of 0 for a process that was not signalled.
+      probe(signal ? null : exitCode);
+      return;
+    }
     const session = this.#sessions.get(sessionId);
     if (!session) return;
     session.exitCode = exitCode;

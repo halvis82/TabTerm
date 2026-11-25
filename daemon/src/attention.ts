@@ -30,6 +30,14 @@ export interface AttentionFacts {
   installed: boolean;
   /** Whether Full Disk Access is granted to the bundle. `null` when it could not be told. */
   fullDiskAccess: boolean | null;
+  /**
+   * Whether a terminal started like a tab's can use it too. `null` when it could not be told.
+   *
+   * Not the same question. macOS grants access to the process it holds responsible, and a tab's
+   * shell has been seen held responsible for itself rather than for TabTerm, so the daemon could
+   * read what every tab could not.
+   */
+  terminalsHaveFullDiskAccess?: boolean | null;
   /** Where the bundle lives, for the fix. */
   appPath: string;
   /** What the running terminal host executes, and what this build's host would. */
@@ -69,6 +77,30 @@ export function judgeAttention(facts: AttentionFacts): Concern[] {
         'your shells. This is checked every few seconds, so the notice goes away by itself once ' +
         'the grant applies.',
       fingerprint: 'fda:off',
+    });
+  }
+
+  if (
+    facts.installed &&
+    facts.fullDiskAccess === true &&
+    facts.terminalsHaveFullDiskAccess === false
+  ) {
+    concerns.push({
+      id: 'terminals-without-full-disk-access',
+      level: 'problem',
+      title: 'Your terminals do not get TabTerm’s Full Disk Access',
+      detail:
+        'TabTerm has it, but a shell in a tab cannot read the folders macOS protects: ls in ' +
+        'one says Operation not permitted. macOS gives access to the app it holds responsible ' +
+        'for a process, and the terminal host started before the grant has its shells counted ' +
+        'as themselves rather than as TabTerm.',
+      fix:
+        'Either add /bin/zsh to System Settings, Privacy & Security, Full Disk Access, which ' +
+        'works at once and keeps every terminal, or, when you are ready to lose the terminals ' +
+        'the host holds, in any shell: kill ' +
+        String(facts.hostPid ?? '') +
+        '. New terminals then count as TabTerm. Checked every minute.',
+      fingerprint: 'fda:terminals',
     });
   }
 

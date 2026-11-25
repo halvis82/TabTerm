@@ -987,6 +987,19 @@ async function main(): Promise<void> {
     process.execPath === bundledNode;
   // The process table is the one costly fact, and the host it finds changes only at an update.
   const hostEvery10Min = remembered(findHost, 10 * 60_000);
+  /*
+   * Asked as a tab would ask it: zsh, started by the terminal host, opening the file itself. Not
+   * every few seconds, since it starts a terminal, and not through another program, which macOS
+   * would judge as itself. See `probeAsATab`.
+   */
+  const tccDb = join(installedHome, 'Library/Application Support/com.apple.TCC/TCC.db');
+  const terminalsEveryMinute = remembered(async () => {
+    const code = await sessions.probeAsATab(
+      ['/bin/zsh', '-f', '-c', ': < "$1"', 'zsh', tccDb],
+      installedHome,
+    );
+    return code === null ? null : code === 0;
+  }, 60_000);
   const liveChecks = new AttentionMonitor({
     gather: async () => {
       const host = installedHere ? await hostEvery10Min() : null;
@@ -995,6 +1008,7 @@ async function main(): Promise<void> {
       return {
         installed: installedHere,
         fullDiskAccess: installedHere ? await probeFullDiskAccess(installedHome) : null,
+        terminalsHaveFullDiskAccess: installedHere ? await terminalsEveryMinute() : null,
         appPath: join(libexec, 'TabTerm.app'),
         hostExecutable: host?.executable ?? null,
         bundledNode,

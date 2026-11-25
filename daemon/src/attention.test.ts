@@ -31,6 +31,17 @@ describe('what needs attention', () => {
     expect(concern?.fix, 'and says to remove a stale entry first').toContain('press minus first');
   });
 
+  it('says when TabTerm has Full Disk Access and its terminals do not', () => {
+    const [concern] = judgeAttention({ ...healthy, terminalsHaveFullDiskAccess: false });
+    expect(concern?.id).toBe('terminals-without-full-disk-access');
+    expect(concern?.fix).toContain('/bin/zsh');
+    expect(concern?.fix).toContain('kill 4242');
+  });
+
+  it('and nothing when the terminals could not be asked', () => {
+    expect(judgeAttention({ ...healthy, terminalsHaveFullDiskAccess: null })).toEqual([]);
+  });
+
   it('says nothing about Full Disk Access when it could not be told', () => {
     expect(judgeAttention({ ...healthy, fullDiskAccess: null })).toEqual([]);
   });

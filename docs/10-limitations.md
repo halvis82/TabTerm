@@ -475,6 +475,21 @@ The npm tarball extraction does not preserve the executable bit on node-pty's `s
 on macOS, so every PTY spawn fails with a bare `posix_spawnp failed` that names no file. Reproduces
 on every fresh install. Repaired by a postinstall step. See `13-packaging.md`.
 
+### 2.15 A tab's shell can stop counting as TabTerm for Full Disk Access
+
+macOS gives a privacy grant to the process it holds **responsible** for the one asking, which for a
+shell started by TabTerm's terminal host is normally TabTerm. One long-running host was found with
+every shell, and every agent in one, held responsible for itself: `ls` in a protected folder said
+"Operation not permitted" in every tab while TabTerm's own grant was on and in effect. A host
+started fresh from the same bundle, under launchd, had its shells credited to TabTerm as expected,
+so the fault lived in that host process and not in the spawn path. What started it was not found.
+Nothing can reassign a running process, and restarting the host ends every terminal it holds.
+
+Adding `/bin/zsh` to Full Disk Access fixes it at once and keeps every terminal, since each shell
+is then judged on its own grant. The daemon checks for this by opening the TCC database from a zsh
+started exactly like a tab's, once a minute, and says so under Needs attention. See
+`05-security.md`.
+
 ---
 
 ## Tier 3 — Hard engineering, no wall yes
