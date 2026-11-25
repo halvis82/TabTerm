@@ -187,6 +187,11 @@ is left out, since Escape is already noticed on the way in for every agent, and 
 stopped is not a finished one. Each command passes `codex` after the event name, so the daemon
 knows the id is a Codex conversation and the resume command says `codex resume`.
 
+Somebody who already said yes for one agent has said yes: an install that finds hooks in place for
+one agent and missing for another supported one adds them, so a newly supported agent is not left
+silent. The doctor names every present agent without hooks, rather than passing because one has
+them.
+
 **Codex runs no hook until it is trusted.** At its next start after installation it shows "Hooks
 need review", and nothing reaches TabTerm until the person chooses to trust them. That is Codex's
 own safeguard and it is left to the person: TabTerm never writes the trust for them.

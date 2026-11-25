@@ -289,6 +289,16 @@ fi
 
 # Agent CLI hooks. Asked rather than assumed, because this writes to a configuration file we
 # did not create. Skipped without a terminal, which is what a scripted install has.
+#
+# Already on for one agent means the answer was yes, and an agent this build newly supports gets
+# them too: Codex joined Claude Code, and somebody who had said yes would otherwise have hooks
+# for one and silence from the other with nothing saying why.
+if [ -f "$LIBEXEC/agent-hooks.mjs" ]; then
+  hooks_now="$(node "$LIBEXEC/agent-hooks.mjs" status 2>/dev/null)"
+  if echo "$hooks_now" | grep -q ": hooks installed" && echo "$hooks_now" | grep -q ": hooks not installed"; then
+    node "$LIBEXEC/agent-hooks.mjs" install
+  fi
+fi
 if [ -t 0 ] && [ -f "$LIBEXEC/agent-hooks.mjs" ]; then
   if ! node "$LIBEXEC/agent-hooks.mjs" status 2>/dev/null | grep -q "hooks installed"; then
     echo

@@ -169,7 +169,14 @@ HOOKS_CLI="$LIBEXEC/agent-hooks.mjs"
 [ -f "$HOOKS_CLI" ] || HOOKS_CLI="$REPO/daemon/dist/agent-hooks-cli.js"
 if [ -f "$HOOKS_CLI" ]; then
   hooks_out="$(node "$HOOKS_CLI" status 2>/dev/null)"
-  if echo "$hooks_out" | grep -q "hooks installed"; then
+  # Every agent that is present, not any one of them: hooks for Claude Code said nothing about
+  # Codex, and this printed installed for both.
+  if echo "$hooks_out" | grep -q ": hooks not installed"; then
+    missing="$(echo "$hooks_out" | grep ": hooks not installed" | sed 's/^ *//; s/: hooks not installed//' | paste -sd, -)"
+    warn "agent CLI hooks not installed for: $missing. Agent status and agent turn notifications
+        do nothing for it until they are. Turn on Agent events in TabTerm settings, or run:
+        node $REPO/scripts/install-agent-hooks.mjs"
+  elif echo "$hooks_out" | grep -q "hooks installed"; then
     ok "agent CLI hooks installed"
   elif echo "$hooks_out" | grep -q "not present on this machine"; then
     ok "no supported agent CLI on this machine, so no hooks are needed"
