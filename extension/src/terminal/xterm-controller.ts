@@ -274,11 +274,26 @@ export class XtermController {
       'wheel',
       (e) => {
         if (e.deltaMode !== 0 || e.shiftKey || e.ctrlKey || e.altKey) return;
-        if (this.term.modes.mouseTrackingMode !== 'none') return;
-        if (this.term.buffer.active.type === 'alternate') return;
-
         const cell = this.cellSize();
         if (cell === null) return;
+
+        /*
+         * A program that asked for the mouse is told about every row the pointer moved.
+         *
+         * The emulator sends such a program **one** wheel report per event, however far the event
+         * moved, and only after damping a trackpad's small deltas to thirty percent. A trackpad
+         * sends a fixed number of events a second, so a fast flick was capped at that rate and a
+         * slow one barely moved: "scrolling in codex is completely broken", once Codex 0.172
+         * started asking for the mouse. One report per row is what iTerm sends.
+         */
+        if (this.term.modes.mouseTrackingMode !== 'none') {
+          if (this.#reportWheel(e, cell.height)) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+          return;
+        }
+        if (this.term.buffer.active.type === 'alternate') return;
 
         /*
          * At the end of the scrollback, the scroll is let go rather than swallowed.
@@ -981,6 +996,60 @@ export class XtermController {
     const line = Math.floor(((clientY - box.top) / box.height) * this.term.rows);
     if (col < 0 || col >= this.term.cols || line < 0 || line >= this.term.rows) return null;
     return { row: this.term.buffer.active.viewportY + line, col };
+  }
+
+  /**
+   * Send a program that asked for the mouse one wheel report per row this scroll moved.
+   *
+   * Through the emulator's own mouse service, so the report is encoded in whatever protocol the
+   * program asked for. False when that service is not where it was, and the emulator then handles
+   * the event the way it always has.
+   */
+  #reportWheel(e: WheelEvent, cellHeight: number): boolean {
+    const mouse = (
+      this.term as unknown as {
+        _core?: {
+          coreMouseService?: {
+            triggerMouseEvent?: (event: {
+              col: number;
+              row: number;
+              x: number;
+              y: number;
+              button: number;
+              action: number;
+              ctrl: boolean;
+              alt: boolean;
+              shift: boolean;
+            }) => boolean;
+          };
+        };
+      }
+    )._core?.coreMouseService;
+    if (typeof mouse?.triggerMouseEvent !== 'function') return false;
+    const screen = this.term.element?.querySelector('.xterm-screen');
+    if (!(screen instanceof HTMLElement)) return false;
+    const box = screen.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0) return false;
+    const x = Math.min(Math.max(e.clientX - box.left, 0), box.width - 1);
+    const y = Math.min(Math.max(e.clientY - box.top, 0), box.height - 1);
+    const col = Math.floor((x / box.width) * this.term.cols);
+    const row = Math.floor((y / box.height) * this.term.rows);
+
+    const rows = this.#wheel.take(e.deltaY, cellHeight);
+    // The emulator's numbering: button 4 is the wheel, action 0 is up and 1 is down.
+    const report = {
+      col,
+      row,
+      x: Math.floor(x),
+      y: Math.floor(y),
+      button: 4,
+      action: rows < 0 ? 0 : 1,
+      ctrl: false,
+      alt: false,
+      shift: false,
+    };
+    for (let i = 0; i < Math.abs(rows); i++) mouse.triggerMouseEvent.call(mouse, report);
+    return true;
   }
 
   /** The landmarks this pane can see, which is what the markers beside the scrollbar show. */

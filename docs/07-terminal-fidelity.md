@@ -986,10 +986,15 @@ TabTerm takes the wheel for pixel deltas and moves the content by exactly those 
 the part of a row left over so a slow drag adds up rather than rounding to nothing. Afterwards,
 each of those three is ten rows.
 
-Three cases are left to the emulator, because in them a scroll is not a scroll:
+A program that asked for the mouse, such as Codex since 0.172, is told about the wheel instead,
+with one wheel report for every row the pointer moved, in the encoding it asked for. The emulator
+alone sent one report per event however far the event moved, after the same damping, so a fast
+flick was capped at the rate the trackpad sends events: ten events of thirty pixels arrived as
+**5** reports for a fifteen row move. Afterwards they arrive as fifteen, which is what iTerm sends.
 
-- a program that asked for the mouse is told about the wheel instead, and that is its business
-- the alternate screen, where a wheel becomes arrow keys for a pager
+Two cases are left to the emulator, because in them a scroll is not a scroll:
+
+- the alternate screen without the mouse, where a wheel becomes arrow keys for a pager
 - a wheel mouse reporting in lines or pages, where a notch is a notch
 
 `extension/src/terminal/wheel-rows.ts` holds the arithmetic, away from any events.
