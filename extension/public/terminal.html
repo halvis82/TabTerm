@@ -2670,8 +2670,14 @@
   .term-menu-item.is-danger:hover:not(:disabled) {
     background: #5c2a26;
   }
-  /* In the same column as the other two, rather than alone at the bottom over the terminal. */
+  /*
+   * Bottom right, above the line a pane's timing label sits on. It was in the corner column under
+   * the menu button, and asked for instead: "it should be at the bottom out of the way".
+   */
   #server-offer {
+    position: absolute;
+    right: 14px;
+    bottom: 26px;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -4500,11 +4506,15 @@
         ×
       </button>
     </div>
-    <div id="server-offer" hidden>
-      <span id="server-text"></span>
-      <button id="server-open" class="staged-button primary"></button>
-      <button id="server-dismiss" class="staged-button">Dismiss</button>
-    </div>
+  </div>
+  <!--
+    At the bottom, out of the way. A server starting is not something that needs the corner the
+    menu and the undo buttons speak from.
+  -->
+  <div id="server-offer" hidden>
+    <span id="server-text"></span>
+    <button id="server-open" class="staged-button primary"></button>
+    <button id="server-dismiss" class="staged-button">Dismiss</button>
   </div>
   <div id="staged" hidden>
     <h1>Send this to the terminal?</h1>

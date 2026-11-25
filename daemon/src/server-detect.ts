@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { basename } from 'node:path';
+import { AGENT_PROGRAMS, isAgentCommand } from '@tabterm/shared';
 import { debug } from './log.js';
 
 /**
@@ -155,4 +156,22 @@ function run(file: string, args: string[]): Promise<string | null> {
       resolve(stdout && stdout.length > 0 ? stdout : err ? null : stdout);
     });
   });
+}
+
+/**
+ * Whether an agent CLI is what is running in a session, by its hooks or by the command's name.
+ *
+ * Used to keep the offer to open a server out of an agent's tab: Claude Code listens on a port of
+ * its own, and opening that in a browser does nothing.
+ */
+export function agentIsRunning(s: {
+  agentState?: unknown;
+  pendingCommand?: string;
+  foregroundProcess?: string;
+}): boolean {
+  return (
+    s.agentState !== undefined ||
+    isAgentCommand(s.pendingCommand ?? '') ||
+    AGENT_PROGRAMS.has(s.foregroundProcess ?? '')
+  );
 }

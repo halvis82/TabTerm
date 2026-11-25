@@ -189,7 +189,9 @@ webpage can start a drag and a file can be named anything a filesystem allows.
 for a browser tab. The offer appears in the tab that started it and fades on its own; accepting
 focuses an existing tab for that port rather than opening a second one, because a dev server
 restarts constantly. Detection is triggered by the shell integration's command-start mark, so
-it requires the integration for the same reason command history does.
+it requires the integration for the same reason command history does. No offer is made while an agent CLI is
+running in the session, since an agent opens ports of its own that nothing in a browser can use,
+and the offer sits at the bottom right of the tab rather than among the corner notices.
 
 ---
 

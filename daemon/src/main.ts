@@ -18,6 +18,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PROTOCOL_VERSION, VERSION, paneCount } from '@tabterm/shared';
+import { agentIsRunning } from './server-detect.js';
 import { initAuth, verifyToken } from './auth.js';
 import { AgentBridge, adoptedState } from './agent-bridge.js';
 import { loadConfig, paths, ignoredConfigFields } from './config.js';
@@ -351,6 +352,16 @@ async function main(): Promise<void> {
     });
   };
   events.onServerDetected = (s, port) => {
+    /**
+     * No offer while an agent is running here.
+     *
+     * Claude Code opens a port of its own on start, and opening that in a browser does nothing.
+     * Asked for: "obviously we don't want this for an ai agent because opening it doesn't do
+     * anything", and only for a server somebody started. A server an agent starts for itself is
+     * the agent's business too. The session still counts as holding a server, for the reap
+     * policy and the dashboard, which is what `listeningPort` already records.
+     */
+    if (agentIsRunning(s)) return;
     server.notifySession(s, { t: 'server-detected', sessionId: s.id, port });
     // Low priority, so it never becomes a desktop notification. Starting a dev server is not
     // an event that should interrupt anyone; the offer belongs in the tab that started it.

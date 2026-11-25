@@ -24,29 +24,9 @@ import type { IBufferLine, IDisposable, IMarker, Terminal } from '@xterm/xterm';
  * one before it without a newline, so a long line comes back as the one line the program printed.
  */
 
-/** Agent CLIs by name. Their output is an interface, not a transcript. */
-export const AGENT_PROGRAMS: ReadonlySet<string> = new Set([
-  'claude',
-  'codex',
-  'aider',
-  'cursor-agent',
-  'gemini',
-  'copilot',
-]);
-
-/** Runners that start the program named after them, which is then the one that matters. */
-const RUNNERS = new Set(['npx', 'bunx', 'pnpx', 'exec', 'command', 'nohup', 'time', 'sudo']);
-
-/** Whether a command line starts an agent, looking past `VAR=value` and runners like `npx`. */
-export function isAgentCommand(command: string): boolean {
-  for (const word of command.trim().split(/\s+/)) {
-    if (word === '' || /^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) continue;
-    const name = word.split('/').pop() ?? '';
-    if (RUNNERS.has(name)) continue;
-    return AGENT_PROGRAMS.has(name.replace(/@.*$/, ''));
-  }
-  return false;
-}
+/** Shared with the daemon, which needs the same answer. */
+import { isAgentCommand } from '@tabterm/shared';
+export { AGENT_PROGRAMS, isAgentCommand } from '@tabterm/shared';
 
 /** The limit people can choose, and the ceiling no choice can pass. */
 export const DEFAULT_COPY_LINES = 10_000;

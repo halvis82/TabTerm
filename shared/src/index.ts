@@ -17,3 +17,4 @@ export * from './char-width.js';
 
 export * from './updates.js';
 export * from './remote.js';
+export * from './agent-programs.js';
