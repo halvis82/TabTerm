@@ -1024,6 +1024,12 @@ these too. It is deliberately narrow, because an arrow key means other things el
 
 `extension/src/terminal/click-to-move.ts` holds the decision, away from any pixels.
 
+**In vim and other full-screen programs, Option click moves the cursor**, on any row, as in iTerm.
+That is the emulator's own Option click, which sends arrow keys up or down and then across, and it
+needs nothing from the program. A plain click moves vim's cursor only when vim has asked for the
+mouse, with `set mouse=a`, in this terminal and in iTerm alike: vim leaves the mouse off when a
+`~/.vimrc` exists, since its defaults are then not loaded.
+
 Mouse reporting mode conflicts with browser selection. When an application has enabled mouse
 reporting, a modifier override allows selection anyway, matching normal terminal convention. Nobody
 arrives knowing that, so a drag with no modifier held says so once per pane rather than appearing
