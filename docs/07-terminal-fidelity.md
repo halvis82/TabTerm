@@ -847,11 +847,18 @@ the options were was the same gesture as choosing one. Activation now requires b
 
 **A link opens once.** A link a program marks as one with OSC 8 follows the same rule as any
 other: Command and a left click, with no dialog. The emulator's own handling opened a marked link
-on any click after asking in a confirm dialog. And a Command click on a link is not reported to a
-program that asked for the mouse, as in iTerm. Codex marks every link it prints, asks for the
-mouse, and opens a link it is told was clicked, so each click opened its links twice: once here
-and once by Codex. A plain click in such a program is still the program's, and Codex opens the link
-itself. Checked by `url-click-opens-once`.
+on any click after asking in a confirm dialog. And a Command click is never reported to a program
+that asked for the mouse, as in iTerm. The mouse protocol cannot say Command was held, so the
+program would only have seen a plain click. Codex marks every link it prints, asks for the mouse,
+and opens a link it is told was clicked, so each click opened its links twice: once here and once
+by Codex. Keeping the click back only while a link was under the pointer was not enough, because
+Codex redraws its screen constantly and every redraw makes the emulator look for the link again. A
+click in that gap still reached Codex. A plain click in such a program is still the program's, and
+Codex opens the link itself. Checked by `url-click-opens-once` and `command-click-a-hovered-link`,
+whose program redraws every sixteen milliseconds.
+
+And one click is one tab. A second request to open the same link within a second is dropped,
+because it can only be the same click arriving by another route.
 
 **Right-click never changes the selection.** xterm's macOS default replaces it with the word
 under the pointer, and over blank space that word is empty, so right-clicking past the end of a

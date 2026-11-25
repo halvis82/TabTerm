@@ -361,20 +361,26 @@ export class XtermController {
     this.term.open(opts.container);
     this.#tryWebgl();
     /*
-     * A Command click on a link opens the link and is not also a click in the program.
+     * A Command click belongs to the terminal and is never also a click in the program.
      *
      * A program that asked for the mouse is told about every click, and Codex opens a link it is
      * told was clicked. So a Command click on one of its links opened it twice: once here and once
-     * there. As in iTerm, Command over a link belongs to the terminal. Stopped at the screen, where
-     * the emulator's link handling has already seen it, and before the element the emulator reports
-     * clicks from.
+     * there. Keeping it back only while a link was under the pointer was not enough: Codex redraws
+     * its screen constantly, each redraw makes the emulator look for the link again, and a click in
+     * that gap still went through. So every Command click is kept back, as in iTerm. The mouse
+     * protocol cannot say Command was held anyway, so a program would only ever have seen a plain
+     * click. Stopped at the screen, where the emulator's link handling has already seen it, and
+     * before the element the emulator reports clicks from, which is also what focused the terminal.
      */
     const screen = this.term.element?.querySelector('.xterm-screen');
     if (screen instanceof HTMLElement) {
       const keepFromProgram = (e: MouseEvent): void => {
         if (!e.metaKey || this.term.modes.mouseTrackingMode === 'none') return;
-        if (!screen.classList.contains('xterm-cursor-pointer')) return;
         e.stopPropagation();
+        if (e.type === 'mousedown') {
+          e.preventDefault();
+          this.term.focus();
+        }
       };
       screen.addEventListener('mousedown', keepFromProgram);
       screen.addEventListener('mouseup', keepFromProgram);

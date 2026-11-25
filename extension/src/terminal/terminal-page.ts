@@ -944,6 +944,8 @@ let currentCwd = '';
 
 /** Links are inert unless Command is held, so ordinary text selection stays safe. */
 let cmdHeld = false;
+/** The link opened last and when, so one click cannot open two tabs. See `openUrl`. */
+let lastOpenedUrl = { url: '', at: 0 };
 /** The copy button beside a link pointed at with Command held. See `link-copy.ts`. */
 const linkCopy = new LinkCopyButton();
 
@@ -4239,7 +4241,13 @@ function buildHosts(): void {
     },
     openUrl: (url) => {
       // Scheme allowlist. Anything else stays inert text. See docs/05-security.md §4.
-      if (/^https?:\/\//i.test(url)) void chrome.tabs.create({ url });
+      if (!/^https?:\/\//i.test(url)) return;
+      // One click, one tab. A second request for the same link within a second is the same
+      // click arriving by another route, as "codex links open twice" was.
+      const now = Date.now();
+      if (url === lastOpenedUrl.url && now - lastOpenedUrl.at < 1000) return;
+      lastOpenedUrl = { url, at: now };
+      void chrome.tabs.create({ url });
     },
     modifierHeld: () => cmdHeld,
     onLinkHover: (term, text, range) => {
